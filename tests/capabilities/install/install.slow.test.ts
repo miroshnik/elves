@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
@@ -29,15 +30,27 @@ afterAll(() => {
 });
 
 /**
- * Песочница с настоящим Yarn: corepack ставит его по `packageManager` из реестра npm — сеть, кеш corepack — в HOME
- * песочницы; Node для Yarn, `jq` для версии пакета проекта и bunx — с машины, bunx — того же Bun, что прогон.
+ * corepack — из devDependencies Elves, а не с машины: с Node 25 он не входит в поставку Node, и тест на машине с Node
+ * 25+ без глобального corepack падал бы, не дойдя до Yarn (#625). bin — по package.json пакета: `exports` открывает
+ * только его.
+ */
+const COREPACK = (() => {
+  const pkg = createRequire(import.meta.url).resolve("corepack/package.json");
+  return path.join(path.dirname(pkg), JSON.parse(readFileSync(pkg, "utf8")).bin.corepack as string);
+})();
+
+/**
+ * Песочница с настоящим Yarn: corepack пакета (COREPACK) ставит его по `packageManager` из реестра npm — сеть, кеш
+ * corepack — в HOME песочницы; Node для corepack и Yarn, `jq` для версии пакета проекта и bunx — с машины, bunx — того
+ * же Bun, что прогон.
  */
 beforeEach(() => {
   sb = sandbox();
-  const tools = ["node", "corepack", "jq"];
+  const tools = ["node", "jq"];
   const found = spawnSync("sh", ["-c", tools.map((t) => `command -v ${t}`).join(" && ")], { encoding: "utf8" });
   if (found.status !== 0) throw new Error(`для теста нужны ${tools.join(", ")}: ${found.stdout}${found.stderr}`);
   found.stdout.trim().split("\n").forEach((p, i) => symlinkSync(p, path.join(sb.bin, tools[i]!)));
+  symlinkSync(COREPACK, path.join(sb.bin, "corepack"));
   symlinkSync(process.execPath, path.join(sb.bin, "bunx"));
 });
 afterEach(() => sb.cleanup());
