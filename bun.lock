@@ -8,6 +8,7 @@
         "@playwright/test": "^1.63.0",
         "@types/bun": "^1.4.2",
         "@types/node": "^26.6.2",
+        "corepack": "^0.36.0",
         "eslint": "^10.11.0",
         "eslint-plugin-boundaries": "^7.2.0",
         "knip": "^6.41.0",
@@ -172,6 +173,8 @@
     "color-convert": ["color-convert@2.0.1", "", { "dependencies": { "color-name": "~1.1.4" } }, "sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ=="],
 
     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
+
+    "corepack": ["corepack@0.36.0", "", { "bin": { "pnpm": "./dist/pnpm.js", "pnpx": "./dist/pnpx.js", "yarn": "./dist/yarn.js", "yarnpkg": "./dist/yarnpkg.js", "corepack": "./dist/corepack.js" } }, "sha512-SiiJsBhZqdBiPHTEl6OT3sASrRrKIcYTQMsVGXx6EE/gM8WFMwYjeIX8Tt8RiU4Iv2J6LbT8KpGfCOsBpRWB/w=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 
