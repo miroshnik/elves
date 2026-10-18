@@ -32,8 +32,9 @@
 «убери из реестра»; тест перехода, переименованный или удалённый, — тоже красный: место без теста ничего не держит.
 
 Выражение каталога личной конфигурации (`AI_DEV_CONFIG_DIR`, `~/.config/ai-dev`) — место реестра со ссылкой на
-стандарт `config-dir`: форму выражения держит он, второй проверки здесь нет. Места `task-env` с записанным сроком
-«один релиз» (прокси `ai-dev-proxy`) снимает #564 — вместе с их строками реестра.
+стандарт `config-dir`: форму выражения держит он, второй проверки здесь нет. Срок «один релиз» был у одного перехода —
+сети прокси `ai-dev-proxy` в `task-env`; #564 снял его вместе с местами реестра, а удаление контейнера прежнего прокси,
+`AI_DEV_PROXY_PORT` и `.agents/ai-dev.json` в `task-env` остались без срока, как прежние имена других скриптов.
 
 ## Что — история, а не переход
 
@@ -73,7 +74,7 @@
 
 ## Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже
 
-<details><summary>✅ 32 теста</summary>
+<details><summary>✅ 30 тестов</summary>
 
 - ✅ реестр «места реестра имён для перехода» не пуст
 - ✅ нарушитель не проходит: место, где старого имени уже нет
@@ -97,14 +98,12 @@
 - ✅ skills/slot/scripts/slot.ts · FORMER_ENV — переменные очереди AI_DEV_SLOT и AI_DEV_SLOT_CPUS проектов и slot прошлого релиза
 - ✅ skills/slot/scripts/slot.ts · FORMER_TEMP — билеты slot прошлого релиза в ai-dev/slots временного каталога
 - ✅ skills/slot/scripts/slot.ts · places — каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс
-- ✅ skills/task-env/SKILL.md · (the proxy before the rename, written by hand) — описание скилла называет сеть ai-dev-proxy в compose-файле
 - ✅ skills/task-env/SKILL.md · **Before the rename** — описание скилла называет прокси до переименования
 - ✅ skills/task-env/SKILL.md · an install from before the rename — описание скилла называет прежний файл настроек
 - ✅ skills/task-env/SKILL.md · its name before the rename — описание скилла называет AI_DEV_PROXY_PORT
 - ✅ skills/task-env/reference.md · ## The proxy before the rename — справочник описывает переход с прокси ai-dev-proxy
-- ✅ skills/task-env/reference.md · `providers.docker.network` — справочник называет сеть ai-dev-proxy сетью провайдера по умолчанию
-- ✅ skills/task-env/scripts/task-env.ts · FORMER_PROXY — прокси ai-dev-proxy и его сеть — один релиз
-- ✅ skills/task-env/scripts/task-env.ts · HELP — справка check и proxy up называет прокси ai-dev-proxy и его сеть
+- ✅ skills/task-env/scripts/task-env.ts · FORMER_PROXY — контейнер прокси ai-dev-proxy, который держит порт, — proxy up его удаляет
+- ✅ skills/task-env/scripts/task-env.ts · HELP — справка proxy up называет прокси ai-dev-proxy, которого он заменяет
 - ✅ skills/task-env/scripts/task-env.ts · MANIFESTS — настройки стека из .agents/ai-dev.json, пока update его не перенёс
 - ✅ skills/task-env/scripts/task-env.ts · proxyPort — порт прокси из AI_DEV_PROXY_PORT профиля владельца
 

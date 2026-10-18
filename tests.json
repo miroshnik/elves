@@ -7728,16 +7728,16 @@
  {
   "path": "tests/capabilities/task-env/task-env.slow.test.ts",
   "describes": [
-   "Переход с прокси до переименования: `proxy up` занимает его место, стеки до переименования и новые открываются через новый прокси"
+   "Переход с прокси до переименования: `proxy up` занимает его порт, а в его сеть не входит"
   ],
-  "name": "`proxy up` убирает прежний прокси, который держит порт, а его сеть оставляет: новый прокси на том же порту, в своей сети и в сети прежнего"
+  "name": "`proxy up` убирает прежний прокси, который держит порт: новый прокси — на том же порту"
  },
  {
   "path": "tests/capabilities/task-env/task-env.slow.test.ts",
   "describes": [
-   "Переход с прокси до переименования: `proxy up` занимает его место, стеки до переименования и новые открываются через новый прокси"
+   "Переход с прокси до переименования: `proxy up` занимает его порт, а в его сеть не входит"
   ],
-  "name": "стек до переименования (без метки сети) и новый (с меткой) открываются через новый прокси — каждый раз, при каждой пересборке маршрутов"
+  "name": "proxy up поднимает прокси только в его сети — сеть ai-dev-proxy он не берёт, даже когда она есть на машине"
  },
  {
   "path": "tests/capabilities/task-env/task-env.slow.test.ts",
@@ -7773,13 +7773,6 @@
    "Прокси на машине раздаёт адреса *.localhost контейнерам по их меткам"
   ],
   "name": "остановленный контейнер пропадает из маршрутов"
- },
- {
-  "path": "tests/capabilities/task-env/task-env.slow.test.ts",
-  "describes": [
-   "Прокси на машине раздаёт адреса *.localhost контейнерам по их меткам"
-  ],
-  "name": "сети прежнего прокси на машине нет — прокси только в своей сети, сеть прежнего не создаётся"
  },
  {
   "path": "tests/capabilities/task-env/task-env.slow.test.ts",
@@ -7940,6 +7933,13 @@
   "describes": [
    "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
   ],
+  "name": "task-env check не выделяет сеть ai-dev-proxy в compose-файле отдельной строкой — это внешняя сеть, как любая другая"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
+   "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
+  ],
   "name": "абсолютный путь к коду в volumes и build — нарушение, ~ тоже; относительный путь, именованный том и ресурс машины (сокет Docker, /etc/localtime) — нет"
  },
  {
@@ -7948,13 +7948,6 @@
    "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
   ],
   "name": "сервис в profiles и правка из compose.override.yaml проверяются наравне с остальными"
- },
- {
-  "path": "tests/capabilities/task-env/task-env.test.ts",
-  "describes": [
-   "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
-  ],
-  "name": "сеть прокси под прежним именем ai-dev-proxy — строка ❌ называет прежнее имя с правкой: убрать сеть, `task-env up` добавляет сеть прокси сам; код 1"
  },
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
@@ -8066,21 +8059,21 @@
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
   "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются один релиз"
+   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
   ],
   "name": "имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — прежняя AI_DEV_PROXY_PORT из профиля, без обеих — 80"
  },
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
   "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются один релиз"
+   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
   ],
   "name": "новый прокси не создался — прежний остаётся на месте: его контейнер не удалён, код 2"
  },
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
   "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются один релиз"
+   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
   ],
   "name": "прежний прокси — `ai-dev-proxy` только у прокси по умолчанию; у прокси с другим именем — `<имя>-former`: тестовый прокси не трогает прокси машины"
  },
@@ -15567,13 +15560,6 @@
   "describes": [
    "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
   ],
-  "name": "skills/task-env/SKILL.md · (the proxy before the rename, written by hand) — описание скилла называет сеть ai-dev-proxy в compose-файле"
- },
- {
-  "path": "tests/standards/old-name/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
   "name": "skills/task-env/SKILL.md · **Before the rename** — описание скилла называет прокси до переименования"
  },
  {
@@ -15602,21 +15588,14 @@
   "describes": [
    "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
   ],
-  "name": "skills/task-env/reference.md · `providers.docker.network` — справочник называет сеть ai-dev-proxy сетью провайдера по умолчанию"
+  "name": "skills/task-env/scripts/task-env.ts · FORMER_PROXY — контейнер прокси ai-dev-proxy, который держит порт, — proxy up его удаляет"
  },
  {
   "path": "tests/standards/old-name/old-name.test.ts",
   "describes": [
    "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
   ],
-  "name": "skills/task-env/scripts/task-env.ts · FORMER_PROXY — прокси ai-dev-proxy и его сеть — один релиз"
- },
- {
-  "path": "tests/standards/old-name/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/scripts/task-env.ts · HELP — справка check и proxy up называет прокси ai-dev-proxy и его сеть"
+  "name": "skills/task-env/scripts/task-env.ts · HELP — справка proxy up называет прокси ai-dev-proxy, которого он заменяет"
  },
  {
   "path": "tests/standards/old-name/old-name.test.ts",
@@ -17656,13 +17635,6 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "skills/task-env/reference.md: skills/task-env/reference.md, «Labels of a task stack's service» — есть такой раздел"
- },
- {
-  "path": "tests/standards/section-refs/section-refs.test.ts",
-  "describes": [
-   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
-  ],
-  "name": "skills/task-env/reference.md: skills/task-env/reference.md, «The proxy before the rename» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
