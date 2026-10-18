@@ -27,7 +27,9 @@ bun --no-env-file <skill dir>/scripts/task-env.ts check [<dir>]  # the compose f
 ```
 
 Each command's details and examples — `--help` after it; the details behind this file — `reference.md` next to it.
-Run the script outside the sandbox — section "Docker and the sandbox".
+Run the script outside the sandbox — section "Docker and the sandbox". A project's own scripts and tests (the stack
+before the dev server, the e2e wrapper, a compose isolation test) run it from the project's package, at its Elves
+version — `bun --no-env-file node_modules/.bin/elves task-env up` — not by a path into a skill directory.
 
 The skill's `check -g` line: `proxy *.localhost: running (elves-proxy)`,
 `not running — start: …` or `Docker unavailable — <reason>`; no Docker on the

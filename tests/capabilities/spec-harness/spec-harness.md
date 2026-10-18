@@ -6,7 +6,8 @@
 заведомом нарушителе, — упавшие тесты: такая проверка ничего не проверяет.
 
 Тонкий проект берёт харнесс и spec-скрипты из пакета `@miroshnik/elves` в devDependencies, без копии флоу (#556):
-тесты импортируют `@miroshnik/elves/spec/harness` (и модель архитектуры, фрагмент ESLint, `github`), скрипты
+тесты импортируют `@miroshnik/elves/spec/harness` (и модель архитектуры, фрагмент ESLint, `github`, репортёр knip
+`spec/knip-hints` — CommonJS без сборки, его `file` — путь для `knip --reporter`, #620), скрипты
 `package.json` и CI зовут `spec-doc`, `spec-diff` и остальные `spec-*` бином пакета —
 `bun --no-env-file node_modules/.bin/elves <скрипт>`, без env-файлов проекта (#596). Версия у
 агента и у CI одна — версия пакета в lockfile проекта; пути — от каталога проекта, как у скрипта копии. Тест проекта

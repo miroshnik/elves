@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDe
 
 import { composeEnv, FORMER_PROXY, formerProxyName, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
 import { elves, sandbox, type Sandbox } from "../../lib/elves.ts";
+import { packageProject } from "../../lib/npm.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { calls, COMPOSE, FAKE_GH, run, SCRIPT } from "../../lib/task-env.ts";
@@ -590,5 +591,27 @@ describe("Настройки проекта — `.agents/elves.json`; устан
     spawnSync("rm", [path.join(dir.dir, ".agents/elves.json")]);
     settings({ ".agents/ai-dev.json": "{" });
     expect(httpServices(dir.dir)).toStartWith(".agents/ai-dev.json: ");
+  });
+});
+
+/**
+ * Скрипты и тесты проекта — поднятие стека перед dev-сервером, обёртка e2e, тест изоляции compose — звали task-env по
+ * пути в копию флоу, а тонкий проект копии не держит (#620): команда — бин пакета проекта, как `elves spec-doc` и
+ * `elves slot`, версии проекта и без пути к файлу скилла, который ломается, когда пакет не поднят в корень node_modules.
+ */
+describe("Скрипты и тесты проекта зовут task-env бином пакета — elves task-env, без пути к файлу скилла", () => {
+  it("elves task-env из node_modules/.bin проекта — команды task-env пакета версии проекта: справка под строкой запуска пакета", async () => {
+    const proj = packageProject("task-env-bin");
+    const bin = (...args: string[]) => spawnSync(process.execPath, ["--no-env-file", "node_modules/.bin/elves", ...args], { cwd: proj, encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });
+    const RUN = "bun --no-env-file node_modules/.bin/elves task-env";
+    const { HELP } = (await import(path.join(proj, "node_modules/@miroshnik/elves/skills/task-env/scripts/task-env.ts"))) as { HELP: Record<string, string> };
+    const help = bin("task-env", "up", "--help");
+    expect({ code: exitOf(help), stdout: help.stdout }).toEqual({ code: 0, stdout: `${HELP.up!.replace(/^( *)task-env /gm, `$1${RUN} `)}\n` });
+    const overview = bin("task-env", "--help");
+    expect(exitOf(overview)).toBe(0);
+    for (const cmd of Object.keys(HELP)) expect(overview.stdout).toContain(`\n  ${RUN} ${cmd}`);
+    expect(overview.stdout).toContain(`${RUN} <command> --help`);
+    const check = bin("task-env", "check");
+    expect({ code: exitOf(check), stdout: check.stdout }).toEqual({ code: 0, stdout: `no compose file in ${realpathSync(proj)} — nothing to check\n` });
   });
 });

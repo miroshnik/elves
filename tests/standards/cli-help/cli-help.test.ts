@@ -175,7 +175,7 @@ describe("Скрипты флоу отвечают на --help и -h: синта
       { name: "запись файла", item: helpOf("run", { ...clean(GOOD), changed: [".agents"] }) },
       { name: "-h не то же, что --help", item: helpOf("run", clean(GOOD), { ...clean(""), code: 2, stderr: "Unknown option '-h'" }) },
     ],
-    includes: ["elves install", "elves check", "elves pack", "elves spec-doc", "elves slot", "github task new", "github pr premerge", "est fact", "task-env proxy up", "task-env check", "wait-ci merged"],
+    includes: ["elves install", "elves check", "elves pack", "elves spec-doc", "elves slot", "elves task-env up", "elves task-env proxy up", "github task new", "github pr premerge", "est fact", "task-env proxy up", "task-env check", "wait-ci merged"],
   });
 
   /** Песочница видит то, что проверка запрещает справке: без этого «без сети и изменений» было бы зелёным всегда. */

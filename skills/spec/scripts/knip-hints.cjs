@@ -4,11 +4,13 @@
  * `{ "configurationHints": [{ type, identifier, workspace, file? }] }`. knip's `json` reporter doesn't print them,
  * and `--treat-config-hints-as-errors` gives only an exit code — the hints themselves aren't visible.
  *
- *   knip --reporter json --reporter .agents/skills/spec/scripts/knip-hints.cjs
+ *   knip --reporter json --reporter node_modules/@miroshnik/elves/skills/spec/scripts/knip-hints.cjs
  *
  * The second output line is its own: `deadCode` joins both. CommonJS, not TypeScript: the harness takes the file
  * path (`report.file`) with a static import — `import.meta` in a module that Playwright and Jest load as CommonJS is
- * a syntax error (tests/standards/harness-load); knip loads it under both Node and Bun. Types — `knip-hints.d.cts`.
+ * a syntax error (tests/standards/harness-load); knip loads it under both Node and Bun. A project's code takes the
+ * path the same way — the package's export `@miroshnik/elves/spec/knip-hints`, as is under Bun and Node, without a
+ * build (#620). Types — `knip-hints.d.cts`.
  */
 "use strict";
 

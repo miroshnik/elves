@@ -15,6 +15,7 @@
  *   bun <Elves checkout>/bin/elves.ts pack <tag>       — CI on the release tag: the npm package @miroshnik/elves
  *   bun --no-env-file node_modules/.bin/elves spec-doc … — a project's package: the skills' scripts at its version
  *   elves slot --for <PID>                             — the machine queue's shim .agents/slot.sh in a project
+ *   bun --no-env-file node_modules/.bin/elves task-env up — a project's scripts and tests: the task's stack, task-env
  *
  * The shebang goes through `sh`: the second line — `exec bun --no-env-file` for sh, a string and a comment for TypeScript
  * — starts Bun without the project's env files however the bin is called (`elves`, `node_modules/.bin/elves`, a
@@ -32,8 +33,9 @@
  * settings, #610); updating the project is bumping the package version — a few lines in the branch of the current task.
  * A project with a copy of an earlier release loads the canon twice until it moves — the hook names it (`twiceLines`);
  * `install` and `update` move it to a thin one: the copy, its symlinks and `.gitignore` exceptions go (`removeCopy`),
- * the imports and CI paths into the copy lead to the package (`rewriteCopyRefs`), the rest that names `.agents` is
- * listed (`copyLeftovers`).
+ * the imports, scripts and CI paths into the copy lead to the package (`rewriteCopyRefs`), the rest that names `.agents`
+ * is listed (`copyLeftovers`), and `check` names a line into a file of the copy that update doesn't rewrite with `!`
+ * (`copyRefs`, #620).
  * `.agents/elves.json` — on the machine the Elves SHA it was installed from, the list of installed skills (by it a
  * reinstall removes skills Elves no longer has and leaves others' alone), for a machine with `--link` — the clone path;
  * in a project — only `auto`: whether the agent runs a task entirely by itself — answers to questions by
@@ -208,8 +210,9 @@ on the machine and the cloud session's SessionStart hook in .claude/settings.jso
 it exits at once; the package.json checks (lint, typecheck, test, test:*) go through the shim, the skills' scripts —
 ${PACKAGE_RUN} <script>, without the project's env files; on Yarn 2+, which runs the .ts bin by Node, both go through
 the package of the project's version — ${PACKAGE_BUNX} <script>. A project with a copy of the flow
-of an earlier release moves to a thin one: the copy, its symlinks and .gitignore exceptions go, imports and CI paths
-into the copy lead to the package, what else names .agents is listed.
+of an earlier release moves to a thin one: the copy, its symlinks and .gitignore exceptions go, imports into the copy
+(the knip reporter — ${PACKAGE}/spec/knip-hints) and its scripts run by bun or node in package.json, shell scripts,
+command strings and CI (task-env too) lead to the package, what else names .agents is listed.
 In a terminal asks whether the agent does tasks entirely by itself — answers by recommendation, commit, push,
 fixing CI, merge on green checks (auto in .agents/elves.json, default — no); without a terminal — the --auto or
 --no-auto flag, without the flag the previous answer stays; with auto prints the Claude Code permission rule for the
@@ -238,7 +241,8 @@ package — by restarting from the latest release's package), a --link clone —
 mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
 ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
-to tasks (the exit code stays the same); a thin project behind — update in this session's task (the package version in
+to tasks or a line leads into a file of the flow copy that update doesn't rewrite — the file, the line number and its
+text (the exit code stays the same); a thin project behind — update in this session's task (the package version in
 package.json and the lockfile), a project with a copy of the flow — the move to a thin project in a task of its own: the
 task new command of the github skill, one task per project. For the machine names the task-env proxy of *.localhost
 addresses — running, not running or running
@@ -258,12 +262,14 @@ Examples:
 Brings it up to date: a --link clone — git pull --ff-only, the machine's copy — install of the latest release: the
 canon, the skills and the hook; a project — install of the latest release: ${PACKAGE} in package.json and the
 lockfile, a few lines in the branch of the current task; a project with a copy of the flow moves to a thin one (install
---help); from the npm package — by restarting from the latest release's package. The project's mode and language are
-kept; an install of a previous version without a language gets ru: before the field the flow worked in Russian. In a
-project install and update un-ignore flow files from .gitignore patterns with exceptions at its end and wrap the
-package.json checks (lint, typecheck, test, test:*) in the machine queue slot; prints what changed: every release after
-the installed one, newest first, with the list of changes of its GitHub Release (a --link clone — the flow commits it
-pulled), and the git add of what changed. An install from before the rename to Elves — the ai-dev names
+--help), by hand after it — a check of the project that knows the queue wrapper by the copy's path (. .agents/slot.sh
+now), AI_DEV_SLOT* in the project's code → ELVES_SLOT*, formatting the shortened imports, git add -A before the first
+run of the checks, the ! lines of check; from the npm package — by restarting from the latest release's package. The
+project's mode and language are kept; an install of a previous version without a language gets ru: before the field
+the flow worked in Russian. In a project install and update un-ignore flow files from .gitignore patterns with
+exceptions at its end and wrap the package.json checks (lint, typecheck, test, test:*) in the machine queue slot;
+prints what changed: every release after the installed one, newest first, with the list of changes of its GitHub
+Release (a --link clone — the flow commits it pulled), and the git add of what changed. An install from before the rename to Elves — the ai-dev names
 (.agents/ai-dev.json, .agents/ai-dev/, .claude/rules/ai-dev*.md, the blocks in AGENTS.md and .gitignore,
 ~/.config/ai-dev) move to the new ones with the same contents.
 
@@ -296,21 +302,40 @@ Examples:
  * arguments, in this process; the project's paths (`.agents/elves.json`, `tests/`, the reports) come from the current
  * directory and its git root, as with `bun <copy>/scripts/<script>.ts`. No release launcher (`toRelease`): the version
  * is the project's. Help — the script's own `HELP` under the elves name; `--help` counts where the script reads it: a
- * spec script — before `--`, slot — only as the first argument (the rest is its command). A script module runs its
- * `main` itself only as the entry point (`import.meta.main`).
+ * spec script and task-env — before `--`, slot — only as the first argument (the rest is its command). A script module
+ * runs its `main` itself only as the entry point (`import.meta.main`). task-env — so that a project's scripts and tests
+ * (bringing the stack up before the dev server, the e2e wrapper, the compose isolation test) call it at the project's
+ * version without a path into a skill directory, which breaks when the package isn't hoisted to the root
+ * `node_modules` (#620).
  */
 const SCRIPTS: Record<string, { file: string; helpFirst?: boolean }> = {
   ...Object.fromEntries(["spec-doc", "spec-diff", "spec-publish", "spec-run", "spec-shard", "spec-claims", "spec-break", "spec-exceptions"].map((name) => [name, { file: `skills/spec/scripts/${name}.ts` }])),
   slot: { file: "skills/slot/scripts/slot.ts", helpFirst: true },
+  "task-env": { file: "skills/task-env/scripts/task-env.ts" },
 };
 
-/** A script of SCRIPTS: its help and its entry point. */
+/**
+ * A script of SCRIPTS: its help and its entry point. A script with commands (task-env) — its help is a table by
+ * command and an overview of them all.
+ */
 interface Script {
-  HELP: string;
+  HELP: string | Record<string, string>;
+  OVERVIEW?: string;
   main: (argv: string[]) => number | Promise<number>;
 }
 
 const loadScript = (cmd: string): Promise<Script> => import(path.join(SRC, SCRIPTS[cmd]!.file));
+
+/** A script's help the arguments ask for: the text; with commands — of the command they start with, otherwise the overview. */
+function helpText(s: Script, args: string[]): string {
+  if (typeof s.HELP === "string") return s.HELP;
+  const table = s.HELP;
+  const command = Object.keys(table).find((c) => `${args.join(" ")} `.startsWith(`${c} `));
+  return command ? table[command]! : (s.OVERVIEW ?? "");
+}
+
+/** The synopses of a script for the `elves --help` overview: the first paragraph of its help, of each command's for a table. */
+const synopses = (s: Script) => (typeof s.HELP === "string" ? [s.HELP] : Object.values(s.HELP)).map((h) => h.split("\n\n")[0]!);
 
 /**
  * The package's script in the current project — the form of its package.json: on Yarn 2+ through bunx (`packageRun`).
@@ -325,25 +350,26 @@ const projectRun = () => packageRun(packageManager(locale.projectRoot(process.cw
  * the form of package.json and CI and the project's version, while bare `elves` in the agent's shell is the machine's
  * global package, if it's on PATH at all (tests/standards/no-env-file).
  */
-const scriptHelp = async (cmd: string, run = projectRun()) => (await loadScript(cmd)).HELP.replace(new RegExp(`^( *)${cmd}(?= |$)`, "gm"), `$1${run} ${cmd}`).trimEnd();
+const underElves = (cmd: string, text: string, run = projectRun()) => text.replace(new RegExp(`^( *)${cmd}(?= |$)`, "gm"), `$1${run} ${cmd}`).trimEnd();
 
 /** `elves <script> …`: the script's help or its `main` with the arguments; the exit code is the script's. */
 async function runScript(cmd: string, args: string[]): Promise<number> {
   const options = SCRIPTS[cmd]!.helpFirst ? args.slice(0, 1) : args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
-  if (options.some((a) => a === "--help" || a === "-h")) return note(await scriptHelp(cmd)), 0;
-  return (await loadScript(cmd)).main(args);
+  const script = await loadScript(cmd);
+  if (options.some((a) => a === "--help" || a === "-h")) return note(underElves(cmd, helpText(script, options))), 0;
+  return script.main(args);
 }
 
 /** `elves --help`: the synopsis of each command, the scripts' too, and how to run it. */
 async function overview() {
   const synopsis = (h: string) => h.split("\n\n")[0]!.replace(/^/gm, "  ");
   const run = projectRun();
-  const scripts = await Promise.all(Object.keys(SCRIPTS).map((cmd) => scriptHelp(cmd, run)));
+  const scripts = await Promise.all(Object.keys(SCRIPTS).map(async (cmd) => synopses(await loadScript(cmd)).map((h) => underElves(cmd, h, run))));
   return [
     "elves — the rules and skills of the Elves flow: install, check, update, release, pack; skill scripts at a project's version",
     "",
     ...Object.values(HELP).map(synopsis),
-    ...scripts.map(synopsis),
+    ...scripts.flat().map(synopsis),
     "",
     "elves <command> --help — the command's details and examples",
     `Run: ${RUN} <command>; in a project with ${PACKAGE} in devDependencies — ${run} <command>`,
@@ -842,22 +868,28 @@ function slotShim(root: string) {
 }
 
 /**
- * A skill script the flow copy runs — `bun [--no-env-file] .agents/skills/<skill>/scripts/<script>.ts` of SCRIPTS — and
- * the knip reporter of the copy (`knip --reporter …/knip-hints.cjs`, the harness's `report`): the package has them,
- * the copy is gone. The script and its arguments are the same (SCRIPTS).
+ * A skill script the flow copy runs — `bun|node [--<flag>]… .agents/skills/<skill>/scripts/<script>.ts` of SCRIPTS, the
+ * forms projects used (`bun --no-env-file`, `node --experimental-strip-types`, `./` before the path, #620) — and the knip
+ * reporter of the copy (`knip --reporter …/knip-hints.cjs`, the harness's `report`): the package has them, the copy is
+ * gone. The script and its arguments are the same (SCRIPTS).
  */
-const COPY_SCRIPT = /\bbun(?: --no-env-file)? (?:\.\/)?\.agents\/skills\/(?:spec|slot)\/scripts\/([\w-]+)\.ts\b/g;
+const COPY_SCRIPT = /\b(?:bun|node)(?: --[\w-]+)* (?:\.\/)?\.agents\/skills\/([\w-]+)\/scripts\/([\w-]+)\.ts\b/g;
 const COPY_KNIP_HINTS = /(?:\.\/)?\.agents\/skills\/spec\/scripts\/knip-hints\.cjs\b/g;
-/** The knip reporter in the project's package: `exports` of package.json don't have it, the file does. */
+/**
+ * The knip reporter in the project's package for a command (`knip --reporter <file>`); a module takes its path from the
+ * export — `file` of `@miroshnik/elves/spec/knip-hints` (`COPY_IMPORT`).
+ */
 const PACKAGE_KNIP_HINTS = `node_modules/${PACKAGE}/skills/spec/scripts/knip-hints.cjs`;
 
 /**
  * A command that ran the copy's scripts — through the package: `<run> <script>`, `PACKAGE_RUN` by default; on Yarn 2+
  * and in a CI job without the project's dependencies — `PACKAGE_BUNX` (`packageRun`, `ciFromCopy`). A script that isn't
- * the package's stays — `copyLeftovers` names it.
+ * the package's stays — `copyLeftovers` names it, `check` — `copyRefs`.
  */
 function fromCopy(text: string, run = PACKAGE_RUN) {
-  return text.replace(COPY_SCRIPT, (all, name: string) => (Object.hasOwn(SCRIPTS, name) ? `${run} ${name}` : all)).replace(COPY_KNIP_HINTS, PACKAGE_KNIP_HINTS);
+  return text
+    .replace(COPY_SCRIPT, (all, skill: string, name: string) => (Object.hasOwn(SCRIPTS, name) && SCRIPTS[name]!.file === `skills/${skill}/scripts/${name}.ts` ? `${run} ${name}` : all))
+    .replace(COPY_KNIP_HINTS, PACKAGE_KNIP_HINTS);
 }
 
 /**
@@ -891,9 +923,7 @@ function packageScripts(root: string) {
   let hidden = false;
   for (const [name, cmd] of Object.entries(scripts)) {
     if (typeof cmd !== "string") continue;
-    const inner = slotted(name) ? unslot(cmd) : cmd;
-    const own = fromCopy(inner, run);
-    const want = slotted(name) ? wrap(own) : own;
+    const { inner, own, want } = scriptAfter(name, cmd, yarn);
     if (cmd === want) continue;
     scripts[name] = want;
     if (own !== inner) copy.push(name);
@@ -916,6 +946,16 @@ function packageScripts(root: string) {
   const wrapped = [...outside, ...previous];
   if (wrapped.length) note(`package.json — checks through the machine queue (slot): ${wrapped.join(", ")}`);
   if (copy.length) note(`package.json — the flow copy's scripts through the package (${run} <script>): ${copy.join(", ")}`);
+}
+
+/**
+ * A package.json script as the install leaves it (`packageScripts`): `inner` — its own command without a slot wrapper,
+ * `own` — with the copy's scripts through the package, `want` — a check wrapped in the machine queue.
+ */
+function scriptAfter(name: string, cmd: string, yarn: boolean) {
+  const inner = slotted(name) ? unslot(cmd) : cmd;
+  const own = fromCopy(inner, packageRun(yarn));
+  return { inner, own, want: slotted(name) ? slotWrap(yarn)(own) : own };
 }
 
 /**
@@ -1054,6 +1094,18 @@ function projectHook(root: string, clone: boolean) {
 function agentsBlock(root: string) {
   const file = path.join(root, "AGENTS.md");
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const out = agentsWith(text);
+  if (out !== text) {
+    const former = text.includes(FORMER.begin) ? { note: `the block under the flow's former name (${FORMER.begin.slice(5)}) — update replaces it` } : {};
+    if (dry) return change(text ? "~" : "+", file, former);
+    writeFileSync(file, out);
+    touch("AGENTS.md");
+  }
+  note(`AGENTS.md — a block linking to ~/${CANON}/AGENTS.md on the machine`);
+}
+
+/** The project's AGENTS.md text with the block in place: the block of an earlier install or under the former name replaced, a second one gone. */
+function agentsWith(text: string) {
   let out = text;
   let placed = false;
   for (const [begin, end] of [
@@ -1067,14 +1119,7 @@ function agentsBlock(root: string) {
     out = placed ? out.slice(0, b) + out.slice(e + end.length).replace(/^\n+/, "") : out.slice(0, b) + BLOCK + out.slice(e + end.length);
     placed = true;
   }
-  if (!placed) out = text ? `${BLOCK}\n\n${text}` : `${BLOCK}\n`;
-  if (out !== text) {
-    const former = text.includes(FORMER.begin) ? { note: `the block under the flow's former name (${FORMER.begin.slice(5)}) — update replaces it` } : {};
-    if (dry) return change(text ? "~" : "+", file, former);
-    writeFileSync(file, out);
-    touch("AGENTS.md");
-  }
-  note(`AGENTS.md — a block linking to ~/${CANON}/AGENTS.md on the machine`);
+  return placed ? out : text ? `${BLOCK}\n\n${text}` : `${BLOCK}\n`;
 }
 
 const GI_BEGIN = "# elves:begin";
@@ -1499,10 +1544,30 @@ function gitGrep(root: string, args: string[]): string[] {
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 /** A workflow or an action of GitHub Actions: the copy's scripts go there by path. */
 const CI_FILE = /^\.github\/.*\.ya?ml$/;
-/** An import of a copy's module the package exports (`exports` of package.json): the harness, the model, the ESLint fragment, github. */
-const COPY_IMPORT = /(["'`])(?:\.{1,2}\/)*\.agents\/skills\/(spec\/scripts\/(?:harness|architecture|eslint-config)|github\/scripts\/github)(?:\.[cm]?[jt]s)?\1/g;
+/** A shell script of the project: the copy's scripts go there by path (#620) — bringing the stack up, the e2e wrapper. */
+const SHELL_FILE = /\.(?:sh|bash|zsh)$/;
+/**
+ * An import of a copy's module the package exports (`exports` of package.json): the harness, the model, the ESLint
+ * fragment, the knip reporter (its `file` — the path for `knip --reporter`, #620), github.
+ */
+const COPY_IMPORT = /(["'`])(?:\.{1,2}\/)*\.agents\/skills\/(spec\/scripts\/(?:harness|architecture|eslint-config|knip-hints)|github\/scripts\/github)(?:\.[cm]?[jt]s)?\1/g;
 /** The package's export of a copy's module: spec/scripts/harness → @miroshnik/elves/spec/harness, github/scripts/github → @miroshnik/elves/github. */
 const packageImport = (mod: string) => `${PACKAGE}/${mod.startsWith("spec/") ? mod.replace("/scripts/", "/") : "github"}`;
+
+/**
+ * A project's file with what leads into the copy rewritten, by the file's kind: a workflow — `ciFromCopy` (its jobs
+ * whether dependencies are installed is unknown — `unknown`); a shell script — the copy's scripts through the package,
+ * the form of package.json; a source file — imports of the copy's modules to the package's exports and the copy's
+ * scripts in its command strings (on Yarn 2+ only the imports: the bunx form has quotes a string literal doesn't
+ * take). Another kind — null: the install doesn't rewrite it.
+ */
+function copyRewrite(rel: string, text: string, berry: boolean): { out: string; unknown: string[] } | null {
+  if (CI_FILE.test(rel)) return ciFromCopy(text, berry);
+  if (SHELL_FILE.test(rel)) return { out: fromCopy(text, packageRun(berry)), unknown: [] };
+  if (!SOURCE_FILE.test(rel)) return null;
+  const imports = text.replace(COPY_IMPORT, (_, q: string, mod: string) => `${q}${packageImport(mod)}${q}`);
+  return { out: berry ? imports : fromCopy(imports), unknown: [] };
+}
 
 /**
  * A step that installs the project's dependencies: `bun`, `npm`, `pnpm` or `yarn` with `install`, `ci`, `i`, a bare
@@ -1581,24 +1646,24 @@ function ciFromCopy(text: string, berry: boolean) {
 }
 
 /**
- * Files of the project that lead into the copy (#558): imports of the copy's modules in tests and configs — to the
- * package's exports (`@miroshnik/elves/spec/harness` …), its scripts and the knip reporter in GitHub Actions — through
- * the package by the job (`ciFromCopy`), a job whether dependencies are installed is unknown — a `!` line;
- * package.json — `packageScripts`. Only tracked files that name `.agents/skills/`.
+ * Files of the project that lead into the copy (#558, #620): imports of the copy's modules in tests and configs — to the
+ * package's exports (`@miroshnik/elves/spec/harness`, `…/spec/knip-hints` …), its scripts in shell scripts and command
+ * strings of source files — through the package, in GitHub Actions — through the package by the job (`ciFromCopy`), a
+ * job whether dependencies are installed is unknown — a `!` line; package.json — `packageScripts` (`copyRewrite`). Only
+ * tracked files that name `.agents/skills/`; what is left — `copyLeftovers`, in `check` — `copyRefs`.
  */
 function rewriteCopyRefs(root: string) {
   const done: string[] = [];
   const berry = packageManager(root).berry;
   for (const rel of gitGrep(root, ["-l", "-F", "-e", ".agents/skills/"])) {
-    const ci = CI_FILE.test(rel);
-    if (!ci && !SOURCE_FILE.test(rel)) continue;
     const file = path.join(root, rel);
     const text = readFileSync(file, "utf8");
-    const { out, unknown } = ci ? ciFromCopy(text, berry) : { out: text.replace(COPY_IMPORT, (_, q: string, mod: string) => `${q}${packageImport(mod)}${q}`), unknown: [] };
-    if (out === text) continue;
+    const rewritten = copyRewrite(rel, text, berry);
+    if (!rewritten || rewritten.out === text) continue;
+    const { out, unknown } = rewritten;
     if (dry) {
       const scripts = berry ? "the package through bunx (Yarn 2+)" : "the package: node_modules/.bin/elves, a job without dependencies — bunx";
-      change("~", file, { note: ci ? `the flow copy's scripts → ${scripts}` : `imports of the flow copy → ${PACKAGE}` });
+      change("~", file, { note: CI_FILE.test(rel) ? `the flow copy's scripts → ${scripts}` : SHELL_FILE.test(rel) ? `the flow copy's scripts → ${PACKAGE}` : `imports and scripts of the flow copy → ${PACKAGE}` });
       continue;
     }
     writeFileSync(file, out);
@@ -1631,6 +1696,50 @@ function copyLeftovers(root: string) {
 }
 
 /**
+ * A path into a file of the flow copy: its canon (CANON, under the former name too) and the flow's skills
+ * (`.agents/skills/<skill>/`). A project's own skill, the manifest and the shim are the thin project's own, `~/.agents`
+ * and `$HOME/.agents` — the machine's.
+ */
+const copyRef = () => {
+  const dirs = [CANON, FORMER.canon, ...sourceSkills(SRC).map((s) => `.agents/skills/${s}`)].map(locale.escapeRe).join("|");
+  return new RegExp(String.raw`(?<![\w~}-]|~\/|HOME\/|HOME}\/)(?:${dirs})\/`);
+};
+
+/**
+ * `check` (#620): a line of the project that leads into a file of the flow copy after the install — a form `update`
+ * doesn't rewrite (a path in an argument array, an import of the copy's canon) — a `!` line with the file, the line
+ * number and its text: without it `check` says "up to date" after the move, and the project's checks fail on a file
+ * that is gone. The line is taken as the install leaves it — what `update` rewrites isn't named; `.gitignore` doesn't
+ * count, its Elves block is the install's. At most MAX_LINES lines, the rest — a count.
+ */
+function copyRefs(root: string) {
+  const ref = copyRef();
+  const berry = packageManager(root).berry;
+  const found: string[][] = [];
+  for (const rel of gitGrep(root, ["-l", "-F", "-e", ".agents/"])) {
+    if (rel === ".gitignore") continue;
+    const text = readFileSync(path.join(root, rel), "utf8");
+    const after = rel === "package.json" ? scriptsAfterText(text, yarnShell(root)) : rel === "AGENTS.md" ? agentsWith(text) : (copyRewrite(rel, text, berry)?.out ?? text);
+    after.split("\n").forEach((line, i) => ref.test(line) && found.push([rel, `${i + 1}`, line.trim().slice(0, 120)]));
+  }
+  const fix = `a path into the flow copy update doesn't rewrite — a skill's script: ${packageRun(berry)} <script>, a module: ${PACKAGE}/<export>, the canon and skills: ~/.agents; fix by hand`;
+  for (const [rel, n, line] of found.slice(0, MAX_LINES)) change("!", path.join(root, `${rel}:${n}`), { note: `${line} — ${fix}` });
+  if (found.length > MAX_LINES) change("!", path.join(root, "…"), { note: `and ${found.length - MAX_LINES} more lines into the flow copy` });
+}
+
+/** package.json with its scripts as the install leaves them (`scriptAfter`); not JSON — as is. */
+function scriptsAfterText(text: string, yarn: boolean) {
+  try {
+    const pkg = JSON.parse(text) as { scripts?: Record<string, unknown> };
+    const scripts = pkg.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
+    for (const [name, cmd] of Object.entries(scripts)) if (typeof cmd === "string") scripts[name] = scriptAfter(name, cmd, yarn).want;
+    return JSON.stringify(pkg, null, /^([ \t]+)"/m.exec(text)?.[1] ?? 2);
+  } catch {
+    return text;
+  }
+}
+
+/**
  * The project's thin flow (#552): a copy of an earlier release goes, then the manifest, the shim, the AGENTS.md block,
  * the cloud hook (#610), the package.json scripts, the files that led into the copy, the package version and the
  * `.gitignore` exceptions. The copy goes first — its manifest lists the skills to remove; the package manager runs
@@ -1648,7 +1757,8 @@ function installProject(root: string, auto = autoOf(root), language = languageOf
   rewriteCopyRefs(root);
   packageDependency(root, ownVersion());
   gitignoreFlow(root);
-  if (!dry) copyLeftovers(root);
+  if (dry) copyRefs(root);
+  else copyLeftovers(root);
 }
 
 /**
@@ -2445,10 +2555,22 @@ function update(global: boolean) {
             `  git add -A -- ${add.map(shWord).join(" ")} && git commit -m "chore(agents): ${commitSubject(root, version)}"`,
           ]
         : []),
+      ...(copy ? ["By hand in the move's task:", ...MOVE_BY_HAND.map((l) => `  - ${l}`)] : []),
     ].join("\n"),
   );
   return 0;
 }
+
+/**
+ * What the move from a copy leaves by hand (#620) — `update` can't tell it from the text: `update` prints it after the
+ * move, its help names it; what still leads into the copy — `!` lines of `check` (`copyRefs`).
+ */
+const MOVE_BY_HAND = [
+  "a project's check that knows the queue wrapper by the copy's path: `. .agents/skills/slot/scripts/slot.sh && …` → `. .agents/slot.sh && …`",
+  `the queue variables under the former name in the project's code and configs: ${FORMER.slotEnv.join(", ")} → ${SLOT_ENV.join(", ")}`,
+  "imports that got shorter — the project's formatter",
+  "git add -A before the first run of the project's checks: until then git ls-files lists the copy's removed files",
+];
 
 /**
  * What the update brought, for the agent to tell the user: every release after the installed one up to this package's,

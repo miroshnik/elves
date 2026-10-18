@@ -26,6 +26,10 @@
       "bun": "./skills/spec/scripts/eslint-config.ts",
       "default": "./dist/spec/scripts/eslint-config.js"
     },
+    "./spec/knip-hints": {
+      "types": "./skills/spec/scripts/knip-hints.d.cts",
+      "default": "./skills/spec/scripts/knip-hints.cjs"
+    },
     "./github": {
       "types": "./skills/github/scripts/github.ts",
       "bun": "./skills/github/scripts/github.ts",
