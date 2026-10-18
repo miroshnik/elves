@@ -2732,6 +2732,8 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
       return head ? (s.wt_branches ?? []).findIndex((bs) => bs.includes(head)) + 1 : 0;
     };
     const anchors: Anchor[] = [];
+    // a PR of our repository that isn't the task's is a foreign anchor: every PR of the repository is known here. Mirror:
+    // cloudOwnPart — the cloud knows none, its own repository's pr-links aren't anchors there
     for (const [ts, pr] of links) {
       const own = ourPrs.has(pr);
       // Claude Code repeats the pr-link of the PR bound to the session even after the merge — that's the app's status,
@@ -3338,15 +3340,26 @@ const cloudSid = (sessionId: string | undefined) => (sessionId ? "session_" + se
 /**
  * This cloud session's part of the actual — from its transcript in the container (the work directory is the git
  * root). Without GitHub: linking is by the `<type>/<N>-…` branch, a "#N" first prompt, a subagent assignment; PRs and
- * commits aren't visible from here.
+ * commits aren't visible from here. The repository — `owner/repo` of the clone's origin, as for a local one (#617):
+ * otherwise a PR of its own repository the session opened looks like another repository's and unlinks the first
+ * prompt's period; no origin — "cloud", any PR with a repository is then another's.
  */
 function cloudOwnPart(number: number, session: string, gap: number): CloudPart | null {
   const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
   const cwd = top.status === 0 && top.stdout.trim() ? top.stdout.trim() : process.cwd();
-  const sessions = transcriptFilesIn([cwd]).map((f) => parseSessionFile(f)).filter((x) => x.ev.length); // don't discard a routine one: a cloud session is often a single prompt
+  const origin = spawnSync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" });
+  const full = (origin.status === 0 && originRepo(origin.stdout)) || "cloud";
+  // The cloud sees no PRs, so a PR of its own repository is neither the task's nor another task's: computeFact would
+  // take it for a foreign anchor and end the first prompt's period when the session opened it — CI, the merge and the
+  // actual after it are the task's too. Mirror: computeFact, the pr-link anchors — locally every PR is known.
+  const ownLink = (r?: string) => !r || r.toLowerCase() === full.toLowerCase();
+  const sessions = transcriptFilesIn([cwd])
+    .map((f) => parseSessionFile(f))
+    .filter((x) => x.ev.length) // don't discard a routine one: a cloud session is often a single prompt
+    .map((s) => ({ ...s, prlinks: s.prlinks.filter(([, , r]) => !ownLink(r)) }));
   if (!sessions.length) return null;
   const stub: FactRepo = {
-    full: "cloud",
+    full,
     prs: () => new Map(),
     openPrs: () => ({ at: 0, items: {} }),
     closers: () => ({ oid: {}, pr: {} }),
