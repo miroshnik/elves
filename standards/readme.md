@@ -24,7 +24,7 @@ README читают первым, а правят последним: новый
 
 ## README называет всё, что ставит флоу, и не ссылается на то, чего нет
 
-<details><summary>✅ 79 тестов</summary>
+<details><summary>✅ 87 тестов</summary>
 
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» не пуст
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» находит skills/spec, elves install, elves release, skills/spec/scripts/spec-break, skills/ci-wait/scripts/wait-ci, docs/pr-checks.md
@@ -42,6 +42,14 @@ README читают первым, а правят последним: новый
 - ✅ README: команда установщика spec-publish названа
 - ✅ README: команда установщика spec-run названа
 - ✅ README: команда установщика spec-shard названа
+- ✅ README: команда установщика task-env check названа
+- ✅ README: команда установщика task-env down названа
+- ✅ README: команда установщика task-env e2e названа
+- ✅ README: команда установщика task-env proxy down названа
+- ✅ README: команда установщика task-env proxy status названа
+- ✅ README: команда установщика task-env proxy up названа
+- ✅ README: команда установщика task-env prune названа
+- ✅ README: команда установщика task-env up названа
 - ✅ README: команда установщика update названа
 - ✅ README: скилл ci-wait — со ссылкой на skills/ci-wait/SKILL.md
 - ✅ README: скилл dashboard — со ссылкой на skills/dashboard/SKILL.md

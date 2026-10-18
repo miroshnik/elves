@@ -7240,6 +7240,13 @@
   "describes": [
    "Харнесс и spec-скрипты — из пакета @miroshnik/elves, без копии флоу в проекте"
   ],
+  "name": "репортёр knip — экспорт @miroshnik/elves/spec/knip-hints: под Bun и под Node его file — файл репортёра в пакете, knip --reporter печатает им подсказки"
+ },
+ {
+  "path": "tests/capabilities/spec-harness/package.test.ts",
+  "describes": [
+   "Харнесс и spec-скрипты — из пакета @miroshnik/elves, без копии флоу в проекте"
+  ],
   "name": "тест проекта импортирует харнесс из пакета и проходит под bun test"
  },
  {
@@ -8080,6 +8087,13 @@
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
   "describes": [
+   "Скрипты и тесты проекта зовут task-env бином пакета — elves task-env, без пути к файлу скилла"
+  ],
+  "name": "elves task-env из node_modules/.bin проекта — команды task-env пакета версии проекта: справка под строкой запуска пакета"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
    "Снять нечего или нечем — строка ○, а не ошибка; Docker не отвечает — строка ! с причиной"
   ],
   "name": "Docker не отвечает — строка ! с причиной, код 2"
@@ -8745,6 +8759,20 @@
   "describes": [
    "Проект с копией флоу переезжает на тонкий проект"
   ],
+  "name": "update переписывает скрипт пакета из копии в известных формах — bun и node, с флагами и без — в package.json, shell-скрипте и workflow на elves <скрипт>"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Проект с копией флоу переезжает на тонкий проект"
+  ],
+  "name": "update проекта с копией переводит вызов task-env и импорт knip-hints.cjs копии на пакет: скрипт зовёт elves task-env, тест — экспорт @miroshnik/elves/spec/knip-hints; check после него — без «!»"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Проект с копией флоу переезжает на тонкий проект"
+  ],
   "name": "update проекта с копией: скрипт копии в джобе без установки зависимостей — пакет версии проекта через bunx"
  },
  {
@@ -8781,6 +8809,13 @@
    "Проект с копией флоу переезжает на тонкий проект"
   ],
   "name": "переезд с копии на Yarn 2+ с PnP — джоба CI с установкой зависимостей запускает скрипт пакета"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Проект с копией флоу переезжает на тонкий проект"
+  ],
+  "name": "ссылка на файл копии, которую update не переписал, — строка «!» в check с файлом и номером строки; код check прежний"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
@@ -9737,6 +9772,62 @@
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
   ],
+  "name": "elves task-env check --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env down --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env e2e --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env proxy down --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env proxy status --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env proxy up --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env prune --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
+  "name": "elves task-env up --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
   "name": "elves update --help и -h — синтаксис с примером, код 0, без сети и изменений"
  },
  {
@@ -10129,7 +10220,7 @@
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
   ],
-  "name": "реестр «команды скриптов — из обзора каждого скрипта и из вызовов в документах флоу» находит elves install, elves check, elves pack, elves spec-doc, elves slot, github task new, github pr premerge, est fact, task-env proxy up, task-env check, wait-ci merged (команды)"
+  "name": "реестр «команды скриптов — из обзора каждого скрипта и из вызовов в документах флоу» находит elves install, elves check, elves pack, elves spec-doc, elves slot, elves task-env up, elves task-env proxy up, github task new, github pr premerge, est fact, task-env proxy up, task-env check, wait-ci merged (команды)"
  },
  {
   "path": "tests/standards/cli-help/cli-help.test.ts",
@@ -16121,6 +16212,62 @@
    "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
   ],
   "name": "README: команда установщика spec-shard названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env check названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env down названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env e2e названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env proxy down названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env proxy status названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env proxy up названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env prune названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
+  "name": "README: команда установщика task-env up названа"
  },
  {
   "path": "tests/standards/readme/readme.test.ts",

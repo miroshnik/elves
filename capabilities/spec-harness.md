@@ -9,7 +9,8 @@
 заведомом нарушителе, — упавшие тесты: такая проверка ничего не проверяет.
 
 Тонкий проект берёт харнесс и spec-скрипты из пакета `@miroshnik/elves` в devDependencies, без копии флоу (#556):
-тесты импортируют `@miroshnik/elves/spec/harness` (и модель архитектуры, фрагмент ESLint, `github`), скрипты
+тесты импортируют `@miroshnik/elves/spec/harness` (и модель архитектуры, фрагмент ESLint, `github`, репортёр knip
+`spec/knip-hints` — CommonJS без сборки, его `file` — путь для `knip --reporter`, #620), скрипты
 `package.json` и CI зовут `spec-doc`, `spec-diff` и остальные `spec-*` бином пакета —
 `bun --no-env-file node_modules/.bin/elves <скрипт>`, без env-файлов проекта (#596). Версия у
 агента и у CI одна — версия пакета в lockfile проекта; пути — от каталога проекта, как у скрипта копии. Тест проекта
@@ -360,10 +361,14 @@ C2 — развёртываемые единицы и связи между ни
 тесты проекта импортируют из пакета, spec-скрипты CI и агент зовут `elves <скрипт>` из `node_modules/.bin` — версии
 проекта (#556).
 
-<details><summary>✅ 2 теста</summary>
+<details><summary>✅ 3 теста</summary>
 
 - ✅ тест проекта импортирует харнесс из пакета и проходит под bun test
 - ✅ elves spec-doc и elves spec-diff из node_modules/.bin работают в проекте без копии флоу
+- ✅ репортёр knip — экспорт @miroshnik/elves/spec/knip-hints: под Bun и под Node его file — файл репортёра в пакете, knip --reporter печатает им подсказки
+  > Тест мёртвого кода проекта берёт путь репортёра подсказок knip у самого репортёра (`file`), а не строкой пути в
+  > node_modules (#620): строка ломается, когда пакет не поднят в корень node_modules. Репортёр — CommonJS без сборки,
+  > один файл и под Bun, и под Node проекта.
 
 </details>
 

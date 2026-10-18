@@ -48,7 +48,7 @@ SKILL.md агент читал руками, медиана — 8 раз за с
 
 ## Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений
 
-<details><summary>✅ 75 тестов</summary>
+<details><summary>✅ 83 теста</summary>
 
 - ✅ реестр «скрипты флоу — установщик и исполняемые скрипты скиллов» не пуст (скрипты)
 - ✅ реестр «скрипты флоу — установщик и исполняемые скрипты скиллов» находит bin/elves.ts, skills/github/scripts/github.ts, skills/est/scripts/est.ts, skills/task-env/scripts/task-env.ts, skills/ci-wait/scripts/wait-ci.sh, skills/slot/scripts/slot.ts, skills/spec/scripts/spec-doc.ts (скрипты)
@@ -70,7 +70,7 @@ SKILL.md агент читал руками, медиана — 8 раз за с
 - ✅ task-env --help и -h — обзор команд, код 0, без сети и изменений
 - ✅ wait-ci --help и -h — обзор команд, код 0, без сети и изменений
 - ✅ реестр «команды скриптов — из обзора каждого скрипта и из вызовов в документах флоу» не пуст (команды)
-- ✅ реестр «команды скриптов — из обзора каждого скрипта и из вызовов в документах флоу» находит elves install, elves check, elves pack, elves spec-doc, elves slot, github task new, github pr premerge, est fact, task-env proxy up, task-env check, wait-ci merged (команды)
+- ✅ реестр «команды скриптов — из обзора каждого скрипта и из вызовов в документах флоу» находит elves install, elves check, elves pack, elves spec-doc, elves slot, elves task-env up, elves task-env proxy up, github task new, github pr premerge, est fact, task-env proxy up, task-env check, wait-ci merged (команды)
 - ✅ нарушитель не проходит (команды): без примеров
 - ✅ нарушитель не проходит (команды): пример с флагом не из синтаксиса
 - ✅ нарушитель не проходит (команды): команда без справки — обзор вместо её синтаксиса
@@ -92,6 +92,14 @@ SKILL.md агент читал руками, медиана — 8 раз за с
 - ✅ elves spec-publish --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ elves spec-run --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ elves spec-shard --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env check --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env down --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env e2e --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env proxy down --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env proxy status --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env proxy up --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env prune --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ elves task-env up --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ elves update --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ est backtest --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ est cloud-import --help и -h — синтаксис с примером, код 0, без сети и изменений
