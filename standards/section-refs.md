@@ -36,7 +36,7 @@
 
 ## Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 148 тестов</summary>
+<details><summary>✅ 149 тестов</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -57,6 +57,7 @@
 - ✅ docs/cloud-sessions.md: README.md, «Installation» — есть такой раздел
 - ✅ docs/cloud-sessions.md: docs/cloud-sessions.md, «The brief» — есть такой раздел
 - ✅ docs/cloud-sessions.md: skills/est/SKILL.md, «Cloud session» — есть такой раздел
+- ✅ docs/cloud-sessions.md: skills/github/SKILL.md, «Dispatcher» — есть такой раздел
 - ✅ docs/judgment.md: AGENTS.md, «Production and debugging» — есть такой раздел
 - ✅ docs/judgment.md: AGENTS.md, «Tests and code» — есть такой раздел
 - ✅ docs/parallel-checkouts.md: AGENTS.md, «Subagents and worktrees» — есть такой раздел
