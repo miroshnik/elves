@@ -2600,7 +2600,7 @@ describe("task queue раздаёт задачи эпика или фильтр�
       `= #47 «${f.issue(47).title}» — «В работе», open PR #202 https://github.com/miroshnik/elves/pull/202`,
       `= #${linked} «GitHub · С PR» — open PR #200 https://github.com/miroshnik/elves/pull/200`,
       `= #${branch} «GitHub · С веткой» — open PR #201 https://github.com/miroshnik/elves/pull/201`,
-      "Next: no ready tasks — wait for the executors' answers; after each — task queue again.",
+      expect.stringMatching(/^Next: no ready tasks — wait for the executors' answers; after each — task queue again; /),
     ]);
   });
 
@@ -2620,7 +2620,7 @@ describe("task queue раздаёт задачи эпика или фильтр�
     expect(heads(task(f, ["queue", "--epic", "45"], REPO, dispatcherIo(config)).out)).toEqual([
       "Queue miroshnik/elves (epic #45): ready 0, «В работе» 1, not ready 0",
       `= #47 «${f.issue(47).title}» — handed out to an executor of this session`,
-      "Next: no ready tasks — wait for the executors' answers; after each — task queue again.",
+      expect.stringMatching(/^Next: no ready tasks — wait for the executors' answers; after each — task queue again; /),
     ]);
     // выдача — этой сессии: у другого диспетчера задача готова
     expect(heads(task(f, ["queue", "--epic", "45"], REPO, dispatcherIo(config, "5e1d0c9a-2b7f-4c3e-8a6d-1f0e9b8c7a65")).out)[1]).toBe(`+ #47 «${f.issue(47).title}»`);
@@ -2933,7 +2933,9 @@ describe("task queue раздаёт задачи эпика или фильтр�
     expect(r.code).toBe(0);
     expect(r.out.split("\n")).toEqual([
       "Queue miroshnik/elves (epic #45): ready 0, «В работе» 0, not ready 0",
-      "Queue is empty: nothing ready, nothing «В работе» — the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.",
+      expect.stringMatching(
+        /^Queue is empty: nothing ready, nothing «В работе»; .+\. Then the dispatcher's summary \(merged, questions, the not ready ones above\) and the last line; a session with its own task — after it\.$/,
+      ),
     ]);
   });
 });
@@ -3338,9 +3340,10 @@ describe("task queue --assignment N --cloud — бриф облачного ис
     expect(f.mutations).toEqual([]);
   });
 
-  it("по закрытию задачи облачного исполнителя диспетчер закрывает её локально: факт с --write, Status, удаление влитой ветки, архив сессии исполнителя", () => {
+  // архив сессии исполнителя — как у сессий-исполнителей приложения (#621): только в проекте в режиме auto
+  it("по закрытию задачи облачного исполнителя диспетчер закрывает её локально: факт с --write, Status, удаление влитой ветки, архив сессии исполнителя в проекте в режиме auto", () => {
     const { next } = brief(new FakeGitHub(REC));
-    expect(next).toMatch(/: PASS — bun --no-env-file \S+\/skills\/github\/scripts\/github\.ts task close 47 \(the actual with --write, Status, the merged branch\), then archive the executor's session where the agent has the tool;/);
+    expect(next).toMatch(/: PASS — bun --no-env-file \S+\/skills\/github\/scripts\/github\.ts task close 47 \(the actual with --write, Status, the merged branch\), then archive the executor's session in an auto project where the agent has the tool;/);
   });
 
   // без перегиба: ветку облачной сессии назначает облако (`claude/<slug>`), она не по канону задачи — task close диспетчера убирает и её
@@ -3423,5 +3426,86 @@ describe("Предел исполнителей диспетчера — по м
 
   it("канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — три", () => {
     expect(PLACES.filter((f) => !readFileSync(path.join(ROOT, f), "utf8").replace(/\s+/g, " ").includes(LIMIT))).toEqual([]);
+  });
+});
+
+/**
+ * Задачу другого проекта диспетчер выдаёт сессией приложения (`start_session`) в папке проекта: субагент работает в
+ * worktree репозитория диспетчера. Сессия-исполнитель в режиме auto архивирует себя сама после «Всё сделано. Сессию можно
+ * закрывать.», но не всегда (#621): кончила вопросом владельцу, а ответ ушёл диспетчеру; последний ход — ожидание деплоя,
+ * после которого строка не дошла до архивации. Завершённые сессии копились в списке, пока владелец не закрывал их руками.
+ * Владелец решил: диспетчер архивирует их сам, если проект сессии в режиме auto. Сессию с живой фоновой работой — нет
+ * (архивация ей отказала бы), с вопросом владельцу без ответа — тоже нет: архивная уходит из списка, и вопрос в её
+ * последнем ответе владелец не прочтёт. Правило — одной фразой во всех местах, где его читает диспетчер: в каноне, в
+ * скилле `github` и его справочнике; шаг называет `Next:` очереди — её диспетчер читает после каждого ответа исполнителя.
+ */
+describe("Диспетчер архивирует свои завершённые сессии-исполнители в режиме auto", () => {
+  const ROOT = path.resolve(import.meta.dir, "../../..");
+  const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md"];
+  const ARCHIVE = "an executor session whose task closed — the dispatcher archives it in an auto project";
+  const BUSY = "not one still working in the background or awaiting the owner's answer";
+  const OWNER = "outside auto the owner closes it";
+  const text = (file: string) => readFileSync(path.join(ROOT, file), "utf8").replace(/\s+/g, " ");
+  const missing = (phrase: string) => PLACES.filter((f) => !text(f).includes(phrase));
+  /** Каталог с языком проекта, но не чекаут: очередь не трогает worktree репозитория, где запущен тест. */
+  const projectDir = () => {
+    const dir = scratch();
+    mkdirSync(path.join(dir, ".agents"));
+    writeFileSync(path.join(dir, ".agents/elves.json"), '{ "language": "ru" }\n');
+    return dir;
+  };
+  /** Последний шаг очереди диспетчера при каждом её исходе: есть готовые, только в работе, пусто. */
+  const steps = () =>
+    (["Бэклог", "В работе", null] as const).map((status) => {
+      const f = new FakeGitHub(REC);
+      if (status) f.status(47, status);
+      else f.closed(47);
+      const r = task(f, ["queue", "--epic", "45"], REPO, { ...inSession(scratch()), cwd: projectDir() });
+      expect(r.code).toBe(0);
+      return r.out.split("\n").at(-1)!;
+    });
+
+  it("Диспетчер в режиме auto архивирует сессию-исполнителя, чья задача закрыта, а сессия осталась в списке", () => {
+    expect(missing(ARCHIVE)).toEqual([]);
+    const [ready, running, empty] = steps();
+    expect(ready).toStartWith("Next: each ready task above");
+    expect(running).toStartWith("Next: no ready tasks");
+    expect(empty).toStartWith("Queue is empty");
+    expect([ready, running, empty].filter((l) => !l!.includes(ARCHIVE))).toEqual([]);
+    // пустая очередь: сначала сессии-исполнители, потом итог диспетчера и его последняя строка
+    expect(empty!.indexOf(ARCHIVE)).toBeLessThan(empty!.indexOf("the dispatcher's summary"));
+  });
+
+  it("Сессию-исполнителя проекта не в режиме auto диспетчер не архивирует — её закрывает владелец", () => {
+    expect(missing(OWNER)).toEqual([]);
+    expect(steps().filter((l) => !l.includes(OWNER))).toEqual([]);
+  });
+
+  it("Сессию, которая ждёт ответа владельца или ещё работает в фоне, диспетчер не архивирует", () => {
+    expect(missing(BUSY)).toEqual([]);
+    expect(steps().filter((l) => !l.includes(BUSY))).toEqual([]);
+  });
+
+  it("канон называет исполнителя задачи другого проекта — сессию приложения, а не пишет, что её ещё не выдают", () => {
+    const files = ["AGENTS.md", "claude", "docs", "skills"].flatMap((p) =>
+      statSync(path.join(ROOT, p)).isDirectory()
+        ? readdirSync(path.join(ROOT, p), { recursive: true, withFileTypes: true })
+            .filter((e) => e.isFile() && e.name.endsWith(".md"))
+            .map((e) => path.relative(ROOT, path.join(e.parentPath, e.name)))
+        : [p],
+    );
+    expect(files.length).toBeGreaterThan(10);
+    expect(files.filter((f) => /aren't given out yet|a server flag/.test(text(f)))).toEqual([]);
+    // ядро канона — в бюджете слов: исполнителей диспетчера по видам называет скилл `github`
+    const skill = ["skills/github/SKILL.md", "skills/github/reference.md"];
+    expect(skill.filter((f) => !text(f).includes("another project's task — an app session in its folder"))).toEqual([]);
+  });
+
+  it("claude/CLAUDE.md: сессию-исполнителя диспетчер архивирует archive_session по её id, отказ не повторяет", () => {
+    expect(text("claude/CLAUDE.md")).toContain(
+      "in auto mode `archive_session` with `self` archives it, ending the conversation: the last action, after the \"can be closed\" line. " +
+        "Before it — `TaskStop` for each own background task still running: a live one gives \"still has live work\". " +
+        "A dispatcher archives an executor session with its id. Refused — don't retry: the owner archives from the sidebar.",
+    );
   });
 });
