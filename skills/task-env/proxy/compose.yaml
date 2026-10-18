@@ -1,10 +1,8 @@
 # The machine's proxy (the task-env skill, SKILL.md, «The proxy»): one Traefik per machine routes
 # http://<service>.<N>.<project>.localhost to containers of task stacks by their labels. Started by
-# `task-env proxy up`. The name — the Compose project and the network —, the port and the provider's default network
-# come from ELVES_PROXY, ELVES_PROXY_PORT and ELVES_PROXY_DEFAULT_NETWORK, which scripts/task-env.ts passes explicitly
-# (`composeEnv`): their defaults live only there, so the file has none (`${…:?}`) and doesn't come up without the
-# script. The network of the proxy before the rename (`FORMER_PROXY` of the script) the script adds on Compose's stdin
-# when it is on the machine — it isn't always, so it isn't here.
+# `task-env proxy up`. The name — the Compose project and the network — and the port come from ELVES_PROXY and
+# ELVES_PROXY_PORT, which scripts/task-env.ts passes explicitly (`composeEnv`): their defaults live only there, so the
+# file has none (`${…:?}`) and doesn't come up without the script.
 name: ${ELVES_PROXY:?set by task-env.ts}
 services:
   traefik:
@@ -17,9 +15,8 @@ services:
       # a container is published only with traefik.enable=true
       - --providers.docker.exposedByDefault=false
       # task containers sit in several networks: a task stack's service names the proxy's one by the label
-      # traefik.docker.network; a container without the label is reached through this one — the proxy's own, or the
-      # network of the proxy before the rename while the proxy is in it (its stacks carry no label)
-      - --providers.docker.network=${ELVES_PROXY_DEFAULT_NETWORK:?set by task-env.ts}
+      # traefik.docker.network; a container without the label is reached through the proxy's own
+      - --providers.docker.network=${ELVES_PROXY:?set by task-env.ts}
       # the API — the routes for the dashboard: on the web entry point by the host <name>.localhost (labels below),
       # without Traefik's own UI
       - --api=true

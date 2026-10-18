@@ -51,15 +51,11 @@ const LANGUAGE = "github-project › до update язык читается из 
 const UPDATE_TASK = "github-task › task new узнаёт открытую задачу обновления флоу со старым названием и второй не заводит";
 const SLOT_ENV = "slot › slot экспортирует ELVES_SLOT, ELVES_SLOT_CPUS и AI_DEV_SLOT, AI_DEV_SLOT_CPUS; вложенный вызов только с AI_DEV_SLOT своего слота не ждёт";
 const SLOT_TEMP = "slot › очередь видит билеты slot прошлого релиза в ai-dev/slots временного каталога";
-const PROXY = "task-env › `proxy up` убирает прежний прокси, который держит порт, а его сеть оставляет: новый прокси на том же порту, в своей сети и в сети прежнего";
-const PROXY_NETWORK = "task-env › сеть прокси под прежним именем ai-dev-proxy — строка ❌ называет прежнее имя с правкой: убрать сеть, `task-env up` добавляет сеть прокси сам; код 1";
+const PROXY = "task-env › `proxy up` убирает прежний прокси, который держит порт: новый прокси — на том же порту";
 const PROXY_PORT = "task-env › имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — прежняя AI_DEV_PROXY_PORT из профиля, без обеих — 80";
 const SETTINGS = "task-env › `env.http` — из `.agents/elves.json`; пока его нет — из `.agents/ai-dev.json`; сообщение об ошибке называет прочитанный файл";
 
-/**
- * Реестр имён для перехода: в каждом месте старое имя узнаётся своим и заменяется новым, второго нет. Места task-env
- * с записанным сроком «один релиз» снимает #564.
- */
+/** Реестр имён для перехода: в каждом месте старое имя узнаётся своим и заменяется новым, второго нет. */
 const PLACES: readonly Place[] = [
   // установщик
   {
@@ -98,17 +94,15 @@ const PLACES: readonly Place[] = [
   { file: "skills/slot/scripts/slot.ts", at: "places", reads: CONFIG_DIR, test: "config-dir" },
   { file: "skills/slot/SKILL.md", at: "**The flow's former name.**", reads: "описание скилла называет прежние переменные очереди", test: SLOT_ENV },
   { file: "skills/slot/SKILL.md", at: "the tickets of an earlier release's slot", reads: "описание скилла называет прежнее место билетов", test: SLOT_TEMP },
-  // task-env — один релиз, снятие — #564
-  { file: "skills/task-env/scripts/task-env.ts", at: "FORMER_PROXY", reads: "прокси ai-dev-proxy и его сеть — один релиз", test: PROXY },
-  { file: "skills/task-env/scripts/task-env.ts", at: "HELP", reads: "справка check и proxy up называет прокси ai-dev-proxy и его сеть", test: PROXY_NETWORK },
+  // task-env
+  { file: "skills/task-env/scripts/task-env.ts", at: "FORMER_PROXY", reads: "контейнер прокси ai-dev-proxy, который держит порт, — proxy up его удаляет", test: PROXY },
+  { file: "skills/task-env/scripts/task-env.ts", at: "HELP", reads: "справка proxy up называет прокси ai-dev-proxy, которого он заменяет", test: PROXY },
   { file: "skills/task-env/scripts/task-env.ts", at: "proxyPort", reads: "порт прокси из AI_DEV_PROXY_PORT профиля владельца", test: PROXY_PORT },
   { file: "skills/task-env/scripts/task-env.ts", at: "MANIFESTS", reads: "настройки стека из .agents/ai-dev.json, пока update его не перенёс", test: SETTINGS },
   { file: "skills/task-env/SKILL.md", at: "**Before the rename**", reads: "описание скилла называет прокси до переименования", test: PROXY },
-  { file: "skills/task-env/SKILL.md", at: "(the proxy before the rename, written by hand)", reads: "описание скилла называет сеть ai-dev-proxy в compose-файле", test: PROXY_NETWORK },
   { file: "skills/task-env/SKILL.md", at: "its name before the rename", reads: "описание скилла называет AI_DEV_PROXY_PORT", test: PROXY_PORT },
   { file: "skills/task-env/SKILL.md", at: "an install from before the rename", reads: "описание скилла называет прежний файл настроек", test: SETTINGS },
   { file: "skills/task-env/reference.md", at: "## The proxy before the rename", reads: "справочник описывает переход с прокси ai-dev-proxy", test: PROXY },
-  { file: "skills/task-env/reference.md", at: "`providers.docker.network`", reads: "справочник называет сеть ai-dev-proxy сетью провайдера по умолчанию", test: PROXY },
 ];
 
 /**

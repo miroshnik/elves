@@ -191,8 +191,8 @@ describe("task-env check называет каждое нарушение пра
     );
   });
 
-  it("сеть прокси под прежним именем ai-dev-proxy — строка ❌ называет прежнее имя с правкой: убрать сеть, `task-env up` добавляет сеть прокси сам; код 1", () => {
-    // как в прежнем примере reference.md: сеть прокси в compose-файле руками
+  it("task-env check не выделяет сеть ai-dev-proxy в compose-файле отдельной строкой — это внешняя сеть, как любая другая", () => {
+    // как в примере reference.md до переименования: сеть прокси в compose-файле руками
     composeFile(
       [
         "services:",
@@ -213,8 +213,8 @@ describe("task-env check называет каждое нарушение пра
     );
     const r = composeCheck();
     expect(r.code).toBe(1);
-    const fix = "ai-dev-proxy is the machine's proxy before the rename, now elves-proxy: remove the network from the compose file and its services; task-env up adds the proxy's network to the HTTP services of env.http itself";
-    expect(r.stdout).toBe([`❌ compose.yaml: network ai-dev-proxy (service web) — ${fix}`, `❌ compose.yaml: network proxy (service admin) — ${fix}`, ""].join("\n"));
+    const shared = "external: task stacks share it and reach each other's services; drop external";
+    expect(r.stdout).toBe([`❌ compose.yaml: network ai-dev-proxy (service web) — ${shared}`, `❌ compose.yaml: network proxy (service admin) — ${shared}`, ""].join("\n"));
   });
 
   it("абсолютный путь к коду в volumes и build — нарушение, ~ тоже; относительный путь, именованный том и ресурс машины (сокет Docker, /etc/localtime) — нет", () => {
@@ -496,21 +496,21 @@ describe("Адреса задачи и маршруты прокси — для 
 
   it("значения по умолчанию имени, порта и сети провайдера прокси — только в скрипте: compose-файл без них не собирается, `proxy up` передаёт их сам", () => {
     expect(readFileSync(COMPOSE, "utf8")).not.toMatch(/\$\{ELVES_PROXY\w*:-/);
-    // docker — подставной: пишет в журнал, с какими именем, портом и сетью провайдера прокси его позвали; контейнер
-    // прокси — «running», прежнего прокси и его сети нет
+    // docker — подставной: пишет в журнал, с какими именем и портом прокси его позвали; контейнер прокси — «running»,
+    // прежнего прокси нет
     const { dir, cleanup } = tmpDir();
     try {
       const log = path.join(dir, "docker.log");
-      const fake = `#!/bin/sh\necho "$ELVES_PROXY $ELVES_PROXY_PORT $ELVES_PROXY_DEFAULT_NETWORK $1 $2" >> "${log}"\ncase "$*" in *"project=${PROXY} "*) echo running ;; esac\nexit 0\n`;
+      const fake = `#!/bin/sh\necho "$ELVES_PROXY $ELVES_PROXY_PORT $1 $2" >> "${log}"\ncase "$*" in *"project=${PROXY} "*) echo running ;; esac\nexit 0\n`;
       writeFileSync(path.join(dir, "docker"), fake, { mode: 0o755 });
       const up = run("bun", [SCRIPT, "proxy", "up"], { ...process.env, PATH: `${dir}:${process.env.PATH}`, ELVES_PROXY: "", ELVES_PROXY_PORT: "", AI_DEV_PROXY_PORT: "" });
       expect(exitOf(up), up.stdout + up.stderr).toBe(0);
-      expect(readFileSync(log, "utf8")).toContain(`${PROXY} 80 ${PROXY} compose -f`);
+      expect(readFileSync(log, "utf8")).toContain(`${PROXY} 80 compose -f`);
     } finally {
       cleanup();
     }
     const config = (env: NodeJS.ProcessEnv) => spawnSync("docker", ["compose", "-f", COMPOSE, "config", "--format", "json"], { encoding: "utf8", env });
-    const bare = { ...process.env, ELVES_PROXY: "", ELVES_PROXY_PORT: "", ELVES_PROXY_DEFAULT_NETWORK: "", AI_DEV_PROXY_PORT: "" };
+    const bare = { ...process.env, ELVES_PROXY: "", ELVES_PROXY_PORT: "", AI_DEV_PROXY_PORT: "" };
     const none = config(bare);
     expect(exitOf(none)).not.toBe(0);
     expect(none.stderr).toContain("required variable ELVES_PROXY");
@@ -530,7 +530,7 @@ describe("Адреса задачи и маршруты прокси — для 
 // Переименование ai-dev → Elves: прокси, его переменные и настройки проекта
 // ----------------------------------------------------------------------------
 
-describe("Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются один релиз", () => {
+describe("Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока", () => {
   it("имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — прежняя AI_DEV_PROXY_PORT из профиля, без обеих — 80", () => {
     expect(proxyName({})).toBe("elves-proxy");
     expect(proxyName({ ELVES_PROXY: "other-proxy" })).toBe("other-proxy");
@@ -545,7 +545,7 @@ describe("Прокси после переименования — `elves-proxy`
     expect(formerProxyName({ ELVES_PROXY: "elves-proxy-test-1" })).toBe("elves-proxy-test-1-former");
   });
 
-  /** docker — подставной: прежний прокси и его сеть есть, новый не создаётся (образ не скачан); журнал — его вызовы. */
+  /** docker — подставной: прежний прокси есть, новый не создаётся (образ не скачан); журнал — его вызовы. */
   it("новый прокси не создался — прежний остаётся на месте: его контейнер не удалён, код 2", () => {
     const { dir, cleanup } = tmpDir();
     try {
@@ -555,7 +555,6 @@ describe("Прокси после переименования — `elves-proxy`
         `printf '%s\\n' "$*" >> "${log}"`,
         'case "$*" in',
         `  "ps --all --filter label=com.docker.compose.project=${FORMER_PROXY} "*) echo f0rmer1d ;;`,
-        `  "network ls "*) echo ${FORMER_PROXY} ;;`,
         '  *"up --no-start"*) echo "Error response from daemon: pull access denied for traefik" >&2; exit 1 ;;',
         "esac",
         "",
