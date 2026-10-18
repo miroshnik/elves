@@ -149,8 +149,9 @@ and prints the same steps:
 
 1. `est fact <N>` computes this session's part of the actual from its
    transcript in the container (linking — the branch `<type>/<N>-…` or the
-   only `#N` in the first prompt, section "The brief") and prints an
-   `Actual (cloud)` comment
+   only `#N` in the first prompt, section "The brief"; the session's PR in
+   its own repository, by the clone's `origin`, doesn't break it, #617) and
+   prints an `Actual (cloud)` comment
    with hours, tokens, a link to the session and a part marker — post it to
    the issue with a GitHub tool. Project fields (`Actual, h`, tokens, cost)
    are set by the next local session: `est fact <N> --write` or

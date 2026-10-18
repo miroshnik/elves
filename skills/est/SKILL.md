@@ -136,7 +136,8 @@ its own part; GraphQL and GitHub Projects are closed there. When a task is
 closed, `est fact <N>` in the cloud takes this session's transcript in the
 container (linking — the branch `<type>/<N>-…` or the only "#N" in the first
 prompt, its background block included — `docs/cloud-sessions.md`, "The brief";
-PRs and commits aren't visible from there) and prints the comment
+PRs and commits aren't visible from there: a PR of the clone's `origin`
+repository keeps the link, another repository's breaks it) and prints the comment
 «Actual (cloud): …» with hours, tokens and a link to the session, with a part
 marker (`cloud`) (or «Actual unavailable (cloud)», if the transcript isn't linked
 to the task) — the agent writes it into the issue with a GitHub tool. Other

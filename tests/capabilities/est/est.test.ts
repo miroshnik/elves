@@ -1400,17 +1400,24 @@ describe("В облачной сессии est считает свою част�
     expect(parseMarker(r.stdout, "fact")).toMatchObject({ h: null, cov: "none", src: "cloud", session: "session_01Test" });
   });
 
-  /** Транскрипт облачной сессии с первым промптом `prompt` в каталоге репозитория `repo` с манифестом `language`; вывод `est fact <number>`. */
-  function cloudFact(language: string, prompt = "#42 сделай экспорт", number = 42) {
+  /**
+   * Транскрипт облачной сессии с первым промптом `prompt` в каталоге репозитория `repo` с манифестом `language`; вывод
+   * `est fact <number>`. `clone.origin` — каталог становится клоном с этим `origin`, `clone.prLink` — сессия в 10:06
+   * открыла PR этого репозитория (`owner/repo`), как облако пишет его в транскрипт.
+   */
+  function cloudFact(language: string, prompt = "#42 сделай экспорт", number = 42, clone: { origin?: string; prLink?: string } = {}) {
     const cwd = path.join(dir, "repo");
     mkdirSync(path.join(cwd, ".agents"), { recursive: true });
     writeFileSync(path.join(cwd, ".agents/elves.json"), JSON.stringify({ language }));
+    if (clone.origin) gitRepo(cwd).git("remote", "add", "origin", clone.origin);
     const proj = path.join(dir, ".claude", "projects", realpathSync(cwd).replace(/[^A-Za-z0-9]/g, "-"));
     mkdirSync(proj, { recursive: true });
     const usage = { input_tokens: 1, output_tokens: 1000, cache_read_input_tokens: 100000, cache_creation_input_tokens: 0 };
     const rec = (hhmm: string, extra: object) => ({ timestamp: `2026-09-01T${hhmm}:00Z`, cwd, gitBranch: "claude/export-x", ...extra });
+    const pr = clone.prLink;
     writeFileSync(path.join(proj, "11111111-2222-3333-4444-555555555555.jsonl"), jsonl([
       rec("10:00", { type: "user", origin: { kind: "human" }, message: { role: "user", content: prompt } }),
+      ...(pr ? [{ type: "pr-link", timestamp: "2026-09-01T10:06:00Z", prNumber: 77, prRepository: pr, prUrl: `https://github.com/${pr}/pull/77` }] : []),
       rec("10:06", { type: "assistant", message: { id: "msg_01", model: "claude-opus-5-5", content: [{ type: "text", text: "…" }], usage } }),
       rec("10:12", { type: "assistant", message: { id: "msg_02", model: "claude-opus-5-5", content: [{ type: "text", text: "…" }], usage } }),
     ]));
@@ -1434,6 +1441,29 @@ describe("В облачной сессии est считает свою част�
     const prompt = brief("Диспетчер эпика #40 запустил облачные сессии задач #41, #42 и #43.", "Задача #42 «Экспорт счетов»: сделай её целиком.");
     for (const n of [40, 41, 42, 43]) {
       const r = cloudFact("ru", prompt, n);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("Факт недоступен (облако): ");
+    }
+  });
+
+  /**
+   * Облако не видит PR (GraphQL закрыт): PR своего репозитория, который сессия открыла, — не признак ни её задачи, ни
+   * чужой, задачу называет первый промпт (#617). Свой репозиторий — `owner/repo` из `origin` клона, как локально.
+   */
+  it("est fact в облачной сессии, открывшей PR своего репозитория, связывает транскрипт с задачей по единственному #N первого промпта", () => {
+    const r = cloudFact("ru", "#42 сделай экспорт", 42, { origin: "https://github.com/o/r", prLink: "o/r" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("Факт (облако): 0.2 ч активных в облачной сессии Claude Code, 1 промпт.");
+    // время после PR — ожидание CI, мерж, факт — тоже задачи: PR не обрывает отрезок промпта
+    expect(parseMarker(r.stdout, "fact").cloud).toMatchObject([{ iv: [[ts("10:00"), ts("10:12")]] }]);
+  });
+
+  it("PR другого репозитория в облачной сессии по-прежнему снимает связь отрезка по первому промпту", () => {
+    // без origin свой репозиторий не узнать — любой PR с репозиторием как чужой, как до #617
+    for (const clone of [{ origin: "git@github.com:o/r.git", prLink: "x/other" }, { prLink: "o/r" }]) {
+      cleanup();
+      ({ dir, cleanup } = tmpDir());
+      const r = cloudFact("ru", "#42 сделай экспорт", 42, clone);
       expect(r.status).toBe(0);
       expect(r.stdout).toContain("Факт недоступен (облако): ");
     }
