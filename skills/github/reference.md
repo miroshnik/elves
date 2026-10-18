@@ -809,10 +809,30 @@ stops giving the task out until it's lifted. Queue
 empty and nothing running — the summary (merged, questions, not ready, new
 tasks outside the queue), the last line and, in auto mode, archiving; a session
 with its own task — after it. A running executor isn't stopped (`TaskStop`) to
-archive the session: its answer comes first. The app's
-child sessions (`start_session`) aren't given out yet (a server flag); when
-they are, an executor becomes a session. A cloud executor (claude.ai/code,
-#609) — `--assignment N --cloud`, called by the dispatcher itself: the brief,
+archive the session: its answer comes first.
+
+The app's sessions are executors too: another project's task — an app session
+in its folder (`start_session` with its own worktree), while a subagent works
+in a worktree of the dispatcher's repository. Such a session works as a session
+of its project, by its mode; the end of its turn comes as the app's note, like
+an answer, — `task queue` again. Archiving, app and cloud executors alike
+(#621): an executor session whose task closed — the dispatcher archives it in
+an auto project, not one still working in the background or awaiting the
+owner's answer; outside auto the owner closes it. Closed — `task close` passed:
+the PR merged, the deploy green, the actual written; the session is still in
+the list. Auto — `"auto": true` in `.agents/elves.json` of the session's
+project. In auto mode a session archives itself after the last line, but not
+always: it ended with a question whose answer went to the dispatcher, or its
+last turn was the wait for the deploy, and the line never reached archiving.
+Not archived: a session with live background work (the app refuses — "still
+has live work"), one awaiting the owner's answer (an archived session leaves
+the list, and the owner wouldn't read its question), a project outside auto
+mode — the owner closes those. The step — the last line of `task queue`, read
+after each answer; in Claude Code — `archive_session` with the session's id,
+refused — not retried (`claude/CLAUDE.md`).
+
+A cloud executor (claude.ai/code, #609) — `--assignment N --cloud`, called by
+the dispatcher itself: the brief,
 the cloud session's first prompt as is — whole, `task queue` refuses in
 the cloud; `#` only at its task (`docs/cloud-sessions.md`, "The
 brief"); after the merge — the cloud's close, without messaging the
@@ -820,7 +840,8 @@ dispatcher or archiving its session. The hand-out — without a worktree
 (`@cloud`). A cloud session can't message a local one, so `Next:` gives the
 dispatcher the wait for the task's closing — `wait-ci.sh issue N` as a
 background command; PASS — `task close N`, then archiving the executor's
-session; TIMEOUT — the task's questions and State comment, the wait again;
+session in an auto project (above); TIMEOUT — the task's questions and State
+comment, the wait again;
 after the app restarts the queue's `=` line names the wait.
 
 ### task drop

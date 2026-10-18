@@ -179,8 +179,9 @@ i.e. per executor. So the brief tells the executor not to message the
 dispatcher and not to archive its session, and the dispatcher waits for the
 merge's `Closes #N`: `ci-wait issue <N>` as its own background command; PASS
 — `github task close <N>` locally (the actual with `--write`, `Status`, the
-merged `claude/<slug>` branch), then archiving the executor's session where
-it has the tool (till then its transcript may be needed for `est`); TIMEOUT —
+merged `claude/<slug>` branch), then archiving the executor's session in an
+auto project where it has the tool (till then its transcript may be needed
+for `est`; the rule — the `github` skill, "Dispatcher"); TIMEOUT —
 the task's questions section and State comment, the executor's session, the
 wait again. After the app restarts the queue's `=` line names the wait.
 

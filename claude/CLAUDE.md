@@ -7,8 +7,8 @@ every project, whatever its `CLAUDE.md`.
 - Session transcripts (`~/.claude/projects/<path-with-dashes>*/`) are the
   source of actuals for the `est` skill; `~/.claude/settings.json` must have
   `"cleanupPeriodDays": 365`, otherwise history is cleaned before it's needed.
-- The app's worktree names the branch `claude/<slug>-<hash>` — it is renamed
-  when the task is taken: `github task status <N> "In progress" --branch
+- The app's worktree names the branch `claude/<slug>-<hash>` — renamed when
+  the task is taken: `github task status <N> "In progress" --branch
   <type>/<N>-<slug>` (a bare `git branch -m` fails on `.git/config` locked by
   a parallel worktree and leaves the upstream behind). The session panel
   (branch, diff to `main`, "Create PR") reads git, not GitHub: after a merge
@@ -23,8 +23,8 @@ every project, whatever its `CLAUDE.md`.
   `ScheduleWakeup` on top: an armed wakeup keeps `archive_session` refused
   even after `stop`.
 - Merge in auto mode — `gh pr merge <N> --rebase` as a separate call, without
-  `cd`, `|`, `;`: otherwise the `Bash(gh pr merge *)` rule (set by the owner)
-  won't match and the classifier rejects the merge.
+  `cd`, `|`, `;`: otherwise the owner's `Bash(gh pr merge *)` rule won't
+  match and the classifier rejects the merge.
 - `install -g` puts a `SessionStart` hook into `~/.claude/settings.json`
   (`startup|resume|clear`): `check --hook` — the machine (canon, skills, hook)
   and the project's flow with its mode and language (`AGENTS.md`, "First step
@@ -42,7 +42,8 @@ every project, whatever its `CLAUDE.md`.
   with `self` archives it, ending the conversation: the last action, after
   the "can be closed" line. Before it — `TaskStop` for each own
   background task still running: a live one gives "still has live work".
-  Refused after that — don't retry: the owner archives from the sidebar.
+  A dispatcher archives an executor session with its id. Refused — don't
+  retry: the owner archives from the sidebar.
 - Skills — the machine's `~/.claude/skills/<name>` (symlinks to
   `~/.agents/skills/<name>`), a thin project has no others; the skill
   directory is `${CLAUDE_SKILL_DIR}`; a same-named machine skill wins over a
@@ -53,7 +54,7 @@ every project, whatever its `CLAUDE.md`.
   at once a separate call with `dangerouslyDisableSandbox`: no
   `excludedCommands` entry takes `bun <file>` out. Entries `gh *` and `bash
   <path>/wait-ci.sh *` (`ci-wait`) do — the owner's step; without them — the
-  same separate call. The `task-env` skill, section "Docker and the sandbox".
+  same separate call. The `task-env` skill, "Docker and the sandbox".
 - A subagent that writes gets `isolation: worktree`: an isolated session
   doesn't write into others' worktrees, an agent without it inherits the
   parent's isolation. An agent cut off (a limit, a dropped session) leaves
@@ -61,7 +62,7 @@ every project, whatever its `CLAUDE.md`.
   after a base change — dependencies from the lockfile, else typecheck runs
   on old packages.
 - In a cloud session (claude.ai/code) the cloud assigns the branch — rename
-  it or push to another one only with the user's permission
+  it or push elsewhere only with the user's permission
   (`docs/cloud-sessions.md`).
 - Another task isn't a session card (`spawn_task`, `start_session`): the
   question «queue #M?», on "yes" its executor — `Agent` with `isolation:

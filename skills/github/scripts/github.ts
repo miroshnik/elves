@@ -2350,10 +2350,22 @@ function cloudBrief(io: Io, slug: string, issue: Issue): void {
   io.out(
     `Next: the lines above — the cloud session's first prompt as is, the session started from the project folder (the cloud starts from main); ` +
       `then as a background command: bash ${waitCi()} issue ${number} — a cloud session can't message a local one (docs/cloud-sessions.md), the task's closing is the signal: ` +
-      `PASS — bun --no-env-file ${import.meta.path} task close ${number} (the actual with --write, ${STATUS}, the merged branch), then archive the executor's session where the agent has the tool; ` +
+      `PASS — bun --no-env-file ${import.meta.path} task close ${number} (the actual with --write, ${STATUS}, the merged branch), then archive the executor's session in an auto project where the agent has the tool; ` +
       `TIMEOUT — the task's ${q(N.sections.questions)} and its ${q(N.comments.state)} comment, the executor's session, then the same wait again`,
   );
 }
+
+/**
+ * The dispatcher's step for its executor sessions — the app's (`start_session`: another project's task) and cloud ones
+ * (#621). In auto mode a session archives itself after the last line, but not always: it ended with a question whose
+ * answer went to the dispatcher, or its last turn was the wait for the deploy. The queue is what the dispatcher reads
+ * after each executor's answer, so its `Next:` names the step. Not archived: a session with live background work (the
+ * app refuses), one awaiting the owner's answer (an archived session leaves the list, and the owner wouldn't read its
+ * question), a project outside auto mode — the owner closes those.
+ */
+const SESSION_ARCHIVE =
+  "an executor session whose task closed — the dispatcher archives it in an auto project where the agent has the tool, " +
+  "not one still working in the background or awaiting the owner's answer; outside auto the owner closes it";
 
 /**
  * The dispatcher's queue: its ready tasks go to background executors (subagents), K at a time; the queue is re-read
@@ -2364,6 +2376,7 @@ function cloudBrief(io: Io, slug: string, issue: Issue): void {
  * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`).
  * Marks the session as a dispatcher (`dispatcherFile`). Before the queue — finished agents' worktrees
  * (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those a subagent still works in.
+ * The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
  */
 export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const want = o.type === undefined ? undefined : typeAliases()[o.type.toLowerCase()];
@@ -2453,10 +2466,15 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   if (ready.length) {
     io.out(
       `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
-        "the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in.",
+        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in; ${SESSION_ARCHIVE}.`,
     );
-  } else if (running.length) io.out("Next: no ready tasks — wait for the executors' answers; after each — task queue again.");
-  else io.out(`Queue is empty: nothing ready, nothing ${q(N.status.inProgress)} — the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.`);
+  } else if (running.length) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again; ${SESSION_ARCHIVE}.`);
+  else {
+    io.out(
+      `Queue is empty: nothing ready, nothing ${q(N.status.inProgress)}; ${SESSION_ARCHIVE}. ` +
+        "Then the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.",
+    );
+  }
   return 0;
 }
 

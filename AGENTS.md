@@ -2,9 +2,8 @@
 
 ## This file and skills
 
-The Elves canon for any agent (Claude Code, Codex, Gemini CLI, Cursor,
-Copilot, OpenCode, Amp). It lives in **miroshnik/elves** with the skills
-(`skills/*`) and references (`docs/`, next to this file), installed
+The Elves canon for any agent. It lives in **miroshnik/elves** with the
+skills (`skills/*`) and references (`docs/`, next to this file), installed
 onto the machine — README, "Installation". A rule or skill change from
 another project's session is a task in Elves (project #6) without that
 project's names, for a separate session; I don't edit an Elves clone from
@@ -89,8 +88,7 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 
 - Tasks live in the repository's **GitHub Issues**, not in local lists, TODO
   files or the agent's task list; no repository — ask where. The `github`
-  skill runs them (`task new`, `show`, `answer`, `status`, `close`, `drop`,
-  `pr labels`), not `gh issue view`/`edit`; how tasks, the project and
+  skill runs them, not `gh issue view`/`edit`; how tasks, the project and
   milestones are organized — its `reference.md`.
 - **Types:** Task (one PR), Bug, Epic (a personal account — the `epic`
   label). **Decision labels** — the decision's name, kind by color: a task
@@ -121,11 +119,13 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   question «run the dispatcher on epic #M?», without In progress.
 - **A dispatcher** — "do all tasks of epic #M", "fix all High bugs", a "yes"
   — any session, its task stays; one started for it — in the project folder,
-  not a worktree: executors start from `main`. `github task queue` — ready
-  ones with executors' prompts; an executor — a background subagent in its
-  worktree or a cloud session: at most 3 subagents and 5 cloud sessions at
-  once, the owner's number replaces either; its question — to the owner,
-  the answer into the issue and back; failed — a task comment, no restart.
+  not a worktree: executors start from `main`. `github task queue` prints
+  executors' prompts; an executor — a background subagent in its worktree or
+  a cloud session: at most 3 subagents and 5 cloud sessions at once, the
+  owner's number replaces either; failed — a task comment, no restart; an
+  executor session whose task closed — the dispatcher archives it in an auto
+  project, not one still working in the background or awaiting the owner's
+  answer; outside auto the owner closes it.
 - **The session is named `#<number> <task title>`** (without a task — by
   meaning, no number) as soon as the task is clear (no tool — ask the user):
   `est` links the session to the task by it.

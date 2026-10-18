@@ -6,24 +6,23 @@ allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-
 
 # github — project and tasks by the canon, not from memory
 
-Principles — `AGENTS.md`, section "Task tracking"; the full rules (types,
+Principles — `AGENTS.md`, "Task tracking"; the full rules (types,
 decision labels, epics, dependencies, the project, milestones, the five
 epic-refresh checks) and what each command below checks, sets and prints —
-`reference.md` next to this file. Done by hand from the reference, projects
-drift apart and a task gets created without a status, priority or epic link.
+`reference.md` next to this file. By hand, projects drift apart and tasks
+lack a status, priority or epic link.
 The script `scripts/github.ts` next to this file checks the project
 against the canon, fixes what the API can, and does each task step in one
 command; the agent goes through the UI steps and asks for confirmation on
 anything destructive. Syntax and a summary of a command —
 `github <command> --help`. Editing an existing task (Priority, links) and
-milestones — `reference.md`, section "Manual commands".
+milestones — `reference.md`, "Manual commands".
 
 **In Claude Code — at once a separate unsandboxed call**
 (`dangerouslyDisableSandbox`): `gh` fails on TLS in the sandbox, `task close`
 also calls Docker for the task's stacks — the sandbox denies its socket, and
-no `excludedCommands` entry takes a script run by `bun` out — checked with
-`bun <path>/github.ts project check` too (`claude/CLAUDE.md`; `SKILL.md` of the
-task-env skill, "Checked on the machine").
+no `excludedCommands` entry takes a script run by `bun` out
+(`claude/CLAUDE.md`; `SKILL.md` of the task-env skill, "Checked on the machine").
 
 ## Project — check and fix
 
@@ -54,8 +53,8 @@ asking separately; no browser or sign-in — a list of steps with links for the
 user; the agent doesn't enter a password; after the steps — `check` again;
 **Confirmation needed** — show the list to the user, after a "yes" —
 `fix --confirm`; `!` — an error with the reason, most often `gh` lacks a
-scope. The eleven items checked, who does what, how to go through the UI steps
-and the API's gaps — `reference.md`, "Project check and fix".
+scope. The eleven items checked, who does what, the UI steps and the API's
+gaps — `reference.md`, "Project check and fix".
 
 ## Tasks and PRs
 
@@ -84,7 +83,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | PR merged | in one turn — `task actualize N` and in the background `wait-ci.sh merged <PR>` (it takes the merge SHA itself); a refresh is needed — next turn, in the background, a subagent with the printed two-line prompt; after both — `task close N` (exit code 0 from the wait — right away, don't read the output) |
 | Task closed without a PR | `task actualize N`, the subagent; then `task close N` |
 | Session resumed after the app restarted | the `SessionStart` hook runs `task resume` itself — its line is in the context: run the named command, a background wait died with the process |
-| "Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's "yes" | the session is a dispatcher, its own task stays: `task queue --epic M` (or `--type`, `--priority`), executors — background subagents; below, "Dispatcher" |
+| "Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's "yes" | the session is a dispatcher, its own task stays: `task queue --epic M` (or `--type`, `--priority`); below, "Dispatcher" |
 | Another task: work outside the task, a red-main bug, a flow copy's move | `task new`, then the question to the owner «queue #N?»; "yes" — its executor at once, the same as a dispatcher's (`task new` and `task status` in a session with a task print its prompt) |
 | Won't do, duplicate, replaced by others | `task drop N [--duplicate-of M]` |
 | PR ready (and after new commits) | `pr labels <PR>` — decision labels for the task and the epic |
@@ -151,26 +150,28 @@ folder, not a worktree: executors (subagents, cloud sessions) start from
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
 `isolation: "worktree"` and `run_in_background: true`, the prompt — the
 indented line as is; at most 3 subagents and 5 cloud sessions at once, the
-owner's number replaces either;
+owner's number replaces either; another project's task — an app session in
+its folder (`start_session`, own worktree);
 `=` — a task in work (In progress, an open PR, handed out to an executor of
 this session), not launched again. Before each launch — `get_usage`: the 5-hour limit at 85% and more —
 no new executors, the running ones finish, then `Remaining: N tasks, the
-limit`. After each executor's answer — `task queue` again: it also removes
-finished executors' worktrees (`+`), not by hand. A question — to the
+limit`. After each executor's answer — `task queue` again: it removes
+finished executors' worktrees (`+`); its last line names the step:
+an executor session whose task closed — the dispatcher archives it in an
+auto project, not one still working in the background or awaiting the
+owner's answer; outside auto the owner closes it. A question — to the
 owner in text; the answer — ✅ in the task's questions section and to the same
 executor with `SendMessage`. After the app restarts — each stopped executor
-is continued with `SendMessage` by its id, not a new one (`task resume`). Waits for subagents — it answers again. Failed — a
-task comment with what stopped, no restart (the owner's restart:
-`--assignment` refuses while the previous executor lives); on an external
-blocker — *blocked by* on its issue or
-the `external blocker` label with the reason (`reference.md`,
-"Dependencies"). Queue empty and nothing running — the summary, the last
+is continued with `SendMessage` by its id, not replaced (`task resume`). Waits for subagents — it answers again. Failed — a
+task comment, no restart (the owner's restart:
+`--assignment` refuses while the previous executor lives); external
+blockers — `reference.md`, "Dependencies". Queue empty and nothing running — the summary, the last
 line (a session with its own task — after it) and, in auto mode, archiving. The executor's side (`--assignment`,
 a cloud one's: `--cloud`) — `reference.md`, "task queue".
 
 ## Git, PRs and merging — mechanics
 
-Principles — `AGENTS.md`, section "Git, PRs and merging"; the full rules —
+Principles — `AGENTS.md`, "Git, PRs and merging"; the full rules —
 `reference.md`, "Git, PRs and merging — full rules". Waiting for checks, the
 full SHA and a merge that deploys — `docs/pr-checks.md`.
 
