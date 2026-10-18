@@ -83,7 +83,7 @@ unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 runn
 | image | `traefik:v3.7` |
 | provider | Docker, `exposedByDefault: false` — a container without `traefik.enable=true` isn't published |
 | network | `elves-proxy`: the proxy reaches a task stack's service through it — the service names it by the label `traefik.docker.network` |
-| default network | `providers.docker.network` — for a container without the label: `elves-proxy`, `ai-dev-proxy` while the proxy is in it (below, section "The proxy before the rename") |
+| default network | `providers.docker.network` — for a container without the label: `elves-proxy`, the proxy's own |
 | entry point | `web` — HTTP on `127.0.0.1:80`; not on all interfaces: task apps aren't visible on the local network |
 | restart | `unless-stopped` — comes back with Docker; `proxy down` removes it for good |
 | health | `traefik healthcheck --ping`: `proxy up` returns when the proxy serves |
@@ -110,39 +110,28 @@ drop.
 ## The proxy before the rename
 
 Before the rename of the flow (ai-dev → Elves) the proxy was the Compose
-project `ai-dev-proxy` with the network of that name, and stacks brought up
-then are in that network, their services without a network label. For one
-release `proxy up` — and `up`, which starts a proxy that isn't running —
-takes its place:
+project `ai-dev-proxy` with the network of that name. `proxy up` — and `up`,
+which starts a proxy that isn't running — takes its place:
 
 - **its container goes** — it holds the port; the new one is created first
   (the image pulled), so a failed pull leaves the former proxy serving:
   `proxy ai-dev-proxy: removed — the proxy before the rename; elves-proxy
-  takes its port, its network ai-dev-proxy stays`;
-- **its network stays and the proxy joins it** — an override on Compose's
-  stdin, as for a task stack: the stacks in it keep their addresses; a
-  machine without that network — the proxy is in its own only, the network
-  isn't created; `proxy status` names it: `(network elves-proxy; and
-  ai-dev-proxy — …)`;
-- **the network a container is reached through is deterministic**: a
-  container without the proxy's network among its own gets from Traefik "the
-  first" of them in Go's map order — a random one per configuration, and a
-  stack in its `default` and the proxy's network answers or not by chance. So
-  a task stack's service names the network by the label (section "Labels of
-  a task stack's service"), and the provider's default is `ai-dev-proxy`
-  while the proxy is in it — the stacks before the rename carry no label;
-- **`check`** names a network `ai-dev-proxy` written in a project's compose
-  file (`networks: [default, ai-dev-proxy]`, `external: true`) with its fix:
-  remove it, `up` adds the proxy's network itself. The project moves by a
-  task of its own; until then the network is there and its stack comes up;
+  takes its port`;
+- **its network isn't joined** — the proxy is in its own network only, even
+  with `ai-dev-proxy` on the machine; a stack brought up before the rename,
+  left in `ai-dev-proxy` alone, gets its addresses back by `up` again: the
+  override puts its HTTP services into `elves-proxy`;
+- **`check`** holds a network `ai-dev-proxy` written in a project's compose
+  file (`networks: [default, ai-dev-proxy]`, `external: true`) to the rule of
+  any external network; the fix — remove it, `up` adds the proxy's network
+  itself;
 - **the port** — `ELVES_PROXY_PORT`, unset — `AI_DEV_PROXY_PORT` of the
   profile; **the settings** — `.agents/elves.json`, before `update` moves it
   — `.agents/ai-dev.json`.
 
 The former proxy is `ai-dev-proxy` only for the proxy of the default name;
 a proxy of another name (a test's) has `<name>-former`, so a test never
-touches the machine's proxy. The next release drops the transition: stacks
-still in `ai-dev-proxy` alone lose their addresses — `up` again moves them.
+touches the machine's proxy.
 
 ## Labels of a task stack's service
 
@@ -183,9 +172,12 @@ it by hand shares the proxy's network as `external`, and `check` names it.
 - The network is `external`: the proxy creates it, so `proxy up` goes before
   the task stack — `up` and `e2e` start it themselves.
 - `traefik.docker.network` — the network the proxy reaches the service
-  through: the service is in its own networks too, and without the label
-  Traefik's pick among them is random (section "The proxy before the
-  rename").
+  through: the service is in its own networks too, and the label names the
+  proxy's one, so the pick doesn't depend on the provider's default network.
+  Without the label a container outside that default gets from Traefik "the
+  first" of its networks in Go's map order — a random one per configuration,
+  and a stack in its `default` and the proxy's network would answer or not by
+  chance.
 - Networks: the service's own as Compose normalized them (one without
   `networks` is in `default`) plus the proxy's — listed networks replace the
   implicit `default`, and a key with null keeps the project's aliases.

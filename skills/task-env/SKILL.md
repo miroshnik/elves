@@ -125,9 +125,9 @@ removes it for good). Routes follow Docker events — no reload; an unknown host
 skill update brings the container to the new compose file. Its network, health and the API the dashboard reads
 addresses from — reference.md, "The proxy".
 
-**Before the rename** the proxy was `ai-dev-proxy`. For one release `proxy up` (and `up`, which starts the proxy)
-takes its place: removes its container, which holds the port, and joins its network, so stacks brought up before the
-rename keep their addresses; the network isn't removed or created — reference.md, "The proxy before the rename".
+**Before the rename** the proxy was `ai-dev-proxy`. `proxy up` (and `up`, which starts the proxy) takes its place:
+removes its container, which holds the port. Its network the proxy doesn't join: a stack brought up before the rename
+gets its addresses back by `up` again — reference.md, "The proxy before the rename".
 
 ## Compose file isolation rules
 
@@ -146,9 +146,7 @@ each with `task-env check`, a violation is code 1 of `check`.
 
 A bind mount of a machine resource — the Docker socket, `/etc/localtime`, a
 device (a source in `/var/run`, `/run`, `/etc`, `/dev`, `/proc`, `/sys`) — is
-not code and is fine; `~/…` is an absolute path. A network named `ai-dev-proxy`
-(the proxy before the rename, written by hand) — its own `❌` line: remove it,
-`up` adds the proxy's network to the `env.http` services itself.
+not code and is fine; `~/…` is an absolute path.
 
 `task-env check` reads `docker compose config`, not the YAML, so every form of writing is covered, and needs no Docker
 daemon — reference.md, "What the compose file check reads".

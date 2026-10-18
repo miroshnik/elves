@@ -33,12 +33,10 @@
  * another. The defaults live only here: the script passes both to the compose file explicitly (`composeEnv`), the file
  * has none (`${…:?}`); `check -g` of the installer imports `proxyName`.
  *
- * The rename of the flow to Elves renamed the proxy: `FORMER_PROXY` → `PROXY`. For one release `proxy up` takes the
- * former proxy's place: removes its container — it holds the port — and joins its network, where stacks brought up
- * before the rename stay, so their addresses keep working; `check` names the former network in a project's compose
- * file. Which network the proxy reaches a container through is deterministic: a task
- * stack's service names it by a label, the provider's default is the former network while the proxy is in it
- * (`proxyLabels`, `up`).
+ * The rename of the flow to Elves renamed the proxy: `FORMER_PROXY` → `PROXY`. `proxy up` takes the former proxy's
+ * place — removes its container, which holds the port — but not its network: the proxy is in its own network only, and
+ * `check` holds a hand-written former network to the rule of any external one (#564). A task stack's service names the
+ * proxy's network by a label (`proxyLabels`).
  *
  * The proxy's API (Traefik `/api/http/routers`) answers on its port by the host `<name>.localhost`: `proxyHosts` reads
  * the hosts of its routes, `taskAddress` tells a task's address among them — the dashboard shows a task's services by
@@ -98,9 +96,8 @@ Examples:
 
 Holds the compose file in <dir> (default — the current directory) to the task isolation rules: no container_name, no
 fixed host port, volumes and networks without name and external, code by paths relative to the compose file; one ❌ line
-per violation; the network of the proxy's former name ai-dev-proxy — remove it, task-env up adds the proxy's network
-itself. Code 0 — the rules hold or there is no compose file, 1 — violations, 2 — not checked (no docker compose, the
-config doesn't parse).
+per violation. Code 0 — the rules hold or there is no compose file, 1 — violations, 2 — not checked (no docker compose,
+the config doesn't parse).
 
 Examples:
   task-env check
@@ -108,8 +105,8 @@ Examples:
   "proxy up": `task-env proxy up
 
 Starts the machine's proxy (Traefik) or brings it to the skill's compose file and waits until it is healthy; port 80 busy
-— another one in ELVES_PROXY_PORT. The proxy before the rename (ai-dev-proxy) — its container removed, its network
-joined: stacks brought up before the rename keep their addresses.
+— another one in ELVES_PROXY_PORT. The proxy before the rename (ai-dev-proxy) holds the port — its container removed;
+stacks brought up before the rename get their addresses back by task-env up.
 
 Examples:
   task-env proxy up`,
@@ -158,9 +155,9 @@ export const ENTRY_POINT = "web";
 export const PROXY = "elves-proxy";
 
 /**
- * The proxy's default name before the rename of the flow (ai-dev → Elves), read for the transition — one release
- * (#545): `proxy up` takes its place, `check` names its network in a project's compose file, `check -g` of the
- * installer names a proxy left under this name.
+ * The proxy's default name before the rename of the flow (ai-dev → Elves), read for the transition (#545): `proxy up`
+ * removes its container, which holds the port, `check -g` of the installer names a proxy left under this name. Its
+ * network the proxy no longer joins (#564).
  */
 export const FORMER_PROXY = "ai-dev-proxy";
 
@@ -183,15 +180,13 @@ export const formerProxyName = (env: NodeJS.ProcessEnv = process.env) => {
 export const proxyPort = (env: NodeJS.ProcessEnv = process.env) => env.ELVES_PROXY_PORT || env.AI_DEV_PROXY_PORT || "80";
 
 /**
- * The environment of the proxy's compose file: the name, the port and the provider's default network are passed
- * explicitly — the file has no defaults of its own (`${…:?}`), they live only here (#396, question 1). The default
- * network is the proxy's own unless `up` joins the former proxy's network (`up`); not a setting — the script sets it.
+ * The environment of the proxy's compose file: the name and the port are passed explicitly — the file has no defaults
+ * of its own (`${…:?}`), they live only here (#396, question 1).
  */
-export const composeEnv = (env: NodeJS.ProcessEnv = process.env, network = proxyName(env)): NodeJS.ProcessEnv => ({
+export const composeEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => ({
   ...env,
   ELVES_PROXY: proxyName(env),
   ELVES_PROXY_PORT: proxyPort(env),
-  ELVES_PROXY_DEFAULT_NETWORK: network,
 });
 
 /** The host of the proxy's API: a router of the proxy's own labels on the `web` entry point (proxy/compose.yaml). */
@@ -307,8 +302,7 @@ export interface ProxyRoute {
  * one service (`--scale`) carry the same labels — Traefik balances between them. The network for reaching the
  * container — by a label (#545): without it Traefik takes the provider's default network, and when the container isn't
  * in that one — the first of its networks in Go's map order, a random one per configuration, and a stack in its
- * `default` and the proxy's network would answer or not by chance; the default is the former proxy's network while
- * the proxy is in it (`up`).
+ * `default` and the proxy's network would answer or not by chance.
  */
 export function proxyLabels(r: ProxyRoute): Record<string, string> {
   const id = `${r.stack}-${r.service}`;
@@ -344,17 +338,9 @@ function hint(reason: string, env: NodeJS.ProcessEnv) {
   return "";
 }
 
-/**
- * `docker compose` of the proxy. `former` — the former proxy's network to join: an override on Compose's stdin (the
- * network isn't always on the machine, so it isn't in the file), and it becomes the provider's default network.
- */
-function compose(args: string[], env: NodeJS.ProcessEnv, former?: string) {
-  const override = former ? { services: { [SERVICE]: { networks: { proxy: null, former: null } } }, networks: { former: { name: former, external: true } } } : undefined;
-  return spawnSync("docker", ["compose", "-f", PROXY_FILE, ...(override ? ["-f", "-"] : []), ...args], {
-    encoding: "utf8",
-    input: override ? JSON.stringify(override) : undefined,
-    env: composeEnv(env, former),
-  });
+/** `docker compose` of the proxy. */
+function compose(args: string[], env: NodeJS.ProcessEnv) {
+  return spawnSync("docker", ["compose", "-f", PROXY_FILE, ...args], { encoding: "utf8", env: composeEnv(env) });
 }
 
 /** The proxy containers of a Compose project in any state — a `format` line each; Docker unavailable — the reason. */
@@ -371,31 +357,18 @@ export function proxyRunning(env: NodeJS.ProcessEnv = process.env): boolean | st
   return typeof states === "string" ? states : states.includes("running");
 }
 
-/** Whether a network is on the machine; Docker unavailable — the reason. */
-function networkExists(name: string, env: NodeJS.ProcessEnv): boolean | string {
-  const r = spawnSync("docker", ["network", "ls", "--filter", `name=^${name}$`, "--format", "{{.Name}}"], { encoding: "utf8", env, timeout: 10_000 });
-  if (r.error || r.status !== 0) return why(r);
-  return r.stdout.split("\n").includes(name);
-}
-
 function status(env: NodeJS.ProcessEnv): Result {
   const name = proxyName(env);
-  const found = proxyContainers(name, "{{.State}}\t{{.Networks}}", env);
-  if (typeof found === "string") return { code: 2, out: `proxy ${name}: Docker unavailable — ${found}${hint(found, env)}` };
-  const running = found.map((l) => l.split("\t")).find(([state]) => state === "running");
+  const running = proxyRunning(env);
+  if (typeof running === "string") return { code: 2, out: `proxy ${name}: Docker unavailable — ${running}${hint(running, env)}` };
   if (!running) return { code: 1, out: `proxy ${name}: not running — start: ${START}` };
-  const former = formerProxyName(env);
-  const also = running[1]?.split(",").includes(former) ? `; and ${former} — of the proxy before the rename, with the stacks brought up before it` : "";
-  return { code: 0, out: `proxy ${name}: running — ${addressUrl("<service>.<N>.<project>.localhost", proxyPort(env))} on 127.0.0.1, routes by container labels (network ${name}${also})` };
+  return { code: 0, out: `proxy ${name}: running — ${addressUrl("<service>.<N>.<project>.localhost", proxyPort(env))} on 127.0.0.1, routes by container labels (network ${name})` };
 }
 
 /**
- * `proxy up`: the proxy brought to the compose file and healthy. The transition from the proxy before the rename
- * (#545, one release): its container holds the port — removed once the new one is created (a failed pull leaves the
- * former proxy serving); its network stays — stacks brought up before the rename are in it — and the proxy joins it as
- * the provider's default network: their services carry no network label, and a container outside the default network
- * gets a random one of its networks (`proxyLabels`). No former network on the machine — the proxy is in its own only,
- * the former one isn't created.
+ * `proxy up`: the proxy brought to the compose file and healthy, in its own network only. The proxy before the rename
+ * (#545) holds the port: its container is removed once the new one is created (a failed pull leaves the former proxy
+ * serving). Its network the proxy doesn't join (#564): stacks left only in it get their addresses back by `up`.
  */
 function up(env: NodeJS.ProcessEnv): Result {
   const name = proxyName(env);
@@ -404,17 +377,14 @@ function up(env: NodeJS.ProcessEnv): Result {
   const fail = (reason: string) => ({ code: 2, out: [...out, `proxy ${name}: not started — ${reason}${hint(reason, env)}`].join("\n") });
   const old = proxyContainers(former, "{{.ID}}", env);
   if (typeof old === "string") return fail(old);
-  const joined = networkExists(former, env);
-  if (typeof joined === "string") return fail(joined);
-  const network = joined ? former : undefined;
   if (old.length) {
-    const created = compose(["up", "--no-start", "--quiet-pull"], env, network);
+    const created = compose(["up", "--no-start", "--quiet-pull"], env);
     if (created.error || created.status !== 0) return fail(why(created));
     const rm = spawnSync("docker", ["rm", "--force", ...old], { encoding: "utf8", env });
     if (rm.error || rm.status !== 0) return fail(`the proxy before the rename, ${former}, not removed: ${why(rm)}`);
-    out.push(`proxy ${former}: removed — the proxy before the rename; ${name} takes its port${joined ? `, its network ${former} stays` : ""}`);
+    out.push(`proxy ${former}: removed — the proxy before the rename; ${name} takes its port`);
   }
-  const r = compose(["up", "--detach", "--wait", "--quiet-pull"], env, network);
+  const r = compose(["up", "--detach", "--wait", "--quiet-pull"], env);
   if (r.error || r.status !== 0) return fail(why(r));
   const s = status(env);
   return { code: s.code, out: [...out, s.out].join("\n") };
@@ -515,12 +485,6 @@ function violations(config: Config, file: string): string[] {
   }
   for (const [key, r] of Object.entries(config.networks ?? {})) {
     const users = services.filter(([, s]) => Object.hasOwn(s.networks ?? {}, key)).map(([n]) => n);
-    // the proxy's network under its name before the rename (#545): a compose file wrote it by hand, as the example of
-    // reference.md did; the proxy stays in that network one release (`up`), and a machine without it fails the stack
-    if (r.name === FORMER_PROXY) {
-      line(`network ${key} (${list(users)})`, `${FORMER_PROXY} is the machine's proxy before the rename, now ${PROXY}: remove the network from the compose file and its services; task-env up adds the proxy's network to the HTTP services of env.http itself`);
-      continue;
-    }
     shared("network", key, r, users, "task stacks share it and reach each other's services");
   }
   return out;
