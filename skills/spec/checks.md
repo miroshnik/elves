@@ -534,7 +534,10 @@ monorepo knip takes longer than a test timeout (5 s in Vitest). Without
 `node_modules/.bin/knip --reporter json --reporter <skill>/knip-hints.cjs` is
 run (plus `args`); `report` is ready output of the same command (`knip --reporter
 json --reporter node_modules/@miroshnik/elves/skills/spec/scripts/knip-hints.cjs > .knip.json`);
-without the hints line — a failed test with that command. An exit code other
+without the hints line — a failed test with that command. A project's code that
+needs the reporter's path takes it from the reporter itself, not as a string into
+`node_modules`: `import knipHints from "@miroshnik/elves/spec/knip-hints"` —
+`knipHints.file`, under Bun and Node. An exit code other
 than 0/1 or output that isn't JSON — all the kind tests fail with the reason: a
 knip crash isn't "no dead code".
 

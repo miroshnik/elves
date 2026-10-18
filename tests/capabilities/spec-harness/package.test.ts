@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
 
+import { REPO } from "../../lib/elves.ts";
 import { packageProject } from "../../lib/npm.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { writeTree } from "../../lib/spec.ts";
@@ -76,5 +77,26 @@ describe("Харнесс и spec-скрипты — из пакета @miroshnik
     const doc = run(proj, elves, ["spec-doc", ".spec-report.xml", "--strict"]);
     expect({ code: exitOf(doc), stderr: doc.stderr }).toMatchObject({ code: 0, stderr: expect.stringContaining("capabilities 1, architecture 0, standards 0, 1 test") });
     expect(readFileSync(path.join(proj, "docs/spec/capabilities/invoices.md"), "utf8")).toContain("an invoice exports to PDF");
+  });
+
+  /**
+   * Тест мёртвого кода проекта берёт путь репортёра подсказок knip у самого репортёра (`file`), а не строкой пути в
+   * node_modules (#620): строка ломается, когда пакет не поднят в корень node_modules. Репортёр — CommonJS без сборки,
+   * один файл и под Bun, и под Node проекта.
+   */
+  it("репортёр knip — экспорт @miroshnik/elves/spec/knip-hints: под Bun и под Node его file — файл репортёра в пакете, knip --reporter печатает им подсказки", () => {
+    const proj = packageProject("knip-hints-export", {
+      "probe.mjs": 'import knipHints from "@miroshnik/elves/spec/knip-hints";\nconsole.log(knipHints.file);\n',
+      "src/used.ts": "export const used = 1;\n",
+      "src/index.ts": 'import { used } from "./used.ts";\nconsole.log(used);\n',
+      "knip.json": JSON.stringify({ entry: ["src/index.ts", "src/missing.ts"], project: ["src/**/*.ts"] }) + "\n",
+    });
+    const reporter = path.join(realpathSync(proj), "node_modules/@miroshnik/elves/skills/spec/scripts/knip-hints.cjs");
+    for (const runtime of [[process.execPath, "--no-env-file"], ["node"]] as const) {
+      const r = run(proj, runtime[0], [...runtime.slice(1), "probe.mjs"]);
+      expect({ runtime: runtime[0], code: exitOf(r), file: r.stdout.trim(), stderr: r.stderr }).toEqual({ runtime: runtime[0], code: 0, file: reporter, stderr: "" });
+    }
+    const knip = run(proj, "node", [path.join(REPO, "node_modules/knip/bin/knip.js"), "--reporter", "json", "--reporter", reporter]);
+    expect(knip.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify({ configurationHints: [{ type: "entry-empty", identifier: "src/missing.ts", workspace: "." }] }));
   });
 });

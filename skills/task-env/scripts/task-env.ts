@@ -53,9 +53,11 @@ import { fileURLToPath } from "node:url";
 /**
  * Help — `--help` or `-h` before `--` (after it — the e2e command's arguments; tests/standards/cli-help): a command's
  * synopsis (the first paragraph), what it does and examples; `task-env --help` — the synopses of all. The dispatcher takes
- * only the commands from here: a command without help can't be called.
+ * only the commands from here: a command without help can't be called. A project's scripts and tests run it from the
+ * project's package — `elves task-env …` (bin/elves.ts imports `main`, `HELP` and `OVERVIEW` and prints them under its
+ * name, #620).
  */
-const HELP: Record<string, string> = {
+export const HELP: Record<string, string> = {
   up: `task-env up [--profile <p>]...
 
 Brings the task's stack up — the Compose project <project>-<N> by the branch <type>/<N>-slug, <project> without a
@@ -125,7 +127,7 @@ Examples:
 };
 
 /** `task-env --help`: what the script is and the synopsis of each command. */
-const OVERVIEW = [
+export const OVERVIEW = [
   "task-env — a task's environment: its Docker Compose stack and the machine's proxy of *.localhost addresses",
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
@@ -961,7 +963,7 @@ function stackCommand(group: string, args: string[], env: NodeJS.ProcessEnv): nu
 
 const COMMANDS: Record<string, (env: NodeJS.ProcessEnv) => Result> = { up, down, status };
 
-function main(argv: string[]): number {
+export function main(argv: string[]): number {
   const help = helpOf(argv);
   if (help) return process.stdout.write(help + "\n"), 0;
   const command = commandOf(argv);

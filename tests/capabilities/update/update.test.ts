@@ -505,6 +505,100 @@ describe("Проект с копией флоу переезжает на тон
     expect(readdirSync(path.join(sb.proj, ".agents/skills"))).toEqual(["mine"]);
     expect(readdirSync(path.join(sb.proj, ".claude"))).toEqual(["settings.json"]);
   });
+
+  /**
+   * Переезд четырёх проектов (#620) упёрся в одни хвосты: скрипт поднятия стека и обёртка e2e звали task-env копии,
+   * тест мёртвого кода импортировал репортёр knip копии ради его `file`. Пакет даёт обоим своё — команду `elves task-env`
+   * и экспорт репортёра, — и `update` переводит их сам: после него в проекте не остаётся путей в копию.
+   */
+  it("update проекта с копией переводит вызов task-env и импорт knip-hints.cjs копии на пакет: скрипт зовёт elves task-env, тест — экспорт @miroshnik/elves/spec/knip-hints; check после него — без «!»", () => {
+    copyInstall(sb.proj);
+    const DEAD_CODE = "tests/dead-code.test.ts";
+    writeTree(sb.proj, {
+      "scripts/dev.sh": "#!/bin/sh\nset -e\nbun .agents/skills/task-env/scripts/task-env.ts up\nexec next dev\n",
+      [DEAD_CODE]: [
+        'import { describe, it } from "bun:test";',
+        'import knipHints from "../.agents/skills/spec/scripts/knip-hints.cjs";',
+        'import { deadCode } from "../.agents/skills/spec/scripts/harness.ts";',
+        "",
+        'describe("No dead code", () => deadCode(it, { root: ".", args: ["--reporter", knipHints.file] }));',
+        "",
+      ].join("\n"),
+    });
+    gitRepo(sb.proj, { init: false }).commit({}, "chore: копия флоу");
+    expect(elves(sb, ["check"]).stdout).not.toContain("  ! ");
+    const u = elves(sb, ["update"]);
+    expect(u.code).toBe(0);
+    // чего по тексту не узнать — списком для задачи переезда
+    expect(u.stdout).toContain("\nBy hand in the move's task:\n  - a project's check that knows the queue wrapper by the copy's path");
+    expect(read(path.join(sb.proj, "scripts/dev.sh"))).toBe("#!/bin/sh\nset -e\nbun --no-env-file node_modules/.bin/elves task-env up\nexec next dev\n");
+    const test = read(path.join(sb.proj, DEAD_CODE));
+    expect(test).toContain('\nimport knipHints from "@miroshnik/elves/spec/knip-hints";\nimport { deadCode } from "@miroshnik/elves/spec/harness";\n');
+    const c = elves(sb, ["check"]);
+    expect({ ...c }).toMatchObject({ code: 0, stdout: expect.not.stringContaining("  ! ") });
+  });
+
+  /** Формы, в которых проекты звали скрипты копии: `bun` и `node`, с флагами рантайма и без, путь с `./` и без. */
+  it("update переписывает скрипт пакета из копии в известных формах — bun и node, с флагами и без — в package.json, shell-скрипте и workflow на elves <скрипт>", () => {
+    const RUN = "bun --no-env-file node_modules/.bin/elves";
+    const { u, runs } = moveCi(["jobs:", "  spec:", "    steps:", "      - run: npm ci", "      - run: node .agents/skills/spec/scripts/spec-diff.ts --base origin/main"], {
+      "package.json":
+        JSON.stringify(
+          {
+            name: "x",
+            private: true,
+            scripts: {
+              "spec:doc": "node .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
+              "spec:shard": "node --experimental-strip-types --no-warnings .agents/skills/spec/scripts/spec-shard.ts 1/4",
+              dev: "node --run predev && bun ./.agents/skills/task-env/scripts/task-env.ts up && next dev",
+              e2e: "bun --no-env-file .agents/skills/task-env/scripts/task-env.ts e2e -- playwright test",
+            },
+          },
+          null,
+          2,
+        ) + "\n",
+      "scripts/e2e.sh": '#!/usr/bin/env bash\nexec node .agents/skills/task-env/scripts/task-env.ts e2e -- "$@"\n',
+    });
+    expect(u.code).toBe(0);
+    expect(JSON.parse(read(path.join(sb.proj, "package.json"))).scripts).toEqual({
+      "spec:doc": `${RUN} spec-doc .spec-report.xml --strict`,
+      "spec:shard": `${RUN} spec-shard 1/4`,
+      dev: `node --run predev && ${RUN} task-env up && next dev`,
+      e2e: `${RUN} task-env e2e -- playwright test`,
+    });
+    expect(read(path.join(sb.proj, "scripts/e2e.sh"))).toBe(`#!/usr/bin/env bash\nexec ${RUN} task-env e2e -- "$@"\n`);
+    expect(runs).toEqual({ spec: ["npm ci", `${RUN} spec-diff --base origin/main`] });
+  });
+
+  /**
+   * Чего `update` переписать не умеет — путь в копию в массиве аргументов, импорт канона копии, — `check` называет
+   * строкой `!` с файлом и номером строки: иначе после переезда он пишет «up to date», а проверки проекта красные.
+   * Своё у тонкого проекта — манифест, шим, канон и скиллы машины, свой скилл проекта, исключение `.agents/**` — не
+   * ссылка в копию.
+   */
+  it("ссылка на файл копии, которую update не переписал, — строка «!» в check с файлом и номером строки; код check прежний", () => {
+    elves(sb, ["install"]);
+    writeTree(sb.proj, {
+      "tests/compose.test.ts": 'import { spawnSync } from "node:child_process";\n\nconst r = spawnSync("bun", [".agents/skills/task-env/scripts/task-env.ts", "check"]);\n',
+      "CLAUDE.md": "@.agents/elves/AGENTS.md\n",
+      ".agents/skills/mine/SKILL.md": "свой скилл проекта\n",
+      "docs/own.md": [
+        "- `.agents/elves.json` и `. .agents/slot.sh && bun test`",
+        "- `bun ~/.agents/skills/github/scripts/github.ts task show 1`, `$HOME/.agents/elves/AGENTS.md`",
+        "- `bun .agents/skills/mine/scripts/x.ts`",
+        "- `ignores: [\".agents/**\"]`",
+        "",
+      ].join("\n"),
+    });
+    gitRepo(sb.proj, { init: false }).commit({}, "feat: свои файлы");
+    const c = elves(sb, ["check"]);
+    expect({ ...c }).toMatchObject({ code: 0, stdout: expect.stringContaining("in the project: up to date") });
+    const marks = c.stdout.split("\n").filter((l) => l.startsWith("  ! "));
+    expect(marks.map((l) => l.split(" — ")[0])).toEqual(["  ! CLAUDE.md:1", "  ! tests/compose.test.ts:3"]);
+    expect(marks[1]).toContain('spawnSync("bun", [".agents/skills/task-env/scripts/task-env.ts", "check"])');
+    expect(elves(sb, ["update"]).code).toBe(0);
+    expect(elves(sb, ["check"]).stdout.split("\n").filter((l) => l.startsWith("  ! "))).toEqual(marks);
+  });
 });
 
 /**
