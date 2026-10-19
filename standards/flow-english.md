@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 185 тестов</summary>
+<details><summary>✅ 186 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -297,6 +297,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «the block is current» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «unsplit: N h» из skills/est/reference.md печатает или пишет скрипт
 - ✅ цитату «violator does not pass: …» из skills/spec/checks.md печатает или пишет скрипт
+- ✅ цитату «waits for subagents» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «waits for the previous executor» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «working» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «workspace package \<path> is in the code roots» из skills/spec/checks.md печатает или пишет скрипт
@@ -315,7 +316,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ## Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 327 тестов</summary>
+<details><summary>✅ 328 тестов</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -456,6 +457,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.live скрипты читают из словаря
 - ✅ название queue.prompt скрипты читают из словаря
 - ✅ название queue.question скрипты читают из словаря
+- ✅ название queue.refresh скрипты читают из словаря
 - ✅ название queue.resume скрипты читают из словаря
 - ✅ название queue.session скрипты читают из словаря
 - ✅ название queue.subagent скрипты читают из словаря

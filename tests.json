@@ -2890,6 +2890,13 @@
   "describes": [
    "task close закрывает задачу одной командой"
   ],
+  "name": "task close задачи без PR и с открытым issue подсказывает закрыть issue"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task close закрывает задачу одной командой"
+  ],
   "name": "актуализация эпика ещё не отчиталась — отказ с подсказкой дождаться"
  },
  {
@@ -3585,6 +3592,13 @@
    "task queue раздаёт задачи эпика или фильтра исполнителям"
   ],
   "name": "задание исполнителя запрещает ответ, пока его субагенты работают"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue раздаёт задачи эпика или фильтра исполнителям"
+  ],
+  "name": "задание исполнителя: актуализация эпика — в том же ходе, до ответа диспетчеру"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -11822,6 +11836,13 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название queue.refresh скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название queue.resume скрипты читают из словаря"
  },
  {
@@ -14434,6 +14455,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «violator does not pass: …» из skills/spec/checks.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «waits for subagents» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
