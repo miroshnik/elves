@@ -1858,7 +1858,23 @@ describe("task close закрывает задачу одной командой
     const r = task(f, ["close", "49", "--no-git"], REPO, { run: est([]) });
     expect(r.code).toBe(2);
     expect(r.err).toContain("#49 is too early to close: PR #77 open");
+    // без перегиба: у задачи есть PR — закрывать issue руками она не велит
+    expect(r.err).not.toContain("gh issue close");
     expect(f.mutations).toEqual([]);
+  });
+
+  // исполнитель задачи без PR не знал, что `task close` ждёт закрытой задачи, и ждал сам (#628)
+  it("task close задачи без PR и с открытым issue подсказывает закрыть issue", () => {
+    const f = new FakeGitHub(REC);
+    const calls: string[][] = [];
+    const r = task(f, ["close", "49", "--no-git"], REPO, { run: est(calls) });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("#49 is too early to close: the task is open, no merged PR");
+    expect(r.err).toContain(
+      `a task without a PR (a data edit, a reconciliation, research) — close the issue as completed with a result comment: gh issue close 49 --repo ${REPO} --reason completed --comment "<result>", then task close 49 again`,
+    );
+    expect(f.mutations).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it("задача закрыта без PR — факт и «Готово», задачу повторно не закрывает", () => {
@@ -2766,6 +2782,27 @@ describe("task queue раздаёт задачи эпика или фильтр�
         "Ждать нельзя — ответь `ждёт субагентов: <какие и что делают>`: это не «сломалось», второго исполнителя не будет;",
     );
     expect(lines.at(-1)).toContain("· `ждёт субагентов: <какие и что делают>` ·");
+  });
+
+  /**
+   * Исполнитель задачи без коммитов (правка данных в базе) запустил актуализацию фоновым субагентом и ответил «ждёт
+   * субагентов» (#628): worktree без изменений среда убрала через минуту, субагент остался без каталога, итога на эпике
+   * нет, и `task close` отказывал; без PR он отказывал ещё и из-за открытой задачи. Задание велит дождаться актуализации
+   * в том же ходе, закрыть задачу и только потом отвечать, а задачу без PR — сначала закрыть как выполненную.
+   */
+  it("задание исполнителя: актуализация эпика — в том же ходе, до ответа диспетчеру", () => {
+    const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47"], REPO, { cwd: projectDir() });
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    const refresh = lines.findIndex((l) => l.startsWith("- актуализация эпика"));
+    expect(lines[refresh]).toMatch(
+      /^- актуализация эпика — субагент, которого печатает `task actualize`, без своего worktree \(в твоём\) и не в фоне \(`run_in_background: false`\): его ответ — в том же ходе, затем `bun --no-env-file \S+github\.ts task close 47`, и только потом ответ диспетчеру: /,
+    );
+    expect(lines[refresh]).toContain(
+      "у задачи без PR (правка данных, сверка, исследование) — сначала закрой issue как выполненную с итоговым комментарием: " +
+        `\`gh issue close 47 --repo ${REPO} --reason completed --comment "<итог>"\`;`,
+    );
+    expect(refresh).toBeLessThan(lines.length - 1);
   });
 
   /**

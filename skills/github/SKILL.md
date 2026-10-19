@@ -148,19 +148,19 @@ session, its own task stays pinned; one started for it — in the project
 folder, not a worktree: executors (subagents, cloud sessions) start from
 `main`. `task queue` prints ready
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
-`isolation: "worktree"` and `run_in_background: true`, the prompt — the
-indented line as is; at most 3 subagents and 5 cloud sessions at once, the
+`isolation: "worktree"` and `run_in_background: true`, the prompt — as
+is; at most 3 subagents and 5 cloud sessions at once, the
 owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work (In progress, an open PR, handed out to an executor of
 this session), not launched again. Before each launch — `get_usage`: the 5-hour limit at 85% and more —
 no new executors, the running ones finish, then `Remaining: N tasks, the
-limit`. After each executor's answer — `task queue` again: it removes
-finished executors' worktrees (`+`); its last line names the step:
+limit`. After each executor's answer — `task queue` again: it alone
+removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:
 an executor session whose task closed — the dispatcher archives it in an
 auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. A question — to the
-owner in text; the answer — ✅ in the task's questions section and to the same
+owner in text; the answer — ✅ in the task and to the same
 executor with `SendMessage`. After the app restarts — each stopped executor
 is continued with `SendMessage` by its id, not replaced (`task resume`). Waits for subagents — it answers again. Failed — a
 task comment, no restart (the owner's restart:

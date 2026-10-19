@@ -2812,6 +2812,9 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * queue` refuses in the cloud; `#` only at its task (`est` links a cloud session by the only `#N` of its first
  * prompt — docs/cloud-sessions.md, "The brief"); no restart line — the cloud assigns its own branch. A cloud session
  * can't message a local one, so `Next:` gives the dispatcher the wait for the task's closing and the local close.
+ * The epic refresh — in the same turn, not in the background, then `task close`, then the answer (#628): an executor of a
+ * task without commits answered «waits for subagents» while its refresh ran, and its worktree without changes was
+ * removed under the refresh subagent; a task without a PR is closed as completed first — `task close` needs it closed.
  */
 export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud: boolean } = { cloud: false }): number {
   const issue = loadIssue(io, slug, number);
@@ -2848,7 +2851,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     questions: N.sections.questions,
     branches: restart.map((b) => `\`${b}\``).join(", "),
   };
-  const lines = [N.queue.lead, ...(restart.length ? [N.queue.resume] : []), N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.found, N.queue.question, N.queue.answer];
+  const lines = [N.queue.lead, ...(restart.length ? [N.queue.resume] : []), N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.found, N.queue.question, N.queue.answer];
   for (const line of lines) io.out(locale.fill(line, vars));
   return 0;
 }
@@ -3119,7 +3122,12 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
     const prs = [...issue.prs, ...fresh].map((p) => `#${p.number} ${p.state === "OPEN" ? "open" : "closed without a merge"}`).join(", ");
     const what = prs ? `PR ${prs}` : `the task is ${issue.state === "OPEN" ? "open" : "closed without being done"}, no merged PR`;
     const checked = found ? `; checked: the PR–task link, the branch <type>/${number}-<slug> and «Closes #${number}» in the body of the last ${RECENT_PRS} PRs into ${found.base}` : "";
-    throw new GhError(`#${number} is too early to close: ${what}${checked} — close after the PR is merged or the task is closed`);
+    // no PR at all and the task open — a task without commits closes its issue itself, and its executor didn't know (#628)
+    const noPr =
+      !prs && issue.state === "OPEN"
+        ? `; a task without a PR (a data edit, a reconciliation, research) — close the issue as completed with a result comment: gh issue close ${number} --repo ${slug} --reason completed --comment "<result>", then task close ${number} again`
+        : "";
+    throw new GhError(`#${number} is too early to close: ${what}${checked} — close after the PR is merged or the task is closed${noPr}`);
   }
   if (issue.parent) {
     const epic = loadTaskText(io, slug, issue.parent.number);

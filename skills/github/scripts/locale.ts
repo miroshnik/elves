@@ -102,6 +102,8 @@ export interface Names {
     subagents: string;
     /** The executor's answer waits for its own subagents (#565). */
     live: string;
+    /** The epic refresh — in the same turn, before `task close` and the answer; a task without a PR closed first (#628). */
+    refresh: string;
     found: string;
     question: string;
     answer: string;
