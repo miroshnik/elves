@@ -12,7 +12,8 @@
 # The spec publish job (spec-publish) is not a check: neither awaited nor a FAIL — only by --context.
 # An empty list of checks — pending; PASS counts when a snapshot without pending repeats
 # two polls in a row (late-registering checks don't slip through) and there are no fewer checks
-# than --expect. The first failed check — FAIL right away; --wait-all — FAIL when all have finished.
+# than --expect; a snapshot without pending on the deadline gets its confirming poll past it, at most one
+# interval. The first failed check — FAIL right away; --wait-all — FAIL when all have finished.
 # --interval is the first interval: it grows with the wait — a tenth of the elapsed time, up to 5 min.
 # REST only: the GraphQL quota is shared by all sessions; a REST rate limit — waiting until the reset, and that wait
 # doesn't count toward --timeout (up to an hour). A gh failure (also in requests before the first poll) — retry, ERROR
@@ -370,8 +371,12 @@ while :; do
     echo "$(ts) $label: gh error ($errors): ${out:0:200}" >&2
     [ "$errors" -ge 5 ] && finish "ERROR gh: ${out:0:200}" 3
   fi
+  # the deadline doesn't take away an outcome already seen (#627): the last poll lands on the deadline (the nap is cut to
+  # it), and a snapshot without pending there awaited its confirming poll — TIMEOUT at "N/N done". Such a snapshot gets
+  # its confirming poll at the first interval, past the deadline too, but at most one interval past it
+  limit=$deadline; [ -n "$prev_terminal" ] && limit=$((deadline + interval))
   now=$(date +%s)
-  [ "$now" -ge "$deadline" ] && finish "TIMEOUT after $(dur $((now - start))) ($full)" 2
-  [ "$nap" -gt $((deadline - now)) ] && nap=$((deadline - now))
+  [ "$now" -ge "$limit" ] && finish "TIMEOUT after $(dur $((now - start))) ($full)" 2
+  [ "$nap" -gt $((limit - now)) ] && nap=$((limit - now))
   sleep "$nap"
 done
