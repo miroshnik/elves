@@ -3546,3 +3546,84 @@ describe("Диспетчер архивирует свои завершённы�
     );
   });
 });
+
+/**
+ * Задачу другого проекта диспетчер выдаёт сессией приложения (`start_session`) в папке проекта (#621), а задания для неё у
+ * скриптов не было (#624): `--assignment N` печатает задание субагента — сессию не называть, CI ждать обычным вызовом,
+ * последнюю строку не писать, — а сессии нужно обратное. При переезде четырёх проектов на тонкий флоу диспетчер писал
+ * промпты сессий руками. `--assignment N --session` печатает диспетчер: промпт сессии — строки задания как есть, `Next:` —
+ * как её запустить; выдача записана у диспетчера, и очередь не отдаёт задачу второму исполнителю.
+ */
+describe("task queue --assignment N --session — задание сессии-исполнителя приложения", () => {
+  const projectDir = () => {
+    const dir = scratch();
+    mkdirSync(path.join(dir, ".agents"));
+    writeFileSync(path.join(dir, ".agents/elves.json"), '{ "language": "ru" }\n');
+    return dir;
+  };
+  /** Промпт сессии-исполнителя — строки до `Next:`; `Next:` — как диспетчеру её запустить. */
+  const prompt = (f: FakeGitHub, config = scratch()) => {
+    const r = task(f, ["queue", "--assignment", "47", "--session"], REPO, { ...inSession(config), cwd: projectDir() });
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    return { lines: lines.filter((l) => !l.startsWith("Next:")), next: lines.filter((l) => l.startsWith("Next:")).join("\n") };
+  };
+
+  it("Задание сессии-исполнителя велит назвать сессию по задаче, ждать CI фоновой командой и закончить последней строкой по режиму проекта", () => {
+    const f = new FakeGitHub(REC);
+    const { lines } = prompt(f);
+    expect(lines[0]).toStartWith(
+      "Задача #47 «GitHub · Задача одной командой — github task» в miroshnik/elves (эпик #45): ты сессия-исполнитель сессии-диспетчера — " +
+        "сделай задачу целиком по канону этого проекта, в его режиме (его печатает `check`; не в auto — коммит, пуш и мерж по «да» владельца):",
+    );
+    expect(lines).toContain("Ты сессия, а не субагент:");
+    expect(lines).toContain("- назови сессию `#47 GitHub · Задача одной командой — github task` (`set_session_title`), как только взял задачу, — по имени `est` привяжет сессию к задаче;");
+    expect(lines.find((l) => l.startsWith("- CI и деплой"))).toMatch(
+      /^- CI и деплой жди фоновой командой — `bash \S+\/skills\/ci-wait\/scripts\/wait-ci\.sh pr <PR>` \(после мержа — `merged <PR>`\): её завершение будит сессию;/,
+    );
+    expect(lines.at(-1)).toBe(
+      "- конец — последняя строка канона («Всё сделано. Сессию можно закрывать.» · «Всё сделано, но есть вопросы: …» · «Осталось: …»), " +
+        "в режиме auto после «Всё сделано. Сессию можно закрывать.» — архивация сессии по канону: конец каждого твоего хода диспетчер читает как твой ответ.",
+    );
+    // строки субагента говорят сессии обратное: не называть, не в фоне, без последней строки, ответ одной строкой
+    const text = lines.join("\n");
+    for (const subagent of ["Ты субагент, а не сессия:", "не в фоне", "--timeout 540", "не пиши — это делает диспетчер", "Ответ диспетчеру — одной строкой"]) expect(text).not.toContain(subagent);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("Задача, выданная сессии-исполнителю, в очереди диспетчера — в работе, а не готовая", () => {
+    const f = new FakeGitHub(REC);
+    f.status(47, "Бэклог");
+    const config = scratch();
+    const queue = () => task(f, ["queue", "--epic", "45"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n").filter((l) => !l.startsWith("  "));
+    expect(queue()[1]).toBe(`+ #47 «${f.issue(47).title}»`);
+    prompt(f, config);
+    expect(readFileSync(path.join(config, "dispatchers", `${SESSION}.tasks`), "utf8")).toBe("miroshnik/elves#47 @session\n");
+    expect(queue().slice(0, 2)).toEqual([
+      "Queue miroshnik/elves (epic #45): ready 0, «В работе» 1, not ready 0",
+      `= #47 «${f.issue(47).title}» — handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note`,
+    ]);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("Next: задания сессии — start_session в папке проекта со своим worktree, промпт — строки задания как есть, по концу её хода — очередь", () => {
+    const { lines, next } = prompt(new FakeGitHub(REC));
+    expect(next).toStartWith(
+      'Next: the lines above — the executor session\'s prompt as is: start_session, initiation "user_asked", cwd — the folder of the miroshnik/elves checkout on this machine (not a worktree), ' +
+        "use_worktree true, background — the first line above; keep the session's id it returns. " +
+        "The end of each of its turns comes as the app's note, like an executor's answer — task queue again: in a queue of miroshnik/elves the task is =; ",
+    );
+    expect(next).toContain("an executor session whose task closed — the dispatcher archives it in an auto project");
+    // промпт сессии — без путей и шагов диспетчера
+    expect(lines.filter((l) => /start_session|use_worktree/.test(l))).toEqual([]);
+  });
+
+  it("--session — только с --assignment и не вместе с --cloud", () => {
+    const alone = task(new FakeGitHub(REC), ["queue", "--epic", "45", "--session"], REPO, { cwd: projectDir() });
+    expect(alone.code).toBe(2);
+    expect(alone.err).toBe("error: --session — only with --assignment <N>: the prompt of one task's app executor session");
+    const both = task(new FakeGitHub(REC), ["queue", "--assignment", "47", "--cloud", "--session"], REPO, { cwd: projectDir() });
+    expect(both.code).toBe(2);
+    expect(both.err).toBe("error: --cloud or --session, not both: a cloud executor or an app session");
+  });
+});

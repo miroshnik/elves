@@ -21,8 +21,9 @@
  *   github task close    — after the merge and the deploy: the actual, "Done", the epic and the milestone, the task's
  *                          stacks (task-env) and the task's merged branches removed
  *   github task queue    — the dispatcher's ready tasks with the prompts of their executors (subagents);
- *                          --assignment — an executor's whole assignment
- *   github pr labels     — decision labels for the task from "Closes #N" by the PR diff, for its epic — the union
+ *                          --assignment — an executor's whole assignment (--cloud, --session — the prompt of a cloud
+ *                          executor or an app executor session, printed by the dispatcher)
+ *   github pr labels    — decision labels for the task from "Closes #N" by the PR diff, for its epic — the union
  *   github pr premerge   — before the merge: the default branch moved after the PR's CI — typecheck and test:spec on
  *                          the merge with it
  *
@@ -1773,23 +1774,29 @@ const isDispatcher = (io: Io) => {
  * with `SendMessage` (`task resume`) — dropped, it would make a task not yet In progress ready for a second executor.
  * The worktree — the checkout the executor called its assignment in (#533): the queue keeps it while the task is open. A
  * cloud executor's (`--assignment N --cloud`, #609) — `CLOUD_HANDOUT` in its place: the dispatcher printed its brief,
- * there is no worktree, and the queue names the wait for the task's closing.
+ * there is no worktree, and the queue names the wait for the task's closing. An app executor session's (`--assignment N
+ * --session`, #624) — `SESSION_HANDOUT`: the dispatcher printed its prompt, the app makes the session's worktree later.
  */
 const handedOutFile = (io: Io) => {
   const file = dispatcherFile(io);
   return file && `${file}.tasks`;
 };
 
-/** A hand-out: the task and its executor's worktree; the assignment called outside a checkout or a cloud one — null. */
+/** A hand-out: the task and its executor's worktree; the assignment called outside a checkout, a cloud or a session one — null. */
 interface HandOut {
   number: number;
   worktree: string | null;
-  /** A cloud executor's (#609): the dispatcher waits for the task's closing. */
-  cloud: boolean;
+  /**
+   * Who executes it: a subagent of this session; a cloud session (#609) — the dispatcher waits for the task's closing; an
+   * app session (#624) — the end of each of its turns comes as the app's note.
+   */
+  executor: "subagent" | "cloud" | "session";
 }
 
 /** A cloud executor's mark in place of the worktree: a worktree is an absolute path. */
 const CLOUD_HANDOUT = "@cloud";
+/** An app executor session's mark in place of the worktree (#624): the app makes the session's worktree after the hand-out. */
+const SESSION_HANDOUT = "@session";
 
 /** The repository's tasks handed out to this dispatcher's executors (`handedOutFile`); a line without a worktree — `null`. */
 function handedOut(io: Io, slug: string): HandOut[] {
@@ -1806,7 +1813,8 @@ function handOutsIn(file: string, slug: string): HandOut[] {
     .map((l) => {
       const [number, ...rest] = l.slice(slug.length + 1).split(" ");
       const worktree = rest.join(" ").trim();
-      return { number: Number(number), worktree: worktree === CLOUD_HANDOUT ? null : worktree || null, cloud: worktree === CLOUD_HANDOUT };
+      const executor: HandOut["executor"] = worktree === CLOUD_HANDOUT ? "cloud" : worktree === SESSION_HANDOUT ? "session" : "subagent";
+      return { number: Number(number), worktree: executor === "subagent" ? worktree || null : null, executor };
     })
     .filter((h) => Number.isInteger(h.number) && h.number > 0);
 }
@@ -2429,7 +2437,9 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     const work = [status === N.status.inProgress ? q(N.status.inProgress) : "", pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`].filter(Boolean);
     const hand = handed.find((h) => h.number === i.number);
     // a cloud executor's wait for the task's closing dies with the app's process: the line names it, task resume — the queue
-    if (!work.length && hand?.cloud) work.push(`handed out to a cloud executor of this session, its wait — a background command: bash ${waitCi()} issue ${i.number}`);
+    if (!work.length && hand?.executor === "cloud") work.push(`handed out to a cloud executor of this session, its wait — a background command: bash ${waitCi()} issue ${i.number}`);
+    // an app executor session (#624): the app continues the dispatcher at the end of each of its turns
+    else if (!work.length && hand?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
     else if (!work.length && hand) work.push("handed out to an executor of this session");
     if (work.length) {
       running.push(`= ${label} — ${work.join(", ")}`);
@@ -2815,8 +2825,11 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * The epic refresh — in the same turn, not in the background, then `task close`, then the answer (#628): an executor of a
  * task without commits answered «waits for subagents» while its refresh ran, and its worktree without changes was
  * removed under the refresh subagent; a task without a PR is closed as completed first — `task close` needs it closed.
+ * `session` — the prompt of an app executor session (`start_session`: another project's task, #624), printed by the
+ * dispatcher: a session, not a subagent — by the canon of its project and its mode, named by the task, waits in the
+ * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it.
  */
-export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud: boolean } = { cloud: false }): number {
+export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
   const file = handedOutFile(io);
   const own = pinnedTask(io)?.task;
@@ -2833,7 +2846,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — hand-outs aren't committed into it
     writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-    const where = o.cloud ? CLOUD_HANDOUT : worktree;
+    const where = o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree;
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
   if (o.cloud) return cloudBrief(io, slug, issue), 0;
@@ -2850,9 +2863,22 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     done: N.lastLine.done,
     questions: N.sections.questions,
     branches: restart.map((b) => `\`${b}\``).join(", "),
+    doneQuestions: N.lastLine.questions,
+    remaining: N.lastLine.remaining,
   };
-  const lines = [N.queue.lead, ...(restart.length ? [N.queue.resume] : []), N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.found, N.queue.question, N.queue.answer];
+  const resume = restart.length ? [N.queue.resume] : [];
+  // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's wait
+  const lines = o.session
+    ? [N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, N.queue.sessionWait, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    : [N.queue.lead, ...resume, N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.found, N.queue.question, N.queue.answer];
   for (const line of lines) io.out(locale.fill(line, vars));
+  if (o.session) {
+    io.out(
+      `Next: the lines above — the executor session's prompt as is: start_session, initiation "user_asked", cwd — the folder of the ${slug} checkout on this machine (not a worktree), ` +
+        `use_worktree true, background — the first line above; keep the session's id it returns. ` +
+        `The end of each of its turns comes as the app's note, like an executor's answer — task queue again: in a queue of ${slug} the task is =; ${SESSION_ARCHIVE}.`,
+    );
+  }
   return 0;
 }
 
@@ -4159,7 +4185,7 @@ that can't be continued, in the worktree of its task's branch.
 Examples:
   github task resume`,
   "task queue": `github task queue [--epic N] [--type Task|Bug] [--priority Urgent,High] [--repo owner/repo]
-github task queue --assignment <N> [--cloud] [--repo owner/repo]
+github task queue --assignment <N> [--cloud | --session] [--repo owner/repo]
 
 The dispatcher session's queue: ready tasks (open, not an epic, not in work, no open blockers — other repositories'
 too —, no external blocker label) by Priority, then number, each with its executor's prompt; the rest — in work (=: In
@@ -4178,13 +4204,17 @@ such a subagent at work or HEAD moved in the last ${QUIET_MINUTES} min — code 
 dispatcher wait, no hand-out. --cloud — printed by the dispatcher: the brief of a cloud executor (claude.ai/code) —
 whole, # only at its task — and the dispatcher's steps: a cloud session can't message a local one, so the dispatcher
 waits for the task's closing (ci-wait issue N, background) and closes it locally; the hand-out has no worktree, and the
-queue's = line names that wait.
+queue's = line names that wait. --session — printed by the dispatcher: the prompt of an app executor session
+(start_session in the folder of another project, its own worktree) — a session by its project's canon and mode, named
+by the task, waiting in the background, ending with the canon's last line — and how to start it; the hand-out has no
+worktree, the task is = in the queue.
 
 Examples:
   github task queue --epic 40
   github task queue --type Bug --priority Urgent,High
   github task queue --assignment 42
-  github task queue --assignment 42 --cloud`,
+  github task queue --assignment 42 --cloud
+  github task queue --assignment 42 --session`,
   "task close": `github task close <N> [--no-git] [--repo owner/repo]
 
 After the PR merge and the deploy (or a close without a PR) in one call: the actual (est fact --write), Status Done, the
@@ -4355,6 +4385,7 @@ export function main(argv: string[], io: Io): number {
           "no-git": { type: "boolean", default: false },
           assignment: { type: "boolean", default: false },
           cloud: { type: "boolean", default: false },
+          session: { type: "boolean", default: false },
           auto: { type: "boolean", default: false },
         },
       });
@@ -4376,9 +4407,11 @@ export function main(argv: string[], io: Io): number {
       }
       if (cmd === "queue") {
         if (values.cloud && !values.assignment) throw new GhError("--cloud — only with --assignment <N>: the brief of one task's cloud executor");
+        if (values.session && !values.assignment) throw new GhError("--session — only with --assignment <N>: the prompt of one task's app executor session");
+        if (values.cloud && values.session) throw new GhError("--cloud or --session, not both: a cloud executor or an app session");
         if (values.assignment) {
           if (positionals.length !== 1) throw new GhError("task queue --assignment <N>: one task number");
-          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { cloud: values.cloud! });
+          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { cloud: values.cloud!, session: values.session! });
         }
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")} — the queue is chosen by --epic, --type and --priority`);
         const priority = values.priority === undefined ? undefined : values.priority.split(",").map((x) => x.trim()).filter(Boolean);

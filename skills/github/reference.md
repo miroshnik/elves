@@ -825,7 +825,13 @@ The app's sessions are executors too: another project's task — an app session
 in its folder (`start_session` with its own worktree), while a subagent works
 in a worktree of the dispatcher's repository. Such a session works as a session
 of its project, by its mode; the end of its turn comes as the app's note, like
-an answer, — `task queue` again. Archiving, app and cloud executors alike
+an answer, — `task queue` again. Its prompt — `--assignment N --session`,
+called by the dispatcher itself (#624): the lines before `Next:` as is — a
+session, not a subagent, so the subagent's lines don't apply: by the canon of its
+project and its mode, named `#N <title>`, CI and the deploy waited for with a
+background command, the canon's last line at the end; `Next:` — `start_session`
+with `cwd` the project folder and `use_worktree` true. The hand-out — without a
+worktree (`@session`): the task is `=` in the queue. Archiving, app and cloud executors alike
 (#621): an executor session whose task closed — the dispatcher archives it in
 an auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. Closed — `task close` passed:
