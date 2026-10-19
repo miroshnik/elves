@@ -73,6 +73,14 @@ export interface Names {
     epic: string;
     openTasks: string;
     openTask: string;
+    /**
+     * Where a repeat finding of check 5 goes, under an open task's heading (#636): a task in Backlog takes it as an item
+     * (`backlog`), one already going — In progress or with an open PR — doesn't (`inWork`); `taskStatus`, `taskPr` — why.
+     */
+    backlog: string;
+    inWork: string;
+    taskStatus: string;
+    taskPr: string;
     noBody: string;
     copies: string;
     copy: string;
@@ -104,6 +112,8 @@ export interface Names {
     live: string;
     /** The epic refresh — in the same turn, before `task close` and the answer; a task without a PR closed first (#628). */
     refresh: string;
+    /** Repeats in the files the task changes anyway — fixed in its PR, not a new task (#636); every kind of executor. */
+    repeats: string;
     found: string;
     question: string;
     answer: string;

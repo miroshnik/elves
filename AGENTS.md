@@ -199,9 +199,9 @@ it.
   PR's CI — fast checks on the merge with it; red — I fix the root cause;
   `main` red by itself (exit code 3) — no merge and no fix in the PR: one bug
   for it, I wait for it to close.
-- A merge that deploys — I wait for the deploy on the merge SHA (`ci-wait`),
-  the epic refresh in parallel; **then `github task close`**. Others'
-  branches, stacks and unmerged work I don't touch.
+- A merge that deploys — I wait for the deploy on the merge SHA (`ci-wait`)
+  **before `github task close`**. Others' branches, stacks and unmerged work
+  I don't touch.
 - Mechanics — the `github` skill, "Git, PRs and merging — mechanics";
   waiting for checks and deploys — `docs/pr-checks.md`.
 
@@ -222,8 +222,9 @@ folder's `exceptions/`, with an `#issue`, a reason and a ratchet. Test names
 are statements in the project language; a code task gets the scenarios
 section (future `it` names) before code. The PR body is `spec-diff` output;
 docs are generated (`spec-doc`) and published by CI to the `spec` branch. A
-recurring decision — a "Standard · …" issue and a rule in `tests/standards/`.
-The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
+recurring decision — a "Standard · …" issue and a rule in `tests/standards/`;
+repeats in a PR's files — fixed in it. The full canon and wiring — the `spec`
+skill (`canon.md`, `checks.md`).
 
 ## Tests and code
 
@@ -282,8 +283,8 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
   skill) at `<service>.<N>.<project>.localhost`, not on a host port; others'
   stacks and busy ports I don't touch — `docs/parallel-checkouts.md`.
 - **A subagent gets a unit of ~50 turns** (one decision's folder, one file,
-  one spec), not a 200-turn zone: it carries the same preamble (≈ 100k
-  tokens), and its price is quadratic in turns. The assignment has the task
+  one spec), not a 200-turn zone: with the same ≈ 100k-token preamble its
+  price is quadratic in turns. The assignment has the task
   number after the word for "task" or at the start, the epic after the word
   for "epic" ("Language") — so `est` links its work. **Fewer turns:** a file
   in one full read, independent tool calls in one turn.
