@@ -173,7 +173,9 @@ What to do next:
   (a preview deploy) won't change it, so FAIL comes at once.
 - PASS counts only when a snapshot without pending repeats for two polls in
   a row; `--expect N` — the minimum number of checks, below which we keep
-  waiting.
+  waiting. A snapshot without pending on the deadline gets its confirming
+  poll past it, at most one `--interval` (#627): otherwise the last poll,
+  which lands on the deadline, gave TIMEOUT at "N/N done".
 - Without branch protection `gh pr merge --auto` merges without waiting for
   CI — so `--auto` doesn't replace waiting.
 - One wait at a time: don't start a second `ci-wait` on the same PR in
