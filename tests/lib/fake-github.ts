@@ -650,13 +650,13 @@ export class FakeGitHub {
   newProject(title: string): Any {
     const number = 100 + this.seq;
     const builtin = ["Title:TITLE", "Assignees:ASSIGNEES", "Labels:LABELS", "Linked pull requests:LINKED_PULL_REQUESTS", "Milestone:MILESTONE", "Repository:REPOSITORY", "Reviewers:REVIEWERS", "Parent issue:PARENT_ISSUE", "Sub-issues progress:SUB_ISSUES_PROGRESS"];
-    const node = {
+    const node: Any = {
       id: this.id("PVT"),
       number,
       title,
       url: this.url(number),
       closed: false,
-      views: { nodes: [{ id: this.id("PVTV"), number: 1, name: "View 1", layout: "TABLE_LAYOUT", filter: null, sortByFields: { nodes: [] }, verticalGroupByFields: { nodes: [] } }] },
+      views: { nodes: [{ id: this.id("PVTV"), number: 1, name: "View 1", layout: "TABLE_LAYOUT", filter: null, sortByFields: { nodes: [] }, verticalGroupByFields: { nodes: [] }, groupByFields: { nodes: [] }, fields: { nodes: [] } }] },
       fields: {
         nodes: [
           ...builtin.map((s) => ({ __typename: "ProjectV2Field", id: this.id("PVTF"), name: s.split(":")[0], dataType: s.split(":")[1], isIssueField: false })),
@@ -665,8 +665,21 @@ export class FakeGitHub {
       },
       workflows: { nodes: ["Item closed", "Pull request merged", "Auto-close issue"].map((name, i) => ({ id: this.id("PWF"), number: i + 1, fullDatabaseId: String(900 + this.seq), name, enabled: true })) },
     };
+    node.views.nodes[0].fields.nodes = this.defaultColumns(node, "TABLE_LAYOUT");
     this.register(node);
     return node;
+  }
+  /**
+   * Колонки нового представления, которому их не задали: Title, Assignees, Status; у роадмэпа — ещё связанные PR и
+   * прогресс подзадач (так их отдаёт GitHub).
+   */
+  private defaultColumns(p: Any, layout: string): Any[] {
+    const names = ["Title", "Assignees", "Status", ...(layout === "ROADMAP_LAYOUT" ? ["Linked pull requests", "Sub-issues progress"] : [])];
+    return this.columns(p, names.map((n) => p.fields.nodes.find((f: Any) => f.name === n)?.id).filter(Boolean));
+  }
+  /** Колонки представления по id полей проекта — как их отдаёт `fields` представления. */
+  private columns(p: Any, ids: string[]): Any[] {
+    return ids.map((id) => p.fields.nodes.find((f: Any) => f.id === id)).map((f: Any) => ({ id: f.id, name: f.name, dataType: f.dataType }));
   }
   /** Проект владельца, не привязанный к репозиторию: его найдёт поиск по названию. */
   ownerProject(title: string): Any {
@@ -822,16 +835,21 @@ export class FakeGitHub {
       for (const p of this.repo.projectsV2.nodes) if (p.id === projectId) p.title = title;
       return { updateProjectV2: { projectV2: { id: projectId } } };
     },
-    CreateView: ({ projectId, name, layout }: Any) => {
-      const views = this.project(projectId).views.nodes;
+    CreateView: ({ projectId, name, layout, configuration }: Any) => {
+      const p = this.project(projectId);
+      const views = p.views.nodes;
       const number = Math.max(0, ...views.map((v: Any) => v.number)) + 1;
+      const fields = configuration?.visibleFieldIds ? this.columns(p, configuration.visibleFieldIds) : this.defaultColumns(p, layout);
       // доска, созданная через API, — колонки по Status
-      views.push({ id: this.id("PVTV"), number, name, layout, filter: null, sortByFields: { nodes: [] }, verticalGroupByFields: { nodes: layout === "BOARD_LAYOUT" ? [{ name: "Status" }] : [] } });
+      views.push({ id: this.id("PVTV"), number, name, layout, filter: null, sortByFields: { nodes: [] }, verticalGroupByFields: { nodes: layout === "BOARD_LAYOUT" ? [{ name: "Status" }] : [] }, groupByFields: { nodes: [] }, fields: { nodes: fields } });
       return { createProjectV2View: { projectV2View: { id: views.at(-1).id } } };
     },
-    UpdateView: ({ viewId, ...patch }: Any) => {
-      const v = this.allViews().find((x: Any) => x.id === viewId);
+    // configuration.visibleFieldIds — колонки представления по порядку
+    UpdateView: ({ viewId, configuration, ...patch }: Any) => {
+      const p = this.allProjects().find((x) => x.views.nodes.some((v: Any) => v.id === viewId));
+      const v = p.views.nodes.find((x: Any) => x.id === viewId);
       Object.assign(v, patch);
+      if (configuration?.visibleFieldIds) v.fields = { nodes: this.columns(p, configuration.visibleFieldIds) };
       return { updateProjectV2View: { projectV2View: { id: viewId } } };
     },
     DeleteView: ({ viewId }: Any) => {
@@ -908,9 +926,6 @@ export class FakeGitHub {
     return Object.entries(this.rec)
       .filter(([k]) => k.startsWith("ProjectState "))
       .map(([, v]) => v.data.node);
-  }
-  private allViews(): Any[] {
-    return this.allProjects().flatMap((p) => p.views.nodes);
   }
 }
 

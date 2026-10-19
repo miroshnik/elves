@@ -261,10 +261,113 @@ describe("fix доводит проект до канона: через API — 
     const status = created.fields.nodes.find((x: { name: string }) => x.name === "Status");
     expect(byOp(f, "UpdateField")[0].singleSelectOptions.map((o: { id: string; name: string }) => [o.name, o.id])).toEqual(status.options.map((o: { id: string; name: string }) => [o.name, o.id]));
     expect(status.options.map((o: { name: string }) => o.name)).toEqual(["Бэклог", "В работе", "Готово"]);
-    expect(byOp(f, "UpdateView")).toEqual([{ viewId: created.views.nodes[0].id, name: "Таблица" }]);
+    // колонки «Таблицы» — следующим ходом: поле «Оценка, ч» создаётся тем же ходом, что и переименование View 1
+    expect(byOp(f, "UpdateView")).toEqual([
+      { viewId: created.views.nodes[0].id, name: "Таблица" },
+      { viewId: created.views.nodes[0].id, configuration: { visibleFieldIds: fieldIds(f, TABLE_COLUMNS) } },
+    ]);
     expect(byOp(f, "CreateView").map((v) => v.name)).toEqual(["Доска", "Роадмэп"]);
     expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Оценка, ч", "Факт, ч", "Токены, млн", "Стоимость, $"]);
-    expect(marks(r.out)).toMatchObject({ Project: "✅", Views: "✅", Status: "✅", Fields: "✅", Workflows: "❌", Open: "✅" });
+    expect(marks(r.out)).toMatchObject({ Project: "✅", Views: "❌", Status: "✅", Fields: "✅", Workflows: "❌", Open: "✅" });
+    expect(r.out).toContain(`«Таблица»: View options → Group by → Status → Save — ${created.url}/views/1`);
+  });
+});
+
+/** Колонки представления — поля проекта с этими именами, в этом порядке. */
+function setColumns(f: FakeGitHub, view: string, names: string[]): void {
+  f.view(view).fields.nodes = names.map((n) => ({ id: f.field(n).id, name: n, dataType: f.field(n).dataType }));
+}
+const fieldIds = (f: FakeGitHub, names: string[]) => names.map((n) => f.field(n).id);
+const TABLE_COLUMNS = ["Title", "Status", "Labels", "Assignees", "Sub-issues progress", "Оценка, ч"];
+const BOARD_COLUMNS = ["Title", "Status", "Labels", "Sub-issues progress"];
+
+// Проекты, заведённые до копии эталона или правленные руками, проходили check, а выглядели по-разному (#634): в «Таблице»
+// колонки «Роадмэпа», нет группировки, другие цвета Status, нет автоархива
+describe("Представления, Status и workflow — как у эталона", () => {
+  it("в «Таблице» и на «Доске» не те колонки — ❌ с недостающими и лишними; fix ставит колонки канона через API", () => {
+    const f = fake();
+    setColumns(f, "Таблица", ["Title", "Assignees", "Status", "Linked pull requests", "Sub-issues progress"]);
+    setColumns(f, "Доска", ["Title", "Labels"]);
+    const r = check(f);
+    expect(marks(r.out).Views).toBe("❌");
+    expect(r.out).toContain("· «Таблица» columns: missing «Labels», «Оценка, ч»; extra «Linked pull requests»");
+    expect(r.out).toContain("· «Доска» columns: missing «Status», «Sub-issues progress»");
+    const after = fix(f);
+    expect(byOp(f, "UpdateView")).toEqual([
+      { viewId: f.view("Доска").id, configuration: { visibleFieldIds: fieldIds(f, BOARD_COLUMNS) } },
+      { viewId: f.view("Таблица").id, configuration: { visibleFieldIds: fieldIds(f, TABLE_COLUMNS) } },
+    ]);
+    expect(marks(after.out).Views).toBe("✅");
+  });
+
+  it("новое представление fix создаёт сразу с колонками канона", () => {
+    const f = fake();
+    f.project().views.nodes = f.project().views.nodes.filter((v: { name: string }) => v.name !== "Доска");
+    const r = fix(f);
+    expect(byOp(f, "CreateView")).toEqual([{ projectId: f.project().id, name: "Доска", layout: "BOARD_LAYOUT", configuration: { visibleFieldIds: fieldIds(f, BOARD_COLUMNS) } }]);
+    expect(byOp(f, "UpdateView")).toEqual([]);
+    expect(marks(r.out).Views).toBe("✅");
+  });
+
+  it("«Таблица» не сгруппирована по Status — ❌, шаг UI со ссылкой на представление", () => {
+    const f = fake();
+    f.view("Таблица").groupByFields.nodes = [];
+    const r = check(f);
+    expect(marks(r.out).Views).toBe("❌");
+    expect(r.out).toMatch(/^   · «Таблица» not grouped by Status$/m);
+    expect(fix(f).out).toContain(`«Таблица»: View options → Group by → Status → Save — ${PROJECT_URL}/views/${f.view("Таблица").number}`);
+  });
+
+  it("варианты Status не цвета эталона — ❌; fix перекрашивает с теми же id, описания не трогает", () => {
+    const f = fake();
+    const [backlog, progress, done] = f.field("Status").options;
+    backlog.color = "GRAY";
+    backlog.description = "Ещё не начато";
+    done.color = "GREEN";
+    const r = check(f);
+    expect(marks(r.out).Status).toBe("❌");
+    expect(r.out).toContain("· colors: Бэклог GRAY, В работе YELLOW, Готово GREEN");
+    const after = fix(f); // в проекте есть задачи — перекраска их не трогает, подтверждения не нужно
+    expect(byOp(f, "UpdateField")).toEqual([
+      {
+        fieldId: f.field("Status").id,
+        singleSelectOptions: [
+          { id: backlog.id, name: "Бэклог", color: "GREEN", description: "Ещё не начато" },
+          { id: progress.id, name: "В работе", color: "YELLOW", description: "" },
+          { id: done.id, name: "Готово", color: "PURPLE", description: "" },
+        ],
+      },
+    ]);
+    expect(marks(after.out).Status).toBe("✅");
+  });
+
+  it("поля Status нет — fix создаёт его с вариантами и цветами эталона", () => {
+    const f = fake();
+    f.project().fields.nodes = f.project().fields.nodes.filter((x: { name: string }) => x.name !== "Status");
+    fix(f);
+    expect(byOp(f, "CreateField").find((i) => i.name === "Status").singleSelectOptions).toEqual([
+      { name: "Бэклог", color: "GREEN", description: "" },
+      { name: "В работе", color: "YELLOW", description: "" },
+      { name: "Готово", color: "PURPLE", description: "" },
+    ]);
+  });
+
+  it("workflow «Auto-archive items», «Auto-add sub-issues to project», «Pull request merged», «Auto-close issue» не настроены или выключены — ❌, шаги UI с фильтром и целью", () => {
+    const f = fake();
+    f.unconfigure("Auto-archive items");
+    f.unconfigure("Auto-add sub-issues to project");
+    f.workflow("Auto-close issue").enabled = false;
+    f.workflow("Pull request merged").enabled = false;
+    const r = check(f);
+    expect(marks(r.out).Workflows).toBe("❌");
+    for (const s of ["«Auto-archive items» not configured", "«Auto-add sub-issues to project» not configured", "«Auto-close issue» disabled", "«Pull request merged» disabled"]) {
+      expect(r.out).toContain(`· ${s}`);
+    }
+    const out = fix(f).out;
+    expect(out).toContain(`«Auto-archive items»: Edit → filter is:issue is:closed updated:<@today-2w (Enter) → Save and turn on workflow — ${PROJECT_URL}/workflows\n`);
+    expect(out).toContain(`«Auto-add sub-issues to project»: Edit → Save and turn on workflow — ${PROJECT_URL}/workflows\n`);
+    expect(out).toContain(`«Auto-close issue»: Edit → Status: Готово → Save and turn on workflow — ${wfUrl(f, "Auto-close issue")}`);
+    expect(out).toContain(`«Pull request merged»: Edit → Set value → Status: Готово → Save and turn on workflow — ${wfUrl(f, "Pull request merged")}`);
   });
 });
 
@@ -795,10 +898,11 @@ describe("Канон проекта — на языке проекта из .age
     const r = fix(f, { cwd: checkout(EN) });
     const status = f.project().fields.nodes.find((x: { name: string }) => x.name === "Status");
     expect(status.options.map((o: { name: string }) => o.name)).toEqual(["Backlog", "In progress", "Done"]);
-    expect(byOp(f, "UpdateView")).toEqual([{ viewId: f.project().views.nodes[0].id, name: "Table" }]);
+    expect(byOp(f, "UpdateView")[0]).toEqual({ viewId: f.project().views.nodes[0].id, name: "Table" });
     expect(byOp(f, "CreateView").map((v) => v.name)).toEqual(["Board", "Roadmap"]);
     expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Estimate, h", "Actual, h", "Tokens, M", "Cost, $"]);
-    expect(marks(r.out)).toMatchObject({ Project: "✅", Views: "✅", Status: "✅", Fields: "✅", Open: "✅" });
+    expect(marks(r.out)).toMatchObject({ Project: "✅", Status: "✅", Fields: "✅", Open: "✅" });
+    expect(r.out).toContain("«Table»: View options → Group by → Status → Save");
   });
 
   it("доска на русском, а язык проекта en — check ❌ по представлениям, Status и полям; fix --confirm переименовывает с теми же id, задачи сохраняют статусы", () => {

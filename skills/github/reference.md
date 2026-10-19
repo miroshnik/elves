@@ -97,9 +97,15 @@ Every repository has **exactly one** GitHub Project linked to the repo
 per epic/area (an area = an epic inside the shared project). All tasks are
 added to the project right on creation (`github task new`). Required:
 
-- **Three views**, with exactly these names: `Board` (BOARD_LAYOUT, columns
-  by `Status`), `Table` (TABLE_LAYOUT), `Roadmap` (ROADMAP_LAYOUT).
-- **The `Status` field** with options `Backlog` → `In progress` → `Done`.
+- **Three views**, with exactly these names, as in the template:
+  - `Board` (BOARD_LAYOUT, columns by `Status`) — cards show Title, Status,
+    Labels, Sub-issues progress;
+  - `Table` (TABLE_LAYOUT, grouped by `Status`) — columns Title, Status,
+    Labels, Assignees, Sub-issues progress, «Estimate, h»;
+  - `Roadmap` (ROADMAP_LAYOUT).
+- **The `Status` field** with options `Backlog` → `In progress` → `Done`,
+  colored `GREEN`, `YELLOW`, `PURPLE` (a new GitHub project's colors);
+  option descriptions are the project's own.
   I change the status **myself, immediately**, without waiting to be asked
   (`github task status <N> <status>`):
   - a new task — I set Backlog on creation;
@@ -118,12 +124,15 @@ added to the project right on creation (`github task new`). Required:
   (those closed as not planned don't count — they are no longer in the
   project).
   Safety net — the project's built-in workflows "Item added to project" →
-  Backlog, "Item closed" → Done and "Auto-add to project" (new open issues of
-  the repository get into the project by themselves): the status gets set
-  even if there is no one to set it (a cloud session, another agent, closing
-  from the GitHub UI). The agent sets the status anyway; a task closed as not
-  planned it removes from the project — otherwise the workflow puts it into
-  Done.
+  Backlog, "Item closed" and "Pull request merged" → Done, "Auto-close issue"
+  (Done → the issue is closed), "Auto-add to project" (new open issues of
+  the repository get into the project by themselves) and "Auto-add sub-issues
+  to project": the status gets set even if there is no one to set it (a cloud
+  session, another agent, closing from the GitHub UI). The agent sets the
+  status anyway; a task closed as not planned it removes from the project —
+  otherwise the workflow puts it into Done. "Auto-archive items" (`is:issue
+  is:closed updated:<@today-2w`) takes a task closed and untouched for two
+  weeks off the board and the table.
 - **The `Estimate, h` field** (Number) — the agent's active hours
   (`AGENTS.md`, section "Estimate and actual — the `est` skill"). Set **only
   by `github task new`** (the `est` script inside) — from analogs with
@@ -149,8 +158,11 @@ added to the project right on creation (`github task new`). Required:
   unblocked. A personal account has no issue fields — no priority is kept.
   `github task new` sets it (`--priority`, `Medium` by default).
 
-Nothing extra: there are no other fields (Iteration, Readiness…) or views
-until they are added here. Readiness — the status and *blocked by*; stages —
+Nothing extra: there are no other fields (Iteration, Readiness…), views or
+columns until they are added here. What the public API doesn't read — the
+slice by a field, the sub-issue hierarchy, column widths, the project's
+description and README — isn't in the canon: a copy of the template carries
+it, nothing checks it. Readiness — the status and *blocked by*; stages —
 milestones (the `Milestone` field).
 
 The project — the `github` skill: `project check` once per session before
@@ -313,16 +325,23 @@ description is rewritten.
 
 1. The project is linked to the repository, it is the only one, its title =
    the repository name.
-2. Views `Board` (BOARD, columns by `Status`), `Table` (TABLE), `Roadmap`
-   (ROADMAP), filters empty, no others.
-3. `Status`: `Backlog` → `In progress` → `Done`.
+2. Views `Board` (BOARD, columns by `Status`), `Table` (TABLE, grouped by
+   `Status`), `Roadmap` (ROADMAP), filters empty, no others; the columns of
+   `Board` and `Table` — the canon's set (a built-in field by its type, the
+   rest by name), `fix` sets them in the template's order. The roadmap's
+   columns aren't compared: the API gives it the default ones.
+3. `Status`: `Backlog` → `In progress` → `Done`, colors `GREEN`, `YELLOW`,
+   `PURPLE`; descriptions aren't compared.
 4. Fields «Estimate, h», «Actual, h», «Tokens, M», «Cost, $» (Number), no
    custom fields beyond the canon.
 5. Organization only: `Priority` — the organization's issue field, connected,
    `Table` and `Board` are sorted by it; issue types — exactly «Task»,
    «Bug», «Epic». A personal account has none — a `➖` line.
-6. Workflows "Item added to project" (→ Backlog), "Item closed" (→ Done),
-   "Auto-add to project" (`is:issue is:open`) are on.
+6. The template's workflows are on: "Item added to project" (→ Backlog),
+   "Item closed" and "Pull request merged" (→ Done), "Auto-close issue",
+   "Auto-add to project" (`is:issue is:open`), "Auto-add sub-issues to
+   project", "Auto-archive items" (`is:issue is:closed updated:<@today-2w`).
+   Others aren't checked.
 7. Closed tasks — in Done; those closed without being done (not planned,
    duplicate) — outside the project.
 8. The repository's open tasks — in the project, each has a `Status`.
@@ -379,7 +398,8 @@ description is rewritten.
 ### fix: who does what
 
 - **API — the script itself:** linking, a template copy or a new project,
-  missing views and fields, view layout, removing a filter, `Status` options,
+  missing views and fields, view layout and columns, removing a filter,
+  `Status` options and colors,
   the `Priority` issue field, task statuses, adding open tasks, removing tasks
   closed without being done from the project, decision labels (creation,
   color), the default-branch ruleset (creation, editing its own), merge
@@ -409,14 +429,19 @@ description is rewritten.
   deleted (options were replaced without ids): pick it again.
   - "Item added to project": trigger `issue, pull request` (default), Set
     value → `Status: Backlog`.
-  - "Item closed": Set value → `Status: Done`.
+  - "Item closed", "Pull request merged": Set value → `Status: Done`.
+  - "Auto-close issue": `Status: Done` → close the issue.
   - "Auto-add to project": the repository — this project's, filter
     `is:issue is:open`, Enter — the "See N existing items" counter should
     update. Without `is:open` an updated closed task (a not planned one too)
     comes back into the project. Auto-add doesn't add already existing tasks —
     `fix` adds them.
-- **Sorting by Priority, board columns:** the view → the `View` button on the
-  right → `Sort by: Priority` / `Column by: Status` → `Save view` → the dialog
+  - "Auto-add sub-issues to project": nothing to set — Save and turn on.
+  - "Auto-archive items": filter `is:issue is:closed updated:<@today-2w`,
+    Enter.
+- **Sorting by Priority, board columns, table grouping:** the view → the
+  `View` button on the right → `Sort by: Priority` / `Column by: Status` /
+  `Group by: Status` → `Save view` → the dialog
   "Save display options for …?" → `Save`. Escape closes the dialog without
   saving: the sorting stays only in the URL (`?sortedBy…`), and the tab's
   unsaved marker lies — `check` verifies the result.
@@ -435,8 +460,9 @@ description is rewritten.
   Done and leaves a step to check the target in the UI.
 - **`Status` options are renamed keeping the same id**
   (`updateProjectV2Field`, `singleSelectOptions[].id`): task values and the
-  "Item closed" target are kept. Replacing options without ids gives new ids —
-  task statuses vanish, "Item closed" sets the deleted `Done`.
+  "Item closed" target are kept, recoloring too. Replacing options without
+  ids gives new ids — task statuses vanish, "Item closed" sets the deleted
+  `Done`.
 - **The template** — the elves project (`miroshnik/6`): everything the API
   lacks is configured there once. A copy (`copyProjectV2`) carries over views
   with their settings, fields and configured workflows, except auto-add; it
@@ -444,12 +470,16 @@ description is rewritten.
   is unavailable (someone else's account) or `--template none` — the project is
   created from scratch (`createProjectV2`) and brought up via the API:
   `Todo / In Progress / Done` → the canon with the same ids, `View 1` →
-  `Table`, the rest is created.
+  `Table`, the rest is created; the table's grouping is a UI step.
 - **The view filter is empty:** `iteration:@current` without an Iteration field
   silently hides tasks from the board.
 - **`Priority` is the organization's issue field** (`isIssueField`), not a
   project field of the same name. The API reads the sorting (`sortByFields`)
-  but doesn't set it; the board grouping too (`verticalGroupByFields`).
+  but doesn't set it; the board grouping and the table grouping too
+  (`verticalGroupByFields`, `groupByFields`).
+- **A view's columns are set** (`updateProjectV2View`,
+  `configuration.visibleFieldIds` in order) and read (`fields` of the view; a
+  roadmap without configured columns gives the default ones).
 - **A project that has been used** — it has tasks.
 
 ## Task and PR commands — details

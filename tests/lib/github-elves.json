@@ -103,6 +103,47 @@
        },
        "verticalGroupByFields": {
         "nodes": []
+       },
+       "groupByFields": {
+        "nodes": [
+         {
+          "name": "Status"
+         }
+        ]
+       },
+       "fields": {
+        "nodes": [
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MA",
+          "name": "Title",
+          "dataType": "TITLE"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1ME",
+          "name": "Assignees",
+          "dataType": "ASSIGNEES"
+         },
+         {
+          "id": "PVTSSF_lAHOAAyAus4BjsdOzhif1MI",
+          "name": "Status",
+          "dataType": "SINGLE_SELECT"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MM",
+          "name": "Labels",
+          "dataType": "LABELS"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1Mo",
+          "name": "Sub-issues progress",
+          "dataType": "SUB_ISSUES_PROGRESS"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1NA",
+          "name": "Оценка, ч",
+          "dataType": "NUMBER"
+         }
+        ]
        }
       },
       {
@@ -120,6 +161,33 @@
           "name": "Status"
          }
         ]
+       },
+       "groupByFields": {
+        "nodes": []
+       },
+       "fields": {
+        "nodes": [
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MA",
+          "name": "Title",
+          "dataType": "TITLE"
+         },
+         {
+          "id": "PVTSSF_lAHOAAyAus4BjsdOzhif1MI",
+          "name": "Status",
+          "dataType": "SINGLE_SELECT"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MM",
+          "name": "Labels",
+          "dataType": "LABELS"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1Mo",
+          "name": "Sub-issues progress",
+          "dataType": "SUB_ISSUES_PROGRESS"
+         }
+        ]
        }
       },
       {
@@ -133,6 +201,38 @@
        },
        "verticalGroupByFields": {
         "nodes": []
+       },
+       "groupByFields": {
+        "nodes": []
+       },
+       "fields": {
+        "nodes": [
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MA",
+          "name": "Title",
+          "dataType": "TITLE"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1ME",
+          "name": "Assignees",
+          "dataType": "ASSIGNEES"
+         },
+         {
+          "id": "PVTSSF_lAHOAAyAus4BjsdOzhif1MI",
+          "name": "Status",
+          "dataType": "SINGLE_SELECT"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1MQ",
+          "name": "Linked pull requests",
+          "dataType": "LINKED_PULL_REQUESTS"
+         },
+         {
+          "id": "PVTF_lAHOAAyAus4BjsdOzhif1Mo",
+          "name": "Sub-issues progress",
+          "dataType": "SUB_ISSUES_PROGRESS"
+         }
+        ]
        }
       }
      ]
@@ -283,10 +383,24 @@
     "workflows": {
      "nodes": [
       {
+       "id": "PWF_lAHOAAyAus4BjsdOzgdsZFc",
+       "number": 6,
+       "fullDatabaseId": "124544087",
+       "name": "Auto-add sub-issues to project",
+       "enabled": true
+      },
+      {
        "id": "PWF_lAHOAAyAus4BjsdOzgcYd28",
        "number": 5,
        "fullDatabaseId": "119043951",
        "name": "Auto-add to project",
+       "enabled": true
+      },
+      {
+       "id": "PWF_lAHOAAyAus4BjsdOzgdsZLM",
+       "number": 7,
+       "fullDatabaseId": "124544179",
+       "name": "Auto-archive items",
        "enabled": true
       },
       {
