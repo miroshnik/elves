@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 186 тестов</summary>
+<details><summary>✅ 189 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -191,6 +191,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «Waiting for the owner» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «What it's made of» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «What the system does» из skills/spec/reference.md печатает или пишет скрипт
+- ✅ цитату «What to do» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Which rules the code obeys» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «`<base>` is red: \<check | typecheck | test:spec>» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «`<base>` is red…» из skills/github/reference.md печатает или пишет скрипт
@@ -206,6 +207,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «allowed» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «already newer» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «analogs» из skills/est/reference.md печатает или пишет скрипт
+- ✅ цитату «appended to #N» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «architecture model» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «beyond scenarios» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «can be closed» из skills/dashboard/SKILL.md печатает или пишет скрипт
@@ -230,6 +232,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «exceptions are one file per element in exceptions/, not exceptions.ts» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «exceptions in \<file>: \<rules> (#N)» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «exceptions with a rule belong to the folder's invariant rules» из skills/spec/checks.md печатает или пишет скрипт
+- ✅ цитату «filed #M» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «forms» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «from project …» из skills/est/reference.md печатает или пишет скрипт
 - ✅ цитату «from the report» из skills/spec/reference.md печатает или пишет скрипт
@@ -316,7 +319,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ## Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 335 тестов</summary>
+<details><summary>✅ 340 тестов</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -329,6 +332,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ нарушитель не проходит: название, которого скрипты не читают
 - ✅ название actualize.answer скрипты читают из словаря
 - ✅ название actualize.answers скрипты читают из словаря
+- ✅ название actualize.backlog скрипты читают из словаря
 - ✅ название actualize.checks скрипты читают из словаря
 - ✅ название actualize.comment скрипты читают из словаря
 - ✅ название actualize.commentAnswer скрипты читают из словаря
@@ -337,6 +341,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название actualize.epic скрипты читают из словаря
 - ✅ название actualize.fetch скрипты читают из словаря
 - ✅ название actualize.files скрипты читают из словаря
+- ✅ название actualize.inWork скрипты читают из словаря
 - ✅ название actualize.lead скрипты читают из словаря
 - ✅ название actualize.linkWords скрипты читают из словаря
 - ✅ название actualize.mechanics скрипты читают из словаря
@@ -349,6 +354,8 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название actualize.report скрипты читают из словаря
 - ✅ название actualize.scope скрипты читают из словаря
 - ✅ название actualize.shipped скрипты читают из словаря
+- ✅ название actualize.taskPr скрипты читают из словаря
+- ✅ название actualize.taskStatus скрипты читают из словаря
 - ✅ название actualize.unblocked скрипты читают из словаря
 - ✅ название actualize.unlabeled скрипты читают из словаря
 - ✅ название autoAnswer скрипты читают из словаря
@@ -458,6 +465,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.prompt скрипты читают из словаря
 - ✅ название queue.question скрипты читают из словаря
 - ✅ название queue.refresh скрипты читают из словаря
+- ✅ название queue.repeats скрипты читают из словаря
 - ✅ название queue.resume скрипты читают из словаря
 - ✅ название queue.session скрипты читают из словаря
 - ✅ название queue.sessionEnd скрипты читают из словаря

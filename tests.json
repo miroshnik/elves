@@ -2795,6 +2795,13 @@
   "describes": [
    "task actualize делает механику актуализации блока и печатает задание субагенту"
   ],
+  "name": "задача того же рода в работе — находка заводит новую задачу"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task actualize делает механику актуализации блока и печатает задание субагенту"
+  ],
   "name": "задачи эпика в задании — его подзадачи (sub-issues): список задач в описании эпика туда не попадает"
  },
  {
@@ -2803,6 +2810,13 @@
    "task actualize делает механику актуализации блока и печатает задание субагенту"
   ],
   "name": "метку вопросов у задачи эпика без открытых вопросов снимает сам task actualize, с открытым вопросом — оставляет"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task actualize делает механику актуализации блока и печатает задание субагенту"
+  ],
+  "name": "находка-повтор дописывается в открытую задачу эпика того же рода в Бэклоге, а не заводит новую"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -3669,6 +3683,13 @@
    "task queue раздаёт задачи эпика или фильтра исполнителям"
   ],
   "name": "задание исполнителя: актуализация эпика — в том же ходе, до ответа диспетчеру"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue раздаёт задачи эпика или фильтра исполнителям"
+  ],
+  "name": "задание исполнителя: повторы в файлах задачи — исправить в том же PR, а не заводить задачу"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -11052,6 +11073,13 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название actualize.backlog скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название actualize.checks скрипты читают из словаря"
  },
  {
@@ -11102,6 +11130,13 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название actualize.files скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название actualize.inWork скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -11186,6 +11221,20 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название actualize.shipped скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название actualize.taskPr скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название actualize.taskStatus скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -11949,6 +11998,13 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.refresh скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.repeats скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -13880,6 +13936,13 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
+  "name": "цитату «What to do» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
   "name": "цитату «Which rules the code obeys» из skills/spec/reference.md печатает или пишет скрипт"
  },
  {
@@ -13979,6 +14042,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «analogs» из skills/est/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «appended to #N» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -14147,6 +14217,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «exceptions with a rule belong to the folder's invariant rules» из skills/spec/checks.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «filed #M» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
