@@ -116,6 +116,17 @@ export interface Names {
     cloudClose: string;
     cloudDispatcher: string;
     cloudQuestion: string;
+    /**
+     * An app executor session's prompt (`--assignment N --session`, #624): a session of another project, not a subagent —
+     * by its canon and mode, named by the task, waits in the background, the canon's last line.
+     */
+    sessionLead: string;
+    sessionIs: string;
+    sessionName: string;
+    sessionWait: string;
+    sessionFound: string;
+    sessionQuestion: string;
+    sessionEnd: string;
   };
   /** The est skill's "Estimate" and "Actual" comments and the lines a human appends to them. */
   est: {

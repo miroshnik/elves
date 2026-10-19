@@ -166,8 +166,8 @@ is continued with `SendMessage` by its id, not replaced (`task resume`). Waits f
 task comment, no restart (the owner's restart:
 `--assignment` refuses while the previous executor lives); external
 blockers — `reference.md`, "Dependencies". Queue empty and nothing running — the summary, the last
-line (a session with its own task — after it) and, in auto mode, archiving. The executor's side (`--assignment`,
-a cloud one's: `--cloud`) — `reference.md`, "task queue".
+line (a session with its own task — after it) and, in auto mode, archiving. The executor's side (`--assignment`;
+`--cloud`, `--session`) — `reference.md`, "task queue".
 
 ## Git, PRs and merging — mechanics
 

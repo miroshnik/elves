@@ -97,7 +97,14 @@
     "cloudDoc": "- the cloud — by `docs/cloud-sessions.md` of the canon, read it first: of the github skill's scripts `task show`, `task answer` and `task new` work there (over REST), the rest refuse, the scenarios section — by editing the description over REST, project fields aren't set from the cloud; the branch is the one the cloud assigned, don't rename it;",
     "cloudClose": "- after the merge — its section «Closing a task from the cloud»: the «{actual}» comment of `est fact {number}` and a «{state}» comment with what the cloud can't do — both into the task;",
     "cloudDispatcher": "- the dispatcher waits for the task to close and closes it locally — the actual, the status, the merged branch, archiving this session: don't message it, don't archive the session;",
-    "cloudQuestion": "- a question without a clear recommendation — into «{questions}» of the task and to the owner in this session, don't start the code that depends on it; stopped (a question, a failure, a limit) — a «{state}» comment into the task."
+    "cloudQuestion": "- a question without a clear recommendation — into «{questions}» of the task and to the owner in this session, don't start the code that depends on it; stopped (a question, a failure, a limit) — a «{state}» comment into the task.",
+    "sessionLead": "{task} #{number} «{title}» in {repo}{epic}: you are an executor session of the dispatcher session — do the task whole by the canon of this project, in its mode (`check` prints it; outside auto — commit, push and merge on the owner's «yes»): the task's questions, `{script} task status {number} \"{inProgress}\" --branch <type>/{number}-<slug>`, the branch from a fresh origin/main, code and tests, PR, green CI, `pr premerge`, merge, deploy, the epic refresh, `{script} task close {number}`.",
+    "sessionIs": "You are a session, not a subagent:",
+    "sessionName": "- name the session `#{number} {title}` (`set_session_title`) once the task is taken — `est` links the session to the task by it;",
+    "sessionWait": "- wait for CI and the deploy with a background command — `{waitCi} pr <PR>` (after the merge — `merged <PR>`): its completion wakes the session; no `Monitor`, watcher loop or `ScheduleWakeup` on top;",
+    "sessionFound": "- work found outside the task — `{script} task new …` and the question «queue it?» by the canon; work of the task's epic — with `--epic` and without an executor of yours: the dispatcher's queue picks it up;",
+    "sessionQuestion": "- a question without a clear recommendation — into «{questions}» of the task and to the owner in this session; don't start the code that depends on it: the answer comes here, from the owner or the dispatcher;",
+    "sessionEnd": "- the end — the canon's last line («{done}» · «{doneQuestions} …» · «{remaining} …»), in auto mode after «{done}» — archiving the session by the canon: the dispatcher reads the end of each of your turns as your answer."
   },
   "est": {
     "answer": "Answer",
