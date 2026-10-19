@@ -2583,6 +2583,48 @@
  {
   "path": "tests/capabilities/github-project/github-project.test.ts",
   "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "workflow «Auto-archive items», «Auto-add sub-issues to project», «Pull request merged», «Auto-close issue» не настроены или выключены — ❌, шаги UI с фильтром и целью"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "«Таблица» не сгруппирована по Status — ❌, шаг UI со ссылкой на представление"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "в «Таблице» и на «Доске» не те колонки — ❌ с недостающими и лишними; fix ставит колонки канона через API"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "варианты Status не цвета эталона — ❌; fix перекрашивает с теми же id, описания не трогает"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "новое представление fix создаёт сразу с колонками канона"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
+   "Представления, Status и workflow — как у эталона"
+  ],
+  "name": "поля Status нет — fix создаёт его с вариантами и цветами эталона"
+ },
+ {
+  "path": "tests/capabilities/github-project/github-project.test.ts",
+  "describes": [
    "Способ мержа — только rebase"
   ],
   "name": "настройки мержа не меняются (нет прав admin) — fix пишет строку ! с ответом GitHub и ссылкой на настройки, пункт остаётся ❌"
