@@ -3484,6 +3484,34 @@
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
   "describes": [
+   "task queue --assignment N --session — задание сессии-исполнителя приложения"
+  ],
+  "name": "--session — только с --assignment и не вместе с --cloud"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue --assignment N --session — задание сессии-исполнителя приложения"
+  ],
+  "name": "Next: задания сессии — start_session в папке проекта со своим worktree, промпт — строки задания как есть, по концу её хода — очередь"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue --assignment N --session — задание сессии-исполнителя приложения"
+  ],
+  "name": "Задание сессии-исполнителя велит назвать сессию по задаче, ждать CI фоновой командой и закончить последней строкой по режиму проекта"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue --assignment N --session — задание сессии-исполнителя приложения"
+  ],
+  "name": "Задача, выданная сессии-исполнителю, в очереди диспетчера — в работе, а не готовая"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
    "task queue в worktree приложения: облачные исполнители из него не стартуют"
   ],
   "name": "task queue в папке проекта и в worktree агента строки о worktree приложения не печатает"
@@ -11851,6 +11879,55 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.session скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionEnd скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionFound скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionIs скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionLead скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionName скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionQuestion скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionWait скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
