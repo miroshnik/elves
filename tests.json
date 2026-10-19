@@ -4408,6 +4408,34 @@
  {
   "path": "tests/capabilities/install/install.test.ts",
   "describes": [
+   "Команда elves в терминале — install -g ставит её в каталог из PATH"
+  ],
+  "name": "install -g --link ставит elves ссылкой на bin/elves.ts клона в каталог из PATH"
+ },
+ {
+  "path": "tests/capabilities/install/install.test.ts",
+  "describes": [
+   "Команда elves в терминале — install -g ставит её в каталог из PATH"
+  ],
+  "name": "install -g пакетом ставит шим elves на версию машины"
+ },
+ {
+  "path": "tests/capabilities/install/install.test.ts",
+  "describes": [
+   "Команда elves в терминале — install -g ставит её в каталог из PATH"
+  ],
+  "name": "без подходящего каталога в PATH install -g не ставит команду, а check -g называет, как добавить каталог"
+ },
+ {
+  "path": "tests/capabilities/install/install.test.ts",
+  "describes": [
+   "Команда elves в терминале — install -g ставит её в каталог из PATH"
+  ],
+  "name": "чужой elves в каталоге не перезаписывается и называется в выводе"
+ },
+ {
+  "path": "tests/capabilities/install/install.test.ts",
+  "describes": [
    "Мерж своего PR в Claude Code — правило разрешений владельца: install с auto подсказывает, а не ставит"
   ],
   "name": "install без auto о правиле разрешений молчит"
@@ -8731,6 +8759,13 @@
   "describes": [
    "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
   ],
+  "name": "check -g называет отсутствующую команду elves или ведущую не туда"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
+  ],
   "name": "update -g на машине со старым хуком оставляет один хук — с командой miroshnik/elves"
  },
  {
@@ -8788,6 +8823,13 @@
    "Пакет из npm — сам релиз: install -g ставит его версию, check -g и update -g — по последнему релизу пакета"
   ],
   "name": "update -g доводит канон, скиллы и хук машины до последнего релиза пакета"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Пакет из npm — сам релиз: install -g ставит его версию, check -g и update -g — по последнему релизу пакета"
+  ],
+  "name": "update -g переписывает шим elves на новую версию"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
