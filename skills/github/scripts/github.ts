@@ -2415,7 +2415,7 @@ function cloudBrief(io: Io, slug: string, issue: Issue): void {
     state: N.comments.state,
     questions: N.sections.questions,
   };
-  for (const line of [N.queue.cloud, N.queue.cloudDoc, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion]) io.out(locale.fill(line, vars));
+  for (const line of [N.queue.cloud, N.queue.cloudDoc, N.queue.repeats, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion]) io.out(locale.fill(line, vars));
   io.out(
     `Next: the lines above — the cloud session's first prompt as is, the session started from the project folder (the cloud starts from main); ` +
       `then as a background command: bash ${waitCi()} issue ${number} — a cloud session can't message a local one (docs/cloud-sessions.md), the task's closing is the signal: ` +
@@ -2435,6 +2435,17 @@ function cloudBrief(io: Io, slug: string, issue: Issue): void {
 const SESSION_ARCHIVE =
   "an executor session whose task closed — the dispatcher archives it in an auto project where the agent has the tool, " +
   "not one still working in the background or awaiting the owner's answer; outside auto the owner closes it";
+
+/**
+ * A task's open PR: linked to it by GitHub, or one of the repository's recent ones by the task branch or `Closes #N` in
+ * its body. The queue's «=» (the executor waits for its CI) and the epic refresh's «already going» (#636).
+ */
+function openPrOf(io: Io, slug: string): (i: Issue) => number | undefined {
+  const [owner, name] = slug.split("/");
+  const recent = (graphql(io, Q.RecentPrs, { owner, name })?.repository?.pullRequests?.nodes ?? []).filter((p: Any) => p.state === "OPEN");
+  return (i) =>
+    i.prs.find((p) => p.state === "OPEN")?.number ?? recent.find((p: Any) => isTaskBranch(p.headRefName ?? "", i.number) || closingInBody(p.body ?? "").includes(i.number))?.number;
+}
 
 /**
  * The dispatcher's queue: its ready tasks go to background executors (subagents), K at a time; the queue is re-read
@@ -2466,10 +2477,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     if (found.length >= 100) io.out("○ the search gave 100 open tasks — the queue sees only them: narrow it with --epic");
     numbers = found.filter((x) => x?.state === "OPEN").map((x) => x.number);
   }
-  const [owner, name] = slug.split("/");
-  const recent = (graphql(io, Q.RecentPrs, { owner, name })?.repository?.pullRequests?.nodes ?? []).filter((p: Any) => p.state === "OPEN");
-  const openPr = (i: Issue) =>
-    i.prs.find((p) => p.state === "OPEN")?.number ?? recent.find((p: Any) => isTaskBranch(p.headRefName ?? "", i.number) || closingInBody(p.body ?? "").includes(i.number))?.number;
+  const openPr = openPrOf(io, slug);
   const handed = handedOut(io, slug);
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
@@ -2930,8 +2938,8 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   const resume = restart.length ? [N.queue.resume] : [];
   // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's wait
   const lines = o.session
-    ? [N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, N.queue.sessionWait, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
-    : [N.queue.lead, ...resume, N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.found, N.queue.question, N.queue.answer];
+    ? [N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    : [N.queue.lead, ...resume, N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.repeats, N.queue.found, N.queue.question, N.queue.answer];
   for (const line of lines) io.out(locale.fill(line, vars));
   if (o.session) {
     io.out(
@@ -3124,8 +3132,9 @@ const textBlock = (body: string) => (body ? `~~~~markdown\n${body}\n~~~~` : N.ac
  * its open tasks and the PR files run to tens of KB, and the session at peak context would copy them into the subagent
  * call as output tokens. In it — the task and its PR with its files, the epic and its open tasks with their texts, the
  * copies of links and the answers in comments the script found, the checks by meaning quoted from reference.md as is,
- * what may be changed and the answer form; in the project language (the `actualize` keys). No epic, or no open tasks in
- * it besides this one — the checks by meaning have nothing to go through: a "not needed" line, no subagent.
+ * what may be changed and the answer form; under each open task — where a repeat finding of check 5 goes, by its Status
+ * and open PR (#636); in the project language (the `actualize` keys). No epic, or no open tasks in it besides this one
+ * — the checks by meaning have nothing to go through: a "not needed" line, no subagent.
  */
 export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assignment: boolean } = { assignment: false }): number {
   const issue = loadIssue(io, slug, number);
@@ -3137,6 +3146,8 @@ export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assi
   const open = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).map((x) => loadTaskText(io, slug, x.number));
   if (!o.assignment) refreshMechanics(io, slug, { number, merged: prs.length > 0, epic, open });
   if (!open.length) return io.out(`○ refresh not needed: epic #${epic.number} has no open tasks besides #${number}. ${later}`), 0;
+  // the board with its Status (and its language) — the assignment names where a repeat finding goes (#636)
+  const ctx = o.assignment ? taskContext(io, slug) : null;
   const vars = { task: N.subagentPrompt.task, epicWord: N.subagentPrompt.epic, number, epic: epic.number, repo: slug };
   const lead = locale.fill(N.actualize.lead, vars);
   if (!o.assignment) {
@@ -3155,7 +3166,17 @@ export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assi
     if (files.length) lines.push(locale.fill(N.actualize.files, { pr: p.number }), ...files.map(fileLine));
   }
   lines.push("", locale.fill(N.actualize.epic, { ...vars, title: epic.title }), textBlock(epic.body), "", N.actualize.openTasks);
-  for (const t of open) lines.push("", locale.fill(N.actualize.openTask, { number: t.number, title: t.title }), textBlock(t.body));
+  const openPr = openPrOf(io, slug);
+  /** Where a repeat finding of check 5 goes (#636): a task in Backlog takes it as an item, one already going doesn't. */
+  const target = (n: number): string[] => {
+    const i = loadIssue(io, slug, n);
+    const status = itemIn(ctx!, i)?.status ?? null;
+    const pr = openPr(i);
+    const work = [status === N.status.inProgress ? locale.fill(N.actualize.taskStatus, { status }) : "", pr === undefined ? "" : locale.fill(N.actualize.taskPr, { pr })].filter(Boolean);
+    if (work.length) return [locale.fill(N.actualize.inWork, { work: work.join(", ") })];
+    return status === N.status.backlog ? [locale.fill(N.actualize.backlog, { status: locale.fill(N.actualize.taskStatus, { status }) })] : [];
+  };
+  for (const t of open) lines.push("", locale.fill(N.actualize.openTask, { number: t.number, title: t.title }), ...target(t.number), textBlock(t.body));
   const copies = linkCopies(epic, open);
   if (copies.length) lines.push("", N.actualize.copies, ...copies.map((c) => locale.fill(N.actualize.copy, c)));
   const answers = commentAnswers([epic, ...open]);

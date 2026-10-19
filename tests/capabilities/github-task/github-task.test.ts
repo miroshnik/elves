@@ -1515,7 +1515,11 @@ describe("task actualize делает механику актуализации 
     expect(r.out).toContain("Файлы PR #77:\n- skills/github/scripts/github.ts (+1 −1)\n- docs/old.md (deleted, +0 −12)");
     expect(r.out).toContain("## Эпик #45 «GitHub · Скилл github: проект и задачи по канону одной командой»\n~~~~markdown\nЦель эпика: проект по канону.\n~~~~");
     expect(r.out).toContain("## Открытые задачи эпика — его подзадачи (sub-issues), а не список в описании эпика");
-    expect(r.out).toContain("### #47 «GitHub · Задача одной командой — github task»\n~~~~markdown\nЗадача одной командой.\n\n## Сценарии\n\n1. task new заводит задачу\n~~~~");
+    // под заголовком — куда идёт находка-повтор проверки 5 (#636): #47 в записи — «В работе»
+    expect(r.out).toContain(
+      "### #47 «GitHub · Задача одной командой — github task»\nСтатус «В работе» — задача уже идёт: находку-повтор того же рода сюда не дописывать, а завести новой задачей.\n" +
+        "~~~~markdown\nЗадача одной командой.\n\n## Сценарии\n\n1. task new заводит задачу\n~~~~",
+    );
     // закрытая задача эпика в задание не идёт
     expect(r.out).not.toContain("Текст закрытой задачи");
     // механику проверок 2 и 4 сделал скрипт — субагенту из пяти проверок канона остаются проверки по смыслу
@@ -1665,6 +1669,54 @@ describe("task actualize делает механику актуализации 
     const r = task(f, ["actualize", "47", "--assignment"]);
     expect(r.out).toContain("### #561 «GitHub · Экспорт счетов»");
     expect(r.out).not.toContain("### #47 ");
+  });
+
+  /** Строка задания сразу под заголовком открытой задачи эпика. */
+  const underHeading = (out: string, heading: string) => {
+    const lines = out.split("\n");
+    expect(lines).toContain(heading);
+    return lines[lines.indexOf(heading) + 1];
+  };
+
+  /**
+   * Диспетчер эпика, 19.10.2026 (#636): проверка 5 после почти каждой закрытой задачи заводила новую задачу «Стандарт · …»
+   * на следующий дубль рядом — семь задач по 0,5–1 ч за день, у каждой свой PR, CI, деплой и своя актуализация, которая
+   * снова что-то находила. Находке того же рода есть место в открытой задаче эпика в Бэклоге: задание называет у открытых
+   * задач, куда её дописать, а итог — куда она ушла.
+   */
+  it("находка-повтор дописывается в открытую задачу эпика того же рода в Бэклоге, а не заводит новую", () => {
+    const f = new FakeGitHub(REC);
+    merged46(f);
+    f.status(47, "Бэклог");
+    const before = f.mutations.length;
+    const r = task(f, ["actualize", "46", "--assignment"]);
+    expect(r.code).toBe(0);
+    expect(underHeading(r.out, "### #47 «GitHub · Задача одной командой — github task»")).toBe(
+      "Статус «Бэклог» — находку-повтор того же рода (тот же помощник, модуль или стандарт) дописать сюда пунктом в «Что сделать» (и сценарий, если нужен), новую задачу не заводить.",
+    );
+    // проверка 5 канона, которую задание цитирует: сначала открытая задача эпика того же рода в Бэклоге, затем — новая
+    expect(CHECKS[4]!.replace(/\s+/g, " ")).toContain("First — an open task of the epic of the same kind (the same helper, module or standard) in Backlog: the finding is an item in its «What to do»");
+    expect(r.out).toContain(CHECKS[4]!);
+    // итог называет, куда ушла находка
+    expect(r.out).toContain("после двоеточия что поправил, находку-повтор — с тем, куда она ушла: «дописано в #N» или «заведена #M»;");
+    expect(r.out.split("\n").at(-1)).toBe("Ответ — правки по строке с номерами задач (находка-повтор — «дописано в #N» или «заведена #M») и вопросы владельцу, если есть; иначе «Блок актуален».");
+    expect(f.mutations.length).toBe(before);
+  });
+
+  it("задача того же рода в работе — находка заводит новую задачу", () => {
+    const f = new FakeGitHub(REC);
+    merged46(f);
+    f.status(47, "В работе");
+    // Бэклог, но PR уже открыт — задача тоже идёт
+    const opened = subtask(f, "Экспорт счетов");
+    f.prs[80] = { files: [], closes: [Number(opened)], head: `feat/${opened}-invoice-export`, base: "main", model: null };
+    const r = task(f, ["actualize", "46", "--assignment"]);
+    expect(r.code).toBe(0);
+    expect(underHeading(r.out, "### #47 «GitHub · Задача одной командой — github task»")).toBe(
+      "Статус «В работе» — задача уже идёт: находку-повтор того же рода сюда не дописывать, а завести новой задачей.",
+    );
+    expect(underHeading(r.out, `### #${opened} «GitHub · Экспорт счетов»`)).toBe("PR #80 открыт — задача уже идёт: находку-повтор того же рода сюда не дописывать, а завести новой задачей.");
+    expect(CHECKS[4]!.replace(/\s+/g, " ")).toContain("one In progress or with an open PR is already going — a new task");
   });
 });
 
@@ -2519,7 +2571,8 @@ describe("Задачи — на языке проекта из .agents/elves.jso
     const lines = task(f, ["actualize", "46", "--assignment"], REPO, { cwd: checkoutWith(EN) }).out.split("\n");
     expect(lines[0]).toBe("Task #46 (epic #45): epic refresh after the merge — bring the epic's open tasks in line with what shipped.");
     expect(lines).toContain("## Epic #45 «GitHub · Скилл github: проект и задачи по канону одной командой»");
-    expect(lines.at(-1)).toBe("Answer — fixes one per line with task numbers and questions to the owner, if any; otherwise «The block is current».");
+    expect(lines).toContain("Status «In progress» — the task is already going: a repeat finding of the same kind isn't appended here but filed as a new task.");
+    expect(lines.at(-1)).toBe("Answer — fixes one per line with task numbers (a repeat finding — «appended to #N» or «filed #M») and questions to the owner, if any; otherwise «The block is current».");
   });
 
   it("проект на en: правки скрипта в комментарии к эпику — по-английски", () => {
@@ -2803,6 +2856,21 @@ describe("task queue раздаёт задачи эпика или фильтр�
         `\`gh issue close 47 --repo ${REPO} --reason completed --comment "<итог>"\`;`,
     );
     expect(refresh).toBeLessThan(lines.length - 1);
+  });
+
+  /**
+   * Повторы в файлах, которые задача и так правит, исполнитель до PR не смотрел (#636): их находила актуализация уже после
+   * мержа, когда дописать в задачу нельзя, и заводила новую — с её PR, CI, деплоем и своей актуализацией. Задание любого
+   * исполнителя — субагента, сессии приложения, облачного — велит исправить их в том же PR.
+   */
+  it("задание исполнителя: повторы в файлах задачи — исправить в том же PR, а не заводить задачу", () => {
+    const line =
+      "- перед PR — повторы в файлах, которые задача и так правит: исправь в том же PR, новую задачу на них не заводи; повтор вне файлов задачи — дело актуализации эпика;";
+    for (const kind of [[], ["--session"], ["--cloud"]]) {
+      const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", ...kind], REPO, { ...inSession(scratch()), cwd: projectDir() });
+      expect(r.code).toBe(0);
+      expect(r.out.split("\n")).toContain(line);
+    }
   });
 
   /**

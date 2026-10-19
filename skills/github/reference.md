@@ -246,12 +246,20 @@ line `○ refresh not needed`, no subagent. Five checks:
    of subtasks in the epic, an order, "⛔" or "after #N" marks — is removed.
 5. **Repetition is a standard.** A decision that, in what shipped, repeats an
    existing one in two or more places — a `Standard · …` issue
-   (a rule in `tests/standards/` and a refactoring). First a search among the
-   open `Standard · …`: one exists — don't file another; an extension of a
-   neighboring one — a comment in it. A standard's priority — by the cost of
-   the mistake it prevents; standards of one area — as an epic: otherwise
-   they are born faster than they are worked off. Something deferred as "not
-   in this PR" — an issue or dropped explicitly, not forgotten.
+   (a rule in `tests/standards/` and a refactoring); a repeat in the files a
+   task changes anyway is fixed in its PR by its executor, without a task.
+   First — an open task of the epic of the same kind (the same helper, module
+   or standard) in Backlog: the finding is an item in its «What to do» (and a
+   scenario, if needed), not a new task; one In progress or with an open PR is
+   already going — a new task (the assignment names each one's status). Then
+   a search among the open `Standard · …`: one exists — don't file another; an
+   extension of a neighboring one — a comment in it. The result names where
+   the finding went: «appended to #N» or «filed #M». A standard's priority —
+   by the cost of the mistake it prevents; standards of one area — as an epic:
+   otherwise they are born faster than they are worked off (#636: seven tasks
+   in a day on one helper's copies, each refresh finding the next). Something
+   deferred as "not in this PR" — an issue or dropped explicitly, not
+   forgotten.
 
 What was fixed — one comment on the epic, the history of decisions in one
 place; it is the subagent's last step, always: nothing to fix — «the block is
