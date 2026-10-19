@@ -727,7 +727,10 @@ its epic refresh still ran in its directory, and the queue removed it): such a
 subagent — `parentAgentId` without its own `worktreePath` in Claude Code's
 subagent metadata of this session and of the sessions with hand-outs
 (`dispatchers/*.tasks`), at any depth; at work — its transcript
-(`agent-<id>.jsonl`) written in the last 15 minutes.
+(`agent-<id>.jsonl`) written in the last 15 minutes. An executor's worktree is
+removed only by the queue, not by the dispatcher's `git worktree remove` after
+a clean `git status` (#628): a live subagent without a worktree of its own
+leaves no trace in `git status`, and its directory goes from under it.
 A session started to dispatch works in the project folder, not a worktree
 (#588): the app starts a cloud session from the branch in the starting
 session's record (`get_session` → `branch`), not from git — a session from
@@ -771,7 +774,14 @@ branches removed by the executor after the merge, no answer while any of its
 subagents works (#565: an answer with live subagents reads as a failure — the
 executor of #545 answered failed, its subagents' answers woke it, and it merged
 the task while a second executor, launched on the owner's restart, worked on the
-same branch), found work — `task new`,
+same branch), the epic refresh — the subagent of `task actualize` without a
+worktree of its own and not in the background: its answer in the same turn,
+then `task close`, then the answer (#628: an executor of a task without
+commits answered «waits for subagents» while its refresh ran, and its
+worktree, without changes, was removed under the refresh subagent once it
+answered), a task without a PR — first the issue closed as completed with a
+result comment (`gh issue close N --reason completed --comment …`: `task
+close` needs it closed), found work — `task new`,
 named in the answer (whether to queue it is the owner's call); the answer — one
 line: merged, a question, waits for subagents (it can't wait — not a failure) or
 failed.
@@ -888,7 +898,11 @@ the background the subagent with the assignment, if a refresh is needed; a wait
 notification with code 0 — `task close N` right away, don't read the output
 file (not 0 — the `RESULT:` line in it); the subagent hasn't reported yet —
 close refuses before any change: close again after its answer; then the last
-line of the answer and archiving — in one turn.
+line of the answer and archiving — in one turn. A dispatcher's executor runs
+the subagent not in the background and waits for its answer in the same turn,
+before `task close` and its own answer (its assignment, #628): once it answers,
+its worktree without changes is removed, and a background subagent is left
+without a directory.
 
 ### task close
 
@@ -900,7 +914,10 @@ then the task's PR is searched among the default branch's recent PRs by the
 branch `<type>/<N>-<slug>` and "Closes #N" in the body: merged — the task is
 closed with the comment «Closed by PR #M: GitHub didn't link the PR to the
 task», none — a refusal
-listing what was checked (no manual `gh issue close` needed). The epic has
+listing what was checked (no manual `gh issue close` needed). No PR at all and
+the task open — the refusal also names the step a task without commits (a data
+edit, a reconciliation, research) lacks: `gh issue close N --reason completed
+--comment "<result>"`, then `task close N` again (#628). The epic has
 open tasks besides this one and no report of the refresh on it — a comment
 with «Refresh after #N, result:» in any language of the dictionary, case and
 markup aside; the script's own «Refresh after #N, script: …» comes before the
