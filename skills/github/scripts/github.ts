@@ -57,13 +57,27 @@ type Any = any;
  */
 let N: Names = locale.names(locale.projectLanguage());
 
-const canonViews = () => [
-  { name: N.views.board, layout: "BOARD_LAYOUT" },
-  { name: N.views.table, layout: "TABLE_LAYOUT" },
+/**
+ * Views as in the template: columns by `columnKey` in the template's order, the table grouped by Status. The roadmap's
+ * columns aren't compared: the API gives it the default ones, it has no configured columns.
+ */
+interface CanonView {
+  name: string;
+  layout: string;
+  columns?: string[];
+  groupBy?: string;
+}
+const canonViews = (): CanonView[] => [
+  { name: N.views.board, layout: "BOARD_LAYOUT", columns: ["TITLE", STATUS, "LABELS", "SUB_ISSUES_PROGRESS"] },
+  { name: N.views.table, layout: "TABLE_LAYOUT", columns: ["TITLE", STATUS, "LABELS", "ASSIGNEES", "SUB_ISSUES_PROGRESS", N.fields.estimate], groupBy: STATUS },
   { name: N.views.roadmap, layout: "ROADMAP_LAYOUT" },
 ];
+/** A built-in column's name when the project has no such field yet (a column key is its type). */
+const BUILTIN_COLUMNS: Record<string, string> = { TITLE: "Title", ASSIGNEES: "Assignees", LABELS: "Labels", SUB_ISSUES_PROGRESS: "Sub-issues progress" };
 export const STATUS = "Status";
 const statusOptions = () => [N.status.backlog, N.status.inProgress, N.status.done];
+/** The template's colors of the Status options, in order — GitHub's colors of a new project's Todo / In Progress / Done. */
+const STATUS_COLORS = ["GREEN", "YELLOW", "PURPLE"];
 const numberFields = () => [N.fields.estimate, N.fields.actual, N.fields.tokens, N.fields.cost];
 const issueTypes = () => [N.issueTypes.task, N.issueTypes.bug, N.issueTypes.epic];
 export const PRIORITY = "Priority";
@@ -98,6 +112,14 @@ const ISSUE_LABEL_LIMIT = 100;
 export const WORKFLOW_ADDED = "Item added to project";
 export const WORKFLOW_CLOSED = "Item closed";
 export const WORKFLOW_AUTO_ADD = "Auto-add to project";
+const WORKFLOW_MERGED = "Pull request merged";
+const WORKFLOW_AUTO_CLOSE = "Auto-close issue";
+const WORKFLOW_SUB_ISSUES = "Auto-add sub-issues to project";
+const WORKFLOW_ARCHIVE = "Auto-archive items";
+/** The template's workflows, all on. */
+const WORKFLOWS = [WORKFLOW_ADDED, WORKFLOW_CLOSED, WORKFLOW_MERGED, WORKFLOW_AUTO_CLOSE, WORKFLOW_AUTO_ADD, WORKFLOW_SUB_ISSUES, WORKFLOW_ARCHIVE];
+/** The template's auto-archive filter: a task closed and untouched for two weeks leaves the board and the table. */
+const ARCHIVE_FILTER = "is:issue is:closed updated:<@today-2w";
 /** The template: a new project is its copy (views, fields, configured workflows except auto-add). */
 export const DEFAULT_TEMPLATE = "miroshnik/6";
 /**
@@ -203,6 +225,9 @@ interface View {
   filter: string | null;
   sortBy: string[];
   columnsBy: string[];
+  groupBy: string[];
+  /** The visible fields (`fields` of the view). */
+  columns: { id: string; name: string; dataType: string }[];
 }
 interface Option {
   id: string;
@@ -388,6 +413,8 @@ export const Q = {
           id number name layout filter
           sortByFields(first: 5) { nodes { direction field { ... on ProjectV2FieldCommon { name } } } }
           verticalGroupByFields(first: 5) { nodes { ... on ProjectV2FieldCommon { name } } }
+          groupByFields(first: 5) { nodes { ... on ProjectV2FieldCommon { name } } }
+          fields(first: 50) { nodes { ... on ProjectV2FieldCommon { id name dataType } } }
         }
       }
       fields(first: 100) {
@@ -1014,6 +1041,8 @@ function loadProject(io: Io, id: string, withItems = true): Project {
       filter: v.filter ?? null,
       sortBy: (v.sortByFields?.nodes ?? []).map((s: Any) => s.field?.name).filter(Boolean),
       columnsBy: (v.verticalGroupByFields?.nodes ?? []).map((f: Any) => f?.name).filter(Boolean),
+      groupBy: (v.groupByFields?.nodes ?? []).map((f: Any) => f?.name).filter(Boolean),
+      columns: (v.fields?.nodes ?? []).filter((f: Any) => f?.id).map((f: Any) => ({ id: f.id, name: f.name, dataType: f.dataType })),
     })),
     fields: p.fields.nodes
       .filter((f: Any) => f && f.id)
@@ -1066,8 +1095,17 @@ export function analyze(s: State): Check[] {
     link(`another project is linked: ${q(other.title)} (${other.url})`, { kind: "confirm", text: `unlink project ${q(other.title)} from the repository`, mutations: [{ op: "UnlinkProject", input: { projectId: other.id, repositoryId: s.repo.id } }] });
   }
 
+  // Columns: a built-in field by its type, the rest by name; a numeric field in another dictionary language is the same
+  // column — the Fields item renames it keeping the id.
+  const fieldAlias = fieldAliases();
+  const columnKey = (f: { name: string; dataType: string }) => (BUILTIN_FIELDS.has(f.dataType) ? f.dataType : (fieldAlias[f.name] ?? f.name));
+  const columnName = (key: string) => p.fields.find((f) => columnKey(f) === key)?.name ?? BUILTIN_COLUMNS[key] ?? key;
+  // a field the project doesn't have yet is skipped: the step's text changes when it appears, and the next round sets it
+  const columnFields = (keys: string[]) => keys.map((k) => p.fields.find((f) => columnKey(f) === k)).filter((f): f is Field => !!f);
+  const configuration = (keys: string[]) => ({ visibleFieldIds: columnFields(keys).map((f) => f.id) });
+
   // Views: by name; missing — rename an extra one of the same layout or create one; extra ones — delete.
-  const views = add("views", `Views ${canonViews().map((v) => q(v.name)).join(", ")} — the right layout, no filter, no others`);
+  const views = add("views", `Views ${canonViews().map((v) => q(v.name)).join(", ")} — the right layout, columns and grouping, no filter, no others`);
   const canonNames = new Set<string>(canonViews().map((v) => v.name));
   const spare = p.views.filter((v) => !canonNames.has(v.name));
   for (const c of canonViews()) {
@@ -1078,7 +1116,8 @@ export function analyze(s: State): Check[] {
         spare.splice(spare.indexOf(cand), 1);
         views(`missing ${q(c.name)}`, guarded(`rename view ${q(cand.name)} → ${q(c.name)}`, { op: "UpdateView", input: { viewId: cand.id, name: c.name } }));
       } else {
-        views(`missing ${q(c.name)}`, api(`create view ${q(c.name)} (${c.layout})`, { op: "CreateView", input: { projectId: p.id, name: c.name, layout: c.layout } }));
+        const input = { projectId: p.id, name: c.name, layout: c.layout, ...(c.columns ? { configuration: configuration(c.columns) } : {}) };
+        views(`missing ${q(c.name)}`, api(`create view ${q(c.name)} (${c.layout})`, { op: "CreateView", input }));
       }
       continue;
     }
@@ -1087,14 +1126,29 @@ export function analyze(s: State): Check[] {
     if (c.layout === "BOARD_LAYOUT" && v.layout === c.layout && v.columnsBy[0] !== STATUS) {
       views(`${q(c.name)} columns not by Status`, ui(`${q(c.name)}: View options → Column by → Status → Save`, `${p.url}/views/${v.number}`));
     }
+    if (c.columns) {
+      const have = v.columns.map(columnKey);
+      const missing = c.columns.filter((k) => !have.includes(k)).map((k) => q(columnName(k)));
+      const extra = v.columns.filter((f) => !c.columns!.includes(columnKey(f))).map((f) => q(f.name));
+      if (missing.length || extra.length) {
+        const why = [missing.length ? `missing ${missing.join(", ")}` : "", extra.length ? `extra ${extra.join(", ")}` : ""].filter(Boolean).join("; ");
+        const set = columnFields(c.columns).map((f) => f.name).join(", ");
+        views(`${q(c.name)} columns: ${why}`, api(`${q(c.name)}: columns ${set}`, { op: "UpdateView", input: { viewId: v.id, configuration: configuration(c.columns) } }));
+      }
+    }
+    // the API reads the grouping but doesn't set it
+    if (c.groupBy && v.layout === c.layout && v.groupBy[0] !== c.groupBy) {
+      views(`${q(c.name)} not grouped by ${c.groupBy}`, ui(`${q(c.name)}: View options → Group by → ${c.groupBy} → Save`, `${p.url}/views/${v.number}`));
+    }
   }
   for (const v of spare) views(`extra ${q(v.name)}`, guarded(`delete view ${q(v.name)}`, { op: "DeleteView", input: { viewId: v.id } }));
 
-  // Status: options by name or by a known English name — with the same id; missing ones — new.
-  const status = add("status", `${STATUS}: ${statusOptions().join(" → ")}`);
+  // Status: options by name or by a known English name — with the same id; missing ones — new; colors — the template's,
+  // descriptions are the project's own.
+  const status = add("status", `${STATUS}: ${statusOptions().join(" → ")} (${STATUS_COLORS.join(", ")})`);
   const sf = p.fields.find((f) => f.name === STATUS && f.options);
   if (!sf) {
-    status(`no ${STATUS} field`, api(`create field ${STATUS}`, { op: "CreateField", input: { projectId: p.id, dataType: "SINGLE_SELECT", name: STATUS, singleSelectOptions: statusOptions().map((name) => ({ name, color: "GRAY", description: "" })) } }));
+    status(`no ${STATUS} field`, api(`create field ${STATUS}`, { op: "CreateField", input: { projectId: p.id, dataType: "SINGLE_SELECT", name: STATUS, singleSelectOptions: statusOptions().map((name, i) => ({ name, color: STATUS_COLORS[i], description: "" })) } }));
   } else if (sf.options!.map((o) => o.name).join("\n") !== statusOptions().join("\n")) {
     const left = [...sf.options!];
     const take = (pred: (o: Option) => boolean) => {
@@ -1102,18 +1156,21 @@ export function analyze(s: State): Check[] {
       return i < 0 ? null : left.splice(i, 1)[0]!;
     };
     const aliases = statusAliases();
-    const next = statusOptions().map((name) => {
+    const next = statusOptions().map((name, i) => {
       const o = take((x) => x.name === name) ?? take((x) => aliases[x.name.toLowerCase()] === name);
-      return o ? { id: o.id, name, color: o.color, description: o.description ?? "" } : { name, color: "GRAY", description: "" };
+      return o ? { id: o.id, name, color: STATUS_COLORS[i]!, description: o.description ?? "" } : { name, color: STATUS_COLORS[i]!, description: "" };
     });
     const drop = left.length ? `; delete ${left.map((o) => q(o.name)).join(", ")}` : "";
     status(`options: ${sf.options!.map((o) => o.name).join(", ") || "none"}`, guarded(`${STATUS}: ${statusOptions().join(", ")} (rename the existing ones keeping the id${drop})`, { op: "UpdateField", input: { fieldId: sf.id, singleSelectOptions: next } }));
+  } else if (sf.options!.some((o, i) => o.color !== STATUS_COLORS[i])) {
+    // recoloring keeps the ids — the tasks' values and the workflows' targets, no confirmation needed
+    const next = sf.options!.map((o, i) => ({ id: o.id, name: o.name, color: STATUS_COLORS[i]!, description: o.description ?? "" }));
+    status(`colors: ${sf.options!.map((o) => `${o.name} ${o.color}`).join(", ")}`, api(`${STATUS}: colors ${STATUS_COLORS.join(", ")} (keeping the id)`, { op: "UpdateField", input: { fieldId: sf.id, singleSelectOptions: next } }));
   }
 
   // Fields: four numeric ones; a field in another dictionary language is renamed with the same id (the tasks' values are
   // kept); no custom fields beyond the canon; in an organization Priority is an issue field.
   const fields = add("fields", `Fields ${numberFields().map(q).join(", ")} (Number), no other custom ones`);
-  const fieldAlias = fieldAliases();
   const renamed = new Set<Field>();
   for (const name of numberFields()) {
     const f = p.fields.find((x) => x.name === name);
@@ -1177,14 +1234,18 @@ export function analyze(s: State): Check[] {
   }
 
   // Workflows: the API doesn't turn them on or show the target — only the UI. An unconfigured one isn't in the list.
-  const wf = add("workflows", `Workflows ${[WORKFLOW_ADDED, WORKFLOW_CLOSED, WORKFLOW_AUTO_ADD].map(q).join(", ")} are on`);
+  const wf = add("workflows", `Workflows ${WORKFLOWS.map(q).join(", ")} are on`);
   const how: Record<string, string> = {
     [WORKFLOW_ADDED]: `Edit → Set value → ${STATUS}: ${N.status.backlog}`,
     [WORKFLOW_CLOSED]: `Edit → Set value → ${STATUS}: ${N.status.done}`,
+    [WORKFLOW_MERGED]: `Edit → Set value → ${STATUS}: ${N.status.done}`,
+    [WORKFLOW_AUTO_CLOSE]: `Edit → ${STATUS}: ${N.status.done}`,
     // is:open — otherwise an updated closed task (not planned too) comes back into the project
     [WORKFLOW_AUTO_ADD]: `Edit → repository ${s.repo.name}, filter is:issue is:open (Enter)`,
+    [WORKFLOW_SUB_ISSUES]: "Edit",
+    [WORKFLOW_ARCHIVE]: `Edit → filter ${ARCHIVE_FILTER} (Enter)`,
   };
-  for (const name of [WORKFLOW_ADDED, WORKFLOW_CLOSED, WORKFLOW_AUTO_ADD]) {
+  for (const name of WORKFLOWS) {
     const w = p.workflows.find((x) => x.name === name);
     if (w?.enabled) continue;
     // an unconfigured workflow isn't in the API — a link to the list, it's in the menu on the left there
