@@ -83,7 +83,8 @@ describe("check -g называет прокси на машине: работа
   it("хук SessionStart показывает строку прокси вместе с машиной", () => {
     const r = elves(sb, ["check", "--hook"], { env: { FAKE_DOCKER: "none", FAKE_DOCKER_LOG: log } });
     expect(r.code).toBe(0);
-    expect(r.stdout).toMatch(/Elves on the machine: up to date[^\n]*\n {2}proxy \*\.localhost: not running/);
+    // строки машины — с отступом под её заголовком: прокси среди них, другие строки машины (команда elves) — рядом
+    expect(r.stdout).toMatch(/Elves on the machine: up to date[^\n]*\n(?: {2}[^\n]*\n)* {2}proxy \*\.localhost: not running/);
   });
 });
 
