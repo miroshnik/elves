@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
-import { BIN, elves, elvesPackage, bunxPackage, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { SPAWN_TIMEOUT, unprivilegedOwns } from "../../lib/spawn.ts";
@@ -869,6 +869,82 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     mkdirSync(priv);
     install(["-g"], proj, { ELVES_PRIVATE: priv });
     expect(readlinkSync(path.join(home, ".config/elves"))).toBe(priv);
+  });
+});
+
+/**
+ * Команда `elves` в терминале (#632): `bunx @miroshnik/elves …` и `bun <клон>/bin/elves.ts …` — не команда, а каталог
+ * глобальных bin Bun (`~/.bun/bin`) часто не в PATH. `install -g` кладёт её в `~/.local/bin` или в первый каталог PATH
+ * внутри домашнего, куда можно писать: с `--link` — ссылкой на `bin/elves.ts` клона, иначе — шимом на релиз машины.
+ * PATH песочницы — `~/.local/bin` и её bin: каталог вне домашнего, хоть в него и можно писать, установка не берёт.
+ */
+describe("Команда elves в терминале — install -g ставит её в каталог из PATH", () => {
+  const commandPath = () => ({ PATH: `${path.join(home, ".local/bin")}:${sb.bin}` });
+  const command = () => path.join(home, ".local/bin/elves");
+  const run = (file: string, args: string[]) => spawnSync(file, args, { cwd: proj, env: { ...env, ...commandPath() }, encoding: "utf8" });
+
+  it("install -g --link ставит elves ссылкой на bin/elves.ts клона в каталог из PATH", () => {
+    const clone = elvesPackage(path.join(tmp, "clone"));
+    const r = elves(sb, ["install", "-g", "--link"], { bin: clone.bin, env: commandPath() });
+    expect(r.code).toBe(0);
+    expect(isLink(command())).toBe(true);
+    expect(realpathSync(command())).toBe(realpathSync(clone.bin));
+    expect(r.stdout).toContain("~/.local/bin/elves — the elves command in the terminal: → ");
+    // команда работает через ссылку: справка грузит скрипты скиллов из клона
+    const help = run(command(), ["--help"]);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("elves — the rules and skills of the Elves flow");
+  });
+
+  it("install -g пакетом ставит шим elves на версию машины", () => {
+    const r = elves(sb, ["install", "-g"], { bin: release.bin, env: commandPath() });
+    expect(r.code).toBe(0);
+    expect(isLink(command())).toBe(false);
+    expect(read(command())).toContain(`exec bunx --silent @miroshnik/elves@${VERSION} "$@"\n`);
+    expect(r.stdout).toContain(`~/.local/bin/elves — the elves command in the terminal: bunx --silent @miroshnik/elves@${VERSION}\n`);
+    // шим запускает пакет релиза машины через bunx
+    const served = path.join(tmp, "served");
+    npmPackage(path.join(served, `npm@${VERSION}`), src.dir, VERSION, src.sha);
+    bunxServesPackages(sb, served);
+    const help = run(command(), ["--help"]);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("elves — the rules and skills of the Elves flow");
+    // повтор — тот же шим, без строки о нём
+    const again = elves(sb, ["install", "-g"], { bin: release.bin, env: commandPath() });
+    expect(again.stdout).not.toContain("~/.local/bin/elves");
+  });
+
+  it("чужой elves в каталоге не перезаписывается и называется в выводе", () => {
+    const mine = "#!/bin/sh\necho мой elves\n";
+    writeTree(home, { ".local/bin/elves": mine });
+    chmodSync(command(), 0o755);
+    const r = install(["-g"], proj, commandPath());
+    expect(r.code).toBe(0);
+    expect(read(command())).toBe(mine);
+    expect(r.stderr).toContain("!! ~/.local/bin/elves — someone else's elves (a script of the user's, a global package) — left as is");
+    const c = elves(sb, ["check", "-g"], { env: commandPath() });
+    expect(c.code).toBe(0);
+    expect(c.stdout).toContain("  ! ~/.local/bin/elves — someone else's elves (a script of the user's, a global package) — left as is; the machine's command goes here once it's removed: bunx @miroshnik/elves update -g\n");
+    // ссылка глобального пакета Bun — тоже чужая
+    rmSync(command());
+    const global = path.join(home, ".bun/install/global/node_modules/@miroshnik/elves/bin/elves.ts");
+    writeTree(home, { [path.relative(home, global)]: "// глобальный пакет\n" });
+    symlinkSync(global, command());
+    expect(install(["-g"], proj, commandPath()).code).toBe(0);
+    expect(readlinkSync(command())).toBe(global);
+  });
+
+  it("без подходящего каталога в PATH install -g не ставит команду, а check -g называет, как добавить каталог", () => {
+    const zsh = { SHELL: "/bin/zsh" };
+    const r = install(["-g"], proj, zsh);
+    expect(r.code).toBe(0);
+    expect(gone(path.join(home, ".local"))).toBe(true);
+    expect(readdirSync(sb.bin)).not.toContain("elves");
+    const line = `the elves command in the terminal isn't installed: PATH has no directory inside the home directory that can be written — add ~/.local/bin: mkdir -p ~/.local/bin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && PATH="$HOME/.local/bin:$PATH" bunx @miroshnik/elves update -g`;
+    expect(r.stdout).toContain(`${line}\n`);
+    const c = elves(sb, ["check", "-g"], { env: zsh });
+    expect(c.code).toBe(0);
+    expect(c.stdout).toContain(`  ! ~/.local/bin/elves — ${line}\n`);
   });
 });
 

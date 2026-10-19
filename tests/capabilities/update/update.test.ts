@@ -994,6 +994,36 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(JSON.parse(read(manifest(sb.home))).sha).toBe(git(REPO, "rev-parse", "HEAD"));
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
+
+  /**
+   * Команда elves машины (#632): её нет — машина отстала, `update -g` её ставит; другой `elves` раньше по PATH —
+   * терминал зовёт его, а не команду машины: строка `!`, отставанием не считается — это настройка пользователя.
+   */
+  it("check -g называет отсутствующую команду elves или ведущую не туда", () => {
+    const other = path.join(sb.tmp, "other");
+    mkdirSync(other);
+    const env = { PATH: `${other}:${path.join(sb.home, ".local/bin")}:${sb.bin}` };
+    const command = path.join(sb.home, ".local/bin/elves");
+    expect(elves(sb, ["install", "-g"], { env }).code).toBe(0);
+    expect(existsSync(command)).toBe(true);
+    const fresh = elves(sb, ["check", "-g"], { env });
+    expect(fresh.code).toBe(0);
+    expect(fresh.stdout).not.toContain("elves command");
+    rmSync(command);
+    const before = snapshot(sb.home);
+    const missing = elves(sb, ["check", "-g"], { env });
+    expect(missing.code).toBe(1);
+    expect(missing.stdout).toContain("  + ~/.local/bin/elves — the elves command in the terminal\n");
+    expect(missing.stdout).toContain("Update: bunx @miroshnik/elves update -g");
+    expect(snapshot(sb.home)).toEqual(before);
+    expect(elves(sb, ["update", "-g"], { env }).code).toBe(0);
+    expect(existsSync(command)).toBe(true);
+    expect(elves(sb, ["check", "-g"], { env }).code).toBe(0);
+    writeFileSync(path.join(other, "elves"), "#!/bin/sh\necho другой elves\n", { mode: 0o755 });
+    const shadowed = elves(sb, ["check", "-g"], { env });
+    expect(shadowed.code).toBe(0);
+    expect(shadowed.stdout).toContain(`  ! ${path.join(other, "elves")} — comes first on PATH: elves runs it, not ~/.local/bin/elves — remove it or put ~/.local/bin before ${other} in PATH\n`);
+  });
 });
 
 // Elves с релизами: upstream — git-репозиторий, откуда установщик берёт теги (ELVES_REPO); bunx песочницы отдаёт
@@ -1242,12 +1272,13 @@ describe("Пакет из npm — сам релиз: install -g ставит е�
     expect(read(path.join(sb.home, ".claude/rules/elves.md"))).not.toContain("Правило релиза.");
   });
 
-  // машина поставлена глобальным пакетом v2026.10.05, вышел v2026.10.12 с новым правилом и скиллом — его пакет есть в npm
-  function behindLatest() {
+  // машина поставлена глобальным пакетом v2026.10.05, вышел v2026.10.12 с новым правилом и скиллом — его пакет есть в
+  // npm; env — окружение установщика сверх песочницы
+  function behindLatest(env: Record<string, string> = {}) {
     const r = withReleases();
     const from = r.release("v2026.10.05");
     const bin = npmPackage(path.join(sb.tmp, "global"), r.up.dir, "2026.1005.0", from);
-    const run = (args: string[]) => elves(sb, args, { bin, env: { ELVES_REPO: r.up.dir } });
+    const run = (args: string[]) => elves(sb, args, { bin, env: { ELVES_REPO: r.up.dir, ...env } });
     expect(run(["install", "-g"]).code).toBe(0);
     r.commit({ ...rule(r.up, "Правило релиза."), "skills/fresh/SKILL.md": "---\nname: fresh\ndescription: новый скилл\n---\n" }, "feat(agents): правило релиза\n\nRefs #7");
     const to = r.release("v2026.10.12");
@@ -1280,6 +1311,20 @@ describe("Пакет из npm — сам релиз: install -g ставит е�
     const again = run(["check", "-g"]);
     expect(again.code).toBe(0);
     expect(again.stdout).toContain("Elves on the machine: up to date (v2026.10.12)");
+  });
+
+  /** Команда elves машины (#632) — шим на её релиз: вышел новее — шим отстаёт вместе с каноном. */
+  it("update -g переписывает шим elves на новую версию", () => {
+    const { run } = behindLatest({ PATH: `${path.join(sb.home, ".local/bin")}:${sb.bin}` });
+    const shim = path.join(sb.home, ".local/bin/elves");
+    expect(read(shim)).toContain('exec bunx --silent @miroshnik/elves@2026.1005.0 "$@"\n');
+    const c = run(["check", "-g"]);
+    expect(c.code).toBe(1);
+    expect(c.stdout).toContain("  ~ ~/.local/bin/elves — the elves command in the terminal\n");
+    expect(run(["update", "-g"]).code).toBe(0);
+    expect(read(shim)).toContain('exec bunx --silent @miroshnik/elves@2026.1012.0 "$@"\n');
+    expect(read(shim)).not.toContain("2026.1005.0");
+    expect(run(["check", "-g"]).code).toBe(0);
   });
 });
 

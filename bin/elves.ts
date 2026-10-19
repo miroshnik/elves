@@ -6,7 +6,8 @@
  *
  *   bunx @miroshnik/elves install                      — into the project: the git root (or the current directory)
  *   bunx @miroshnik/elves install -g                   — machine-wide: the canon, skills and hook
- *   elves install -g                                   — the same from the npm package (npm i -g @miroshnik/elves)
+ *   elves install -g                                   — the same from the npm package (npm i -g @miroshnik/elves);
+ *                                                        install -g puts the elves command on PATH (`installCommand`)
  *   bun <Elves clone>/bin/elves.ts install -g --link   — from a clone: symlinks to the clone, edits show at once
  *   bunx @miroshnik/elves check [-g]                   — is the install behind: 0 — no, 1 — yes, 2 — can't tell
  *   bunx @miroshnik/elves update [-g]                  — bring the install up to date
@@ -76,7 +77,7 @@
  * proxy name) instead of holding copies. No dependencies, only node: APIs.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isatty } from "node:tty";
@@ -223,7 +224,10 @@ terminal — the previous one. In an Elves clone writes only auto and language, 
 from the clone itself.
 -g — onto the machine: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md and the global
 rule files of Codex, Gemini CLI, Copilot, OpenCode and Amp linking to it (someone else's file stays), the skills
-(~/.agents/skills, ~/.claude/skills) and the SessionStart hook; without a terminal too — a cloud session's project hook
+(~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
+the first directory of PATH inside the home directory that can be written: with --link a symlink to the clone's
+bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
+(!), no such directory — no command, check -g names how to add one; without a terminal too — a cloud session's project hook
 or setup script (CLAUDE_CODE_REMOTE=true) gets the canon and skills without the hook: the cloud doesn't read
 ~/.claude/settings.json. From the npm package (npm i -g / bun add -g ${PACKAGE}) — the release of its version, without
 the network. --link — from an Elves clone: symlinks to the clone instead of copies, edits show up immediately.
@@ -242,7 +246,9 @@ mode (auto) and the language, holds the compose file to the task isolation rules
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
 ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
 to tasks or a line leads into a file of the flow copy that update doesn't rewrite — the file, the line number and its
-text (the exit code stays the same); a thin project behind — update in this session's task (the package version in
+text (the exit code stays the same); for the machine the elves command missing or of another release is falling
+behind, someone else's elves in its place or one earlier on PATH — !, no directory for it — ! with the command that
+adds ~/.local/bin to PATH; a thin project behind — update in this session's task (the package version in
 package.json and the lockfile), a project with a copy of the flow — the move to a thin project in a task of its own: the
 task new command of the github skill, one task per project. For the machine names the task-env proxy of *.localhost
 addresses — running, not running or running
@@ -260,7 +266,7 @@ Examples:
   update: `elves update [-g]
 
 Brings it up to date: a --link clone — git pull --ff-only, the machine's copy — install of the latest release: the
-canon, the skills and the hook; a project — install of the latest release: ${PACKAGE} in package.json and the
+canon, the skills, the hook and the elves shim of that release; a project — install of the latest release: ${PACKAGE} in package.json and the
 lockfile, a few lines in the branch of the current task; a project with a copy of the flow moves to a thin one (install
 --help), by hand after it — a check of the project that knows the queue wrapper by the copy's path (. .agents/slot.sh
 now), AI_DEV_SLOT* in the project's code → ELVES_SLOT*, formatting the shortened imports, git add -A before the first
@@ -1795,6 +1801,150 @@ function agentRules(home: string, has: (dir: string, cmd?: string) => boolean) {
 }
 
 /**
+ * The `elves` command in the terminal (#632): `bunx @miroshnik/elves …` and `bun <clone>/bin/elves.ts …` aren't a
+ * command, and the global package's bin directory (`~/.bun/bin`) may not be on PATH at all — Bun from Homebrew.
+ * Where — `commandDir`; what — with `--link` a symlink to the clone's `bin/elves.ts` (its `sh` shebang works through a
+ * symlink), otherwise a shim to the machine's release through bunx (`commandShim`): the bunx directory is temporary,
+ * and the command matches the canon on the machine — `update -g` rewrites it with the release. Ours (`ownCommand`) is
+ * replaced; someone else's `elves` in that directory — a script of the user's, a global package — stays with a `!`
+ * line, and so does an `elves` earlier on PATH that the shell runs instead. No directory for it — no command: the `!`
+ * line of `check -g` has the command that adds `~/.local/bin` to PATH. Not in a cloud session: there the flow comes
+ * by `npm i -g` (`CLOUD_FLOW`), and its `elves` is the command.
+ */
+const COMMAND = "elves";
+/** The shim's line by which the install knows its own file. */
+const COMMAND_MARK = "# Elves: the machine's elves command";
+/** What a dry run names next to the command's path. */
+const COMMAND_NOTE = "the elves command in the terminal";
+
+/** PATH directories: absolute, in order, without repeats. */
+const pathDirs = () => [...new Set((process.env.PATH ?? "").split(path.delimiter).filter((d) => path.isAbsolute(d)).map((d) => path.resolve(d)))];
+
+/** A directory the install can write into. */
+function writableDir(dir: string) {
+  try {
+    accessSync(dir, fsConstants.W_OK);
+    return statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** A file the shell runs: a regular file (through symlinks) with the execute bit. */
+function runnable(file: string) {
+  try {
+    accessSync(file, fsConstants.X_OK);
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Under dir, dir itself aside — by the path as given or by the real one (macOS /var → /private/var). */
+function inside(dir: string, p: string) {
+  const real = (x: string) => {
+    try {
+      return realpathSync(x);
+    } catch {
+      return x;
+    }
+  };
+  return [
+    [dir, p],
+    [real(dir), real(p)],
+  ].some(([d, x]) => {
+    const rel = path.relative(d!, x!);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
+}
+
+/**
+ * The install's own command: a symlink to a clone's `bin/elves.ts` — not into node_modules, that is a global package;
+ * a clone gone or moved too — or a file with COMMAND_MARK.
+ */
+function ownCommand(file: string) {
+  const st = lstat(file);
+  if (st?.isSymbolicLink()) {
+    const to = readlinkSync(file);
+    return /(?:^|\/)bin\/elves\.ts$/.test(to) && !to.split("/").includes("node_modules");
+  }
+  if (!st?.isFile() || st.size > 4096) return false;
+  try {
+    return readFileSync(file, "utf8").includes(COMMAND_MARK);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The command's directory: where PATH already has ours; otherwise `~/.local/bin` — if PATH has it (missing — the
+ * install creates it); otherwise the first directory of PATH inside the home directory that can be written — not
+ * outside it: system directories need root, and the install doesn't ask for it. null — no such directory on PATH.
+ */
+function commandDir(home: string): string | null {
+  const dirs = pathDirs();
+  const own = dirs.find((d) => ownCommand(path.join(d, COMMAND)));
+  if (own) return own;
+  const mine = dirs.filter((d) => inside(home, d));
+  const local = path.join(home, ".local/bin");
+  if (mine.includes(local) && (!lstat(local) || writableDir(local))) return local;
+  return mine.find(writableDir) ?? null;
+}
+
+/**
+ * The shim of a machine with a copy: the release it was installed from by its npm package — the bunx package of the
+ * same version as the canon; a release unknown — by the SHA (a clone without `--link`, a package pinned by SHA),
+ * without it — the latest release.
+ */
+function commandShim(src: string) {
+  const version = release ? npmVersion(release) : null;
+  const sha = version ? null : sourceSha(src);
+  const spec = version ? `${PACKAGE}@${version}` : sha ? `github:${SOURCE}#${sha}` : PACKAGE;
+  const what = version ? `release ${release}` : sha ? `Elves ${short(sha)}` : "the latest release";
+  return ["#!/bin/sh", `${COMMAND_MARK} — ${what}; set by \`${RUN} install -g\`, update -g rewrites it`, `exec bunx --silent ${spec} "$@"`, ""].join("\n");
+}
+
+/**
+ * No directory for the command: what the owner runs — `~/.local/bin` into PATH in the shell's profile and the same
+ * install with it on PATH.
+ */
+function pathCommand(src: string, linkMode: boolean) {
+  const shell = path.basename(process.env.SHELL ?? "");
+  const profile = shell === "zsh" ? "~/.zshrc" : shell === "bash" ? "~/.bashrc" : "~/.profile";
+  const again = linkMode ? `bun --no-env-file ${shWord(path.join(src, "bin/elves.ts"))} install -g --link` : `${RUN} update -g`;
+  return `mkdir -p ~/.local/bin && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ${profile} && PATH="$HOME/.local/bin:$PATH" ${again}`;
+}
+
+/** The `elves` command (see COMMAND): a dry run names what it would change and the `!` lines. */
+function installCommand(src: string, home: string, linkMode: boolean) {
+  if (remote()) return;
+  const shown = (p: string) => (inside(home, p) ? `~/${path.relative(home, p)}` : p);
+  const say = (file: string, text: string) => (dry ? void change("!", file, { note: text }) : warn(`${shown(file)} — ${text}`));
+  const dir = commandDir(home);
+  if (!dir) {
+    const text = `${COMMAND_NOTE} isn't installed: PATH has no directory inside the home directory that can be written — add ~/.local/bin: ${pathCommand(src, linkMode)}`;
+    return dry ? void change("!", path.join(home, ".local/bin", COMMAND), { note: text }) : void note(text);
+  }
+  const dst = path.join(dir, COMMAND);
+  const st = lstat(dst);
+  if (st && !ownCommand(dst)) return say(dst, `someone else's elves (a script of the user's, a global package) — left as is; the machine's command goes here once it's removed: ${RUN} update -g`);
+  const target = path.join(src, "bin/elves.ts");
+  const text = linkMode ? linkText(target, dst, home) : commandShim(src);
+  const same = linkMode ? Boolean(st?.isSymbolicLink()) && readlinkSync(dst) === text : Boolean(st?.isFile()) && runnable(dst) && readFileSync(dst, "utf8") === text;
+  if (!same && dry) change(st ? "~" : "+", dst, { note: COMMAND_NOTE });
+  else if (!same) {
+    if (st) rmSync(dst);
+    mkdirSync(dir, { recursive: true });
+    if (linkMode) symlinkSync(text, dst);
+    else writeFileSync(dst, text, { mode: 0o755 });
+    note(`${shown(dst)} — ${COMMAND_NOTE}: ${linkMode ? `→ ${target}` : (/^exec (.*) "\$@"$/m.exec(text)?.[1] ?? "")}`);
+  }
+  const dirs = pathDirs();
+  const first = dirs.slice(0, dirs.indexOf(dir)).map((d) => path.join(d, COMMAND)).find(runnable);
+  if (first) say(first, `comes first on PATH: elves runs it, not ${shown(dst)} — remove it or put ${shown(dir)} before ${shown(path.dirname(first))} in PATH`);
+}
+
+/**
  * The URL of a GitHub origin on the repository's name before the rename (LEGACY_SOURCE, the name is case-insensitive) —
  * the same URL on SOURCE: the form, the credentials, the port and `.git` stay; another repository or host — null.
  */
@@ -1835,8 +1985,8 @@ const remote = () => process.env.CLAUDE_CODE_REMOTE === "true";
 /**
  * The machine (#557): the canon `~/.agents/elves/` — a copy or, with `--link`, a symlink to the clone — with Claude
  * Code's rules `~/.claude/rules/elves*.md` (the same `installRules` and `claudeRules` as in a project: what a previous
- * install left under the flow's former name moves), the other agents' rule files (`agentRules`), skills and the hook.
- * Claude Code is on the machine — `~/.claude`, `claude` on PATH or a cloud session: its project hook (`cloudHook`) or
+ * install left under the flow's former name moves), the other agents' rule files (`agentRules`), skills, the `elves`
+ * command in the terminal (`installCommand`) and the hook. Claude Code is on the machine — `~/.claude`, `claude` on PATH or a cloud session: its project hook (`cloudHook`) or
  * its environment's setup script runs in a fresh home. The cloud doesn't read `~/.claude/settings.json` — no hook there.
  */
 function installGlobal(src: string, linkMode: boolean) {
@@ -1879,6 +2029,8 @@ function installGlobal(src: string, linkMode: boolean) {
       note(`${CONFIG} → ${priv}`);
     }
   }
+  // the last step: an agent's sandbox may refuse a directory of PATH — the canon, the skills and the hook are in place
+  installCommand(src, home, linkMode);
 }
 
 /**
