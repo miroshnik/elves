@@ -616,3 +616,80 @@ describe("Скрипты и тесты проекта зовут task-env бин
     expect({ code: exitOf(check), stdout: check.stdout }).toEqual({ code: 0, stdout: `no compose file in ${realpathSync(proj)} — nothing to check\n` });
   });
 });
+
+describe("Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута", () => {
+  projectPerTest();
+  let bin: string;
+  let log: string;
+  let wt: string;
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+  /** Основной чекаут proj с compose-файлом и worktree на ветке feat/42-x; подставной docker пишет вызовы в журнал. */
+  beforeEach(() => {
+    bin = noDockerPath();
+    log = path.join(project.dir, "docker.log");
+    writeFileSync(log, "");
+    // config отвечает пустым проектом, остальное — успех; все вызовы в журнале
+    const config = 'case " $* " in *" config "*) echo \'{"services":{}}\';; esac';
+    writeFileSync(path.join(bin, "docker"), FAKE_DOCKER.replace(/\n$/, `\n${config}\n`), { mode: 0o755 });
+    writeFileSync(path.join(proj, "compose.yaml"), "services:\n  db:\n    image: postgres\n");
+    git(proj, "init", "-q", "-b", "main");
+    git(proj, "add", "-A");
+    git(proj, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+    wt = path.join(project.dir, "session-1");
+    git(proj, "worktree", "add", "-q", "-b", "feat/42-x", wt);
+  });
+
+  function taskEnvIn(cwd: string, args: string[]) {
+    const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log },
+    });
+    return { code: exitOf(r), stdout: r.stdout, stderr: r.stderr };
+  }
+  /** Ребейз ветки: HEAD отцеплен, ветка — в rebase-merge/head-name git-каталога worktree. */
+  function midRebase() {
+    git(wt, "checkout", "-q", "--detach");
+    const dir = path.resolve(wt, git(wt, "rev-parse", "--git-path", "rebase-merge"));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "head-name"), "refs/heads/feat/42-x\n");
+  }
+
+  it("up посреди ребейза ветки feat/42-x поднимает стек <project>-42", () => {
+    midRebase();
+    const r = taskEnvIn(wt, ["up"]);
+    expect(calls(log).join("\n"), r.stdout + r.stderr).toContain("-p proj-42");
+    expect(calls(log).join("\n")).not.toMatch(/-p proj( |$)/m);
+  });
+
+  it("up в связанном worktree на отцеплённом HEAD без ребейза — отказ, стек основного чекаута не тронут", () => {
+    git(wt, "checkout", "-q", "--detach");
+    const r = taskEnvIn(wt, ["up"]);
+    expect(r.code).toBe(2);
+    expect(r.stdout).toContain("has no task branch");
+    expect(r.stdout).toContain("task-env up <N>");
+    expect(calls(log)).toEqual([]);
+  });
+
+  it("down без номера посреди ребейза опускает стек задачи, а не основного чекаута", () => {
+    midRebase();
+    const r = taskEnvIn(wt, ["down"]);
+    expect(r.stdout, r.stderr).toContain("proj-42");
+    expect(r.stdout).not.toMatch(/stacks proj:|stack proj /);
+  });
+
+  it("down без номера в worktree на отцеплённом HEAD без ребейза — отказ, Docker не зовут", () => {
+    git(wt, "checkout", "-q", "--detach");
+    const r = taskEnvIn(wt, ["down"]);
+    expect(r.code).toBe(2);
+    expect(r.stdout).toContain("has no task branch");
+    expect(calls(log)).toEqual([]);
+  });
+
+  it("в основном чекауте без ветки задачи up по-прежнему поднимает стек <project>", () => {
+    const r = taskEnvIn(proj, ["up"]);
+    expect(r.stdout + r.stderr).not.toContain("has no task branch");
+    expect(calls(log).join("\n")).toMatch(/-p proj( |$)/m);
+  });
+});
