@@ -8234,6 +8234,41 @@
  {
   "path": "tests/capabilities/task-env/task-env.test.ts",
   "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "down без номера в worktree на отцеплённом HEAD без ребейза — отказ, Docker не зовут"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "down без номера посреди ребейза опускает стек задачи, а не основного чекаута"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "up в связанном worktree на отцеплённом HEAD без ребейза — отказ, стек основного чекаута не тронут"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "up посреди ребейза ветки feat/42-x поднимает стек <project>-42"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "в основном чекауте без ветки задачи up по-прежнему поднимает стек <project>"
+ },
+ {
+  "path": "tests/capabilities/task-env/task-env.test.ts",
+  "describes": [
    "Проверить нечего или нечем — проверка молчит или говорит «не проверено», а не ошибку"
   ],
   "name": "config не разбирает файл (незаданная обязательная переменная) — «not checked» с ответом Compose, код 2"
