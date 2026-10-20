@@ -338,6 +338,7 @@ describe("Проект с копией флоу переезжает на тон
       ) + "\n",
       "tests/capabilities/orders/orders.test.ts": 'import { describe, it } from "bun:test";\nimport { invariant } from "../../../.agents/skills/spec/scripts/harness.ts";\nimport { projectCommands } from "../../../.agents/skills/github/scripts/github.ts";\n',
       "eslint.config.js": 'import elves from "./.agents/skills/spec/scripts/eslint-config.ts";\n\nexport default [{ ignores: [".agents/**"] }, ...elves];\n',
+      "scripts/slot-shim.ts": "const SLOT_COMMAND = /^\\. \\.agents\\/slot\\.sh && (.+)$/;\nconst MANIFEST = /\\.agents\\/elves\\.json/;\n",
       ".github/workflows/ci.yml": [
         "jobs:",
         "  tests:",
@@ -375,6 +376,8 @@ describe("Проект с копией флоу переезжает на тон
     // исключение линтера для копии больше не нужно — строка с файлом и номером
     expect(u.stdout).toContain("Still naming .agents — the flow copy is gone");
     expect(u.stdout).toContain('  eslint.config.js:3: export default [{ ignores: [".agents/**"] }, ...elves];\n');
+    // путь шима и манифеста в регулярном выражении — не остаток копии
+    expect(u.stdout).not.toContain("slot-shim.ts");
     // git add подсказки берёт и удаления копии: после коммита рабочее дерево чистое
     const add = /\n {2}(git add -A -- [^&\n]+)&& git commit -m "chore\(agents\): флоу Elves v2026\.10\.16"\n/.exec(u.stdout)?.[1] ?? "";
     expect(add).toContain(".agents/elves");

@@ -1686,7 +1686,7 @@ function rewriteCopyRefs(root: string) {
  * A mention of `.agents` that isn't the thin project's own: the manifest, the shim, `~/.agents` and `$HOME/.agents` of
  * the machine aren't one.
  */
-const COPY_MENTION = /(?<![\w~}-]|~\/|HOME\/|HOME}\/)\.agents(?![\w-])(?!\/(?:elves\.json|slot\.sh)\b)/;
+const COPY_MENTION = /(?<![\w~}-]|~\/|HOME\/|HOME}\/)\.agents(?![\w-])(?!\\?\/(?:elves\\?\.json|slot\\?\.sh)\b)/;
 
 /**
  * What still names `.agents` once the copy is gone: exceptions `.agents/**` in linters, formatters and configs aren't
