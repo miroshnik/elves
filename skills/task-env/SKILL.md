@@ -16,7 +16,7 @@ no host port per app, no port search. The scheme and the reasons — epic
 "Environment" in Elves (`tests/capabilities/task-env/task-env.md`).
 
 ```bash
-bun --no-env-file <skill dir>/scripts/task-env.ts up [--profile <p>]...                  # the task's stack by the branch, its addresses
+bun --no-env-file <skill dir>/scripts/task-env.ts up [<N>] [--profile <p>]...            # the task's stack by the branch, its addresses
 bun --no-env-file <skill dir>/scripts/task-env.ts e2e [--profile <p>]... [-- <command>]  # the e2e stack anew, the command with its addresses
 bun --no-env-file <skill dir>/scripts/task-env.ts down [<N>]                             # the task's stacks with their volumes
 bun --no-env-file <skill dir>/scripts/task-env.ts prune                                  # stacks of the project's closed tasks
@@ -43,7 +43,7 @@ task's own Compose project, and nothing of it is shared with other tasks.
 
 | what | value |
 |---|---|
-| task | the number from the branch `[<area>/]<type>/<N>-<slug>`; no number (`main`, a worktree branch before the rename) — the main checkout's stack |
+| task | the number from the branch `[<area>/]<type>/<N>-<slug>`; in the middle of a rebase — the branch being rebased (`rebase-merge/head-name`); no number — the main checkout's stack, but never from a linked worktree: there `up` and `down` without a number refuse (give `up <N>` or finish the rebase) |
 | `<project>` | the repository of `origin` (the last part of its URL without `.git`), no remote — the main checkout's directory; lowercase letters, digits and `-`. Not the directory Compose takes by default — a worktree's is random |
 | stack | Compose project `<project>-<N>`, e2e — `<project>-<N>-e2e`, without a task — `<project>`, `<project>-e2e` |
 | profiles | `--profile <name>` (repeated) goes to Compose: a heavy service in `profiles` runs only in a task that asks for it |

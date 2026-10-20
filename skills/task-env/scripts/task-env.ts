@@ -58,15 +58,17 @@ import { fileURLToPath } from "node:url";
  * name, #620).
  */
 export const HELP: Record<string, string> = {
-  up: `task-env up [--profile <p>]...
+  up: `task-env up [<N>] [--profile <p>]...
 
 Brings the task's stack up — the Compose project <project>-<N> by the branch <type>/<N>-slug, <project> without a
-number — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
+number (in the middle of a rebase — the branch being rebased; a linked worktree without a task branch is
+refused: give N) — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
 127.0.0.1; the HTTP addresses go to the compose file's interpolation in TASK_ENV_<SERVICE>_URL; --profile — Compose
 profiles. Code 0 — up, 1 — a service failed (its state and log), 2 — not tried.
 
 Examples:
   task-env up
+  task-env up 42
   task-env up --profile worker`,
   e2e: `task-env e2e [--profile <p>]... [-- <command>...]
 
@@ -548,6 +550,35 @@ const git = (dir: string, ...args: string[]) => {
 };
 
 /**
+ * The checkout's branch: `branch --show-current`, in the middle of a rebase (HEAD is detached, the branch is empty) — the
+ * branch being rebased from `rebase-merge/head-name` or `rebase-apply/head-name` of the worktree's git directory (#639).
+ */
+export function currentBranch(root: string): string {
+  const now = git(root, "branch", "--show-current");
+  if (now) return now;
+  for (const dir of ["rebase-merge", "rebase-apply"]) {
+    const file = git(root, "rev-parse", "--path-format=absolute", "--git-path", `${dir}/head-name`);
+    if (!file || !existsSync(file)) continue;
+    const ref = readFileSync(file, "utf8").trim();
+    if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length);
+  }
+  return "";
+}
+
+/** A linked worktree, not the main checkout: its git directory differs from the repository's common one. */
+export function isLinkedWorktree(root: string): boolean {
+  const dir = git(root, "rev-parse", "--path-format=absolute", "--git-dir");
+  const common = git(root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  return !!dir && !!common && dir !== common;
+}
+
+/** A linked worktree without a task branch: the main checkout's stack isn't its — the refusal, otherwise null. */
+function noTaskRefusal(root: string, command: string): string | null {
+  if (!isLinkedWorktree(root) || taskBranch(currentBranch(root))) return null;
+  return `task-env ${command}: the worktree ${root} has no task branch (HEAD is detached or the branch isn't <type>/<N>-slug), and the main checkout's stack isn't taken from a worktree; finish the rebase or switch to the task branch, or give the number: task-env ${command} <N>`;
+}
+
+/**
  * `<project>` of stacks and addresses: the repository of `origin` (the last part of its URL without `.git`), without a
  * remote — the main checkout's directory. Not the directory Compose takes by default: a worktree's is random
  * (`session-379-…`), and stacks of one project would get different names (#393, question 6).
@@ -613,7 +644,7 @@ interface Project {
   http: Record<string, number>;
 }
 
-function projectOf(cwd: string): Project | string {
+function projectOf(cwd: string, task?: number): Project | string {
   const root = git(cwd, "rev-parse", "--show-toplevel") || cwd;
   const file = COMPOSE_FILES.find((f) => existsSync(path.join(root, f)));
   if (!file) return `no compose file in ${root} (${COMPOSE_FILES.join(", ")}) — the task's stack is the project's Compose`;
@@ -621,7 +652,7 @@ function projectOf(cwd: string): Project | string {
   const http = httpServices(root);
   if (typeof http === "string") return http;
   const files = [file, ...(extra ? [extra] : [])].flatMap((f) => ["-f", f]);
-  return { root, files, name: projectName(root), task: taskBranch(git(root, "branch", "--show-current"))?.issue, http };
+  return { root, files, name: projectName(root), task: task ?? taskBranch(currentBranch(root))?.issue, http };
 }
 
 /** `docker compose` in cwd; vars — over the script's environment: Compose takes them into interpolation. */
@@ -952,11 +983,20 @@ function stackCommand(group: string, args: string[], env: NodeJS.ProcessEnv): nu
     // the stacks are found by the Compose project: the task's worktree may be gone already
     const root = git(process.cwd(), "rev-parse", "--show-toplevel") || process.cwd();
     if (group === "prune") return prune(root, env);
-    return stackDown(root, args[0] ? Number(args[0]) : taskBranch(git(root, "branch", "--show-current"))?.issue, env);
+    if (!args[0]) {
+      const refusal = noTaskRefusal(root, "down");
+      if (refusal) return console.log(refusal), 2;
+    }
+    return stackDown(root, args[0] ? Number(args[0]) : taskBranch(currentBranch(root))?.issue, env);
   }
-  const opts = profilesOf(args);
+  const number = group === "up" && /^\d+$/.test(args[0] ?? "") ? Number(args[0]) : undefined;
+  const opts = profilesOf(number === undefined ? args : args.slice(1));
   if (!opts || (group === "up" && opts.rest.length)) return undefined;
-  const project = projectOf(process.cwd());
+  if (number === undefined) {
+    const refusal = noTaskRefusal(git(process.cwd(), "rev-parse", "--show-toplevel") || process.cwd(), group);
+    if (refusal) return console.log(refusal), 2;
+  }
+  const project = projectOf(process.cwd(), number);
   if (typeof project === "string") return console.log(`task-env ${group}: ${project}`), 2;
   return group === "up" ? stackUp(project, opts.profiles, env) : stackE2e(project, opts.profiles, opts.rest, env);
 }
