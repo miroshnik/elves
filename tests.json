@@ -8864,6 +8864,13 @@
   "describes": [
    "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
   ],
+  "name": "check -g: elves из .bin пакета bunx — относительная ссылка на bin/elves.ts — не команда машины, машина не отстаёт"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
+  ],
   "name": "update -g на машине со старым хуком оставляет один хук — с командой miroshnik/elves"
  },
  {
