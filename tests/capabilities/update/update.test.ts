@@ -338,6 +338,9 @@ describe("Проект с копией флоу переезжает на тон
       ) + "\n",
       "tests/capabilities/orders/orders.test.ts": 'import { describe, it } from "bun:test";\nimport { invariant } from "../../../.agents/skills/spec/scripts/harness.ts";\nimport { projectCommands } from "../../../.agents/skills/github/scripts/github.ts";\n',
       "eslint.config.js": 'import elves from "./.agents/skills/spec/scripts/eslint-config.ts";\n\nexport default [{ ignores: [".agents/**"] }, ...elves];\n',
+      "README.md": ".agents/   # флоу Elves: манифест elves.json и шим очереди slot.sh\n",
+      ".dockerignore": ".agents\n",
+      "docs/flow.md": "see .agents/skills/spec/SKILL.md\n",
       "scripts/slot-shim.ts": "const SLOT_COMMAND = /^\\. \\.agents\\/slot\\.sh && (.+)$/;\nconst MANIFEST = /\\.agents\\/elves\\.json/;\n",
       ".github/workflows/ci.yml": [
         "jobs:",
@@ -378,6 +381,10 @@ describe("Проект с копией флоу переезжает на тон
     expect(u.stdout).toContain('  eslint.config.js:3: export default [{ ignores: [".agents/**"] }, ...elves];\n');
     // путь шима и манифеста в регулярном выражении — не остаток копии
     expect(u.stdout).not.toContain("slot-shim.ts");
+    // каталог .agents/ без пути внутрь — описание, ignore-файл сборки — не остаток; путь в скилл флоу — остаток
+    expect(u.stdout).not.toContain("README.md:");
+    expect(u.stdout).not.toContain(".dockerignore:");
+    expect(u.stdout).toContain("  docs/flow.md:1: see .agents/skills/spec/SKILL.md\n");
     // git add подсказки берёт и удаления копии: после коммита рабочее дерево чистое
     const add = /\n {2}(git add -A -- [^&\n]+)&& git commit -m "chore\(agents\): флоу Elves v2026\.10\.16"\n/.exec(u.stdout)?.[1] ?? "";
     expect(add).toContain(".agents/elves");
@@ -1026,6 +1033,23 @@ describe("Копия на машине (-g) сверяется и обновля
     const shadowed = elves(sb, ["check", "-g"], { env });
     expect(shadowed.code).toBe(0);
     expect(shadowed.stdout).toContain(`  ! ${path.join(other, "elves")} — comes first on PATH: elves runs it, not ~/.local/bin/elves — remove it or put ~/.local/bin before ${other} in PATH\n`);
+  });
+
+  /**
+   * bunx кладёт в `.bin` пакета относительную ссылку `../elves/bin/elves.ts`: `node_modules` в её строке нет, он в
+   * разрешённом пути (#642). Хук SessionStart идёт через bunx — его `.bin` первым в PATH не делает машину отставшей.
+   */
+  it("check -g: elves из .bin пакета bunx — относительная ссылка на bin/elves.ts — не команда машины, машина не отстаёт", () => {
+    const local = path.join(sb.home, ".local/bin");
+    expect(elves(sb, ["install", "-g"], { env: { PATH: `${local}:${sb.bin}` } }).code).toBe(0);
+    const modules = path.join(sb.tmp, "bunx-1/node_modules");
+    mkdirSync(path.join(modules, "elves/bin"), { recursive: true });
+    mkdirSync(path.join(modules, ".bin"));
+    writeFileSync(path.join(modules, "elves/bin/elves.ts"), "// пакет bunx\n");
+    symlinkSync("../elves/bin/elves.ts", path.join(modules, ".bin/elves"));
+    const c = elves(sb, ["check", "-g"], { env: { PATH: `${path.join(modules, ".bin")}:${local}:${sb.bin}` } });
+    expect(c.stdout).not.toContain("elves command");
+    expect(c.code).toBe(0);
   });
 });
 
