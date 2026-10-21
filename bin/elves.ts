@@ -1683,10 +1683,10 @@ function rewriteCopyRefs(root: string) {
 }
 
 /**
- * A mention of `.agents` that isn't the thin project's own: the manifest, the shim, `~/.agents` and `$HOME/.agents` of
- * the machine aren't one.
+ * A mention of a path inside `.agents/` (a glob too) that isn't the thin project's own: the directory itself, the
+ * manifest, the shim, `~/.agents` and `$HOME/.agents` of the machine aren't one (#642).
  */
-const COPY_MENTION = /(?<![\w~}-]|~\/|HOME\/|HOME}\/)\.agents(?![\w-])(?!\\?\/(?:elves\\?\.json|slot\\?\.sh)\b)/;
+const COPY_MENTION = /(?<![\w~}-]|~\/|HOME\/|HOME}\/)\.agents\\?\/(?!(?:elves\\?\.json|slot\\?\.sh)\b)[\w*.{]/;
 
 /**
  * What still names `.agents` once the copy is gone: exceptions `.agents/**` in linters, formatters and configs aren't
@@ -1865,7 +1865,7 @@ function inside(dir: string, p: string) {
 function ownCommand(file: string) {
   const st = lstat(file);
   if (st?.isSymbolicLink()) {
-    const to = readlinkSync(file);
+    const to = path.resolve(path.dirname(file), readlinkSync(file));
     return /(?:^|\/)bin\/elves\.ts$/.test(to) && !to.split("/").includes("node_modules");
   }
   if (!st?.isFile() || st.size > 4096) return false;
