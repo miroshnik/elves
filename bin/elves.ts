@@ -1940,7 +1940,8 @@ function installCommand(src: string, home: string, linkMode: boolean) {
     note(`${shown(dst)} — ${COMMAND_NOTE}: ${linkMode ? `→ ${target}` : (/^exec (.*) "\$@"$/m.exec(text)?.[1] ?? "")}`);
   }
   const dirs = pathDirs();
-  const first = dirs.slice(0, dirs.indexOf(dir)).map((d) => path.join(d, COMMAND)).find(runnable);
+  // `node_modules/.bin` in the process's PATH is the package manager's (bunx, npx, a script), not the terminal's (#642)
+  const first = dirs.slice(0, dirs.indexOf(dir)).filter((d) => !/(?:^|\/)node_modules\/\.bin$/.test(d)).map((d) => path.join(d, COMMAND)).find(runnable);
   if (first) say(first, `comes first on PATH: elves runs it, not ${shown(dst)} — remove it or put ${shown(dir)} before ${shown(path.dirname(first))} in PATH`);
 }
 

@@ -1045,10 +1045,12 @@ describe("Копия на машине (-g) сверяется и обновля
     const modules = path.join(sb.tmp, "bunx-1/node_modules");
     mkdirSync(path.join(modules, "elves/bin"), { recursive: true });
     mkdirSync(path.join(modules, ".bin"));
-    writeFileSync(path.join(modules, "elves/bin/elves.ts"), "// пакет bunx\n");
+    writeFileSync(path.join(modules, "elves/bin/elves.ts"), "// пакет bunx\n", { mode: 0o755 });
     symlinkSync("../elves/bin/elves.ts", path.join(modules, ".bin/elves"));
     const c = elves(sb, ["check", "-g"], { env: { PATH: `${path.join(modules, ".bin")}:${local}:${sb.bin}` } });
     expect(c.stdout).not.toContain("elves command");
+    expect(c.stdout).not.toContain("comes first on PATH");
+    expect(c.stdout).not.toContain("behind");
     expect(c.code).toBe(0);
   });
 });
