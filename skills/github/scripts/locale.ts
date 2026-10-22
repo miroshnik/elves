@@ -4,9 +4,9 @@
  * doesn't depend on them; the installer in `bin/` imports it from its own package.
  *
  * The language is `language` in `.agents/elves.json` of the project root (the nearest directory up with `.git`,
- * otherwise the directory itself), until `update` moves it — in the former manifest (`FORMER_MANIFEST`): a manifest
- * without the field (an install of a previous version) — `ru`, no manifest — `en`. Names are `locales/<language>.json`,
- * the same keys for each language; no dictionary for the language — `en`. Scripts write in the project language and parse the names of any dictionary language (`everyNames`):
+ * otherwise the directory itself), until `update` moves it — in the former manifest (`manifestOf`, the one reader of
+ * the manifest): a manifest without the field (an install of a previous version) — `ru`, no manifest — `en`. Names
+ * are `locales/<language>.json`, the same keys for each language; no dictionary for the language — `en`. Scripts write in the project language and parse the names of any dictionary language (`everyNames`):
  * a project that changed its language and tasks of other repositories are read without knowing their language.
  *
  * The dictionaries are static JSON imports, not a read of the `locales/` directory: the module is imported by the `spec`
@@ -447,13 +447,6 @@ const DEFAULT_LANGUAGE = "en";
  * worked only in Russian.
  */
 const LEGACY_LANGUAGE = "ru";
-/** The install manifest of the project root. */
-const MANIFEST = path.join(".agents", "elves.json");
-/**
- * The manifest of an install made before the flow was renamed to Elves: `update` moves it to `MANIFEST`, until then the
- * project language is read from it.
- */
-const FORMER_MANIFEST = path.join(".agents", "ai-dev.json");
 /** The dictionary: language → names, one entry per `locales/<language>.json`. */
 const LOCALES: Record<string, Names> = { en, ru };
 
@@ -469,21 +462,48 @@ function projectRoot(dir: string): string {
   }
 }
 
+/** The install manifest read: the file (from the root; none — null), its fields and why they are none. */
+export interface ManifestRead {
+  file: string | null;
+  fields: Record<string, unknown>;
+  error?: string;
+}
+
 /**
- * The project language of the `dir` directory (by default — the current one): the manifest's `language` (`MANIFEST`,
- * otherwise `FORMER_MANIFEST`), no field — ru, no manifest — en.
+ * The install manifest at `root` — the project root, the home directory for the machine: `.agents/elves.json`, until
+ * `update` moves it — the manifest of an install made before the flow was renamed to Elves, `.agents/ai-dev.json`. Not
+ * JSON or not an object — no fields, `error` says why. The one reader of the manifest for the installer and the skills
+ * (tests/standards/project-manifest); task-env imports no other skill (tests/standards/skill-imports) and keeps a copy
+ * that answers by the same table.
+ */
+export function manifestOf(root: string): ManifestRead {
+  const file = [".agents/elves.json", ".agents/ai-dev.json"].find((f) => existsSync(path.join(root, f)));
+  if (!file) return { file: null, fields: {} };
+  try {
+    const value: unknown = JSON.parse(readFileSync(path.join(root, file), "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? { file, fields: value as Record<string, unknown> } : { file, fields: {}, error: "not a JSON object" };
+  } catch (e) {
+    return { file, fields: {}, error: (e as Error).message };
+  }
+}
+
+/**
+ * The project language of the `dir` directory (by default — the current one): the manifest's `language`
+ * (`manifestOf`), no field or a broken manifest — ru, no manifest — en.
  */
 function projectLanguage(dir: string = process.cwd()): string {
-  const root = projectRoot(dir);
-  const file = [MANIFEST, FORMER_MANIFEST].map((m) => path.join(root, m)).find((f) => existsSync(f));
+  const { file, fields } = manifestOf(projectRoot(dir));
   if (!file) return DEFAULT_LANGUAGE;
-  let manifest: { language?: unknown } = {};
-  try {
-    manifest = JSON.parse(readFileSync(file, "utf8")) ?? {};
-  } catch {
-    // a broken manifest — like a manifest without the field
-  }
-  return typeof manifest.language === "string" && LANGUAGE_CODE.test(manifest.language) ? manifest.language : LEGACY_LANGUAGE;
+  return typeof fields.language === "string" && LANGUAGE_CODE.test(fields.language) ? fields.language : LEGACY_LANGUAGE;
+}
+
+/**
+ * Whether the project of `dir` releases its dispatcher's tasks in batches — `"batch": true` in its manifest
+ * (`manifestOf`; epic #645, question 6): `true` itself — `"true"`, `1`, `"yes"` aren't batches. One answer for `check`
+ * of the installer (the CI's light set) and `task queue` (the batch branch).
+ */
+function batchProject(dir: string = process.cwd()): boolean {
+  return manifestOf(projectRoot(dir)).fields.batch === true;
 }
 
 /** The names of a language: `locales/<language>.json`, no dictionary for the language — `en`. */
@@ -527,4 +547,4 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, projectLanguage, names, languages, everyNames, every, fill, plural, count, escapeRe };
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, batchProject, names, languages, everyNames, every, fill, plural, count, escapeRe };

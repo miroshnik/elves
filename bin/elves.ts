@@ -745,15 +745,11 @@ interface Manifest {
 
 /**
  * The install's manifest: `.agents/elves.json`, until `update` moves it — the manifest of an earlier release under the
- * flow's former name (FORMER.manifest); missing or broken — empty.
+ * flow's former name (FORMER.manifest); missing or broken — empty. Read by `manifestOf` of the github skill's locale
+ * module — the one reader of the manifest (tests/standards/project-manifest).
  */
 function readManifest(root: string): Manifest {
-  const file = [MANIFEST, FORMER.manifest].map((f) => path.join(root, f)).find((f) => existsSync(f));
-  try {
-    return file ? JSON.parse(readFileSync(file, "utf8")) : {};
-  } catch {
-    return {};
-  }
+  return locale.manifestOf(root).fields as Manifest;
 }
 
 /**
@@ -2236,7 +2232,8 @@ function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
 }
 
 /**
- * A batch project's CI (`"batch": true` in the manifest, epic #645): a PR into the batch branch runs the light set —
+ * A batch project's CI (`"batch": true` in the manifest, epic #645; `batchProject` of the locale module — the same
+ * answer as `task queue`'s): a PR into the batch branch runs the light set —
  * without it a batch saves nothing (`BATCHES_DOC`). A mismatch update doesn't fix, as the compose file and
  * `test:spec`: a `❌` line per workflow whose `on.pull_request` filters out a batch branch — that PR gets no run, a
  * required check waits as "Expected"; and one if no job of `.github/workflows/*.y(a)ml` has the light set's condition —
@@ -2244,7 +2241,7 @@ function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
  * project — CI isn't read.
  */
 function batchCi(root: string): { lines: string[]; missing: boolean } {
-  if (readManifest(root).batch !== true) return { lines: [], missing: false };
+  if (!locale.batchProject(root)) return { lines: [], missing: false };
   const dir = ".github/workflows";
   let files: string[] = [];
   try {

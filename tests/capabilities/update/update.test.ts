@@ -920,6 +920,8 @@ const UP_TO_DATE = /^Elves in the project: up to date \([^)\n]+\)\n {2}tasks: wi
 const BATCHES_JOBS = /\n## Batches[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/spec/ci.md")))![1]!;
 const workflow = (file: string, yaml: string) => writeTree(sb.proj, { [`.github/workflows/${file}`]: yaml });
 const PR_AND_MAIN = "on:\n  pull_request:\n  push:\n    branches: [main]\n";
+// CI проекта без пачек: PR только в main, полный набор без условий
+const ONLY_MAIN = "on:\n  pull_request:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n";
 
 /**
  * Пачку включает `"batch": true` в `.agents/elves.json` (эпик #645, вопрос 6), но экономит она только с CI, который на PR
@@ -976,11 +978,27 @@ describe("check проекта с пачками сверяет, что CI ум�
   });
 
   it("проект без batch — CI не сверяется", () => {
-    workflow("ci.yml", "on:\n  pull_request:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n");
+    workflow("ci.yml", ONLY_MAIN);
     for (const batch of [undefined, false]) {
       editManifest(sb.proj, { batch });
       expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
     }
+  });
+
+  /**
+   * Проект с пачками и `check`, и `task queue` узнают одной функцией — `batchProject` модуля locale скилла github: два
+   * своих условия разошлись бы, и `check` сверял бы CI проекта, где очередь ветку пачки не ведёт, или наоборот.
+   */
+  it("batch, отличный от true, — не проект с пачками ни для check, ни для task queue", () => {
+    workflow("ci.yml", ONLY_MAIN);
+    for (const batch of ["true", 1, "yes", {}, null]) {
+      editManifest(sb.proj, { batch });
+      expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+      expect(locale.batchProject(sb.proj)).toBe(false);
+    }
+    editManifest(sb.proj, { batch: true });
+    expect(locale.batchProject(sb.proj)).toBe(true);
+    expect(elves(sb, ["check"]).stdout).toContain(NO_RUN("ci.yml", "branches main"));
   });
 });
 
