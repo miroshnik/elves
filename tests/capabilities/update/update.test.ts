@@ -911,75 +911,80 @@ describe("check проекта с test:spec называет test, которы�
   });
 });
 
-// строки check проекта с пачками: нет джобы лёгкого набора; pull_request, который не пускает PR в ветку пачки
+// строка check проекта с пачками: workflow, который запускается (или может запуститься) на PR в ветку пачки
 const BATCHES_DOC = "~/.agents/skills/spec/ci.md, «Batches»";
-const NO_LIGHT_JOB = `  ❌ .github/workflows: no job with if: startsWith(github.base_ref, 'batch/') — a PR into a batch branch runs the full set, the batch saves nothing; the light job — ${BATCHES_DOC}\n`;
-const NO_RUN = (file: string, filter: string) =>
-  `  ❌ .github/workflows/${file}: on.pull_request.${filter} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})\n`;
+const RUNS = (file: string, how = "runs") =>
+  `  ❌ .github/workflows/${file}: on.pull_request ${how} on a PR into a batch branch — its gate is the checks before a commit and pr premerge, the full CI is the release's; add branches-ignore: ['batch/**'] (${BATCHES_DOC})\n`;
+// фильтр путей, types без synchronize: без диффа PR и события не решить — может запуститься
+const MAY_RUN = "may run (by the PR's diff or event)";
 const UP_TO_DATE = /^Elves in the project: up to date \([^)\n]+\)\n {2}tasks: with permission\n {2}language: en\n$/;
-// джобы фрагмента ci.md «Batches»: лёгкий набор на PR в ветку пачки, полный — на остальном
-const BATCHES_JOBS = /\n## Batches[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/spec/ci.md")))![1]!;
+// фрагмент ci.md «Batches»: on: без ветки пачки, джобы полного набора без условия по базе
+const BATCHES_CI = /\n## Batches[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/spec/ci.md")))![1]!;
 const workflow = (file: string, yaml: string) => writeTree(sb.proj, { [`.github/workflows/${file}`]: yaml });
-const PR_AND_MAIN = "on:\n  pull_request:\n  push:\n    branches: [main]\n";
-// CI проекта без пачек: PR только в main, полный набор без условий
-const ONLY_MAIN = "on:\n  pull_request:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n";
+const JOBS = "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n";
+// CI проекта без пачек: полный набор на PR в любую базу
+const ANY_PR = `on:\n  pull_request:\n  push:\n    branches: [main]\n${JOBS}`;
 
 /**
- * Пачку включает `"batch": true` в `.agents/elves.json` (эпик #645, вопрос 6), но экономит она только с CI, который на PR
- * в ветку пачки гоняет лёгкий набор (скилл spec, `ci.md`, «Batches»): без джобы лёгкого набора задачи пачки гоняют
- * полный, а `pull_request` с `branches` без ветки пачки не запускает ничего — обязательная проверка висит «Expected».
+ * Пачку включает `"batch": true` в `.agents/elves.json` (эпик #645, вопрос 6). PR задачи в ветку пачки CI не запускает
+ * (#676): его ворота — проверки перед коммитом у исполнителя и `github pr premerge`, полный CI — один прогон на PR выпуска
+ * в main и на сам main (скилл spec, `ci.md`, «Batches»). Workflow, который идёт на PR в ветку пачки, повторяет то, что
+ * исполнитель уже прогнал, и держит его слот, — `check` называет его строкой `❌`; фильтр путей и `types` без
+ * `synchronize` — тоже: без диффа PR не решить, а запуститься он может.
  */
-describe("check проекта с пачками сверяет, что CI умеет лёгкий набор", () => {
+describe("check проекта с пачками сверяет, что PR в ветку пачки CI не запускает", () => {
   beforeEach(() => {
     elves(sb, ["install"]);
     editManifest(sb.proj, { batch: true });
   });
 
-  it("CI без джобы лёгкого набора — строка ❌ со ссылкой на ci.md, код 1", () => {
-    // workflow нет вовсе — та же строка
-    const none = elves(sb, ["check"]);
-    expect(none.code).toBe(1);
-    expect(none.stdout).toContain("in the project: up to date");
-    expect(none.stdout).toEndWith(NO_LIGHT_JOB + MODE_ASK);
-    // джоба полного набора с !startsWith — не лёгкий набор
-    workflow("ci.yml", `${PR_AND_MAIN}jobs:\n  test:\n    if: \${{ !startsWith(github.base_ref, 'batch/') }}\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n`);
-    const before = snapshot(sb.proj);
-    const r = elves(sb, ["check"]);
-    expect(r.code).toBe(1);
-    expect(r.stdout).toEndWith(NO_LIGHT_JOB + MODE_ASK);
-    expect(snapshot(sb.proj)).toEqual(before);
-  });
-
-  it("pull_request только в main — строка ❌: PR в ветку пачки без прогона", () => {
-    const cases: [filter: string, file: string, line: string | null][] = [
-      ["branches: [main]", "ci.yml", "branches main"],
-      ["branches: [main, 'release/**']", "ci.yml", "branches main, release/**"],
-      ["branches: ['**', '!batch/*']", "ci.yml", "branches **, !batch/*"],
-      ["branches-ignore: ['batch/**']", "ci.yml", "branches-ignore batch/**"],
-      ["branches: [main]", "ci.yaml", "branches main"],
-      // фильтр пускает ветку пачки — строки нет
-      ["branches: [main, 'batch/**']", "ci.yml", null],
-      ["branches: ['batch/*']", "ci.yml", null],
-      ["branches-ignore: ['release/**']", "ci.yml", null],
+  it("check проекта с batch называет ❌ workflow, который запускается на PR в ветку пачки", () => {
+    const cases: [on: string, file: string, how: string | null][] = [
+      ["on:\n  pull_request:\n  push:\n    branches: [main]\n", "ci.yml", "runs"],
+      ["on: [push, pull_request]\n", "ci.yml", "runs"],
+      ["on:\n  pull_request:\n    branches: [main, 'batch/**']\n", "ci.yml", "runs"],
+      ["on:\n  pull_request:\n    branches: ['batch/*']\n", "ci.yml", "runs"],
+      ["on:\n  pull_request:\n", "ci.yaml", "runs"],
+      ["on:\n  pull_request:\n    paths: ['src/**']\n", "ci.yml", MAY_RUN],
+      ["on:\n  pull_request:\n    types: [labeled]\n", "ci.yml", MAY_RUN],
+      // ветку пачки не пускает или на PR не идёт — строки нет
+      ["on:\n  pull_request:\n    branches-ignore: ['batch/**']\n  push:\n    branches: [main]\n", "ci.yml", null],
+      ["on:\n  pull_request:\n    branches: [main]\n", "ci.yml", null],
+      ["on:\n  pull_request:\n    branches: ['**', '!batch/**']\n", "ci.yml", null],
+      ["on:\n  pull_request:\n    branches-ignore: ['batch/**']\n    paths: ['src/**']\n", "ci.yml", null],
+      ["on:\n  push:\n    branches: [main]\n", "ci.yml", null],
+      ["on: pull_request_target\n", "ci.yml", null],
     ];
-    for (const [filter, file, line] of cases) {
+    for (const [on, file, how] of cases) {
       rmSync(path.join(sb.proj, ".github"), { recursive: true, force: true });
-      workflow(file, `on:\n  pull_request:\n    ${filter}\n  push:\n    branches: [main]\n${BATCHES_JOBS}`);
+      workflow(file, on + JOBS);
+      const before = snapshot(sb.proj);
       const r = elves(sb, ["check"]);
-      if (line) expect(r).toMatchObject({ code: 1, stdout: expect.stringContaining(NO_RUN(file, line) + MODE_ASK) });
-      else expect(r).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+      if (how) {
+        expect(r.code).toBe(1);
+        expect(r.stdout).toEndWith(RUNS(file, how) + MODE_ASK);
+      } else expect(r).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+      expect(snapshot(sb.proj)).toEqual(before);
     }
+    // каждый такой workflow — своя строка, по имени файла
+    rmSync(path.join(sb.proj, ".github"), { recursive: true, force: true });
+    workflow("lint.yml", `on: pull_request\n${JOBS}`);
+    workflow("ci.yml", ANY_PR);
+    expect(elves(sb, ["check"]).stdout).toEndWith(RUNS("ci.yml") + RUNS("lint.yml") + MODE_ASK);
   });
 
-  it("CI по фрагменту ci.md «Batches» — ни строки сверх обычных, код 0", () => {
-    workflow("ci.yml", PR_AND_MAIN + BATCHES_JOBS);
+  it("CI по фрагменту ci.md «Batches» и CI самого Elves — ни строки сверх обычных, код 0", () => {
+    // workflow нет вовсе — на PR в ветку пачки ничего не идёт
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+    workflow("ci.yml", BATCHES_CI);
+    workflow("elves.yml", read(path.join(REPO, ".github/workflows/ci.yml")));
     // workflow не на pull_request — не сверяется
     workflow("deploy.yml", "on:\n  push:\n    branches: [main]\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo deploy\n");
     expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
   });
 
   it("проект без batch — CI не сверяется", () => {
-    workflow("ci.yml", ONLY_MAIN);
+    workflow("ci.yml", ANY_PR);
     for (const batch of [undefined, false]) {
       editManifest(sb.proj, { batch });
       expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
@@ -991,7 +996,7 @@ describe("check проекта с пачками сверяет, что CI ум�
    * своих условия разошлись бы, и `check` сверял бы CI проекта, где очередь ветку пачки не ведёт, или наоборот.
    */
   it("batch, отличный от true, — не проект с пачками ни для check, ни для task queue", () => {
-    workflow("ci.yml", ONLY_MAIN);
+    workflow("ci.yml", ANY_PR);
     for (const batch of ["true", 1, "yes", {}, null]) {
       editManifest(sb.proj, { batch });
       expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
@@ -999,14 +1004,14 @@ describe("check проекта с пачками сверяет, что CI ум�
     }
     editManifest(sb.proj, { batch: true });
     expect(locale.batchProject(sb.proj)).toBe(true);
-    expect(elves(sb, ["check"]).stdout).toContain(NO_RUN("ci.yml", "branches main"));
+    expect(elves(sb, ["check"]).stdout).toContain(RUNS("ci.yml"));
   });
 });
 
 /**
  * Клон Elves — сам канон: установку `check` в нём не сверяет, но пачки ведёт и Elves (`"batch": true`, #661) — его CI
- * сверяется с лёгким набором, как CI тонкого проекта. Иначе Elves без джобы лёгкого набора `check` называл бы зелёным
- * (#672). Клон без `batch` — CI не читается, как прежде.
+ * сверяется, как CI тонкого проекта (#672): PR в ветку пачки CI не запускает (#676). Иначе Elves с workflow, что идёт на
+ * PR в ветку пачки, `check` в клоне называл бы зелёным. Клон без `batch` — CI не читается, как прежде.
  */
 describe("check клона Elves с пачками сверяет CI, как в тонком проекте", () => {
   let clone: string;
@@ -1018,16 +1023,22 @@ describe("check клона Elves с пачками сверяет CI, как в 
   const check = () => elves(sb, ["check"], { cwd: clone });
   const ci = (yaml: string) => writeTree(clone, { ".github/workflows/ci.yml": yaml });
 
-  it("check в клоне Elves с batch называет ❌, когда в CI нет job с if: startsWith(github.base_ref, 'batch/')", () => {
-    expect(check()).toMatchObject({ code: 1, stdout: ABSENT + NO_LIGHT_JOB + MODE_ASK });
-    ci(ONLY_MAIN);
-    expect(check()).toMatchObject({ code: 1, stdout: ABSENT + NO_RUN("ci.yml", "branches main") + NO_LIGHT_JOB + MODE_ASK });
+  it("check проекта и клона Elves с batch называет ❌ workflow, который запускается на PR в ветку пачки", () => {
+    ci(ANY_PR);
+    expect(check()).toMatchObject({ code: 1, stdout: ABSENT + RUNS("ci.yml") + MODE_ASK });
+    // тонкий проект — та же строка тем же правилом
+    elves(sb, ["install"]);
+    editManifest(sb.proj, { batch: true });
+    workflow("ci.yml", ANY_PR);
+    expect(elves(sb, ["check"])).toMatchObject({ code: 1, stdout: expect.stringContaining(RUNS("ci.yml") + MODE_ASK) });
   });
 
-  it("check в клоне Elves с batch и job лёгкого набора — без ❌ по пачкам", () => {
-    ci(PR_AND_MAIN + BATCHES_JOBS);
+  it("check в клоне Elves с batch и CI по фрагменту ci.md «Batches» — без ❌ по пачкам", () => {
+    // workflow нет вовсе — на PR в ветку пачки ничего не идёт
     expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
-    ci(ONLY_MAIN);
+    ci(BATCHES_CI);
+    expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
+    ci(ANY_PR);
     editManifest(clone, { batch: undefined });
     expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
   });
