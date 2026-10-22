@@ -2231,6 +2231,27 @@
   "name": "не чекаут репозитория PR — ошибка (код 2)"
  },
  {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "PR в ветку пачки без выпуска или с выпуском, закрытым без мержа, проверяется как обычно"
+ },
+ {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "PR в выпущенную пачку без следующей пачки диспетчера переходит в main — задача выходит из пачки"
+ },
+ {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "PR, перешедший из выпущенной пачки с её коммитами, не вливается — ребейз на базу их уберёт"
+ },
+ {
   "path": "tests/capabilities/github-project/github-project.test.ts",
   "describes": [
    "check показывает каждое расхождение с каноном отдельным пунктом"
@@ -4229,6 +4250,55 @@
    "В организации задача получает тип issue и Priority, эпик — не ниже подзадачи"
   ],
   "name": "тип issue организации и Priority Medium по умолчанию — в той же мутации, что и задача"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "PR выпуска несёт spec-diff пачки и Closes каждой влитой задачи"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "ветка пачки перед PR ребейзится на origin/main"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "выпуск по слову владельца при живых исполнителях не запускает новых"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "диспетчер продолжает — открытые PR задач в ветку пачки до её удаления уходят на новую ветку пачки"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "задачи группы влиты в пачку и исполнителей нет — последняя строка task queue называет выпуск"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "конфликт ребейза ветки пачки на origin/main — ветка не меняется, PR выпуска нет"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "после мержа выпуска и деплоя task close закрывает каждую задачу пачки, ветка пачки и ветки её задач удаляются"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -10269,6 +10339,13 @@
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
   ],
+  "name": "github batch release --help и -h — синтаксис с примером, код 0, без сети и изменений"
+ },
+ {
+  "path": "tests/standards/cli-help/cli-help.test.ts",
+  "describes": [
+   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
+  ],
   "name": "github pr labels --help и -h — синтаксис с примером, код 0, без сети и изменений"
  },
  {
@@ -12299,6 +12376,20 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.wait скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название release.lead скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название release.title скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -14853,6 +14944,20 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
+  "name": "цитату «release of `<batch>` — #N, …» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «release» из skills/github/SKILL.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
   "name": "цитату «remove from scope» из skills/spec/checks.md печатает или пишет скрипт"
  },
  {
@@ -16974,6 +17079,13 @@
   "describes": [
    "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
   ],
+  "name": "README: подкоманда github batch release названа"
+ },
+ {
+  "path": "tests/standards/readme/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
   "name": "README: подкоманда github pr labels названа"
  },
  {
@@ -17684,6 +17796,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "docs/pr-checks.md: skills/github/SKILL.md, «Git, PRs and merging — mechanics» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/pr-checks.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",

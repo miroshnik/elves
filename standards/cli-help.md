@@ -48,7 +48,7 @@ SKILL.md агент читал руками, медиана — 8 раз за с
 
 ## Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений
 
-<details><summary>✅ 83 теста</summary>
+<details><summary>✅ 84 теста</summary>
 
 - ✅ реестр «скрипты флоу — установщик и исполняемые скрипты скиллов» не пуст (скрипты)
 - ✅ реестр «скрипты флоу — установщик и исполняемые скрипты скиллов» находит bin/elves.ts, skills/github/scripts/github.ts, skills/est/scripts/est.ts, skills/task-env/scripts/task-env.ts, skills/ci-wait/scripts/wait-ci.sh, skills/slot/scripts/slot.ts, skills/spec/scripts/spec-doc.ts (скрипты)
@@ -107,6 +107,7 @@ SKILL.md агент читал руками, медиана — 8 раз за с
 - ✅ est fact --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ est history --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ est period --help и -h — синтаксис с примером, код 0, без сети и изменений
+- ✅ github batch release --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ github pr labels --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ github pr premerge --help и -h — синтаксис с примером, код 0, без сети и изменений
 - ✅ github project check --help и -h — синтаксис с примером, код 0, без сети и изменений

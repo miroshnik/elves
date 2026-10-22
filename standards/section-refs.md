@@ -36,7 +36,7 @@
 
 ## Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 157 тестов</summary>
+<details><summary>✅ 158 тестов</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -73,6 +73,7 @@
 - ✅ docs/parallel-checkouts.md: skills/task-env/SKILL.md, «The task's stack» — есть такой раздел
 - ✅ docs/pr-checks.md: AGENTS.md, «Git, PRs and merging» — есть такой раздел
 - ✅ docs/pr-checks.md: skills/github/SKILL.md, «Git, PRs and merging — mechanics» — есть такой раздел
+- ✅ docs/pr-checks.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел
 - ✅ docs/testing.md: AGENTS.md, «Specification — decisions» — есть такой раздел
 - ✅ docs/testing.md: AGENTS.md, «Tests and code» — есть такой раздел
 - ✅ docs/testing.md: AGENTS.md, «This file and skills» — есть такой раздел

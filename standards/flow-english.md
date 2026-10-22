@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 191 тест</summary>
+<details><summary>✅ 193 теста</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -292,6 +292,8 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «queue #M?» из claude/CLAUDE.md печатает или пишет скрипт
 - ✅ цитату «queue #N?» из skills/github/SKILL.md печатает или пишет скрипт
 - ✅ цитату «queue it?» из AGENTS.md печатает или пишет скрипт
+- ✅ цитату «release of `<batch>` — #N, …» из skills/github/reference.md печатает или пишет скрипт
+- ✅ цитату «release» из skills/github/SKILL.md печатает или пишет скрипт
 - ✅ цитату «remove from scope» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «remove the exception: delete \<file>» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «remove the exception» из skills/spec/checks.md печатает или пишет скрипт
@@ -321,7 +323,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ## Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 346 тестов</summary>
+<details><summary>✅ 348 тестов</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -487,6 +489,8 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.subagent скрипты читают из словаря
 - ✅ название queue.subagents скрипты читают из словаря
 - ✅ название queue.wait скрипты читают из словаря
+- ✅ название release.lead скрипты читают из словаря
+- ✅ название release.title скрипты читают из словаря
 - ✅ название sections.questions скрипты читают из словаря
 - ✅ название sections.scenarios скрипты читают из словаря
 - ✅ название spec.architecture.allowedName скрипты читают из словаря
