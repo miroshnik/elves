@@ -233,7 +233,9 @@ the package's build. Each step with its details — `reference.md`,
 4. **CI** — a shard's files from `spec-shard` by the last green run's
    durations, shards write blob reports, a `spec` job merges them and builds
    `docs/spec` with `--strict`, only `spec-publish` has a write token,
-   `spec-diff` is a light job of its own: the workflow fragment — `ci.md`.
+   `spec-diff` is a light job of its own: the workflow fragment — `ci.md`;
+   with batches — one light job on a PR into a batch branch (`ci.md`,
+   "Batches").
 5. **Monorepo** — a decision's tests in package subfolders
    `tests/<kind>/<name>/<package>/`, each package with its own runner project;
    run from the repository root.

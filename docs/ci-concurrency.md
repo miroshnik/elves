@@ -12,7 +12,11 @@ for all of CI is not a solution: it slows down every task, and without
 `queue: max` it also cancels pending runs. Workflow fragments — below.
 
 - **Branches and PRs run in parallel:** a `concurrency` group by PR number or
-  branch, `cancel-in-progress: true`.
+  branch, `cancel-in-progress: true`. A PR into a batch branch (`batch/*`,
+  the dispatcher releases the batch by one PR into `main`) is a PR like any
+  other: its group is by its number, in parallel with the batch's other PRs; a
+  merge into the batch branch starts no run — `on.push` is only `main`, the
+  batch is checked by its release PR (`skills/spec/ci.md`, "Batches").
 - **`main`, tags and manual runs are never cancelled:** their runs deploy, and
   an interrupted deploy is worse than an extra run. Instead of cancelling —
   `queue: max` (by default GitHub keeps one pending run and evicts it with the
