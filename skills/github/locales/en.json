@@ -50,6 +50,10 @@
     "check": "check {names}",
     "checks": "checks {names}"
   },
+  "release": {
+    "title": "release of {batch} — {tasks}",
+    "lead": "The release of batch `{batch}` in one PR: the full CI and the deploy — once for the batch. The tasks' PRs merged into it: {prs}."
+  },
   "actualize": {
     "lead": "{task} #{number} ({epicWord} #{epic}): epic refresh after the merge — bring the epic's open tasks in line with what shipped.",
     "fetch": "The whole assignment — the texts of the epic's open tasks, the PR files, what the script named, the checks by meaning — is printed by `{command}`: run it first, outside the sandbox (gh doesn't work in it); don't collect the tasks and the PR yourself.",

@@ -57,6 +57,11 @@ export interface Names {
   /** A bug about a red default branch: the title "<base> is red: <checks>". */
   mainRed: { title: string; check: string; checks: string };
   /**
+   * The release PR of a dispatcher's batch (`github batch release`, #649): its title after the conventional-commit type
+   * and the lead of its body — before the batch's spec-diff and the `Closes #N` of each task merged into the batch.
+   */
+  release: { title: string; lead: string };
+  /**
    * The epic refresh (`github task actualize`): the subagent's prompt (`lead`, `fetch`), its assignment (`--assignment`)
    * and the line of the script's own fixes in a comment on the epic (`mechanics` of `unblocked`, `unlabeled`,
    * `milestone`). `linkWords` — phrases before `#N` that copy a dependency into text, separated by `|`; the phrases of

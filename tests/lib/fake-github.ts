@@ -48,7 +48,7 @@ export class FakeGitHub {
    * задачи, с которыми GitHub связал PR (`closes`; тело может называть и другие), голова, модель архитектуры в ней (ModelAt);
    * `merged`, `state`, `base` — для `task close`.
    */
-  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; checks?: Record<string, string | string[]> }> = {};
+  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]> }> = {};
   /** Задача → числовые поля проекта по имени поля (IssueShow): оценка, факт. */
   numbers: Record<number, Record<string, number>> = {};
   /** Задача → id milestone (IssueRef.milestone); открытые задачи milestone считаются по состоянию записей. */
@@ -112,6 +112,9 @@ export class FakeGitHub {
       this.closedMilestones.push(Number(patch[1]));
       return JSON.stringify({ number: Number(patch[1]), state: "closed" });
     }
+    if (args[0] === "api" && args[1] === "-X" && args[2] === "POST" && args[3] === `repos/${this.repo.nameWithOwner}/pulls`) return JSON.stringify(this.createPr(JSON.parse(stdin ?? "{}")));
+    const pulls = args[0] === "api" && args[1]?.startsWith(`repos/${this.repo.nameWithOwner}/pulls`) ? this.restPulls(args[1]) : null;
+    if (pulls) return JSON.stringify(pulls);
     if (args[0] !== "api" || args[1] !== "graphql") throw new Error(`fake gh: неожиданный вызов gh ${args.join(" ")}`);
     const { query, variables } = JSON.parse(stdin ?? "{}");
     const { kind, op } = opOf(query);
@@ -156,6 +159,7 @@ export class FakeGitHub {
     if (op === "SpecDecisions") return JSON.stringify({ data: { repository: this.specTree() } });
     if (op === "PrChange") return JSON.stringify(this.prChange(variables.number));
     if (op === "RecentPrs") return JSON.stringify(this.recentPrs());
+    if (op === "BatchPrs") return JSON.stringify(this.batchPrs(variables.batch));
     if (op === "MergeRules") return JSON.stringify(this.mergeRules());
     if (op === "ModelAt") {
       const pr = Object.values(this.prs).find((x) => x.head === variables.expression.split(":")[0]);
@@ -379,11 +383,57 @@ export class FakeGitHub {
   }
   // последние открытые и влитые PR (states: [OPEN, MERGED]), новые первыми: голова, база, тело
   private recentPrs(): Any {
-    const nodes = Object.entries(this.prs)
+    return { data: { repository: { defaultBranchRef: { name: "main" }, pullRequests: { nodes: this.livePrs() } } } };
+  }
+  private livePrs(): Any[] {
+    return Object.entries(this.prs)
       .map(([n, p]) => ({ number: Number(n), state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), headRefName: p.head, baseRefName: p.base ?? "main", body: p.body ?? "" }))
       .filter((p) => p.state !== "CLOSED")
       .sort((a, b) => b.number - a.number);
-    return { data: { repository: { defaultBranchRef: { name: "main" }, pullRequests: { nodes } } } };
+  }
+  // PR пачки (BatchPrs): в её ветку — все открытые и влитые, и её выпуск — PR с её веткой головой
+  private batchPrs(batch: string): Any {
+    const all = this.livePrs();
+    return { data: { repository: { defaultBranchRef: { name: "main" }, into: { nodes: all.filter((p) => p.baseRefName === batch) }, release: { nodes: all.filter((p) => p.headRefName === batch) } } } };
+  }
+  /**
+   * REST PR вне облака — что читает `pr premerge` у PR в ветку пачки: PR по номеру и PR по голове (`?head=владелец:ветка`),
+   * новые первыми; другой запрос — null.
+   */
+  private restPulls(route: string): Any {
+    const [tail, query] = route.slice(`repos/${this.repo.nameWithOwner}/pulls`.length).split("?") as [string, string | undefined];
+    const shown = (n: number) => {
+      const p = this.prs[n]!;
+      const state = p.state ?? (p.merged ? "MERGED" : "OPEN");
+      const owner = { type: this.repo.owner.__typename === "Organization" ? "Organization" : "User" };
+      return {
+        id: 5000 + n,
+        number: n,
+        state: state === "OPEN" ? "open" : "closed",
+        merged: state === "MERGED",
+        merged_at: state === "MERGED" ? "2026-10-17T12:00:00Z" : null,
+        body: p.body ?? "",
+        head: { ref: p.head, sha: `sha${n}` },
+        base: { ref: p.base ?? "main", repo: { default_branch: "main", owner } },
+      };
+    };
+    const one = /^\/(\d+)$/.exec(tail);
+    if (one) return this.prs[Number(one[1])] ? shown(Number(one[1])) : { message: "Not Found", status: "404" };
+    const head = new URLSearchParams(query ?? "").get("head");
+    if (tail !== "" || !head) return null;
+    const ref = head.slice(head.indexOf(":") + 1);
+    return Object.keys(this.prs).map(Number).filter((n) => this.prs[n]!.head === ref).sort((a, b) => b - a).map(shown);
+  }
+  /**
+   * REST «Create a pull request»: PR — следующим номером, открытый; задачи из «Closes #N» тела GitHub связывает с ним,
+   * только если база — ветка по умолчанию. Запрос — в журнал `rest`.
+   */
+  private createPr(p: { title: string; head: string; base: string; body?: string }): Any {
+    this.rest.push({ method: "POST", route: `repos/${this.repo.nameWithOwner}/pulls`, payload: p });
+    const number = Math.max(0, ...Object.keys(this.prs).map(Number)) + 1;
+    const closes = p.base === "main" ? [...(p.body ?? "").matchAll(/\bcloses #(\d+)/gi)].map((m) => Number(m[1])) : [];
+    this.prs[number] = { files: [], closes, body: p.body ?? "", head: p.head, base: p.base, model: null, state: "OPEN", title: p.title };
+    return { id: 5000 + number, number, html_url: `https://github.com/${this.repo.nameWithOwner}/pull/${number}`, state: "open", title: p.title };
   }
   /**
    * REST «Update a repository»: поля `-F ключ=значение` (true/false — булевы, как их шлёт gh), в журнал мутаций — как

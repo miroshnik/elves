@@ -109,7 +109,31 @@ interface MainChecks {
  */
 function fakeGh(
   head: string,
-  { suites = [CI], moved = "2026-10-02T09:30:00Z", state = "open", activity, main = {}, bugs = [], body = "", owner = "User" }: { suites?: string[]; moved?: string | null; state?: string; activity?: string; main?: MainChecks; bugs?: { number: number; title: string }[]; body?: string; owner?: string } = {},
+  {
+    suites = [CI],
+    moved = "2026-10-02T09:30:00Z",
+    state = "open",
+    activity,
+    main = {},
+    bugs = [],
+    body = "",
+    owner = "User",
+    base = "main",
+    releases = [],
+  }: {
+    suites?: string[];
+    moved?: string | null;
+    state?: string;
+    activity?: string;
+    main?: MainChecks;
+    bugs?: { number: number; title: string }[];
+    body?: string;
+    owner?: string;
+    /** База PR — main или ветка пачки (`batch/<день>-<k>`). */
+    base?: string;
+    /** PR с базой PR головой — выпуск пачки (`?head=владелец:ветка`): номер, открыт ли, влит ли. */
+    releases?: { number: number; state: "open" | "closed"; merged?: boolean }[];
+  } = {},
 ) {
   const calls: string[] = [];
   const gh = (args: string[], stdin?: string) => {
@@ -122,12 +146,16 @@ function fakeGh(
       const full = `${v?.owner}/${v?.name}`;
       return JSON.stringify(full === SLUG ? { data: { repository: { nameWithOwner: SLUG } } } : { data: { repository: null }, errors: [{ type: "NOT_FOUND", message: `Could not resolve to a Repository with the name '${full}'.` }] });
     }
-    if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref: "feat/7-x" }, base: { ref: "main", repo: { owner: { type: owner } } } });
-    if (url.startsWith(`repos/${SLUG}/commits/main/check-runs`)) {
+    if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref: "feat/7-x" }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
+    if (url.startsWith(`repos/${SLUG}/pulls?`)) {
+      const want = new URLSearchParams(url.split("?")[1]).get("head");
+      return JSON.stringify(want === `miroshnik:${base}` ? releases.map((r) => ({ number: r.number, state: r.state, merged_at: r.merged ? "2026-10-02T11:00:00Z" : null, base: { ref: "main" } })) : []);
+    }
+    if (url.startsWith(`repos/${SLUG}/commits/${encodeURIComponent(base)}/check-runs`)) {
       const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion }));
       return JSON.stringify({ total_count: runs.length, check_runs: runs });
     }
-    if (url === `repos/${SLUG}/commits/main/status`) return JSON.stringify({ sha: MAIN_SHA, state: "pending", statuses: main.statuses ?? [] });
+    if (url === `repos/${SLUG}/commits/${encodeURIComponent(base)}/status`) return JSON.stringify({ sha: MAIN_SHA, state: "pending", statuses: main.statuses ?? [] });
     if (url.startsWith("search/issues?")) {
       // поиск по заголовку — фраза в кавычках `in:title "…"`
       const phrase = /in:title "([^"]*)"/.exec(decodeURIComponent(url.slice("search/issues?q=".length).split("&")[0]!))?.[1] ?? "";
@@ -606,5 +634,52 @@ describe("pr premerge: проверить нельзя — ошибка, не «
     const r = premerge(fakeGh(p.head, { state: "closed" }).gh, p.work);
     expect(r.code).toBe(2);
     expect(r.err).toContain(`error: PR #${PR} is not open — nothing to merge`);
+  });
+});
+
+/**
+ * Выпуск пачки (#649, эпик #645): живые исполнители выпуском не останавливаются (вопрос 2 эпика) — PR в ветку пачки,
+ * пока открыт её выпуск, не вливается: выпуск проверен без него; после выпуска PR уходит в следующую пачку диспетчера,
+ * а без неё — в main с полным CI, и задача выходит из пачки. Ожидание выпуска и переход в следующую пачку из маркера
+ * диспетчера — в тестах задач (github-task), здесь — без диспетчера.
+ */
+describe("Выпуск пачки — один PR в main", () => {
+  const BATCH = "batch/2026-10-02-1";
+  const WAIT = path.resolve(import.meta.dir, "../../../skills/ci-wait/scripts/wait-ci.sh");
+
+  it("PR в выпущенную пачку без следующей пачки диспетчера переходит в main — задача выходит из пачки", () => {
+    const p = project({ pr: { "uses.txt": "b\n" } });
+    const proc = processes();
+    const r = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #61", releases: [{ number: 9, state: "closed", merged: true }] }).gh, p.work, proc.run);
+    expect(r.code).toBe(1);
+    expect(r.out).toBe(
+      `❌ don't merge: ${BATCH} is released by PR #9 — the PR moves to main: gh pr edit ${PR} --base main, then git fetch origin main, git rebase origin/main ` +
+        `(the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ci-wait, pr premerge ${PR} again; ` +
+        `into main the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${WAIT} merged ${PR}) and task close 61, as outside a batch`,
+    );
+    expect(proc.calls).toEqual([]);
+  });
+
+  // GitHub сам переводит PR в main, удаляя голову влитого PR выпуска, если репозиторий удаляет головы при мерже
+  it("PR, перешедший из выпущенной пачки с её коммитами, не вливается — ребейз на базу их уберёт", () => {
+    // коммит пачки, каким он был до ребейза выпуска, — в голове PR; в main он уже лёг выпуском, с другим SHA
+    const p = project({ pr: { "uses.txt": "b\n" }, mainAfter: { "uses.txt": "b\n" } });
+    const proc = processes();
+    const r = premerge(fakeGh(p.head, { moved: "2026-10-02T10:20:00Z" }).gh, p.work, proc.run);
+    expect(r.code).toBe(1);
+    expect(r.last).toBe(
+      "❌ don't merge: 1 commit of the PR is in origin/main already by the changes (a released batch's, a merged PR's) — " +
+        `GitHub's rebase merge would replay them: git rebase origin/main (it drops them), push --force-with-lease, ci-wait, pr premerge ${PR} again`,
+    );
+    expect(proc.calls.filter((c) => c.cmd !== "git")).toEqual([]);
+  });
+
+  it("PR в ветку пачки без выпуска или с выпуском, закрытым без мержа, проверяется как обычно", () => {
+    const p = project({ pr: { "uses.txt": "b\n" } });
+    for (const releases of [[], [{ number: 9, state: "closed" as const }]]) {
+      const r = premerge(fakeGh(p.head, { base: BATCH, releases }).gh, p.work);
+      expect(r.code).toBe(0);
+      expect(r.out).toBe(`✅ merge: ${BATCH} hasn't moved since the CI of PR #${PR} (CI since ${CI}, last movement of ${BATCH} — 2026-10-02T09:30:00Z) — CI checked this merge`);
+    }
   });
 });

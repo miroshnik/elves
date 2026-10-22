@@ -533,6 +533,15 @@ fragment Head on PullRequest {
     pullRequests(states: [OPEN, MERGED], first: ${RECENT_PRS}, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName baseRefName body } }
   }
 }`,
+  // a batch's PRs (batch release, #649): into the batch branch — all of them, not the recent ones: a task missed is a task
+  // the release doesn't close; and its release PR — the batch branch as the head
+  BatchPrs: `query BatchPrs($owner: String!, $name: String!, $batch: String!) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
+    into: pullRequests(baseRefName: $batch, states: [OPEN, MERGED], first: 100) { nodes { number state merged headRefName baseRefName body } }
+    release: pullRequests(headRefName: $batch, states: [OPEN, MERGED], first: 10, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName baseRefName body } }
+  }
+}`,
   // task show and task answer: the description, the epic with its description and subtasks, blocked by, the PRs with
   // their head's checks, Status and number fields of the project; the comments of the task and its epic (#651)
   IssueShow: `query IssueShow($owner: String!, $name: String!, $number: Int!) {
@@ -1927,40 +1936,88 @@ function localDay(): string {
  * the locale module — `"batch": true` in `.agents/elves.json` of the checkout's root: a project setting, not the owner's
  * word on a run — without the light set in the project's CI a batch saves nothing)
  * creates it from a fresh origin/<base> and pushes it without a local branch — the dispatcher's checkout stays where it
- * is; `k` — the first free number of the day on origin and in the marker. The next queues take the same one: the marker
- * keeps it (`batchesIn`). Gone from origin — released (#649) or deleted: a new one, the `+` line names the previous one.
- * Not a batch project — null, no line; the session not identified, the directory not the repository's checkout — a
- * `○`/`!` line and null: the executors go into the default branch, as without batches. Origin not read — the kept one
- * stays (a `!` line): a new batch next to it would split the dispatcher's tasks; a new one not created — null.
+ * is; `k` — the first free number of the day on origin, in the marker and among the recent PRs' branches: a released
+ * batch's name taken again would read as released at once. The next queues take the same one: the marker keeps it
+ * (`batchesIn`). Released — its release PR merged (#649), the branch may still be on origin — or gone from origin: the
+ * next batch is `start`, called by the queue only with a ready task to hand out — a dispatcher that is done leaves no
+ * empty batch branch on origin; its `+` line names the previous one. A released batch branch on origin without an open
+ * PR into it goes (`dropReleased`). Not a batch project — null, no line; the session not identified, the directory not
+ * the repository's checkout — a `○`/`!` line and null: the executors go into the default branch, as without batches.
+ * Origin not read — the kept one stays (a `!` line): a new batch next to it would split the dispatcher's tasks; a new
+ * one not created — null.
  */
-function dispatcherBatch(io: Io, slug: string, base: string, file: string | null): string | null {
-  if (!locale.batchProject(io.cwd ?? process.cwd())) return null;
+function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | null): { batch: string | null; start: (() => string | null) | null } {
+  const none = { batch: null, start: null };
+  if (!locale.batchProject(io.cwd ?? process.cwd())) return none;
+  const base = recent.base;
   const off = `executors go into ${base}, as without batches`;
-  if (!file) return io.out(`○ batch: true, but the session isn't recognized (no CLAUDE_CODE_SESSION_ID) — no batch branch: ${off}`), null;
+  if (!file) return io.out(`○ batch: true, but the session isn't recognized (no CLAUDE_CODE_SESSION_ID) — no batch branch: ${off}`), none;
   if (!checkoutOfRepo(io, originUrl(io), slug)) {
-    return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in the project folder`), null;
+    return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in the project folder`), none;
   }
   const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
   const why = (r: RunResult) => r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`;
   const failed = (what: string, r: RunResult) => (io.out(`! ${what}: ${why(r)} — no batch branch: ${off}`), null);
   const kept = batchOf(io, slug);
   const listed = git("ls-remote", "--heads", "origin");
-  if (listed.status !== 0) return kept ? (io.out(`! git ls-remote --heads origin: ${why(listed)} — the batch branch stays ${kept}`), kept) : failed("git ls-remote --heads origin", listed);
+  if (listed.status !== 0) {
+    if (kept) return io.out(`! git ls-remote --heads origin: ${why(listed)} — the batch branch stays ${kept}`), { batch: kept, start: null };
+    return failed("git ls-remote --heads origin", listed), none;
+  }
   const heads = listed.stdout.split("\n").map((l) => (l.split("\t")[1] ?? "").trim().replace(/^refs\/heads\//, ""));
-  if (kept && heads.includes(kept)) return io.out(`○ batch branch ${kept} — the dispatcher's batch: the executors branch from it and merge into it`), kept;
-  const fetched = git("fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
-  if (fetched.status !== 0) return failed(`git fetch origin ${base}`, fetched);
-  const parsed = git("rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`);
-  // an empty source of a refspec deletes the ref — the push goes only with the commit's SHA
-  const sha = parsed.status === 0 ? parsed.stdout.trim() : "";
-  if (!/^[0-9a-f]{40,64}$/.test(sha)) return failed(`git rev-parse origin/${base}`, parsed);
-  const day = localDay();
-  const taken = [...heads, kept ?? ""].map((b) => BATCH_BRANCH.exec(b)).flatMap((m) => (m && m[1] === day ? [Number(m[2])] : []));
-  const name = `batch/${day}-${Math.max(0, ...taken) + 1}`;
-  const pushed = git("push", "-q", "origin", `${sha}:refs/heads/${name}`);
-  if (pushed.status !== 0) return failed(`git push origin ${name}`, pushed);
-  io.out(`+ batch branch ${name} from origin/${base} (${sha.slice(0, 7)}) pushed${kept ? ` — ${kept} is gone from origin (released)` : ""}: the executors branch from it and merge into it`);
-  return name;
+  dropReleased(io, recent, heads.filter(isBatchBranch));
+  const keptRelease = kept ? releasePrOf(recent, kept) : undefined;
+  if (kept && heads.includes(kept) && !keptRelease?.merged) return io.out(`○ batch branch ${kept} — the dispatcher's batch: the executors branch from it and merge into it`), { batch: kept, start: null };
+  const start = () => {
+    const fetched = git("fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
+    if (fetched.status !== 0) return failed(`git fetch origin ${base}`, fetched);
+    const parsed = git("rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`);
+    // an empty source of a refspec deletes the ref — the push goes only with the commit's SHA
+    const sha = parsed.status === 0 ? parsed.stdout.trim() : "";
+    if (!/^[0-9a-f]{40,64}$/.test(sha)) return failed(`git rev-parse origin/${base}`, parsed);
+    const day = localDay();
+    const named = [...heads, kept ?? "", ...recent.nodes.flatMap((p) => [p.headRefName ?? "", p.baseRefName ?? ""])];
+    const taken = named.map((b) => BATCH_BRANCH.exec(b)).flatMap((m) => (m && m[1] === day ? [Number(m[2])] : []));
+    const name = `batch/${day}-${Math.max(0, ...taken) + 1}`;
+    const pushed = git("push", "-q", "origin", `${sha}:refs/heads/${name}`);
+    if (pushed.status !== 0) return failed(`git push origin ${name}`, pushed);
+    const previous = !kept ? "" : keptRelease?.merged ? ` — ${kept} is released by PR #${keptRelease.number}` : ` — ${kept} is gone from origin (released)`;
+    io.out(`+ batch branch ${name} from origin/${base} (${sha.slice(0, 7)}) pushed${previous}: the executors branch from it and merge into it`);
+    return name;
+  };
+  // the first queue starts the batch at once; after a release — the queue, once it has a task to hand out
+  return kept ? { batch: null, start } : { batch: start(), start: null };
+}
+
+/**
+ * The batch's release PR (#649): its head is the batch branch, its base the default branch — open or merged, the
+ * latest of the recent PRs; none — undefined.
+ */
+const releasePrOf = (recent: Recent, batch: string): Any | undefined => recent.nodes.find((p) => p.headRefName === batch && p.baseRefName === recent.base);
+
+/** Open PRs into the branch — a live executor's into a batch branch. */
+const openInto = (recent: Recent, branch: string): Any[] => recent.nodes.filter((p) => p.state === "OPEN" && p.baseRefName === branch);
+
+/**
+ * Released batch branches still on origin (#649) — their release PR merged: without an open PR into them they are
+ * deleted, a `+` line — merged into the default branch, nothing is lost (`git push --delete`, as task close does with a
+ * merged branch); with one — kept, an `○` line: the live executor's PR goes into the next batch or the default branch
+ * first (`pr premerge` says where) — deleting its base closes it or moves it into the default branch past the
+ * dispatcher.
+ */
+function dropReleased(io: Io, recent: Recent, batches: string[]): void {
+  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
+  for (const b of batches) {
+    const release = releasePrOf(recent, b);
+    if (!release?.merged) continue;
+    const open = openInto(recent, b);
+    if (open.length) {
+      io.out(`○ batch branch ${b} kept: released by PR #${release.number}, open PR ${open.map((p) => `#${p.number}`).join(", ")} into it — its executor moves it to the next batch or ${recent.base} first (pr premerge says where)`);
+      continue;
+    }
+    const d = git("push", "-q", "origin", "--delete", b);
+    io.out(d.status === 0 ? `+ batch branch ${b} deleted: released by PR #${release.number}, no open PR into it` : `! git push origin --delete ${b}: ${d.stderr.trim()}`);
+  }
 }
 
 /** A path without symbolic links (`/var` → `/private/var` on macOS) — a worktree's and a hand-out's compare so; gone — as is. */
@@ -2680,9 +2737,10 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`).
  * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
- * doesn't hold. Before the queue — finished agents' worktrees
- * (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those a subagent still works in.
- * The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
+ * doesn't hold. The batch's release (#649): nothing ready and every task in work merged into the batch — `Next:` names
+ * `batch release`; its PR open — ready tasks are held (`○`), no new executors till its merge. Before the queue —
+ * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
+ * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
  */
 export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const want = o.type === undefined ? undefined : typeAliases()[o.type.toLowerCase()];
@@ -2707,17 +2765,15 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const openPr = openPrOf(io, slug, recent);
   const args = [o.epic !== undefined && `--epic ${o.epic}`, o.type !== undefined && `--type ${o.type}`, o.priority?.length && `--priority ${o.priority.join(",")}`].filter(Boolean).join(" ");
   const file = dispatcherFile(io);
-  // the batch branch before the readiness: a blocker merged into it doesn't hold a task of the same batch (#648)
-  const batch = dispatcherBatch(io, slug, recent.base, file);
+  // the batch branch before the readiness: a blocker merged into it doesn't hold a task of the same batch (#648); the
+  // next one after a release — after it, only with a task to hand out (nothing is merged into a new batch yet)
+  const dispatched = dispatcherBatch(io, slug, recent, file);
+  let batch = dispatched.batch;
   const inBatch = batch === null ? null : batchPrOf(recent, batch);
-  if (file) {
-    mkdirSync(path.dirname(file), { recursive: true });
-    // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
-    writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-    // the batch lines after the queue command: other repositories' stay, this one's — the current batch
-    const batches = [...batchesIn(file).filter((b) => b.repo.toLowerCase() !== slug.toLowerCase()), ...(batch ? [{ repo: slug, branch: batch }] : [])];
-    writeFileSync(file, `bun --no-env-file ${import.meta.path} task queue ${args ? `${args} ` : ""}--repo ${slug}\n${batches.map((b) => `batch ${b.repo} ${b.branch}\n`).join("")}`);
-  } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
+  // the batch's release is open (#649) — no new executors till its merge: what merges into the batch now would change
+  // the release its CI checked
+  const release = batch === null ? undefined : releasePrOf(recent, batch);
+  const releasing = release?.state === "OPEN" ? (release.number as number) : null;
   const handed = handedOut(io, slug);
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
@@ -2728,6 +2784,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const ready: Issue[] = [];
   const running: string[] = [];
   const waiting: string[] = [];
+  /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
+  let settled = 0;
   for (const n of numbers.sort((a, b) => a - b)) {
     const i = loadIssue(io, slug, n);
     states.set(i.number, i.state);
@@ -2758,6 +2816,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     else if (!work.length && hand) work.push("handed out to an executor of this session");
     if (work.length) {
       running.push(`= ${label} — ${work.join(", ")}`);
+      // merged into the batch, no open PR of it: its executor is done, the task waits for the release
+      if (merged !== undefined && pr === undefined) settled++;
       continue;
     }
     // a blocker merged into this batch's branch doesn't hold its task: the executor branches from the batch (#648); a
@@ -2768,9 +2828,22 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     if (status === N.status.done) waiting.push(`○ ${label} — ${STATUS} ${q(status)}, but the task is open`);
     else if (blockers.length) waiting.push(`○ ${label} — blocked by ${blockers.join(", ")}`);
     else if (external) waiting.push(`○ ${label} — ${externalBlocker(io, slug, i.number, external)}`);
+    else if (releasing !== null) waiting.push(`○ ${label} — ready, held: the release of ${batch} is open (PR #${releasing}) — no new executors till its merge`);
     else ready.push(i);
   }
   ready.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
+  if (dispatched.start) {
+    if (ready.length) batch = dispatched.start();
+    else io.out(`○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it`);
+  }
+  if (file) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
+    writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
+    // the batch lines after the queue command: other repositories' stay, this one's — the current batch
+    const batches = [...batchesIn(file).filter((b) => b.repo.toLowerCase() !== slug.toLowerCase()), ...(batch ? [{ repo: slug, branch: batch }] : [])];
+    writeFileSync(file, `bun --no-env-file ${import.meta.path} task queue ${args ? `${args} ` : ""}--repo ${slug}\n${batches.map((b) => `batch ${b.repo} ${b.branch}\n`).join("")}`);
+  } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
   appWorktreeWarning(io);
   // the executor the dispatcher continues with SendMessage — an answered question, a restart — has no lock (#533)
   const executors = handed.flatMap((h) => (h.worktree === null ? [] : [{ number: h.number, worktree: realPath(h.worktree) }]));
@@ -2783,18 +2856,173 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   }
   for (const line of running) io.out(line);
   for (const line of waiting) io.out(line);
-  if (ready.length) {
+  const releaseCommand = `bun --no-env-file ${import.meta.path} batch release --repo ${slug}`;
+  // the owner's word «release» — the same command with live executors: they go on, their PRs wait for the release
+  // (question 2 of epic #645)
+  const now = settled ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
+  if (releasing !== null) {
+    io.out(
+      `Next: the release of ${batch} is open — PR #${releasing} https://github.com/${slug}/pull/${releasing}: no new executors till its merge, ` +
+        `the live executors' PRs into ${batch} wait for it (pr premerge refuses the merge); its steps — ${releaseCommand} prints them; ` +
+        `after each executor's answer — task queue again; ${SESSION_ARCHIVE}.`,
+    );
+  } else if (ready.length) {
     io.out(
       `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
-        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in; ${SESSION_ARCHIVE}.`,
+        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in; ${SESSION_ARCHIVE}${now}.`,
     );
-  } else if (running.length) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again; ${SESSION_ARCHIVE}.`);
-  else {
+  } else if (running.length > settled) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again; ${SESSION_ARCHIVE}${now}.`);
+  else if (settled) {
+    io.out(
+      `Next: the batch ${batch} is complete — nothing ready, every task in work is merged into it: its release — ${releaseCommand}, ` +
+        `once no executor of this session is still at work; ${SESSION_ARCHIVE}.`,
+    );
+  } else {
     io.out(
       `Queue is empty: nothing ready, nothing ${q(N.status.inProgress)}; ${SESSION_ARCHIVE}. ` +
         "Then the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.",
     );
   }
+  return 0;
+}
+
+/**
+ * The tasks merged into a batch branch (#649): each merged PR into it with its tasks — the task branch's number and
+ * «Closes #N» of its body (GitHub links a PR to a task only by a merge into the default branch) — and the task branch's
+ * type; a PR without a task — none. By the PR number.
+ */
+function batchTasks(prs: Recent, batch: string): { pr: number; tasks: number[]; type: string | null }[] {
+  return prs.nodes
+    .filter((p) => p.merged && p.baseRefName === batch)
+    .map((p) => {
+      const branch = taskBranch(p.headRefName ?? "");
+      return { pr: p.number as number, tasks: [...new Set([...(branch ? [branch.issue] : []), ...closingInBody(p.body ?? "")])], type: branch?.type ?? null };
+    })
+    .filter((x) => x.tasks.length)
+    .sort((a, b) => a.pr - b.pr);
+}
+
+/** A batch's PRs (`Q.BatchPrs`): its release PR first, then all the open and merged PRs into the batch branch. */
+function batchPrs(io: Io, slug: string, batch: string): Recent {
+  const [owner, name] = slug.split("/");
+  const r = graphql(io, Q.BatchPrs, { owner, name, batch })?.repository;
+  return { base: r?.defaultBranchRef?.name ?? "main", nodes: [...(r?.release?.nodes ?? []), ...(r?.into?.nodes ?? [])].filter(Boolean) };
+}
+
+/** A release title's conventional-commit type — the batch's heaviest task type. */
+const RELEASE_TYPES = ["feat", "fix", "perf", "refactor", "docs", "test", "build", "ci", "chore"];
+
+/** The spec-diff script next to the skill — laid out like est (`../spec/scripts/spec-diff.ts`). */
+const specDiffScript = (io: Io) => io.env.ELVES_SPEC_DIFF ?? path.resolve(import.meta.dir, "../../spec/scripts/spec-diff.ts");
+
+/**
+ * The batch's spec section for the release PR body: the spec skill's spec-diff next to this script, by the sources at
+ * the two revisions — the merge-base with origin/<base> and the rebased batch — as for a task's PR body. Missing or
+ * failed — a line and null: the PR goes without it.
+ */
+function specDiffOf(io: Io, base: string, head: string): string | null {
+  const script = specDiffScript(io);
+  if (!existsSync(script)) return io.out(`○ spec-diff is not installed (${script}) — the release PR without the spec section`), null;
+  const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "--base", `origin/${base}`, "--head", head], io.cwd);
+  if (r.status !== 0) return io.out(`! spec-diff: ${r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`} — the release PR without the spec section`), null;
+  return r.stdout.trim() || null;
+}
+
+/**
+ * The release of the dispatcher's batch (#649, epic #645): what is merged into the batch branch goes into the default
+ * branch by one PR — one full CI run and one deploy for the batch. The batch — the session's (its marker, `batchOf`) or
+ * the one named. Its release PR open — its steps again; merged — the closing steps. Otherwise: the tasks merged into
+ * the batch (`batchTasks`; none — a refusal), the batch branch rebased onto a fresh origin/<base> in a temporary
+ * worktree and pushed with `--force-with-lease` (on it already — no rebase; a conflict — a `!` line, code 1, the branch
+ * unchanged), the PR into the default branch: the title — a conventional commit by the heaviest task type, the body —
+ * the lead, the batch's spec-diff (`specDiffOf`) and «Closes #N» of each task: the merge closes them, and `task close`
+ * finds the release PR linked. The live executors' open PRs into the batch aren't in it (question 2 of epic #645 — they
+ * aren't stopped): `○` lines; their `pr premerge` holds the merge till the release, then moves them on (`batchBase`).
+ */
+export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
+  const batch = named ?? batchOf(io, slug);
+  if (!batch) throw new GhError(`no batch branch of ${slug} in this session — a batch project's task queue starts it; or name it: batch release batch/<YYYY-MM-DD>-<k>`);
+  if (!isBatchBranch(batch)) throw new GhError(`«${batch}» is not a batch branch — batch/<YYYY-MM-DD>-<k>`);
+  if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`the release runs from a checkout of ${slug}: the current directory is not one`);
+  const prs = batchPrs(io, slug, batch);
+  const base = prs.base;
+  const link = (n: number) => `#${n} https://github.com/${slug}/pull/${n}`;
+  const script = `bun --no-env-file ${import.meta.path}`;
+  const closing = (pr: number, tasks: number[]) =>
+    `where the merge deploys — bash ${waitCi()} merged ${pr} as a background command; after it — task close of each task of the batch, GitHub closed them by the release's «Closes»: ` +
+    `${tasks.map((n) => `${script} task close ${n}`).join("; ")} — the batch branch ${batch} goes with them (while a live executor's PR is into it — kept, the dispatcher's task queue deletes it later)`;
+  const steps = (pr: number, tasks: number[]) =>
+    `Next: the release PR ${link(pr)} — its checks: bash ${waitCi()} pr ${pr} as a background command; PASS — ${script} pr premerge ${pr}, code 0 — gh pr merge ${pr} --rebase as a separate call. ` +
+    `After the merge: the dispatcher goes on — task queue at once: it starts the next batch from the merged ${base}, and the live executors' PRs go into it (their pr premerge moves them); ` +
+    `it stops — no queue: they go into ${base} with the full CI. Then ${closing(pr, tasks)}.`;
+  const release = releasePrOf(prs, batch);
+  if (release) {
+    const tasks = closingInBody(release.body ?? "");
+    if (release.merged) {
+      io.out(`○ ${batch} is released by PR ${link(release.number)}`);
+      io.out(`Next: ${closing(release.number, tasks)}.`);
+    } else {
+      io.out(`= the release PR ${link(release.number)} of ${batch} is open`);
+      io.out(steps(release.number, tasks));
+    }
+    return 0;
+  }
+  const merged = batchTasks(prs, batch);
+  if (!merged.length) throw new GhError(`nothing is merged into ${batch} — nothing to release`);
+  const tasks = [...new Set(merged.flatMap((m) => m.tasks))].sort((a, b) => a - b);
+  for (const p of openInto(prs, batch)) {
+    const branch = taskBranch(p.headRefName ?? "");
+    const of = [...new Set([...(branch ? [branch.issue] : []), ...closingInBody(p.body ?? "")])];
+    io.out(`○ PR #${p.number}${of.length ? ` (${of.map((n) => `#${n}`).join(", ")})` : ""} into ${batch} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or ${base}`);
+  }
+
+  const run = io.run ?? realRun;
+  const git = (cwd: string | undefined, ...args: string[]) => run("git", args, cwd);
+  const why = (x: RunResult) => x.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${x.status}`;
+  const fetched = git(io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
+  if (fetched.status !== 0) throw new GhError(`git fetch origin ${base} ${batch}: ${why(fetched)}`);
+  const sha = (cwd: string | undefined, ref: string) => git(cwd, "rev-parse", "--verify", `${ref}^{commit}`).stdout.trim();
+  const old = sha(io.cwd, `refs/remotes/origin/${batch}`);
+  const onto = sha(io.cwd, `refs/remotes/origin/${base}`);
+  let head = old;
+  if (git(io.cwd, "merge-base", "--is-ancestor", onto, old).status === 0) io.out(`= ${batch} is on origin/${base} (${onto.slice(0, 7)}) — no rebase`);
+  else {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "elves-release-"));
+    try {
+      const add = git(io.cwd, "worktree", "add", "-q", "--detach", dir, old);
+      if (add.status !== 0) throw new GhError(`git worktree add: ${why(add)}`);
+      // the commits keep their authors; the committer — the machine's git identity, none (CI) — the flow's
+      const who = git(dir, "config", "user.email").stdout.trim() ? [] : ["-c", "user.name=elves", "-c", "user.email=elves@localhost"];
+      const rebased = git(dir, ...who, "rebase", "-q", onto);
+      if (rebased.status !== 0) {
+        const files = git(dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
+        git(dir, "rebase", "--abort");
+        io.out(
+          `! ${batch} doesn't rebase onto origin/${base}: ${files.length ? `a conflict — ${files.join(", ")}` : why(rebased)} — the branch is unchanged, no release PR. ` +
+            `Rebase it by hand in the checkout: git switch --detach origin/${batch}, git rebase origin/${base}, resolve, git push --force-with-lease origin HEAD:${batch}; then batch release again`,
+        );
+        return 1;
+      }
+      head = sha(dir, "HEAD");
+    } finally {
+      git(io.cwd, "worktree", "remove", "--force", dir);
+      rmSync(dir, { recursive: true, force: true });
+      git(io.cwd, "worktree", "prune");
+    }
+    const pushed = git(io.cwd, "push", "-q", `--force-with-lease=refs/heads/${batch}:${old}`, "origin", `${head}:refs/heads/${batch}`);
+    if (pushed.status !== 0) throw new GhError(`git push --force-with-lease origin ${batch}: ${why(pushed)}`);
+    io.out(`+ ${batch} rebased onto origin/${base} (${onto.slice(0, 7)}): ${old.slice(0, 7)} → ${head.slice(0, 7)}, pushed`);
+  }
+
+  const spec = specDiffOf(io, base, head);
+  const types = merged.map((m) => m.type);
+  const type = RELEASE_TYPES.find((t) => types.includes(t)) ?? "chore";
+  const title = `${type}: ${locale.fill(N.release.title, { batch, tasks: tasks.map((n) => `#${n}`).join(", ") })}`;
+  const lead = locale.fill(N.release.lead, { batch, prs: merged.map((m) => `#${m.pr} (${m.tasks.map((n) => `#${n}`).join(", ")})`).join(", ") });
+  const body = `${[lead, ...(spec ? [spec] : []), tasks.map((n) => `Closes #${n}`).join("\n")].join("\n\n")}\n`;
+  const created = rest(io, `repos/${slug}/pulls`, { method: "POST", payload: { title, head: batch, base, body } });
+  io.out(`+ the release PR ${link(created.number)}: ${title}`);
+  io.out(steps(created.number, tasks));
   return 0;
 }
 
@@ -3483,7 +3711,9 @@ function refreshReported(epic: TaskText, number: number): boolean {
  * and the subagent was left without a directory. Close names the three lines, one of which ends the session's answer,
  * and archiving the session in auto mode — except a session with questions for the owner. A task merged only into a
  * batch branch (#648, question 1 of epic #645) — refused before any change: it stays In progress till the release, and
- * the generic refusal would send its executor to close the issue by hand as a task without a PR.
+ * the generic refusal would send its executor to close the issue by hand as a task without a PR. After the release
+ * (#649) the release PR is the task's merged PR — `Closes #N` of its body links it: the branches are its head, the batch
+ * branch, — kept while a live executor's PR is into it — and the task's own PR into the batch.
  */
 export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boolean }): number {
   const ctx = taskContext(io, slug);
@@ -3562,8 +3792,23 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
     if (o.git) {
       // a follow-up fix to a merged PR is the same task, and GitHub doesn't link it (Refs, not Closes): the branches are
       // those of every merged PR of the task — the linked ones and the ones found by the branch or «Closes #N»
-      const more = (found ?? unlinkedPrs(io, slug, number)).prs.filter((p) => p.merged && !merged.some((x) => x.number === p.number));
-      cleanupBranches(io, number, [...merged, ...more]);
+      const all = found ?? unlinkedPrs(io, slug, number);
+      const more = all.prs.filter((p) => p.merged && !merged.some((x) => x.number === p.number));
+      // a released batch (#649): the release PR's head is the batch branch, it goes; so does the task's PR merged into
+      // it — its branch, the checkout moving to the default branch. The batch's PRs — all of them, not the recent ones
+      const shipped = [...merged, ...more];
+      const batches = new Map([...new Set(shipped.map((p) => p.head).filter(isBatchBranch))].map((b) => [b, batchPrs(io, slug, b)]));
+      const ofTask = [...batches].flatMap(([b, prs]) =>
+        prs.nodes.filter((p) => p.merged && p.baseRefName === b && prOfTask(p, number)).map((p) => ({ number: p.number as number, head: p.headRefName as string, base: all.base })),
+      );
+      // …but not while a live executor's PR is into it: deleting a PR's base closes it or moves it into the default
+      // branch past the dispatcher
+      const live = (head: string) => (batches.has(head) ? openInto(batches.get(head)!, head) : []);
+      for (const b of batches.keys()) {
+        if (!live(b).length) continue;
+        io.out(`○ batch branch ${b} kept: open PR ${live(b).map((p) => `#${p.number}`).join(", ")} into it — its executor moves it to the next batch or ${all.base} first (pr premerge says where); then the dispatcher's task queue deletes the branch`);
+      }
+      cleanupBranches(io, number, [...shipped, ...ofTask].filter((p) => !live(p.head).length));
     }
   }
   // three lines — in the project language: dashboard parses them
@@ -4252,6 +4497,44 @@ function bugNames(base: string, title: string, check: string): boolean {
 }
 
 /**
+ * A PR into a batch branch before its merge (#649; question 2 of epic #645 — the live executors aren't stopped by a
+ * release). The batch's release PR is open — code 1 and the wait for its close: a merge into the batch now would change
+ * the release its CI checked. Merged — code 1, the PR moves: into the dispatcher's next batch (the marker's, another
+ * one than the base: the dispatcher went on — its queue started it), without one — into the default branch with the
+ * full CI, the task leaving the batch; then a rebase onto it — the batch's commits are there already, rebased, with
+ * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null.
+ */
+function batchBase(io: Io, slug: string, number: number, pr: Any): number | null {
+  const base: string = pr.base.ref;
+  const main: string = pr.base.repo?.default_branch ?? "main";
+  const owner = slug.split("/")[0]!;
+  const rows: Any[] = restCall(io, ["api", `repos/${slug}/pulls?state=all&head=${encodeURIComponent(`${owner}:${base}`)}&per_page=10`]) ?? [];
+  const release = rows.find((p) => p.base?.ref === main && (p.state === "open" || p.merged_at));
+  if (!release) return null;
+  if (release.state === "open") {
+    io.out(
+      `❌ don't merge: ${base} is being released — PR #${release.number} into ${main}: a merge into the batch now would change the release its CI checked. ` +
+        `Wait for the release to close — bash ${waitCi()} issue ${release.number} (a subagent — a regular call with --timeout 540, again on TIMEOUT; a session — a background command), ` +
+        `then pr premerge ${number} again`,
+    );
+    return 1;
+  }
+  const next = batchOf(io, slug);
+  const target = next && next !== base ? next : main;
+  const tasks = closingInBody(pr.body ?? "");
+  const after =
+    target === main
+      ? `; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}) and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
+      : `; in the batch ${target} the task waits for its release, as before: no deploy wait and no task close`;
+  io.out(
+    `❌ don't merge: ${base} is released by PR #${release.number} — the PR moves to ${target}: gh pr edit ${number} --base ${target}, ` +
+      `then git fetch origin ${target}, git rebase origin/${target} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ` +
+      `ci-wait, pr premerge ${number} again${after}`,
+  );
+  return 1;
+}
+
+/**
  * Before merging a green PR: main moved after its CI — the PR head merged with a fresh main in a temporary worktree and
  * the fast checks (`typecheck`, then `test:spec`, as in CI); didn't move — the CI checked exactly this merge. GitHub
  * doesn't keep what the CI checked (the merge-ref is rebuilt), so by time: the head's earliest check suite against the
@@ -4265,6 +4548,10 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   const head: string = pr.head.sha;
   const base: string = pr.base.ref;
   const closes = closingInBody(pr.body ?? "");
+  if (isBatchBranch(base)) {
+    const code = batchBase(io, slug, number, pr);
+    if (code !== null) return code;
+  }
 
   /**
    * A red main: don't merge and don't fix it in your PR — one bug for everyone, the others wait for it to close.
@@ -4350,6 +4637,18 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   // already passed (#505), while a reachable commit (the head branch, refs/pull/<N>/merge) it gives by SHA
   const got = git(io.cwd, "fetch", "-q", "origin", head);
   if (got.status !== 0) throw new GhError(`PR head ${head} not fetched from origin (${got.stderr.trim().split("\n").at(-1)}) — was the PR updated? ci-wait again`);
+  // commits of the PR already in the base by their changes (#649): a live executor's PR moved off a released batch —
+  // by GitHub too, deleting the merged release's head in a repository that deletes head branches — carries the batch's
+  // commits from before the release's rebase, and GitHub's rebase merge would replay them
+  const cherry = git(io.cwd, "cherry", `origin/${base}`, head);
+  const applied = cherry.status === 0 ? cherry.stdout.split("\n").filter((l) => l.startsWith("-")).length : 0;
+  if (applied) {
+    io.out(
+      `❌ don't merge: ${applied} ${applied > 1 ? "commits" : "commit"} of the PR ${applied > 1 ? "are" : "is"} in origin/${base} already by the changes (a released batch's, a merged PR's) — ` +
+        `GitHub's rebase merge would replay them: git rebase origin/${base} (it drops them), push --force-with-lease, ci-wait, pr premerge ${number} again`,
+    );
+    return 1;
+  }
 
   const dirs: string[] = [];
   /** A temporary worktree at origin/<base>: always removed. */
@@ -4579,7 +4878,9 @@ worktree, the task is = in the queue. A batch project ("batch": true in .agents/
 dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), the next ones take the same (○), it is
 kept in the marker; the assignment — the task branch from it and the PR into it, no deploy and no task close, the task
 closes with the batch's release; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
-cloud executor isn't in the batch — its PR goes into the default branch.
+cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task in work merged
+into the batch — Next: names batch release; its release PR open — ready tasks are held (○), no new executors; released
+— a new batch, a released batch branch without an open PR into it is deleted (+).
 
 Examples:
   github task queue --epic 40
@@ -4593,13 +4894,27 @@ After the PR merge and the deploy (or a close without a PR) in one call: the act
 epic and the milestone, the task's stacks taken down with their volumes (task-env down), the merged branches removed
 (--no-git — without git). The epic has other open tasks and no report of the refresh subagent on it («Refresh after
 #N, result: …») — a refusal before any changes; so is a task merged only into a batch branch (batch/*): it closes with
-the batch's release. A task of the scripts' own repository: before the actual the scripts'
+the batch's release — then the release PR is its merged PR, and the batch branch goes too, kept while a live executor's
+PR is into it. A task of the scripts' own repository: before the actual the scripts'
 clone catches up with origin (pull --ff-only; only on the default branch, without uncommitted changes). Docker and gh
 don't work in an agent's sandbox — run it outside.
 
 Examples:
   github task close 42
   github task close 42 --no-git`,
+  "batch release": `github batch release [<batch branch>] [--repo owner/repo]
+
+The dispatcher's batch (epic #645) into the default branch by one PR — one full CI run and one deploy: the batch branch
+(the session's, from its marker, or the one named) rebased onto a fresh origin/<base> and pushed (--force-with-lease),
+the PR into the default branch — a conventional-commit title, the body: spec-diff of the batch and «Closes #N» of each
+task merged into it; Next: — ci-wait, pr premerge, the merge, the deploy wait, task close of each task. The live
+executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
+the next batch or the default branch. The release PR open — its steps again; merged — the closing steps. Nothing merged
+— a refusal; a rebase conflict — a ! line, code 1, the branch unchanged. From a checkout of the repository.
+
+Examples:
+  github batch release
+  github batch release batch/2026-10-22-1`,
   "pr labels": `github pr labels <N> [--repo owner/repo]
 
 Decision labels from the PR diff for the tasks from «Closes #N» and their epics; doesn't remove earlier ones. A decision
@@ -4614,7 +4929,10 @@ Examples:
 Before gh pr merge, after ci-wait PASS: the default branch moved after the PR's CI — the PR head merged with it in a
 temporary worktree and ${PREMERGE_SCRIPTS.join(", then ")} from package.json (those that exist, as in CI). Code 0 —
 merge, 1 — don't merge (red, conflict), 2 — couldn't check, 3 — main is red by itself (the same check on bare main, a
-red check on its last commit): don't merge, one bug for it — wait for it to close.
+red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch: the
+batch's release PR open — code 1 and the wait for its close; merged — code 1 and the move: into the dispatcher's next
+batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the base by their
+changes (git cherry) — code 1 and a rebase.
 
 Examples:
   github pr premerge 57`,
@@ -4736,6 +5054,11 @@ export function main(argv: string[], io: Io): number {
       const m = /^#?(\d+)$/.exec((positionals[0] ?? "").trim());
       if (!m) throw new GhError(`pr ${cmd}: expected a PR number, not «${positionals[0] ?? ""}»`);
       return (cmd === "premerge" ? cmdPrPremerge : cmdPrLabels)(io, repoOf(values.repo), Number(m[1]));
+    }
+    if (group === "batch") {
+      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
+      if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
+      return cmdBatchRelease(io, repoOf(values.repo), positionals[0]);
     }
     if (group === "task") {
       const { values, positionals } = parseArgs({
