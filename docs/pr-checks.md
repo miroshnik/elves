@@ -45,7 +45,12 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   set, the preview and the deploy, by the rules above, once for the batch;
   after the deploy — `github task close` of each task of the batch. While the
   release PR is open, a PR into the batch isn't merged: `github pr premerge`
-  holds it, then moves it into the next batch or `main`.
+  holds it, then moves it into the next batch or `main`. A red release isn't
+  reverted: `github batch release` names the guilty task (the labels of the
+  failed tests' decisions, otherwise a bisect by the task boundaries on the
+  machine), its executor fixes it by a PR into the batch, then the full set
+  runs again on the same release PR (`skills/github/reference.md`, "batch
+  release").
 - **Deploy — by the commit status, not by polling the site.** Whether the
   merge rolled out is told by the host's status on the merge SHA (`ci-wait
   merged <N>`), not by the page: frequent requests to the live site turn on
