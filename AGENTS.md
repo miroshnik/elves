@@ -15,7 +15,7 @@ repositories, no colleagues or clients — in files, git history or issues;
 examples are made up. **A skill is `SKILL.md` + `scripts/`** in TypeScript
 under Bun (Agent Skills; README, "Repository layout"); repository specifics
 — local configuration. **Budgets** (standard `canon-size`): this file ≤
-3,000 words, a `SKILL.md` ≤ 2,500, a skill description ≤ 1,024 characters.
+3,000 words, `SKILL.md` ≤ 2,500, a description ≤ 1,024 characters.
 Here — what always applies and where to go; reference — a skill's
 `reference.md` or `--help`, `docs/`.
 
@@ -31,7 +31,7 @@ a release is the owner's step (`elves release`), I cut one only when asked.
   briefly what changed (it lists the skipped releases) and re-read what was
   updated: it applies, not what loaded at the start.
 - **The project is behind** (or git ignores flow files) — `update` in the
-  task's branch: the package version, a few lines.
+  task's branch: the package version.
 - **The project keeps a copy of the flow** — the move is a task of its own,
   one per project (`check` prints its `github task new`): I recommend it and
   ask whether to queue it.
@@ -125,7 +125,8 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   owner's number replaces either; failed — a task comment, no restart; an
   executor session whose task closed — the dispatcher archives it in an auto
   project, not one still working in the background or awaiting the owner's
-  answer; outside auto the owner closes it.
+  answer; outside auto the owner closes it. A batch project — into `main` by
+  `github batch release`.
 - **The session is named `#<number> <task title>`** (without a task — by
   meaning, no number) as soon as the task is clear (no tool — ask the user):
   `est` links the session to the task by it.
@@ -167,8 +168,8 @@ and worktrees") — otherwise there is no actual.
 ### Epic refresh on task close
 
 Once a task is merged, **a subagent with a fresh context** brings the open
-tasks of its epic in line with what shipped — not the session at peak
-context: `github task actualize <N>` does the mechanics and prints its prompt,
+tasks of its epic in line with what shipped: `github task actualize <N>`
+does the mechanics and prints its prompt,
 in the same turn as `ci-wait merged <PR>` in the background; after both —
 `github task close`. The last line of the answer ("Language"): merged,
 deployed, branch removed, epic refreshed, no questions — "all done, can be
@@ -200,8 +201,8 @@ it.
   `main` red by itself (exit code 3) — no merge and no fix in the PR: one bug
   for it, I wait for it to close.
 - A merge that deploys — I wait for the deploy on the merge SHA (`ci-wait`)
-  **before `github task close`**. Others' branches, stacks and unmerged work
-  I don't touch.
+  **before `github task close`**, a batch's task — after its release.
+  Others' branches, stacks and unmerged work I don't touch.
 - Mechanics — the `github` skill, "Git, PRs and merging — mechanics";
   waiting for checks and deploys — `docs/pr-checks.md`.
 
@@ -283,8 +284,8 @@ skill (`canon.md`, `checks.md`).
   skill) at `<service>.<N>.<project>.localhost`, not on a host port; others'
   stacks and busy ports I don't touch — `docs/parallel-checkouts.md`.
 - **A subagent gets a unit of ~50 turns** (one decision's folder, one file,
-  one spec), not a 200-turn zone: with the same ≈ 100k-token preamble its
-  price is quadratic in turns. The assignment has the task
+  one spec), not a 200-turn zone: its price is quadratic in turns. The
+  assignment has the task
   number after the word for "task" or at the start, the epic after the word
   for "epic" ("Language") — so `est` links its work. **Fewer turns:** a file
   in one full read, independent tool calls in one turn.

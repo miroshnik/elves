@@ -693,6 +693,24 @@ rebase onto `origin/<base>`, edit, `push --force-with-lease`, `ci-wait` again;
 dependency install failed) —
 don't merge either, investigate; `3` — **`main` is red, not this PR**.
 
+A PR into a batch branch (#649) — first the batch's release PR (REST,
+`pulls?head=<owner>:<batch>`): open — code `1` and the wait for its close
+(`wait-ci.sh issue <R>`: a subagent — a regular call with `--timeout 540`, a
+session — a background command), then `premerge` again: a merge into the batch
+now would change what the release's CI checked; merged — code `1` and the
+move: `gh pr edit <N> --base <T>`, a rebase onto `origin/<T>` (the batch's
+commits are there already, rebased, with other SHAs — GitHub's rebase merge
+would replay them), `push --force-with-lease`, `ci-wait`, `premerge` again.
+`T` — the dispatcher's next batch (its session's marker: a subagent shares
+the id), without one — the default branch: the task leaves the batch — the
+full CI, after the merge the deploy wait and `task close`. A release closed
+without a merge, or none — the check goes on as usual. On the merge path any
+PR whose commits are in `origin/<base>` already by their changes (`git cherry`
+`-` lines) — code `1`, the rebase onto it drops them: a PR moved off a released
+batch carries the batch's commits from before the release's rebase — GitHub
+moves such PRs into the default branch itself when it deletes the merged
+release's head (a repository that deletes head branches on merge).
+
 ### Red main — code 3
 
 The merge is red (#282) — the failed check is also run on bare
@@ -941,6 +959,58 @@ closing, and a merge into the batch doesn't close it (#648); its brief and
 `Next:` say so. A session outside the dispatcher (one task, a hotfix) — into
 the default branch, as before.
 
+The batch's release (#649, "batch release" below): nothing ready and every
+task in work merged into the batch — `Next:` names `batch release`; a task
+merged into the batch without an open PR of it isn't a live executor. With
+live executors — the owner's word «release», the same command; `Next:` names
+it once something is merged. The release PR open — ready tasks are held (`○ …
+ready, held`), no new executors till its merge: a merge into the batch now
+would change what the release's CI checked. Released — its release PR merged,
+the branch maybe still on origin — the next batch starts only with a ready
+task to hand out (`○ no new batch branch` otherwise): a dispatcher that is
+done leaves no empty batch branch on origin, and the marker drops the batch
+line. A released batch branch still on origin without an open PR into it is
+deleted (`+`), with one — kept (`○`) till its executor moves the PR (`pr
+premerge`); a new batch's `k` skips the names of the recent PRs' branches too:
+a released name taken again would read as released at once.
+
+### batch release
+
+The release of the dispatcher's batch (#649) — one full CI run and one deploy
+for the batch. From the dispatcher's checkout of the repository, outside the
+sandbox: `batch release` (the session's batch, from its marker) or `batch
+release batch/<YYYY-MM-DD>-<k>`. The tasks — every PR merged into the batch
+branch (a query by the base, not the recent PRs: a task missed is one the
+release doesn't close): the task branch's number and `Closes #N` of its body;
+nothing merged — a refusal. The batch branch is rebased onto a fresh
+`origin/<base>` in a temporary worktree (always removed) and pushed
+`--force-with-lease` against the SHA read: the release's CI checks what lands
+in `main` after the hotfixes that went past the batch; on it already — no
+rebase (`=`); a conflict — a `!` line with the files, the branch unchanged, no
+PR, code 1: rebase it by hand in the checkout, then `batch release` again (a
+red release — the guilty task fixes it in the batch, #650). The committer —
+the machine's git identity, none (CI) — `elves`. The PR into the default
+branch: the title — a conventional commit by the heaviest task type (`feat`,
+`fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`) and
+«release of `<batch>` — #N, …» in the project language (`release` of the
+dictionary); the body — the lead with the tasks' PRs, the batch's `spec-diff`
+(the spec skill's script next to this one, `--base origin/<base> --head <the
+rebased batch>`; not installed or failed — a line, the body without it) and
+`Closes #N` of each task: the merge closes them, and `task close` finds the
+release PR linked. Open PRs into the batch — the live executors' — `○` lines:
+not in the release, the executors go on (question 2 of epic #645), their `pr
+premerge` holds the merge till the release, then moves the PR. The release PR
+already open — `=` and its steps again, no second PR; merged — the closing
+steps. `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
+`gh pr merge <R> --rebase`; after the merge — a dispatcher that goes on runs
+`task queue` at once (the next batch from the merged default branch, the live
+executors' PRs go into it), one that stops doesn't (they go into the default
+branch); then `wait-ci.sh merged <R>` where the merge deploys and `task close
+N` of each task of the batch — GitHub closed them by `Closes`, close writes
+the actual and Done and removes the branches (`task close` below). The
+release's CI and deploy waits are the session's that ran it, not the batch
+tasks' (question 5 of the epic).
+
 ### task drop
 
 Closes as not planned (with `--duplicate-of` — as a
@@ -1038,7 +1108,13 @@ merged PR is the same task, and GitHub doesn't link it — and the checkout's
 task branch; the checkout moves off a removed branch to `origin/<base>`
 detached, the local and remote branches are deleted; a branch without a
 merged PR is merged only by `git cherry`; not merged or someone else's — an
-`○` line, nothing is touched. The directory
+`○` line, nothing is touched. After a batch's release (#649) the release PR
+is the task's merged PR — `Closes #N` of its body links it: its head, the
+batch branch, goes — while a live executor's PR is into it, kept, an `○` line
+(deleting a PR's base closes it or moves it into the default branch past the
+dispatcher; the queue deletes the branch later), — and so does the task's PR
+into the batch (all the batch's PRs, by a query by the base), the checkout
+moving to the default branch. The directory
 isn't a checkout of the repository — neither stacks nor branches are touched
 (an `○` line: both are named by the checkout's `origin`); a checkout — the
 `owner/repo` of its `origin` equals the task's repository, case aside, not a

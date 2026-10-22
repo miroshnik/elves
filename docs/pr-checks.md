@@ -37,6 +37,15 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   production smoke test is a check in the project's CI, not a manual agent
   step. Failed — logs and a fix at once: it blocks the report and closing the
   task.
+- **A dispatcher's batch** (`"batch": true` in `.agents/elves.json`, epic
+  #645): a task's PR goes into the batch branch — the light set
+  (`skills/spec/ci.md`, "Batches — the light set on a PR into a batch
+  branch"), merged on its green, no deploy wait; the
+  batch reaches `main` by one release PR (`github batch release`) — the full
+  set, the preview and the deploy, by the rules above, once for the batch;
+  after the deploy — `github task close` of each task of the batch. While the
+  release PR is open, a PR into the batch isn't merged: `github pr premerge`
+  holds it, then moves it into the next batch or `main`.
 - **Deploy — by the commit status, not by polling the site.** Whether the
   merge rolled out is told by the host's status on the merge SHA (`ci-wait
   merged <N>`), not by the page: frequent requests to the live site turn on
