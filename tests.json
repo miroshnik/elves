@@ -2259,6 +2259,13 @@
   "name": "PR, перешедший из выпущенной пачки с её коммитами, не вливается — ребейз на базу их уберёт"
  },
  {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "pr premerge при красном открытом выпуске пропускает в пачку PR виновной задачи, а PR живых исполнителей держит"
+ },
+ {
   "path": "tests/capabilities/github-project/github-project.test.ts",
   "describes": [
    "check показывает каждое расхождение с каноном отдельным пунктом"
@@ -4418,6 +4425,41 @@
    "Задачи — на языке проекта из .agents/elves.json чекаута"
   ],
   "name": "эпик без --body — каркас только с разделом вопросов: эпик без кода, сценариев у него нет"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "Next: очереди и шаги batch release на красном выпуске называют виновную задачу и её починку"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "без однозначной метки бисект по границам задач называет первую красную"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "задание починки называет PR выпуска и упавшие проверки, ветка — от ветки пачки, а не прежняя ветка задачи"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "починка — PR виновной задачи в ветку пачки с Refs #N, затем полный прогон выпуска заново"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "упавший тест решения с меткой одной задачи пачки называет её виновной"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -12235,6 +12277,20 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название queue.fixLead скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.fixPrevious скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название queue.found скрипты читают из словаря"
  },
  {
@@ -12320,6 +12376,13 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.sessionEnd скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionFixLead скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -17852,6 +17915,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "docs/pr-checks.md: skills/github/SKILL.md, «Git, PRs and merging — mechanics» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/pr-checks.md: skills/github/reference.md, «batch release» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
