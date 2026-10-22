@@ -36,7 +36,7 @@
 
 ## Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 149 тестов</summary>
+<details><summary>✅ 153 теста</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -53,6 +53,7 @@
 - ✅ claude/CLAUDE.md: skills/task-env/SKILL.md, «Docker and the sandbox» — есть такой раздел
 - ✅ docs/ci-concurrency.md: AGENTS.md, «CI: parallel tasks» — есть такой раздел
 - ✅ docs/ci-concurrency.md: AGENTS.md, «Git, PRs and merging» — есть такой раздел
+- ✅ docs/ci-concurrency.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ docs/cloud-sessions.md: AGENTS.md, «Session and branch — one task» — есть такой раздел
 - ✅ docs/cloud-sessions.md: README.md, «Installation» — есть такой раздел
 - ✅ docs/cloud-sessions.md: docs/cloud-sessions.md, «The brief» — есть такой раздел
@@ -76,6 +77,7 @@
 - ✅ docs/testing.md: AGENTS.md, «This file and skills» — есть такой раздел
 - ✅ docs/testing.md: docs/testing.md, «Framework: three questions» — есть такой раздел
 - ✅ docs/testing.md: docs/testing.md, «UI in the agent's browser» — есть такой раздел
+- ✅ docs/testing.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ skills/dashboard/SKILL.md: skills/dashboard/SKILL.md, «Pitfalls» — есть такой раздел
 - ✅ skills/dashboard/SKILL.md: skills/task-env/SKILL.md, «Local ports and task addresses» — есть такой раздел
 - ✅ skills/dashboard/scripts/sessions.ts: AGENTS.md, «Epic refresh on task close» — есть такой раздел
@@ -136,6 +138,7 @@
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «spec-doc» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «spec-exceptions» — есть такой раздел
+- ✅ skills/spec/SKILL.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/ci.md, «Shards by durations» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «Limitations to know about» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «Report formats» — есть такой раздел
@@ -152,6 +155,7 @@
 - ✅ skills/spec/canon.md: AGENTS.md, «Tests and code» — есть такой раздел
 - ✅ skills/spec/checks.md: skills/spec/SKILL.md, «Checks» — есть такой раздел
 - ✅ skills/spec/checks.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел
+- ✅ skills/spec/ci.md: docs/testing.md, «Run and result» — есть такой раздел
 - ✅ skills/spec/ci.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел
 - ✅ skills/spec/ci.md: skills/spec/ci.md, «Shards by durations» — есть такой раздел
 - ✅ skills/spec/migration.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел

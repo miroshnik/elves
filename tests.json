@@ -17270,6 +17270,13 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
+  "name": "docs/ci-concurrency.md: skills/spec/ci.md, «Batches» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
   "name": "docs/cloud-sessions.md: AGENTS.md, «Session and branch — one task» — есть такой раздел"
  },
  {
@@ -17425,6 +17432,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "docs/testing.md: docs/testing.md, «UI in the agent's browser» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/testing.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
@@ -17851,6 +17865,13 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
+  "name": "skills/spec/SKILL.md: skills/spec/ci.md, «Batches» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
   "name": "skills/spec/SKILL.md: skills/spec/ci.md, «Shards by durations» — есть такой раздел"
  },
  {
@@ -17957,6 +17978,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "skills/spec/checks.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "skills/spec/ci.md: docs/testing.md, «Run and result» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
