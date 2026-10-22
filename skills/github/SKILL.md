@@ -78,7 +78,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | Moment | Action |
 |---|---|
 | New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new --branch-type <type>` — it sets the estimate itself (an epic isn't estimated: its estimate is the sum of its subtasks, `reference.md`) |
-| Took into work · reopened | `task show N` — the task, its epic's open questions and tasks, the PR, in one call; a task without an estimate (created in the GitHub UI) — first `est estimate N --type <branch type> --write`; `task status N "In progress" --branch <type>/N-<slug>` — a separate call, no pipeline (`tail` hides the refusal code): it renames the worktree tool's branch into the task branch |
+| Took into work · reopened | `task show N` — the task, its epic's questions and tasks, the PR, comments (`?` — check), in one call; a task without an estimate (created in the GitHub UI) — first `est estimate N --type <branch type> --write`; `task status N "In progress" --branch <type>/N-<slug>` — a separate call, no pipeline (`tail` hides the refusal code): it renames the worktree tool's branch into the task branch |
 | An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
 | PR merged | in one turn — `task actualize N` and in the background `wait-ci.sh merged <PR>` (it takes the merge SHA itself); a refresh is needed — next turn, in the background, a subagent with the printed two-line prompt; after both — `task close N` (exit code 0 from the wait — right away, don't read the output) |
 | Task closed without a PR | `task actualize N`, the subagent; then `task close N` |

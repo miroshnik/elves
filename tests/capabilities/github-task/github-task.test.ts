@@ -1211,10 +1211,113 @@ describe("task show печатает задачу одним выводом", ()
       "Blocked by: #49 «Стандарт · облачная сессия — скрипты скиллов с Projects v2 выходят с объяснением»",
       "PR #80 open — checks: 2 ✅, 1 ⏳ (e2e), 1 ❌ (lint)",
       'Questions: open 2, 3; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      "Comments: none",
+      "Epic #45 comments: none",
       "",
       ...BODY.trimEnd().split("\n"),
     ]);
     expect(f.mutations).toHaveLength(before);
+  });
+
+  /**
+   * #651: канон велит сверить вопросы с тем, что уже ответено, — «комментарии, код», а `task show` комментариев не
+   * запрашивал: ответ человека комментарием исполнитель не видел и спрашивал заново или отвечал «✅ авто» поверх него.
+   */
+  it("комментарии задачи и эпика — автор, дата и текст полностью", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = "Что сделать.\n";
+    f.comments[47] = [{ body: "Кодировку берём из файла.\r\n\r\nПример — во вложении.", url: "c1", author: "anna", createdAt: "2026-10-19T08:05:41Z" }];
+    f.comments[45] = [{ body: "Сроки — к релизу.", url: "c2" }];
+    const lines = task(f, ["show", "47"]).out.split("\n");
+    expect(lines.slice(lines.indexOf("Questions: none"))).toEqual([
+      "Questions: none",
+      "Comments: 1",
+      "- @anna 2026-10-19 08:05 UTC:",
+      "  Кодировку берём из файла.",
+      "",
+      "  Пример — во вложении.",
+      "Epic #45 comments: 1",
+      "- @miroshnik 2026-10-20 12:00 UTC:",
+      "  Сроки — к релизу.",
+      "",
+      "Что сделать.",
+    ]);
+  });
+
+  it("служебные комментарии флоу — строкой без текста, «Состояние» — полностью", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = "Что сделать.\n";
+    const at = (h: number) => `2026-10-19T${String(h).padStart(2, "0")}:00:00Z`;
+    f.comments[47] = [
+      { body: 'Оценка: 0.5 ч (тип feat, доверие A; прогноз по фактам аналогов). Аналоги (подбор скриптом): #281 (факт 0.33 ч).\n<!-- est {"v": 1, "h": 0.5} -->', url: "c1", createdAt: at(9) },
+      // человек начал словом оценки — маркера est нет: это его текст, а не комментарий флоу
+      { body: "Оценка: по-моему, тут на час.", url: "c2", author: "anna", createdAt: at(10) },
+      { body: "**Состояние:** парсер готов, дальше — вывод.\nВетка feat/47-task.", url: "c3", createdAt: at(11) },
+      { body: "Закрыта по PR #80: GitHub не связал PR с задачей", url: "c4", createdAt: at(12) },
+      { body: 'Факт: 0.41 ч активных в Claude Code (оценка 0.5 ч, ×0.82).\n+ вручную: 0.2 ч\n<!-- fact {"v": 1, "h": 0.41} -->', url: "c5", createdAt: at(13) },
+    ];
+    // отчёт актуализации — на любом языке словаря
+    f.comments[45] = [
+      { body: "Актуализация после #46, скрипт: у #47 снят blocked by на выполненных #46.", url: "c6", createdAt: at(14) },
+      { body: "**Refresh after #46, result:** the block is up to date", url: "c7", createdAt: at(15) },
+    ];
+    const lines = task(f, ["show", "47"]).out.split("\n");
+    expect(lines.slice(lines.indexOf("Comments: 5"), lines.indexOf(""))).toEqual([
+      "Comments: 5",
+      "- @miroshnik 2026-10-19 09:00 UTC — flow: estimate",
+      "- @anna 2026-10-19 10:00 UTC:",
+      "  Оценка: по-моему, тут на час.",
+      "- @miroshnik 2026-10-19 11:00 UTC — State:",
+      "  **Состояние:** парсер готов, дальше — вывод.",
+      "  Ветка feat/47-task.",
+      "- @miroshnik 2026-10-19 12:00 UTC — flow: closed by PR",
+      "- @miroshnik 2026-10-19 13:00 UTC — flow: actual",
+      "Epic #45 comments: 2",
+      "- @miroshnik 2026-10-19 14:00 UTC — flow: epic refresh, the script's fixes",
+      "- @miroshnik 2026-10-19 15:00 UTC — flow: epic refresh report",
+    ]);
+  });
+
+  it("комментарий вида «k. ✅» к открытому вопросу помечен у вопроса строкой «ответ в комментарии»", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = "## Вопросы\n\n1. ✅ Формат? **Ответ:** CSV.\n2. Кодировка?\n3. Разделитель?\n";
+    f.issue(45).body = "## Вопросы\n\n1. Сроки?\n2. Владелец?\n";
+    f.comments[47] = [
+      // вопрос 1 уже отвечен — помечен только открытый 2
+      { body: "1. ✅ CSV\n2. ✅ UTF-8", url: "c1", author: "anna", createdAt: "2026-10-19T08:05:00Z" },
+      // «Состояние» и комментарий флоу — не ответы
+      { body: "Состояние: жду ответа на вопрос 3.", url: "c2" },
+      { body: 'Оценка: 0.5 ч.\n<!-- est {"v": 1} -->', url: "c3" },
+    ];
+    f.comments[45] = [{ body: "2. ✅ я", url: "c4", author: "anna", createdAt: "2026-10-18T10:00:00Z" }];
+    const lines = task(f, ["show", "47"]).out.split("\n");
+    expect(lines.slice(2, 6)).toEqual([
+      "Epic #45 «GitHub · Скилл github: проект и задачи по канону одной командой» — open questions: 2, other open tasks: 0",
+      "- question 1. Сроки?",
+      "- question 2. Владелец?",
+      '  ? 2: answer in a comment of @anna 2026-10-18 10:00 UTC — check it and task answer 45 2 "<answer>"',
+    ]);
+    const questions = lines.findIndex((l) => l.startsWith("Questions:"));
+    expect(lines.slice(questions, questions + 3)).toEqual([
+      'Questions: open 2, 3; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      '? 2: answer in a comment of @anna 2026-10-19 08:05 UTC — check it and task answer 47 2 "<answer>"',
+      "Comments: 3",
+    ]);
+  });
+
+  it("комментарий свободным текстом при открытых вопросах помечен у каждого открытого вопроса: какой из них он отвечает, сверяет агент", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = "## Вопросы\n\n1. Кодировка?\n2. ✅ Формат? **Ответ:** CSV.\n3. Разделитель?\n";
+    f.comments[47] = [
+      { body: "Делай через REST, кэш не нужен.", url: "c1", author: "anna", createdAt: "2026-10-19T08:05:00Z" },
+      { body: "Согласен.", url: "c2", author: "boris", createdAt: "2026-10-19T09:30:00Z" },
+    ];
+    const lines = task(f, ["show", "47"]).out.split("\n");
+    const questions = lines.findIndex((l) => l.startsWith("Questions:"));
+    expect(lines.slice(questions + 1, questions + 3)).toEqual([
+      '? 1: answer in comments of @anna 2026-10-19 08:05 UTC, @boris 2026-10-19 09:30 UTC — check it and task answer 47 1 "<answer>"',
+      '? 3: answer in comments of @anna 2026-10-19 08:05 UTC, @boris 2026-10-19 09:30 UTC — check it and task answer 47 3 "<answer>"',
+    ]);
   });
 
   it("блокер — issue другого репозитория: в «Blocked by» — с именем репозитория, а не номером, похожим на задачу этого", () => {
@@ -1362,12 +1465,37 @@ describe("Облачная сессия: task show, task answer и task new — 
       "Blocked by: #49 «Стандарт · облачная сессия — скрипты скиллов с Projects v2 выходят с объяснением»",
       "PR #80 open — checks: 1 ✅, 1 ⏳ (e2e), 1 ❌ (lint)",
       'Questions: open 2; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      "Comments: none",
+      "Epic #45 comments: none",
       "",
       ...BODY.trimEnd().split("\n"),
     ]);
     expect(f.rest).toEqual([]);
     // эпик — его открытые подзадачи
     expect(task(f, ["show", "45"], REPO, CLOUD).out.split("\n").slice(1, 4)).toEqual(["Эпик · no project in the cloud (docs/cloud-sessions.md)", "Subtasks: open 1 of 3", "- task #47 «GitHub · Задача одной командой — github task»"]);
+  });
+
+  it("task show через REST печатает комментарии задачи и эпика", () => {
+    const f = cloud();
+    f.issue(47).body = "## Вопросы\n\n1. Кодировка?\n";
+    f.comments[47] = [
+      { body: "1. ✅ UTF-8", url: "c1", author: "anna", createdAt: "2026-10-19T08:05:00Z" },
+      { body: 'Оценка: 0.5 ч.\n<!-- est {"v": 1} -->', url: "c2", createdAt: "2026-10-19T09:00:00Z" },
+    ];
+    f.comments[45] = [{ body: "Актуализация после #46, итог: блок актуален", url: "c3", createdAt: "2026-10-19T10:00:00Z" }];
+    const r = task(f, ["show", "47"], REPO, CLOUD);
+    expect(r.err).toBe("");
+    const lines = r.out.split("\n");
+    expect(lines.slice(lines.findIndex((l) => l.startsWith("Questions:")), lines.indexOf(""))).toEqual([
+      'Questions: open 1 — task answer 47 <k> "<answer>" [--auto]',
+      '? 1: answer in a comment of @anna 2026-10-19 08:05 UTC — check it and task answer 47 1 "<answer>"',
+      "Comments: 2",
+      "- @anna 2026-10-19 08:05 UTC:",
+      "  1. ✅ UTF-8",
+      "- @miroshnik 2026-10-19 09:00 UTC — flow: estimate",
+      "Epic #45 comments: 1",
+      "- @miroshnik 2026-10-19 10:00 UTC — flow: epic refresh report",
+    ]);
   });
 
   it("облачная сессия: `task answer` ставит ✅ и ответ через REST, подпись прокси в конце описания в последний вопрос не попадает", () => {
