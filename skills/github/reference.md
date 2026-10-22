@@ -709,11 +709,18 @@ live executor's PR (its task isn't in the release) and any PR while the
 release is green or running — held, as above. Merged — code `1` and the
 move: `gh pr edit <N> --base <T>`, a rebase onto `origin/<T>` (the batch's
 commits are there already, rebased, with other SHAs — GitHub's rebase merge
-would replay them), `push --force-with-lease`, `ci-wait`, `premerge` again.
+would replay them), `push --force-with-lease`, `premerge` again (into the
+default branch — `ci-wait` first).
 `T` — the dispatcher's next batch (its session's marker: a subagent shares
 the id), without one — the default branch: the task leaves the batch — the
-full CI, after the merge the deploy wait and `task close`. A release closed
-without a merge, or none — the check goes on as usual. On the merge path any
+full CI, after the merge the deploy wait, the epic refresh and `task close`.
+A release closed without a merge, or none — the check by git (#676): a PR
+into a batch branch runs no CI, nor does the batch branch — the base's red
+checks and the CI's time aren't read; the head on a fresh `origin/<batch>`
+(`git merge-base --is-ancestor`) — `✅ merge` without checks: the
+executor's checks before a commit checked this tree; the batch moved on past
+it — the fast checks on the merge, as above, a red or a conflict — the fix,
+then `premerge` again, no `ci-wait`. On the merge path any
 PR whose commits are in `origin/<base>` already by their changes (`git cherry`
 `-` lines) — code `1`, the rebase onto it drops them: a PR moved off a released
 batch carries the batch's commits from before the release's rebase — GitHub
@@ -950,8 +957,8 @@ after the app restarts the queue's `=` line names the wait.
 A batch project (epic #645) — `"batch": true` in `.agents/elves.json` of the
 dispatcher's checkout (`install` and `update` carry it over): the dispatcher's
 tasks go into the default branch with one release — one full CI run and one
-deploy — instead of each its own, and a task PR runs the light set
-(`skills/spec/ci.md`, "Batches — the light set on a PR into a batch branch").
+deploy — instead of each its own, and a task PR into the batch runs no CI
+(`skills/spec/ci.md`, "Batches").
 The first `task queue` creates the batch branch
 `batch/<YYYY-MM-DD>-<k>` (not `release/*`: git-flow projects have it) from a
 fresh `origin/<base>`, `k` — the first free number of the day, and pushes it
@@ -967,10 +974,13 @@ PR till the release — open and In progress (question 1 of the epic); a blocker
 merged into it doesn't hold a task of the same batch, one outside it — merged
 into another batch or not merged — holds. The assignment (`--assignment`,
 `--session`) reads the batch from the marker — a subagent shares the session's
-id: the task branch from `origin/<batch>`, the PR `--base <batch>`, green CI,
-`pr premerge` (it checks against the PR's base), the merge, the epic refresh;
-no deploy wait and no `task close` — it refuses a task merged only into a
-batch branch, before any change. `task actualize` names the batch PR as what
+id: the task branch from `origin/<batch>`, the checks before a commit, the PR
+`--base <batch>`, `pr premerge` (it checks against the PR's base: by git, #676),
+the merge at once — no CI wait (the PR runs none: the slot is free at the
+merge, #676), no deploy wait, no epic refresh (the release's, one per epic)
+and no `task close` — it refuses a task merged only into a batch branch,
+before any change; a task without a PR isn't in the batch — its refresh and
+close are the executor's. `task actualize` names the batch PR as what
 shipped and leaves the blocked-by links on the task till the release. A cloud
 executor (`--cloud`) isn't in the batch: its PR goes into the default branch
 with the full CI — the dispatcher learns of its end only by the task's
@@ -1034,11 +1044,13 @@ executor's merge (FAIL — `batch release` again: a red release,
 below); after the merge — a dispatcher that goes on runs
 `task queue` at once (the next batch from the merged default branch, the live
 executors' PRs go into it), one that stops doesn't (they go into the default
-branch); then `wait-ci.sh merged <R>` where the merge deploys and `task close
-N` of each task of the batch — GitHub closed them by `Closes`, close writes
-the actual and Done and removes the branches (`task close` below). The
-release's CI and deploy waits are the session's that ran it, not the batch
-tasks' (question 5 of the epic).
+branch); then `wait-ci.sh merged <R>` where the merge deploys and, in the same
+turn, the epic refresh — `task actualize` with all the batch's tasks (#676:
+one refresh per epic, not per merge into the batch; below), — after both
+`task close N` of each task of the batch — GitHub closed them by `Closes`,
+close writes the actual and Done and removes the branches (`task close`
+below). The release's CI and deploy waits and the refresh are the session's
+that ran it, not the batch tasks' (question 5 of the epic).
 
 A red release (#650; question 3 of the epic — fixed in the batch, not
 reverted): the full set runs first on the release, so its red names the
@@ -1065,7 +1077,7 @@ batch's), then ⌈log₂N⌉ runs — the first red block's task. Not named — 
 line why, the dispatcher names it by the logs or asks the owner. `Next:` —
 the guilty task's executor (continued with `SendMessage`, none alive — a new
 one) with its prompt: its assignment is the fix's (`task queue`, above), its
-PR into the batch with `Refs #N` on the light set, `pr premerge` lets it
+PR into the batch with `Refs #N` after the checks before a commit, no CI, `pr premerge` lets it
 through the open red release; after its merge — the full run again on the
 same release PR: `batch release` prints its steps, no second PR. A fix PR of
 a release task open into the batch — an `○` line and the wait for it, no
@@ -1121,6 +1133,15 @@ before `task close` and its own answer (its assignment, #628): once it answers,
 its worktree without changes is removed, and a background subagent is left
 without a directory.
 
+Several tasks — shipped together, a batch's release (#676): `task actualize N
+M …` (the release's `Next:` names all its tasks) groups them by epic — one
+refresh per epic, not per merge into the batch: the mechanics, the prompt
+«Task #N, #M (epic #E)» and `task actualize N M --assignment` (the tasks of
+one epic; of several — a refusal); a task without an epic — the `○` line. In
+the assignment a released task's PRs are its own into the batch, not the
+release PR with the whole batch's files; the report — «Refresh after #N, #M,
+result: …», one for them all.
+
 ### task close
 
 The closing ritual in one call, not a step per turn at the
@@ -1140,7 +1161,11 @@ with «Refresh after #N, result:» in any language of the dictionary, case and
 markup aside; the script's own «Refresh after #N, script: …» comes before the
 subagent and isn't it — a refusal before any changes, with what to do: the
 subagent is at work — wait for its answer, it wasn't launched — `task
-actualize N`, it answered without the comment — post it (#571). Order:
+actualize N`, it answered without the comment — post it (#571). A batch's
+task closed by its release (#676) — by the epic: the release's tasks of the
+epic (its `Closes #N` among the epic's sub-issues) have one refresh, a report
+naming the task among them («Refresh after #N, #M, result:») is its; the
+refusal names that set and `task actualize N M`. Order:
 close the task if the merged PR didn't; a task of the scripts' own repository
 (Elves) — the scripts' clone (the checkout the est script is in) catches up
 with the merged `main`: `git pull --ff-only origin main`, the line

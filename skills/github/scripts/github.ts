@@ -1946,7 +1946,7 @@ function localDay(): string {
 /**
  * The dispatcher's batch branch of the repository (epic #645). The first queue of a batch project (`batchProject` of
  * the locale module — `"batch": true` in `.agents/elves.json` of the checkout's root: a project setting, not the owner's
- * word on a run — without the light set in the project's CI a batch saves nothing)
+ * word on a run — a batch saves only with the project's CI that runs nothing on a PR into a batch branch)
  * creates it from a fresh origin/<base> and pushes it without a local branch — the dispatcher's checkout stays where it
  * is; `k` — the first free number of the day on origin, in the marker and among the recent PRs' branches: a released
  * batch's name taken again would read as released at once. The next queues take the same one: the marker keeps it

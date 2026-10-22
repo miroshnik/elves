@@ -152,10 +152,10 @@ is; at most 3 subagents and 5 cloud sessions at once, the
 owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
-(`"batch": true` in `.agents/elves.json`) — executors merge into the
-dispatcher's batch branch, not `main` (`reference.md`, "task queue"); the
-batch goes into `main` by `batch release` — once the queue's `Next:` names it
-or on the owner's «release». Before each launch — `get_usage`: the 5-hour limit at 85% and more —
+(`"batch": true` in `.agents/elves.json`) — executors merge into the batch
+branch without CI (`reference.md`, "task queue"); `batch release` takes it
+into `main` once the queue's `Next:` names it or on the owner's «release»:
+one CI run, one refresh per epic. Before each launch — `get_usage`: the 5-hour limit at 85% and more —
 no new executors, the running ones finish, then `Remaining: N tasks, the
 limit`. After each executor's answer — `task queue` again: it alone
 removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:
@@ -164,7 +164,7 @@ auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. A question — to the
 owner in text; the answer — ✅ in the task and to the same
 executor with `SendMessage`. After the app restarts — each stopped executor
-is continued with `SendMessage` by its id, not replaced (`task resume`). Waits for subagents — it answers again. Failed — a
+is continued with `SendMessage`, not replaced (`task resume`). Waits for subagents — it answers again. Failed — a
 task comment, no restart (the owner's restart:
 `--assignment` refuses while the previous executor lives); external
 blockers — `reference.md`, "Dependencies". Queue empty and nothing running — the summary, the last

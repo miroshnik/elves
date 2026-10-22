@@ -198,10 +198,11 @@ it.
   rebase and `--force-with-lease` — only on a textual conflict or my own
   changes. **Before merging — `github pr premerge`:** `main` moved after the
   PR's CI — fast checks on the merge with it; red — I fix the root cause;
-  `main` red by itself (exit code 3) — no merge and no fix in the PR: one bug
+  `main` red by itself (code 3) — no merge and no fix in the PR: one bug
   for it, I wait for it to close.
 - A merge that deploys — I wait for the deploy on the merge SHA (`ci-wait`)
-  **before `github task close`**, a batch's task — after its release.
+  **before `github task close`**; a batch's — its release's CI, deploy,
+  refresh.
   Others' branches, stacks and unmerged work I don't touch.
 - Mechanics — the `github` skill, "Git, PRs and merging — mechanics";
   waiting for checks and deploys — `docs/pr-checks.md`.

@@ -34,7 +34,7 @@ bash <skill dir>/scripts/wait-ci.sh issue <N> [--interval 60] [--timeout 7200]
 
 | Moment | Command |
 |---|---|
-| Pushed the PR branch, before merging | `pr <N>` — waits for the PR head's checks, the base branch's required checks and a run of every workflow whose `on:` fires on the PR; a conflict with the base — ERROR on the second poll of the same head, without waiting for the checks |
+| Pushed the PR branch, before merging | `pr <N>` — waits for the PR head's checks, the base branch's required checks and a run of every workflow whose `on:` fires on the PR; a conflict with the base — ERROR on the second poll of the same head, without waiting for the checks. A PR into a dispatcher's batch branch runs no CI — no wait: `github pr premerge` decides (`skills/spec/ci.md`, "Batches") |
 | Merged, and the merge triggers a deploy or CI on `main` | `merged <N>` as a background command in the same turn as `github task actualize` — waits for all checks of the PR's merge commit: GitHub Actions check-runs and the statuses of the host and external services; takes the SHA from the PR itself, an unmerged PR — ERROR |
 | A commit's checks by SHA (my own commit without a PR) | `status <sha>` — the same as `merged`, by the full SHA |
 | One check of a commit is needed (the deploy among others) | `merged <N> --context <name>` or `status <sha> --context <name>` |
