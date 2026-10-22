@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 189 тестов</summary>
+<details><summary>✅ 191 тест</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -161,6 +161,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «Epic» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Estimate and actual» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Estimate, h» из skills/est/SKILL.md печатает или пишет скрипт
+- ✅ цитату «Estimate: …» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Estimate» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Exceptions» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Folder» из skills/spec/reference.md печатает или пишет скрипт
@@ -213,6 +214,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «can be closed» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «can't listen on 127.0.0.1 …» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «client \<pkg> of storage \<s> is in container \<c>» из skills/spec/checks.md печатает или пишет скрипт
+- ✅ цитату «closed by PR» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «closed in 90 days without an actual: N» из skills/est/SKILL.md печатает или пишет скрипт
 - ✅ цитату «cloud, state not visible» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «code without a consumer» из skills/spec/reference.md печатает или пишет скрипт
@@ -362,6 +364,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название comments.actual скрипты читают из словаря
 - ✅ название comments.closedByPr скрипты читают из словаря
 - ✅ название comments.externalBlocker скрипты читают из словаря
+- ✅ название comments.state скрипты читают из словаря
 - ✅ название est.answer скрипты читают из словаря
 - ✅ название est.closingWords скрипты читают из словаря
 - ✅ название est.cloud.actual скрипты читают из словаря
@@ -662,8 +665,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название views.board скрипты читают из словаря
 - ✅ название views.roadmap скрипты читают из словаря
 - ✅ название views.table скрипты читают из словаря
-- ✅ вне охвата: comments.state
-  > комментарий «State» перед паузой пишет агент, скрипты его не пишут и не разбирают
 - ✅ вне охвата: standardIssue
   > соглашение агента: issue «Standard · …» заводит он сам, скрипты название не разбирают
 
