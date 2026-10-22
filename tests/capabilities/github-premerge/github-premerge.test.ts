@@ -120,6 +120,7 @@ function fakeGh(
     owner = "User",
     base = "main",
     releases = [],
+    ref = "feat/7-x",
   }: {
     suites?: string[];
     moved?: string | null;
@@ -131,8 +132,13 @@ function fakeGh(
     owner?: string;
     /** База PR — main или ветка пачки (`batch/<день>-<k>`). */
     base?: string;
-    /** PR с базой PR головой — выпуск пачки (`?head=владелец:ветка`): номер, открыт ли, влит ли. */
-    releases?: { number: number; state: "open" | "closed"; merged?: boolean }[];
+    /**
+     * PR с базой PR головой — выпуск пачки (`?head=владелец:ветка`): номер, открыт ли, влит ли, тело с «Closes #N» его
+     * задач и чеки его головы (`rsha<номер>`): имя → вывод check-run.
+     */
+    releases?: { number: number; state: "open" | "closed"; merged?: boolean; body?: string; checks?: Record<string, string> }[];
+    /** Ветка PR — ветка задачи. */
+    ref?: string;
   } = {},
 ) {
   const calls: string[] = [];
@@ -146,11 +152,18 @@ function fakeGh(
       const full = `${v?.owner}/${v?.name}`;
       return JSON.stringify(full === SLUG ? { data: { repository: { nameWithOwner: SLUG } } } : { data: { repository: null }, errors: [{ type: "NOT_FOUND", message: `Could not resolve to a Repository with the name '${full}'.` }] });
     }
-    if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref: "feat/7-x" }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
+    if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
     if (url.startsWith(`repos/${SLUG}/pulls?`)) {
       const want = new URLSearchParams(url.split("?")[1]).get("head");
-      return JSON.stringify(want === `miroshnik:${base}` ? releases.map((r) => ({ number: r.number, state: r.state, merged_at: r.merged ? "2026-10-02T11:00:00Z" : null, base: { ref: "main" } })) : []);
+      const row = (r: (typeof releases)[number]) => ({ number: r.number, state: r.state, merged_at: r.merged ? "2026-10-02T11:00:00Z" : null, body: r.body ?? "", head: { ref: base, sha: `rsha${r.number}` }, base: { ref: "main" } });
+      return JSON.stringify(want === `miroshnik:${base}` ? releases.map(row) : []);
     }
+    const release = releases.find((r) => url.startsWith(`repos/${SLUG}/commits/rsha${r.number}/`));
+    if (release && url.includes("/check-runs")) {
+      const runs = Object.entries(release.checks ?? {}).map(([name, conclusion], i) => ({ id: 900 + i, name, status: conclusion === "in_progress" ? "in_progress" : "completed", conclusion: conclusion === "in_progress" ? null : conclusion, app: { id: 15368 } }));
+      return JSON.stringify({ total_count: runs.length, check_runs: runs });
+    }
+    if (release) return JSON.stringify({ sha: `rsha${release.number}`, state: "pending", statuses: [] });
     if (url.startsWith(`repos/${SLUG}/commits/${encodeURIComponent(base)}/check-runs`)) {
       const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion }));
       return JSON.stringify({ total_count: runs.length, check_runs: runs });
@@ -650,7 +663,7 @@ describe("Выпуск пачки — один PR в main", () => {
   it("PR в выпущенную пачку без следующей пачки диспетчера переходит в main — задача выходит из пачки", () => {
     const p = project({ pr: { "uses.txt": "b\n" } });
     const proc = processes();
-    const r = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #61", releases: [{ number: 9, state: "closed", merged: true }] }).gh, p.work, proc.run);
+    const r = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #61", ref: "feat/61-x", releases: [{ number: 9, state: "closed", merged: true }] }).gh, p.work, proc.run);
     expect(r.code).toBe(1);
     expect(r.out).toBe(
       `❌ don't merge: ${BATCH} is released by PR #9 — the PR moves to main: gh pr edit ${PR} --base main, then git fetch origin main, git rebase origin/main ` +
@@ -680,6 +693,37 @@ describe("Выпуск пачки — один PR в main", () => {
       const r = premerge(fakeGh(p.head, { base: BATCH, releases }).gh, p.work);
       expect(r.code).toBe(0);
       expect(r.out).toBe(`✅ merge: ${BATCH} hasn't moved since the CI of PR #${PR} (CI since ${CI}, last movement of ${BATCH} — 2026-10-02T09:30:00Z) — CI checked this merge`);
+    }
+  });
+});
+
+/**
+ * Красный выпуск (#650, вопрос 3 эпика #645): виновную задачу чинят в пачке, не revert'ом — PR её починки идёт в ветку
+ * пачки при открытом выпуске: без него выпуск не позеленеет; PR живых исполнителей выпуск держит, как раньше. Какая
+ * задача виновна и её задание — в тестах задач (github-task), здесь — без диспетчера.
+ */
+describe("Красный выпуск чинится в пачке", () => {
+  const BATCH = "batch/2026-10-02-1";
+  const RED = { number: 9, state: "open" as const, body: "Выпуск пачки.\n\nCloses #61\nCloses #62\n", checks: { tests: "failure" } };
+
+  it("pr premerge при красном открытом выпуске пропускает в пачку PR виновной задачи, а PR живых исполнителей держит", () => {
+    const p = project({ pr: { "uses.txt": "b\n" } });
+    // починка #61: ветка задачи, в теле — Refs #61
+    const fix = premerge(fakeGh(p.head, { base: BATCH, body: "Refs #61", ref: "fix/61-red-release", releases: [RED] }).gh, p.work);
+    expect(fix.code).toBe(0);
+    expect(fix.out.split("\n")).toEqual([
+      `○ ${BATCH} is being released — PR #9 into main is red (tests), and PR #${PR} is of its task #61: the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #9`,
+      `✅ merge: ${BATCH} hasn't moved since the CI of PR #${PR} (CI since ${CI}, last movement of ${BATCH} — 2026-10-02T09:30:00Z) — CI checked this merge`,
+    ]);
+    // живой исполнитель: его задачи в выпуске нет — ждёт выпуска
+    const live = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #70", ref: "feat/70-live", releases: [RED] }).gh, p.work);
+    expect(live.code).toBe(1);
+    expect(live.out).toStartWith(`❌ don't merge: ${BATCH} is being released — PR #9 into main: a merge into the batch now would change the release its CI checked. `);
+    // выпуск зелёный или ещё идёт — PR задачи выпуска тоже ждёт: выпуск проверен без него
+    for (const checks of [{ tests: "success" }, { tests: "in_progress" }]) {
+      const held = premerge(fakeGh(p.head, { base: BATCH, body: "Refs #61", ref: "fix/61-red-release", releases: [{ ...RED, checks }] }).gh, p.work);
+      expect(held.code).toBe(1);
+      expect(held.out).toStartWith(`❌ don't merge: ${BATCH} is being released — PR #9 into main: `);
     }
   });
 });

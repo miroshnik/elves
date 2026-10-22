@@ -3387,53 +3387,60 @@ describe("task queue собирает задачи диспетчера в ве�
  * живые исполнители не останавливаются (вопрос 2 эпика): их PR в пачку ждут выпуска и уходят в следующую пачку
  * диспетчера, а без неё — в main. git — настоящий во временном репозитории, spec-diff — подменённый процесс.
  */
-describe("Выпуск пачки — один PR в main", () => {
-  const SPEC_SECTION = "## Спека (тесты)\n\n### Добавлено (1)\n\n- `capabilities/export` · экспорт › выгружает задачи";
-  /** Коммит одного файла: правка манифеста проекта с пачками (.agents/elves.json) в чекауте не закоммичена. */
-  function commitFile(work: string, file: string, message: string): string {
-    writeTree(work, { [file]: `${message}\n` });
-    git(work, "add", file);
-    git(work, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message);
-    return git(work, "rev-parse", "HEAD");
+// Выпуск пачки — общее для выпуска и его красного прогона (#650)
+const SPEC_SECTION = "## Спека (тесты)\n\n### Добавлено (1)\n\n- `capabilities/export` · экспорт › выгружает задачи";
+/** Коммит одного файла: правка манифеста проекта с пачками (.agents/elves.json) в чекауте не закоммичена. */
+function commitFile(work: string, file: string, message: string): string {
+  writeTree(work, { [file]: `${message}\n` });
+  git(work, "add", file);
+  git(work, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message);
+  return git(work, "rev-parse", "HEAD");
+}
+/** Задача влита в ветку пачки: её коммит поверх пачки — в ветке задачи и в ветке пачки на origin, как rebase-мерж её PR. */
+function mergeIntoBatch(work: string, batch: string, branch: string, file: string, message: string): void {
+  git(work, "fetch", "-q", "origin");
+  git(work, "switch", "-q", "-c", branch, `origin/${batch}`);
+  commitFile(work, file, message);
+  git(work, "push", "-q", "origin", `HEAD:refs/heads/${branch}`, `HEAD:refs/heads/${batch}`);
+  git(work, "switch", "-q", "main");
+}
+/** Процессы выпуска: git — настоящий, origin — репозиторий GitHub; spec-diff — раздел спеки, вызовы — в `calls`. */
+const releaseRun = (calls: string[][]) =>
+  githubOrigin((cmd: string, args: string[], cwd?: string) => {
+    if (cmd === "bun" && args[1] === OUTSIDE_SPEC) return calls.push(args), { status: 0, stdout: `${SPEC_SECTION}\n`, stderr: "" };
+    return cmd !== "bun" ? realRun(cmd, args, cwd) : { status: 0, stdout: "", stderr: "" };
+  });
+function release(f: FakeGitHub, work: string, config: string, calls: string[][] = [], run: Io["run"] = releaseRun(calls)) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const env = { ELVES_EST: OUTSIDE_EST, ELVES_SPEC_DIFF: OUTSIDE_SPEC, ...inSession(config).env };
+  const code = main(["batch", "release", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => err.push(l), run, cwd: work, env });
+  return { code, out: out.join("\n"), err: err.join("\n") };
+}
+/** pr premerge исполнителя — в той же сессии: маркер диспетчера называет его пачку. */
+function premergeIn(f: FakeGitHub, work: string, config: string, pr: number) {
+  const out: string[] = [];
+  const code = main(["pr", "premerge", String(pr), "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run: noEst, cwd: work, env: inSession(config).env! });
+  return { code, out: out.join("\n") };
+}
+const posted = (f: FakeGitHub) => f.rest.filter((r) => r.method === "POST" && r.route === `repos/${REPO}/pulls`).map((r) => r.payload);
+const pull = (n: number) => `#${n} https://github.com/${REPO}/pull/${n}`;
+/** Проект с пачками и первый запуск очереди: ветка пачки на origin — `batch/<день>-1`; `files` — коммит в main до неё. */
+function started(files: Record<string, string> = {}) {
+  const work = batchProjectDir(true);
+  if (Object.keys(files).length) {
+    writeTree(work, files);
+    git(work, "add", ...Object.keys(files));
+    git(work, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "chore: проект");
+    git(work, "push", "-q", "origin", "main");
   }
-  /** Задача влита в ветку пачки: её коммит поверх пачки — в ветке задачи и в ветке пачки на origin, как rebase-мерж её PR. */
-  function mergeIntoBatch(work: string, batch: string, branch: string, file: string, message: string): void {
-    git(work, "fetch", "-q", "origin");
-    git(work, "switch", "-q", "-c", branch, `origin/${batch}`);
-    commitFile(work, file, message);
-    git(work, "push", "-q", "origin", `HEAD:refs/heads/${branch}`, `HEAD:refs/heads/${batch}`);
-    git(work, "switch", "-q", "main");
-  }
-  /** Процессы выпуска: git — настоящий, origin — репозиторий GitHub; spec-diff — раздел спеки, вызовы — в `calls`. */
-  const releaseRun = (calls: string[][]) =>
-    githubOrigin((cmd: string, args: string[], cwd?: string) => {
-      if (cmd === "bun" && args[1] === OUTSIDE_SPEC) return calls.push(args), { status: 0, stdout: `${SPEC_SECTION}\n`, stderr: "" };
-      return cmd !== "bun" ? realRun(cmd, args, cwd) : { status: 0, stdout: "", stderr: "" };
-    });
-  function release(f: FakeGitHub, work: string, config: string, calls: string[][] = []) {
-    const out: string[] = [];
-    const err: string[] = [];
-    const env = { ELVES_EST: OUTSIDE_EST, ELVES_SPEC_DIFF: OUTSIDE_SPEC, ...inSession(config).env };
-    const code = main(["batch", "release", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => err.push(l), run: releaseRun(calls), cwd: work, env });
-    return { code, out: out.join("\n"), err: err.join("\n") };
-  }
-  /** pr premerge исполнителя — в той же сессии: маркер диспетчера называет его пачку. */
-  function premergeIn(f: FakeGitHub, work: string, config: string, pr: number) {
-    const out: string[] = [];
-    const code = main(["pr", "premerge", String(pr), "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run: noEst, cwd: work, env: inSession(config).env! });
-    return { code, out: out.join("\n") };
-  }
-  const posted = (f: FakeGitHub) => f.rest.filter((r) => r.method === "POST" && r.route === `repos/${REPO}/pulls`).map((r) => r.payload);
-  const pull = (n: number) => `#${n} https://github.com/${REPO}/pull/${n}`;
-  /** Проект с пачками и первый запуск очереди: ветка пачки на origin — `batch/<день>-1`. */
-  function started() {
-    const work = batchProjectDir(true);
-    const f = new FakeGitHub(REC);
-    const config = scratch();
-    queueIn(f, work, config);
-    return { work, f, config, name: `batch/${day()}-1` };
-  }
+  const f = new FakeGitHub(REC);
+  const config = scratch();
+  queueIn(f, work, config);
+  return { work, f, config, name: `batch/${day()}-1` };
+}
 
+describe("Выпуск пачки — один PR в main", () => {
   it("PR выпуска несёт spec-diff пачки и Closes каждой влитой задачи", () => {
     const { work, f, config, name } = started();
     mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
@@ -3622,6 +3629,181 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(q.out).toContain("○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it");
     expect(remoteBatches(work)).toEqual([]);
     expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
+  });
+});
+
+/**
+ * Красный выпуск (#650, вопрос 3 эпика #645): полный набор впервые идёт на выпуске, и его красный называет виновную
+ * задачу — по меткам решений упавших тестов, иначе бисектом по границам задач на машине; чинит её она же — PR в ветку
+ * пачки с «Refs #N» на лёгком наборе, затем полный прогон выпуска заново на том же PR, без revert'а. Остальные задачи
+ * пачки ждут выпуска. git — настоящий во временном репозитории; чеки выпуска и лог его упавшей джобы — фейка GitHub.
+ */
+describe("Красный выпуск чинится в пачке", () => {
+  const EXPORT_TEST = "tests/capabilities/export/export.test.ts";
+  /** Лог упавшей джобы, как его пишет bun test в Actions: время у каждой строки, заголовок файла, строка падения без пути. */
+  const bunLog = (file: string) =>
+    [`${file}:`, "(pass) экспорт > пустой список [0.10ms]", "(fail) экспорт > выгружает задачи [1.00ms]", "", " 1 pass", " 1 fail"].map((l) => `2026-10-22T10:00:00.1234567Z ${l}`).join("\n");
+  /** Задачи пачки по умолчанию: #47 меняет решение export, #49 — другое. */
+  const TASKS: [number, string, string][] = [
+    [47, "feat/47-export", "export.txt"],
+    [49, "fix/49-y", "fix.txt"],
+  ];
+  /**
+   * Выпуск пачки: задачи влиты в неё коммитами с «Refs #N» (PR — с 300-го, решение каждого — export у файла export.txt,
+   * иначе своё), выпуск — следующим PR, его чек tests красный: упал тест решения export. `labels` — метки задачам ставит
+   * pr labels их PR в пачку; `files` — проект в main до пачки.
+   */
+  function redRelease(o: { labels?: boolean; files?: Record<string, string>; tasks?: [number, string, string][] } = {}) {
+    const s = started(o.files);
+    const tasks = o.tasks ?? TASKS;
+    tasks.forEach(([n, branch, file], k) => {
+      mergeIntoBatch(s.work, s.name, branch, file, `feat(github): задача ${n}\n\nRefs #${n}`);
+      s.f.prs[300 + k] = { ...batchPr(n, branch, s.name), files: [file === "export.txt" ? EXPORT_TEST : `tests/capabilities/t${n}/t${n}.test.ts`] };
+    });
+    if (o.labels) tasks.forEach((_, k) => expect(prLabels(s.f, 300 + k).code).toBe(0));
+    expect(release(s.f, s.work, s.config).code).toBe(0);
+    const pr = 300 + tasks.length;
+    Object.assign(s.f.prs[pr]!, { checks: { tests: "FAILURE" }, logs: { tests: bunLog(EXPORT_TEST) } });
+    return { ...s, pr };
+  }
+
+  it("упавший тест решения с меткой одной задачи пачки называет её виновной", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    // метки задачам — от их PR в пачку; PR выпуска их не ставит: каждой задаче достались бы метки всей пачки
+    expect(issueLabels(f, 47)).toContain("export");
+    expect(issueLabels(f, 49)).not.toContain("export");
+    const before = f.mutations.length;
+    const labels = prLabels(f, pr);
+    expect(labels.code).toBe(0);
+    expect(labels.out).toBe(
+      `○ PR #${pr} is the release of the batch ${name}: its tasks got their decision labels from their PRs into the batch — ` +
+        "the release's diff would give each task the whole batch's, and a red release names its guilty task by them: no labels",
+    );
+    expect(f.mutations.length).toBe(before);
+    const r = release(f, work, config);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines[0]).toBe(`! the release PR ${pull(pr)} of ${name} is red: tests`);
+    expect(lines).toContain(`○ the failed checks' logs name ${EXPORT_TEST}`);
+    expect(lines).toContain(`guilty: #47 «${f.issue(47).title}» — the label export — the failed files' decision export`);
+    // ни бисекта, ни второго PR выпуска
+    expect(lines.filter((l) => l.startsWith("bisect"))).toEqual([]);
+    expect(posted(f)).toHaveLength(1);
+  });
+
+  it("без однозначной метки бисект по границам задач называет первую красную", () => {
+    // проект: test — проверка, которую ломает broken.txt; её ломает #49, средняя из трёх задач пачки
+    const files = {
+      "package.json": JSON.stringify({ name: "x", private: true, scripts: { test: "sh check.sh" } }) + "\n",
+      "bun.lock": "{}\n",
+      "check.sh": '[ ! -e broken.txt ] || { echo "(fail) экспорт > выгружает задачи" >&2; exit 1; }\n',
+      [EXPORT_TEST]: "// экспорт\n",
+    };
+    const tasks: [number, string, string][] = [
+      [47, "feat/47-export", "export.txt"],
+      [49, "fix/49-y", "broken.txt"],
+      [42, "feat/42-z", "other.txt"],
+    ];
+    const { work, f, config, name, pr } = redRelease({ files, tasks });
+    /** Процессы: git — настоящий, установка — подменена, скрипт проекта — настоящий sh в worktree бисекта; прогоны — в `runs`. */
+    const runs: string[] = [];
+    const run = githubOrigin((cmd: string, args: string[], cwd?: string) => {
+      if (cmd === "bun" && args[0] === "install") return { status: 0, stdout: "", stderr: "" };
+      if (cmd === "bun" && args[0] === "run") {
+        runs.push(`${git(cwd!, "log", "-1", "--format=%s")}: ${args.slice(2).join(" ")}`);
+        const script = JSON.parse(readFileSync(path.join(cwd!, "package.json"), "utf8")).scripts[args[1]!];
+        return realRun("sh", ["-c", `${script} "$@"`, "sh", ...args.slice(2)], cwd);
+      }
+      return cmd !== "bun" ? realRun(cmd, args, cwd) : { status: 0, stdout: "", stderr: "" };
+    });
+    const r = release(f, work, config, [], run);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    // меток решения export у задач нет — бисект
+    expect(lines).toContain("○ the failed files' decision export — no task of the release has the label — no guilty task by the labels");
+    expect(lines).toContain(`bisect: the check — bun run test ${EXPORT_TEST}; the head, the base, then 2 runs`);
+    // голова красная, база зелёная, затем ⌈log₂3⌉ = 2 прогона: после #47 — зелёный, после #49 — красный
+    expect(runs).toEqual(["feat(github): задача 42", "chore: проект", "feat(github): задача 47", "feat(github): задача 49"].map((s) => `${s}: ${EXPORT_TEST}`));
+    const probes = lines.filter((l) => /^○ ([0-9a-f]{7} — after #\d+|the base [0-9a-f]{7}): /.test(l)).map((l) => l.replace(/^○ [0-9a-f]{7} — |^○ the base [0-9a-f]{7}/, ""));
+    expect(probes).toEqual(["after #42: red", ": green", "after #47: green", "after #49: red"]);
+    expect(lines).toContainEqual(expect.stringMatching(new RegExp(`^guilty: #49 «${f.issue(49).title}» — the first red task block of the bisect \\([0-9a-f]{7}\\)$`)));
+    expect(lines.at(-2)).toStartWith(`Next: the release PR ${pull(pr)} of ${name} is red (tests) — the guilty task #49 «${f.issue(49).title}» fixes it in the batch: `);
+    // временный worktree бисекта убран
+    expect(git(work, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree "))).toHaveLength(1);
+  });
+
+  it("починка — PR виновной задачи в ветку пачки с Refs #N, затем полный прогон выпуска заново", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    // исполнитель #47 открыл PR починки в пачку: новая ветка задачи, в теле — Refs #47
+    f.prs[pr + 1] = { files: [EXPORT_TEST], closes: [], body: "Починка красного выпуска.\n\nRefs #47", head: "fix/47-red-release", base: name, model: null, merged: false };
+    // метки PR починки — задаче по её ветке: «Closes #N» в теле нет
+    expect(prLabels(f, pr + 1).out.split("\n")[0]).toBe(`PR #${pr + 1} → #47: export`);
+    const fixing = release(f, work, config).out.split("\n");
+    expect(fixing).toContain(`○ the fix PR #${pr + 1} (#47) into ${name} is open — its executor goes on; after its merge the release's full run goes again on PR #${pr}`);
+    expect(fixing.filter((l) => l.startsWith("guilty") || l.startsWith("bisect"))).toEqual([]);
+    expect(fixing.at(-1)).toStartWith(
+      `Next: the release PR ${pull(pr)} of ${name} is red (tests): its fix PR #${pr + 1} into ${name} is open — wait for its executor's answer; ` +
+        `after its merge into ${name} — the release's full run again on the same PR #${pr}: batch release prints its steps; the other tasks of the batch wait — no new executors till the release's merge; `,
+    );
+    // починка влита в пачку: голова выпуска сдвинулась — полный прогон заново на том же PR, второго PR выпуска нет
+    mergeIntoBatch(work, name, "fix/47-red-release", "export-fix.txt", "fix(github): починка экспорта\n\nRefs #47");
+    Object.assign(f.prs[pr + 1]!, { merged: true, state: "MERGED" });
+    for (const tests of ["IN_PROGRESS", "SUCCESS"]) {
+      f.prs[pr]!.checks = { tests };
+      const again = release(f, work, config).out.split("\n");
+      expect(again[0]).toBe(`= the release PR ${pull(pr)} of ${name} is open`);
+      expect(again.at(-1)).toStartWith(`Next: the release PR ${pull(pr)} — its checks: bash `);
+    }
+    expect(posted(f)).toHaveLength(1);
+    expect(f.prs[pr]!.body).toEndWith("Closes #47\nCloses #49\n");
+  });
+
+  it("задание починки называет PR выпуска и упавшие проверки, ветка — от ветки пачки, а не прежняя ветка задачи", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    // задача влита в пачку и «В работе», её ветка feat/47-export есть: без красного выпуска это был бы перезапуск
+    f.status(47, "В работе");
+    const assignment = (...more: string[]) => task(f, ["queue", "--assignment", "47", ...more], REPO, { ...inSession(config), cwd: work, run: noEst });
+    const lines = assignment().out.split("\n");
+    expect(lines[0]).toStartWith(
+      `Задача #47 «${f.issue(47).title}» в ${REPO} (эпик #45): ты исполнитель сессии-диспетчера — починка в пачке \`${name}\`: её PR выпуска #${pr} красный (tests), а задача, уже влитая в пачку, названа виновной — `,
+    );
+    expect(lines[0]).toContain(
+      `task status 47 "В работе" --branch fix/47-<slug>\`, новая ветка от свежего origin/${name} (\`git fetch origin ${name}\`, затем ветка на \`origin/${name}\`), а не от прежней ветки задачи \`feat/47-export\` — она уже в пачке, влита rebase-мержем, причина — по упавшим проверкам (\`gh pr checks ${pr}\`, их логи)`,
+    );
+    expect(lines[0]).toContain(`коммиты с \`Refs #47\`, PR в пачку (\`gh pr create --base ${name}\`, в теле \`Refs #47\`)`);
+    expect(lines[0]).toEndWith(`Деплоя и \`task close\` нет: после мержа диспетчер гонит выпуск заново — полный прогон на том же PR #${pr}.`);
+    // строки перезапуска «продолжи её работу» на влитой ветке нет; ожидание CI — лёгкого набора пачки
+    expect(lines.filter((l) => l.startsWith("Задача уже «В работе»"))).toEqual([]);
+    expect(lines.find((l) => l.startsWith("- CI жди"))).not.toContain("merged <PR>");
+    // сессия-исполнитель приложения — та же починка; облачный исполнитель не в пачке — отказ
+    expect(assignment("--session").out.split("\n")[0]).toContain(`ты сессия-исполнитель сессии-диспетчера — починка в пачке \`${name}\`: её PR выпуска #${pr} красный (tests)`);
+    const cloud = assignment("--cloud");
+    expect(cloud.code).toBe(2);
+    expect(cloud.err).toBe(`error: #47 is in the red release PR #${pr} of ${name}: its fix goes into the batch, and a cloud executor isn't in the batch — a subagent or an app executor session`);
+    // выпуск позеленел — задание обычное для пачки
+    f.prs[pr]!.checks = { tests: "SUCCESS" };
+    expect(assignment().out.split("\n")[0]).toContain(`задача идёт в пачку \`${name}\``);
+  });
+
+  it("Next: очереди и шаги batch release на красном выпуске называют виновную задачу и её починку", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    const title = f.issue(47).title;
+    const queue = queueIn(f, work, config).out.split("\n");
+    expect(queue).toContain(`guilty: #47 «${title}» — the label export — the failed files' decision export`);
+    const next = queue.at(-2)!;
+    expect(next).toStartWith(`Next: the release PR ${pull(pr)} of ${name} is red (tests) — the guilty task #47 «${title}» fixes it in the batch: its executor — continued with SendMessage, the indented line its message; `);
+    expect(next).toContain(`Its assignment (task queue --assignment 47) names the red release: a new task branch from origin/${name}, the PR into ${name} with Refs #47, the light set; `);
+    expect(next).toContain(`after its merge into ${name} — the release's full run again on the same PR #${pr}: batch release prints its steps; the other tasks of the batch wait — no new executors till the release's merge; `);
+    // отступ — промпт её исполнителя, как у готовой задачи очереди
+    expect(queue.at(-1)).toMatch(/^ {2}Задача #47 в miroshnik\/elves \(эпик #45\): ты исполнитель сессии-диспетчера\. Задание целиком печатает `bun --no-env-file \S+github\.ts task queue --assignment 47 --repo miroshnik\/elves`/);
+    // batch release называет то же — одним текстом
+    expect(release(f, work, config).out.split("\n").slice(-2)).toEqual(queue.slice(-2));
+    // меток нет — очередь называет batch release: бисект — его
+    const bare = redRelease();
+    const last = queueIn(bare.f, bare.work, bare.config).out.split("\n").at(-1)!;
+    expect(last).toMatch(
+      new RegExp(`^Next: the release PR #${bare.pr} \\S+ of ${bare.name} is red \\(tests\\) — the guilty task: bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves names it \\(the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command\\) and prints its fix; `),
+    );
   });
 });
 

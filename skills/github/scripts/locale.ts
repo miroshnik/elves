@@ -129,6 +129,14 @@ export interface Names {
     batchLead: string;
     batchWait: string;
     batchRefresh: string;
+    /**
+     * The fix of a red release (#650) in place of `batchLead` (`sessionFixLead` — of `sessionBatchLead`): the task merged
+     * into the batch is guilty — a new task branch from the batch, the PR into it with «Refs #N», then the release's full
+     * run again; `fixPrevious` — the task's earlier branches, rebase-merged into the batch already.
+     */
+    fixLead: string;
+    fixPrevious: string;
+    sessionFixLead: string;
     /** The assignment refused: the task's previous executor or its subagent is alive (#565). */
     alive: string;
     /** A cloud executor's brief (`--assignment N --cloud`, #609): whole, `#` only at its task — the epic without it. */
