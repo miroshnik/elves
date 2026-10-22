@@ -41,15 +41,16 @@ jobs:
         uses: actions/setup-node@v7
         with: { node-version: 24 }
       # tests/capabilities/agent-shell запускает Bash-вызов агента в настоящем zsh — оболочке Claude Code на macOS.
-      # Зеркало apt раннера зависает без вывода (PR #662 — 20 минут): команда — до 40 с, три попытки, шаг — до 5 минут
+      # Зеркало apt раннера зависает без вывода (PR #662 — 20 минут) и бывает медленным, но живым (main после PR #693 —
+      # update дольше 40 с): команда — до 120 с, три попытки, шаг — до 8 минут
       - &zsh
         name: zsh
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
           command -v zsh && exit 0
           for attempt in 1 2 3; do
-            timeout -k 5 40 sudo apt-get update -qq && timeout -k 5 40 sudo apt-get install -y -qq zsh && exit 0
-            echo "::warning::zsh: попытка $attempt — apt-get упал или не уложился в 40 с"
+            timeout -k 5 120 sudo apt-get update -qq && timeout -k 5 120 sudo apt-get install -y -qq zsh && exit 0
+            echo "::warning::zsh: попытка $attempt — apt-get упал или не уложился в 120 с"
           done
           exit 1
       - &install
