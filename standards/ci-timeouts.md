@@ -13,7 +13,7 @@ apt раннера, а не код (#674). Предела не было ни у 
 Реестр — `.github/workflows/*.yml` Elves, разобранные как YAML: якоря раскрыты, шаг под псевдонимом — шаг своей job.
 
 - Job — с `timeout-minutes`: минут больше нуля или выражение `${{ … }}`. Запас — к обычному прогону: `tests` — 20
-  минут при 5–6, `batch` — 15 при 3.
+  минут при 5–6.
 - Шаг, чей `run` ставит пакеты, — со своим `timeout-minutes`: системный менеджер (`apt-get`, `apt`, `dnf`, `yum`,
   `apk`, `zypper`, `brew`, `choco`, `snap` — `install`, `update`, `upgrade`, `add`), менеджер проекта (`bun`, `npm`,
   `pnpm`, `yarn` — `install`, `i`, `ci`, `add`), `pip install`, `playwright install`. Предела job мало: зависшее
@@ -33,23 +33,16 @@ apt раннера, а не код (#674). Предела не было ни у 
 `apt-get update` упёрлись в него по ~50 с, и медленное зеркало стало красным прогоном. Предел команды — от зависания,
 а не от медленного ответа: 120 с — с запасом к медленному, три попытки укладываются в предел шага.
 
-## Одно окружение у лёгкого и полного набора
-
-Job `batch` (PR в ветку пачки) и `tests` (полный набор) ставят окружение одними шагами — checkout, setup-bun,
-setup-node 24, zsh, `bun install`: шаги заданы якорями в `batch`, `tests` берёт их псевдонимами. Разойдутся Node или
-zsh — лёгкий набор зелёный, а выпуск пачки красный. GitHub Actions разбирает якоря с сентября 2025 года, ключи слияния
-`<<` — нет: якорь стоит у каждого шага. Composite action не взят: у его шагов нет `timeout-minutes`, предел шага zsh
-держал бы только `timeout` в тексте команды.
+Job `batch` лёгкого набора на PR в ветку пачки больше нет (#676): PR в пачку CI не запускает, окружение ставит одна
+job `tests` — якоря для общего окружения двух наборов не нужны.
 
 ## Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами
 
-<details><summary>✅ 7 тестов</summary>
+<details><summary>✅ 5 тестов</summary>
 
 - ✅ реестр «шаги установки пакетов в .github/workflows» не пуст
-- ✅ реестр «шаги установки пакетов в .github/workflows» находит .github/workflows/ci.yml jobs.batch «zsh», .github/workflows/ci.yml jobs.tests «zsh», .github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile», .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile»
+- ✅ реестр «шаги установки пакетов в .github/workflows» находит .github/workflows/ci.yml jobs.tests «zsh», .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile»
 - ✅ нарушитель не проходит: шаг zsh прогона PR #662
-- ✅ .github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile» ограничен по времени
-- ✅ .github/workflows/ci.yml jobs.batch «zsh» ограничен по времени
 - ✅ .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile» ограничен по времени
 - ✅ .github/workflows/ci.yml jobs.tests «zsh» ограничен по времени
 
@@ -69,23 +62,14 @@ zsh — лёгкий набор зелёный, а выпуск пачки кр�
 
 ## Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию
 
-<details><summary>✅ 8 тестов</summary>
+<details><summary>✅ 7 тестов</summary>
 
 - ✅ реестр «job в .github/workflows» не пуст
-- ✅ реестр «job в .github/workflows» находит .github/workflows/ci.yml jobs.batch, .github/workflows/ci.yml jobs.tests, .github/workflows/ci.yml jobs.spec-publish, .github/workflows/npm.yml jobs.publish
+- ✅ реестр «job в .github/workflows» находит .github/workflows/ci.yml jobs.tests, .github/workflows/ci.yml jobs.spec-publish, .github/workflows/npm.yml jobs.publish
 - ✅ нарушитель не проходит: job tests прогона PR #662
-- ✅ .github/workflows/ci.yml jobs.batch ограничена по времени
 - ✅ .github/workflows/ci.yml jobs.spec-publish ограничена по времени
 - ✅ .github/workflows/ci.yml jobs.tests ограничена по времени
 - ✅ .github/workflows/npm.yml jobs.publish ограничена по времени
 - ✅ пример: job без предела — ошибка с файлом и job
-
-</details>
-
-## Лёгкий и полный набор CI идут в одном окружении
-
-<details><summary>✅ 1 тест</summary>
-
-- ✅ job batch и tests ставят его одними шагами — до bun install включительно
 
 </details>

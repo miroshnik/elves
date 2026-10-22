@@ -319,6 +319,13 @@
   "describes": [
    "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
   ],
+  "name": "ci-wait pr не ждёт прогона на PR в ветку пачки: prRun отвечает «нет»"
+ },
+ {
+  "path": "tests/capabilities/ci-wait/ci-wait.test.ts",
+  "describes": [
+   "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
+  ],
   "name": "ci-wait pr: прогон Actions с ошибкой разбора workflow на голове PR — FAIL с путём файла"
  },
  {
@@ -376,6 +383,13 @@
    "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
   ],
   "name": "workflow на голове PR не разбирается, а прогона-«пустышки» нет (PR из форка) — не PASS"
+ },
+ {
+  "path": "tests/capabilities/ci-wait/ci-wait.test.ts",
+  "describes": [
+   "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
+  ],
+  "name": "workflow шаблона пачек на PR в main ждут: без его прогона — TIMEOUT с путём workflow"
  },
  {
   "path": "tests/capabilities/ci-wait/ci-wait.test.ts",
@@ -1998,6 +2012,20 @@
    "Хеш в листинге git — якорь, только если коммит сделала сама сессия"
   ],
   "name": "цикл или условие с git commit внутри — не листинг: хеш коммита — якорь"
+ },
+ {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "PR в ветку пачки CI не запускает — что проверено, premerge решает по git"
+  ],
+  "name": "pr premerge на PR в ветку пачки не требует прогона CI этого PR"
+ },
+ {
+  "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
+  "describes": [
+   "PR в ветку пачки CI не запускает — что проверено, premerge решает по git"
+  ],
+  "name": "пачка ушла вперёд после ветки PR — быстрые проверки на слиянии с ней; красное — не вливать, после правки — снова premerge, а не ci-wait"
  },
  {
   "path": "tests/capabilities/github-premerge/github-premerge.test.ts",
@@ -3843,6 +3871,13 @@
   "describes": [
    "task queue собирает задачи диспетчера в ветку пачки"
   ],
+  "name": "задание исполнителя пачки — мерж в пачку после проверок перед коммитом и pr premerge, без ожидания CI и без актуализации эпика"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
   "name": "задача, влитая в ветку пачки, — `=` в очереди, task close её до выпуска не закрывает"
  },
  {
@@ -4271,6 +4306,13 @@
    "Выпуск пачки — один PR в main"
   ],
   "name": "PR выпуска несёт spec-diff пачки и Closes каждой влитой задачи"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
+  "name": "batch release после мержа выпуска — одна актуализация на эпик задач пачки, затем task close каждой задачи"
  },
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
@@ -8600,14 +8642,14 @@
   "describes": [
    "check клона Elves с пачками сверяет CI, как в тонком проекте"
   ],
-  "name": "check в клоне Elves с batch и job лёгкого набора — без ❌ по пачкам"
+  "name": "check в клоне Elves с batch и CI по фрагменту ci.md «Batches» — без ❌ по пачкам"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
    "check клона Elves с пачками сверяет CI, как в тонком проекте"
   ],
-  "name": "check в клоне Elves с batch называет ❌, когда в CI нет job с if: startsWith(github.base_ref, 'batch/')"
+  "name": "check проекта и клона Elves с batch называет ❌ workflow, который запускается на PR в ветку пачки"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
@@ -8703,35 +8745,28 @@
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
-   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+   "check проекта с пачками сверяет, что PR в ветку пачки CI не запускает"
   ],
-  "name": "CI без джобы лёгкого набора — строка ❌ со ссылкой на ci.md, код 1"
+  "name": "CI по фрагменту ci.md «Batches» и CI самого Elves — ни строки сверх обычных, код 0"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
-   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
-  ],
-  "name": "CI по фрагменту ci.md «Batches» — ни строки сверх обычных, код 0"
- },
- {
-  "path": "tests/capabilities/update/update.test.ts",
-  "describes": [
-   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+   "check проекта с пачками сверяет, что PR в ветку пачки CI не запускает"
   ],
   "name": "batch, отличный от true, — не проект с пачками ни для check, ни для task queue"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
-   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+   "check проекта с пачками сверяет, что PR в ветку пачки CI не запускает"
   ],
-  "name": "pull_request только в main — строка ❌: PR в ветку пачки без прогона"
+  "name": "check проекта с batch называет ❌ workflow, который запускается на PR в ветку пачки"
  },
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
-   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+   "check проекта с пачками сверяет, что PR в ветку пачки CI не запускает"
   ],
   "name": "проект без batch — CI не сверяется"
  },
@@ -10213,13 +10248,6 @@
   "describes": [
    "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
   ],
-  "name": ".github/workflows/ci.yml jobs.batch ограничена по времени"
- },
- {
-  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
-  "describes": [
-   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
-  ],
   "name": ".github/workflows/ci.yml jobs.spec-publish ограничена по времени"
  },
  {
@@ -10255,7 +10283,7 @@
   "describes": [
    "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
   ],
-  "name": "реестр «job в .github/workflows» находит .github/workflows/ci.yml jobs.batch, .github/workflows/ci.yml jobs.tests, .github/workflows/ci.yml jobs.spec-publish, .github/workflows/npm.yml jobs.publish"
+  "name": "реестр «job в .github/workflows» находит .github/workflows/ci.yml jobs.tests, .github/workflows/ci.yml jobs.spec-publish, .github/workflows/npm.yml jobs.publish"
  },
  {
   "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
@@ -10263,13 +10291,6 @@
    "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
   ],
   "name": "реестр «job в .github/workflows» не пуст"
- },
- {
-  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
-  "describes": [
-   "Лёгкий и полный набор CI идут в одном окружении"
-  ],
-  "name": "job batch и tests ставят его одними шагами — до bun install включительно"
  },
  {
   "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
@@ -10316,20 +10337,6 @@
   "describes": [
    "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
   ],
-  "name": ".github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile» ограничен по времени"
- },
- {
-  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
-  "describes": [
-   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
-  ],
-  "name": ".github/workflows/ci.yml jobs.batch «zsh» ограничен по времени"
- },
- {
-  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
-  "describes": [
-   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
-  ],
   "name": ".github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile» ограничен по времени"
  },
  {
@@ -10351,7 +10358,7 @@
   "describes": [
    "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
   ],
-  "name": "реестр «шаги установки пакетов в .github/workflows» находит .github/workflows/ci.yml jobs.batch «zsh», .github/workflows/ci.yml jobs.tests «zsh», .github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile», .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile»"
+  "name": "реестр «шаги установки пакетов в .github/workflows» находит .github/workflows/ci.yml jobs.tests «zsh», .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile»"
  },
  {
   "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
@@ -11730,6 +11737,13 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название actualize.shippedTask скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название actualize.taskPr скрипты читают из словаря"
  },
  {
@@ -12606,13 +12620,6 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.sessionBatchLead скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/flow-english/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
-  "name": "название queue.sessionBatchWait скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -14439,6 +14446,20 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
+  "name": "цитату «Refresh after #N, #M, result: …» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «Refresh after #N, #M, result:» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
   "name": "цитату «Refresh after #N, result: …» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
@@ -14496,6 +14517,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «Task #N …» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «Task #N, #M (epic #E)» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -18186,7 +18214,7 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "docs/pr-checks.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел"
+  "name": "docs/pr-checks.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
@@ -18229,6 +18257,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "docs/testing.md: skills/spec/ci.md, «Batches» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "skills/ci-wait/SKILL.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
@@ -18599,7 +18634,7 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "skills/github/reference.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел"
+  "name": "skills/github/reference.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
@@ -19013,6 +19048,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "tests/capabilities/est/est.md: docs/cloud-sessions.md, «The brief» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "tests/capabilities/github-task/github-task.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",

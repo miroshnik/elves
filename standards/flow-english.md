@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 195 тестов</summary>
+<details><summary>✅ 198 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -175,6 +175,8 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «Of them, from the harness» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «Outside the tree» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Overlap with the actual of #M … — recompute #M» из skills/est/SKILL.md печатает или пишет скрипт
+- ✅ цитату «Refresh after #N, #M, result: …» из skills/github/reference.md печатает или пишет скрипт
+- ✅ цитату «Refresh after #N, #M, result:» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Refresh after #N, result: …» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Refresh after #N, result:» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Refresh after #N, script: …» из skills/github/reference.md печатает или пишет скрипт
@@ -184,6 +186,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «Sessions» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Task #N (epic #M)» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Task #N …» из skills/github/reference.md печатает или пишет скрипт
+- ✅ цитату «Task #N, #M (epic #E)» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Task #N» из skills/est/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Task» из skills/est/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Tests beyond scenarios» из skills/spec/reference.md печатает или пишет скрипт
@@ -360,6 +363,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название actualize.report скрипты читают из словаря
 - ✅ название actualize.scope скрипты читают из словаря
 - ✅ название actualize.shipped скрипты читают из словаря
+- ✅ название actualize.shippedTask скрипты читают из словаря
 - ✅ название actualize.taskPr скрипты читают из словаря
 - ✅ название actualize.taskStatus скрипты читают из словаря
 - ✅ название actualize.unblocked скрипты читают из словаря
@@ -486,7 +490,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.resume скрипты читают из словаря
 - ✅ название queue.session скрипты читают из словаря
 - ✅ название queue.sessionBatchLead скрипты читают из словаря
-- ✅ название queue.sessionBatchWait скрипты читают из словаря
 - ✅ название queue.sessionEnd скрипты читают из словаря
 - ✅ название queue.sessionFixLead скрипты читают из словаря
 - ✅ название queue.sessionFound скрипты читают из словаря
