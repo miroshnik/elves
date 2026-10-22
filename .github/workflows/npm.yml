@@ -16,6 +16,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # tests/standards/ci-timeouts: зависший шаг не держит публикацию до 6 часов
     permissions: { contents: read, id-token: write } # id-token — OIDC: вход в npm и подпись provenance
     steps:
       - uses: actions/checkout@v7
