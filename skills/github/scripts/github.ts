@@ -2718,9 +2718,10 @@ function executorPrompt(slug: string, number: number, epic: number | null): stri
  * question 1 of the task) — the cloud executor isn't in the batch: its PR goes into the default branch with the full CI,
  * as before, the brief and `Next:` say so. A cloud session can't message a local one, the dispatcher learns of its end
  * only by the task's closing, and GitHub closes a task only by a merge into the default branch — in a batch the task
- * stays open till the release, and the wait would never end.
+ * stays open till the release, and the wait would never end. Outside auto (#667) — the merge on the owner's «yes» in
+ * the cloud session: it can't message the dispatcher.
  */
-function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null): void {
+function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null, auto: boolean): void {
   const number = issue.number;
   const vars = {
     task: N.subagentPrompt.task,
@@ -2732,6 +2733,7 @@ function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null): v
     state: N.comments.state,
     questions: N.sections.questions,
     batch: batch ?? "",
+    cloudMode: auto ? N.queue.modeAuto : N.queue.cloudModeAsk,
   };
   const lines = [N.queue.cloud, ...(batch ? [N.queue.cloudBatch] : []), N.queue.cloudDoc, N.queue.repeats, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion];
   for (const line of lines) io.out(locale.fill(line, vars));
@@ -2755,6 +2757,14 @@ function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null): v
 const SESSION_ARCHIVE =
   "an executor session whose task closed — the dispatcher archives it in an auto project where the agent has the tool, " +
   "not one still working in the background or awaiting the owner's answer; outside auto the owner closes it";
+
+/**
+ * The dispatcher's step outside auto (#667): an executor stops before its merge with «question: merge PR #N?» (its
+ * assignment's `merge` line) — the owner's «yes» goes to the same executor; the dispatcher's request is the work's
+ * scope, not a «yes» to each merge. The queue names it while executors are handed out or awaited.
+ */
+const MERGE_ASK =
+  "the project is without auto: each executor's merge waits for the owner's «yes» — its answer «question: merge PR #N? …» goes to the owner, the «yes» to the same executor with SendMessage";
 
 /**
  * A task's open PR: linked to it by GitHub, or one of the repository's recent ones by the task branch or `Closes #N` in
@@ -2799,7 +2809,8 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * `batch release`; its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
  * names its guilty task by the labels and the fix (`redRelease`, `fixSteps`), the bisect — `batch release`'s. Before the queue —
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
- * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
+ * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`); outside auto
+ * (#667) — while executors are handed out or awaited — the merge's wait for the owner's «yes» too (`MERGE_ASK`).
  */
 export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const want = o.type === undefined ? undefined : typeAliases()[o.type.toLowerCase()];
@@ -2919,6 +2930,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // the owner's word «release» — the same command with live executors: they go on, their PRs wait for the release
   // (question 2 of epic #645)
   const now = settled ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
+  // outside auto an executor's merge is the owner's «yes» (#667)
+  const ask = locale.autoProject(io.cwd ?? process.cwd()) ? "" : `; ${MERGE_ASK}`;
   // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
   const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
   if (release && batch && checks?.state === "red") {
@@ -2932,9 +2945,9 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   } else if (ready.length) {
     io.out(
       `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
-        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in; ${SESSION_ARCHIVE}${now}.`,
+        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
     );
-  } else if (running.length > settled) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again; ${SESSION_ARCHIVE}${now}.`);
+  } else if (running.length > settled) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
   else if (settled) {
     io.out(
       `Next: the batch ${batch} is complete — nothing ready, every task in work is merged into it: its release — ${releaseCommand}, ` +
@@ -3276,6 +3289,7 @@ function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseCh
  * the lead, the batch's spec-diff (`specDiffOf`) and «Closes #N» of each task: the merge closes them, and `task close`
  * finds the release PR linked. The live executors' open PRs into the batch aren't in it (question 2 of epic #645 — they
  * aren't stopped): `○` lines; their `pr premerge` holds the merge till the release, then moves them on (`batchBase`).
+ * Outside auto (#667) the release's merge in `Next:` waits for the owner's «yes», as the executors' merges do.
  */
 export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
   const batch = named ?? batchOf(io, slug);
@@ -3289,8 +3303,10 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
   const closing = (pr: number, tasks: number[]) =>
     `where the merge deploys — bash ${waitCi()} merged ${pr} as a background command; after it — task close of each task of the batch, GitHub closed them by the release's «Closes»: ` +
     `${tasks.map((n) => `${script} task close ${n}`).join("; ")} — the batch branch ${batch} goes with them (while a live executor's PR is into it — kept, the dispatcher's task queue deletes it later)`;
+  // outside auto the release's merge is the owner's «yes» too (#667): the dispatcher's request is the work's scope
+  const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
   const steps = (pr: number, tasks: number[]) =>
-    `Next: the release PR ${link(pr)} — its checks: bash ${waitCi()} pr ${pr} as a background command; PASS — ${script} pr premerge ${pr}, code 0 — gh pr merge ${pr} --rebase as a separate call. ` +
+    `Next: the release PR ${link(pr)} — its checks: bash ${waitCi()} pr ${pr} as a background command; PASS — ${script} pr premerge ${pr}, code 0 — ${yes}gh pr merge ${pr} --rebase as a separate call. ` +
     `FAIL — ${script} batch release --repo ${slug} again: it names the guilty task and prints its fix in the batch, the release PR stays open. ` +
     `After the merge: the dispatcher goes on — task queue at once: it starts the next batch from the merged ${base}, and the live executors' PRs go into it (their pr premerge moves them); ` +
     `it stops — no queue: they go into ${base} with the full CI. Then ${closing(pr, tasks)}.`;
@@ -3714,7 +3730,11 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it. The batch's
  * release red with the task in it (#650, `fixOf`) — the fix's lead: the release PR and its failed checks, a new task
  * branch from the batch, not the task's earlier one (rebase-merged into the batch already) — no restart line; `cloud`
- * refused before the hand-out: a cloud executor isn't in the batch.
+ * refused before the hand-out: a cloud executor isn't in the batch. The project's mode (#667, `autoProject` of the
+ * checkout): auto — like a session in auto mode; outside auto the executor merged on green checks too, and the owner,
+ * who hadn't said «yes» to that merge, learned of it from the dispatcher afterwards — now the lead's mode and the
+ * `merge` line: up to `pr premerge` by itself, then the answer «question: merge PR #N?», the merge — on the owner's «yes»
+ * the dispatcher forwards; a cloud executor asks in its session; an app session's lead names its mode itself.
  */
 export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
@@ -3744,7 +3764,10 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     const where = o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree;
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
-  if (o.cloud) return cloudBrief(io, slug, issue, batch), 0;
+  // the project's mode (#667): outside auto the executor's merge waits for the owner's «yes» — the dispatcher's request
+  // is the work's scope, not a «yes» to each merge
+  const auto = locale.autoProject(io.cwd ?? process.cwd());
+  if (o.cloud) return cloudBrief(io, slug, issue, batch, auto), 0;
   // a fix starts a new branch from the batch: the task's earlier branch is in the batch already — no restart line
   const inProgress = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress;
   const restart = fix || inProgress ? taskBranchesHere(io, slug, number) : [];
@@ -3766,6 +3789,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     release: fix?.release.number ?? "",
     checks: fix?.red.join(", ") ?? "",
     previous: fix && restart.length ? locale.fill(N.queue.fixPrevious, { branches: restart.map((b) => `\`${b}\``).join(", ") }) : "",
+    mode: auto ? N.queue.modeAuto : N.queue.modeAsk,
   };
   const resume = restart.length && !fix ? [N.queue.resume] : [];
   // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's
@@ -3780,6 +3804,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
         N.queue.subagent,
         N.queue.session,
         batch ? N.queue.batchWait : N.queue.wait,
+        ...(auto ? [] : [N.queue.merge]),
         N.queue.git,
         N.queue.subagents,
         N.queue.live,
@@ -5261,7 +5286,10 @@ not an executor's whose handed-out task is open): clean and merged (git cherry) 
 otherwise left (○ with the reason), and so is one a subagent works in without a worktree of its own (its transcript
 written in the last ${QUIET_MINUTES} min); loose worktree-agent-* branches — the same. --type and --priority — in an
 organization. --assignment N (the executor's first call; read-only on GitHub) — its whole assignment; in a session
-(not one pinned to N) it records the task as handed out with the executor's worktree (dispatchers/<id>.tasks). A
+(not one pinned to N) it records the task as handed out with the executor's worktree (dispatchers/<id>.tasks). The
+project's mode ("auto" in .agents/elves.json): auto — the task like a session in auto mode; outside auto — up to pr
+premerge by itself, then the answer «question: merge PR #N?», the merge on the owner's «yes» the dispatcher forwards (a
+cloud executor asks in its session), and Next: of the queue names that wait. A
 restart while the task's previous executor or its subagent is alive — a worktree of it locked by a live process, with
 such a subagent at work or HEAD moved in the last ${QUIET_MINUTES} min — code 1: ! lines and the answer that makes the
 dispatcher wait, no hand-out. --cloud — printed by the dispatcher: the brief of a cloud executor (claude.ai/code) —
@@ -5305,7 +5333,8 @@ Examples:
 The dispatcher's batch (epic #645) into the default branch by one PR — one full CI run and one deploy: the batch branch
 (the session's, from its marker, or the one named) rebased onto a fresh origin/<base> and pushed (--force-with-lease),
 the PR into the default branch — a conventional-commit title, the body: spec-diff of the batch and «Closes #N» of each
-task merged into it; Next: — ci-wait, pr premerge, the merge, the deploy wait, task close of each task. The live
+task merged into it; Next: — ci-wait, pr premerge, the merge (outside auto — on the owner's «yes»), the deploy wait,
+task close of each task. The live
 executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
 the next batch or the default branch. The release PR open — its steps again; red — the guilty task (the release's only
 task, the labels of the decisions of the files the failed jobs' logs name, otherwise a bisect by the task boundaries on

@@ -3463,7 +3463,12 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(lines).toContain(`○ PR #302 (#${live}) into ${name} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or main`);
     expect(lines).toContain(`+ the release PR ${pull(303)}: feat: выпуск пачки ${name} — #47, #49`);
     const next = lines.at(-1)!;
-    expect(next).toMatch(new RegExp(`^Next: the release PR #303 \\S+ — its checks: bash \\S+wait-ci\\.sh pr 303 as a background command; PASS — bun --no-env-file \\S+github\\.ts pr premerge 303, code 0 — gh pr merge 303 --rebase as a separate call\\. `));
+    // проект без auto — мерж выпуска по «да» владельца (#667)
+    expect(next).toMatch(
+      new RegExp(
+        `^Next: the release PR #303 \\S+ — its checks: bash \\S+wait-ci\\.sh pr 303 as a background command; PASS — bun --no-env-file \\S+github\\.ts pr premerge 303, code 0 — the owner's «yes» \\(the project is without auto\\) — then gh pr merge 303 --rebase as a separate call\\. `,
+      ),
+    );
     expect(next).toMatch(/after it — task close of each task of the batch, GitHub closed them by the release's «Closes»: bun --no-env-file \S+github\.ts task close 47; bun --no-env-file \S+github\.ts task close 49 — /);
     // spec-diff нет — PR выпуска без раздела спеки, строка об этом
     const bare = new FakeGitHub(REC);
@@ -4449,5 +4454,97 @@ describe("task queue --assignment N --session — задание сессии-и
     const both = task(new FakeGitHub(REC), ["queue", "--assignment", "47", "--cloud", "--session"], REPO, { cwd: projectDir() });
     expect(both.code).toBe(2);
     expect(both.err).toBe("error: --cloud or --session, not both: a cloud executor or an app session");
+  });
+});
+
+/**
+ * В проекте без auto исполнитель диспетчера мержил PR задачи сам на зелёных проверках (#667): задание велело «как сессия
+ * в режиме auto», и владелец, не говоривший «да» этому мержу, узнавал о нём постфактум — из ответа исполнителя
+ * диспетчеру. Владелец решил: режим проекта — его явное решение, а «сделай эпик» — просьба про объём работы, не согласие
+ * на каждый мерж. Исполнитель сам ведёт коммиты, push в ветку задачи, PR, CI и `pr premerge`; перед `gh pr merge`
+ * отвечает «вопрос: мерж PR #N?» с итогом premerge и мержит по «да» владельца, пересланному диспетчером. Облачный
+ * исполнитель диспетчеру не пишет — спрашивает владельца в своей сессии; мерж выпуска пачки — тоже по «да».
+ */
+describe("Исполнитель диспетчера в проекте без auto мержит по «да» владельца", () => {
+  const MERGE =
+    "- проект без auto: коммиты, push в ветку задачи, PR, CI и `pr premerge` — сам; перед `gh pr merge` остановись и ответь диспетчеру `вопрос: мерж PR #<PR>? <итог pr premerge>`; " +
+    "«да» владельца пришлёт сюда же диспетчер — тогда снова `pr premerge` (база могла уйти), мерж и шаги после него;";
+  const ASK =
+    "the project is without auto: each executor's merge waits for the owner's «yes» — its answer «question: merge PR #N? …» goes to the owner, the «yes» to the same executor with SendMessage";
+  /** Каталог проекта, но не чекаут: режим — в его .agents/elves.json. */
+  const projectIn = (auto: boolean) => {
+    const dir = scratch();
+    writeTree(dir, { ".agents/elves.json": JSON.stringify({ language: "ru", ...(auto ? { auto: true } : {}) }) + "\n" });
+    return dir;
+  };
+  /** Задания исполнителей проекта: субагента, субагента пачки (маркер диспетчера с её веткой) и облачного. */
+  const assignments = (auto: boolean) => {
+    const cwd = projectIn(auto);
+    const batch = scratch();
+    writeTree(batch, { [`dispatchers/${SESSION}`]: `bun --no-env-file github.ts task queue --epic 45 --repo ${REPO}\nbatch ${REPO} batch/2026-10-22-1\n` });
+    const lines = (io: Partial<Io>, ...more: string[]) => {
+      const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", ...more], REPO, { ...io, cwd });
+      expect(r.code).toBe(0);
+      return r.out.split("\n");
+    };
+    return { plain: lines({}), batched: lines(inSession(batch)), cloud: lines({}, "--cloud") };
+  };
+
+  it("задание исполнителя в проекте без auto останавливает его перед мержем вопросом диспетчеру", () => {
+    const { plain, batched, cloud } = assignments(false);
+    expect(batched[0]).toContain("задача идёт в пачку `batch/2026-10-22-1`");
+    for (const lines of [plain, batched]) {
+      expect(lines[0]).toContain("по канону, в режиме проекта, без auto — мерж по «да» владельца: вопросы задачи");
+      expect(lines[0]).not.toContain("в режиме auto");
+      // вопрос о мерже — сразу за ожиданием CI, до строк о шагах после мержа
+      expect(lines.indexOf(MERGE)).toBe(lines.findIndex((l) => l.startsWith("- CI ")) + 1);
+    }
+    // облачный исполнитель диспетчеру не пишет — спрашивает владельца в своей сессии
+    expect(cloud[0]).toContain("по канону, в режиме проекта, без auto — мерж по «да» владельца в этой сессии: вопросы задачи");
+    expect(cloud).not.toContain(MERGE);
+  });
+
+  it("задание исполнителя в auto-проекте мержит задачу на зелёных проверках без вопроса", () => {
+    const { plain, batched, cloud } = assignments(true);
+    for (const lines of [plain, batched, cloud]) {
+      expect(lines[0]).toContain("по канону, как сессия в режиме auto: вопросы задачи");
+      expect(lines.filter((l) => l.includes("по «да» владельца"))).toEqual([]);
+    }
+    expect(plain[0]).toContain("зелёный CI, `pr premerge`, мерж, деплой, актуализация эпика");
+    expect(cloud[0]).toEndWith("зелёный CI, мерж, деплой.");
+  });
+
+  it("`task queue` в проекте без auto сообщает диспетчеру, что мерж каждой задачи ждёт «да» владельца", () => {
+    /** Последний шаг очереди при каждом её исходе: есть готовые, только в работе, пусто. */
+    const step = (auto: boolean, status: string | null) => {
+      const f = new FakeGitHub(REC);
+      if (status) f.status(47, status);
+      else f.closed(47);
+      const r = task(f, ["queue", "--epic", "45"], REPO, { ...inSession(scratch()), cwd: projectIn(auto) });
+      expect(r.code).toBe(0);
+      return r.out.split("\n").at(-1)!;
+    };
+    const steps = (auto: boolean) => [step(auto, "Бэклог"), step(auto, "В работе"), step(auto, null)] as const;
+    const [ready, running, empty] = steps(false);
+    expect(ready).toContain(`After each executor's answer — task queue again: new tasks get in; ${ASK}; `);
+    expect(running).toContain(`wait for the executors' answers; after each — task queue again; ${ASK}; `);
+    // очередь пуста — ничей мерж не ждёт
+    expect(empty).not.toContain(ASK);
+    expect(steps(true).filter((l) => l.includes("without auto"))).toEqual([]);
+  });
+
+  it("`batch release` в проекте без auto мержит выпуск по «да» владельца", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    /** Что стоит в шагах выпуска между `pr premerge` с кодом 0 и мержем. */
+    const before = (r: { code: number; out: string }) => {
+      expect(r.code).toBe(0);
+      return / code 0 — (.*)gh pr merge \d+ --rebase as a separate call\. /.exec(r.out.split("\n").at(-1)!)?.[1];
+    };
+    expect(before(release(f, work, config))).toBe("the owner's «yes» (the project is without auto) — then ");
+    // проект в режиме auto: PR выпуска открыт — те же шаги, мерж на зелёных проверках без вопроса
+    writeTree(work, { ".agents/elves.json": JSON.stringify({ language: "ru", batch: true, auto: true }) + "\n" });
+    expect(before(release(f, work, config))).toBe("");
   });
 });
