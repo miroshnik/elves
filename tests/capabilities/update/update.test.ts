@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import locale from "../../../skills/github/scripts/locale.ts";
-import { copyInstall, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, FLOW_SKILLS, loadedAtStart, npmPackage, REPO, sandbox, snapshot, toFormer, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { bareClone, copyInstall, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, FLOW_SKILLS, loadedAtStart, npmPackage, REPO, sandbox, snapshot, toFormer, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
@@ -64,6 +64,8 @@ const dropSha = (root: string) => editManifest(root, { sha: undefined });
 // режим и язык проекта — последними строками check: язык новой установки без флага — en
 const MODE_ASK = "  tasks: with permission\n  language: en\n";
 const MODE_AUTO = "  tasks: entirely by itself\n  language: en\n";
+// первая строка check в клоне Elves: сверять установку не с чем
+const ABSENT = "Elves in the project: not installed — an Elves clone, the canon is at its root\n";
 
 // скрипт скилла github в копии флоу — проекта (от корня проекта) и машины (от домашнего каталога)
 const GITHUB = ".agents/skills/github/scripts/github.ts";
@@ -243,7 +245,6 @@ describe("Тонкий проект сверяется с версией пак�
     // установщик — пакет bunx из main, релизы недоступны: поиск релиза дал бы код 2
     const bin = bunxPackage(path.join(sb.tmp, "bunx/main"), base.dir, null);
     const run = (...args: string[]) => elves(sb, args, { cwd: clone, bin, env: { ELVES_REPO: path.join(sb.tmp, "nowhere") } });
-    const ABSENT = "Elves in the project: not installed — an Elves clone, the canon is at its root\n";
     expect(run("check")).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
     expect(elves(sb, ["install", "--auto"], { cwd: clone }).code).toBe(0);
     expect(run("check")).toMatchObject({ code: 0, stdout: ABSENT + MODE_AUTO });
@@ -999,6 +1000,36 @@ describe("check проекта с пачками сверяет, что CI ум�
     editManifest(sb.proj, { batch: true });
     expect(locale.batchProject(sb.proj)).toBe(true);
     expect(elves(sb, ["check"]).stdout).toContain(NO_RUN("ci.yml", "branches main"));
+  });
+});
+
+/**
+ * Клон Elves — сам канон: установку `check` в нём не сверяет, но пачки ведёт и Elves (`"batch": true`, #661) — его CI
+ * сверяется с лёгким набором, как CI тонкого проекта. Иначе Elves без джобы лёгкого набора `check` называл бы зелёным
+ * (#672). Клон без `batch` — CI не читается, как прежде.
+ */
+describe("check клона Elves с пачками сверяет CI, как в тонком проекте", () => {
+  let clone: string;
+  beforeEach(() => {
+    clone = bareClone(path.join(sb.tmp, "clone"));
+    expect(elves(sb, ["install"], { cwd: clone }).code).toBe(0);
+    editManifest(clone, { batch: true });
+  });
+  const check = () => elves(sb, ["check"], { cwd: clone });
+  const ci = (yaml: string) => writeTree(clone, { ".github/workflows/ci.yml": yaml });
+
+  it("check в клоне Elves с batch называет ❌, когда в CI нет job с if: startsWith(github.base_ref, 'batch/')", () => {
+    expect(check()).toMatchObject({ code: 1, stdout: ABSENT + NO_LIGHT_JOB + MODE_ASK });
+    ci(ONLY_MAIN);
+    expect(check()).toMatchObject({ code: 1, stdout: ABSENT + NO_RUN("ci.yml", "branches main") + NO_LIGHT_JOB + MODE_ASK });
+  });
+
+  it("check в клоне Elves с batch и job лёгкого набора — без ❌ по пачкам", () => {
+    ci(PR_AND_MAIN + BATCHES_JOBS);
+    expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
+    ci(ONLY_MAIN);
+    editManifest(clone, { batch: undefined });
+    expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
   });
 });
 

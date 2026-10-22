@@ -369,7 +369,7 @@ jobs:
   — `bun run test --changed="$BASE"` (nothing affected passes by itself),
   Jest — `--changedSince="$BASE"`.
 - **`elves check` holds a batch project to it** (`"batch": true` in
-  `.agents/elves.json`): a `❌` line and exit code 1 for a workflow whose
+  `.agents/elves.json`, an Elves clone too): a `❌` line and exit code 1 for a workflow whose
   `on.pull_request` `branches` or `branches-ignore` filter out a batch branch,
   and for `.github/workflows/*.yml` with no job under
   `if: startsWith(github.base_ref, 'batch/')`.

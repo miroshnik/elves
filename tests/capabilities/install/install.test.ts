@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
-import { BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { bareClone, BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { SPAWN_TIMEOUT, unprivilegedOwns } from "../../lib/spawn.ts";
@@ -1125,10 +1125,8 @@ describe("Задача целиком без спроса — настройка
   });
 
   /** Клон Elves — сам канон: правила в его корне, копия флоу в нём — лишняя. Режим у него свой, как у проекта. */
-  it("в клоне Elves install флоу не ставит — пишет в .agents/elves.json только auto и language: с флагом — его значение, без флага и терминала — прежнее; в .claude/settings.json — хук облачной сессии", () => {
-    const clone = path.join(tmp, "clone");
-    writeTree(clone, { "package.json": JSON.stringify({ name: "@miroshnik/elves" }) });
-    execFileSync("git", ["init", "-q"], { cwd: clone });
+  it("в клоне Elves install флоу не ставит — пишет в .agents/elves.json auto и language: с флагом — его значение, без флага и терминала — прежнее; в .claude/settings.json — хук облачной сессии", () => {
+    const clone = bareClone(path.join(tmp, "clone"));
     expect(install(["--auto"], clone).code).toBe(0);
     expect(manifest(clone)).toEqual({ auto: true, language: "en" });
     expect(install([], clone).code).toBe(0);
@@ -1141,15 +1139,29 @@ describe("Задача целиком без спроса — настройка
   });
 
   /**
+   * Поля проекта — `env` (стек задачи) и `batch` (пачки диспетчера, эпик #645) — пишет сам проект, и клон Elves тоже: с
+   * `"batch": true` Elves ведёт задачи пачками (#661). Установщик переносит их одним правилом для клона и тонкого
+   * проекта — иначе смена режима или языка в клоне молча выключала бы пачки (#672).
+   */
+  it("install в клоне Elves с batch сохраняет batch в .agents/elves.json, как в тонком проекте", () => {
+    const clone = bareClone(path.join(tmp, "clone"));
+    const env = { http: { web: 3000 } };
+    for (const root of [proj, clone]) {
+      expect(install(["--auto"], root).code).toBe(0);
+      writeFileSync(path.join(root, ".agents/elves.json"), JSON.stringify({ ...manifest(root), env, batch: true }, null, 2) + "\n");
+      expect(install(["--no-auto", "--lang", "ru"], root).code).toBe(0);
+      expect(manifest(root)).toEqual({ auto: false, language: "ru", env, batch: true });
+    }
+  });
+
+  /**
    * Пакет — `@miroshnik/elves` (#556), до него назывался по репозиторию: `elves`, а до переименования в Elves (#544) —
    * `ai-dev`. Клон или ветка, ещё не получившие новое имя, — тот же клон: флоу в него не ставится, check не зовёт его
    * отставшим.
    */
   it("клон со старым именем пакета — elves или ai-dev — узнаётся как клон", () => {
     for (const name of ["elves", "ai-dev"]) {
-      const clone = path.join(tmp, `clone-${name}`);
-      writeTree(clone, { "package.json": JSON.stringify({ name }) });
-      execFileSync("git", ["init", "-q"], { cwd: clone });
+      const clone = bareClone(path.join(tmp, `clone-${name}`), name);
       expect(install(["--auto", "--lang", "ru"], clone).code).toBe(0);
       expect(manifest(clone)).toEqual({ auto: true, language: "ru" });
       expect(readdirSync(clone).sort()).toEqual([".agents", ".claude", ".git", "package.json"]);

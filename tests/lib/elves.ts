@@ -126,6 +126,16 @@ export function copyInstall(root: string, manifest: Record<string, unknown> = {}
   writeFileSync(agents, own ? `${COPY_BLOCK}\n\n${own}` : `${COPY_BLOCK}\n`);
 }
 
+/**
+ * Клон Elves без файлов флоу в dir: git-репозиторий с package.json под именем пакета (name — прежнее имя): установщик
+ * узнаёт по нему клон. Путь клона.
+ */
+export function bareClone(dir: string, name = "@miroshnik/elves") {
+  writeTree(dir, { "package.json": JSON.stringify({ name }) });
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  return dir;
+}
+
 /** Копия пакета вместе с `.git` в dir — без процессов git: пакет собирается один раз на файл теста. */
 export function copyPackage(pkg: ElvesPackage, dir: string): ElvesPackage {
   cpSync(pkg.dir, dir, { recursive: true });
