@@ -55,7 +55,8 @@
  * project's compose file `check` holds to the task isolation rules
  * with the task-env skill's command (`composeCheck`): a violation is a mismatch too, `update` doesn't fix it; so is a
  * project with standards or architecture without a `test:spec` script — `check` names the lines (`specScript`); a
- * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them. The
+ * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them; a project with
+ * batches whose CI can't run the light set on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`). The
  * project's checks — the `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the
  * machine queue, the slot skill (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue
  * variables to tasks, it warns with a ready-made line (`turboEnv`).
@@ -239,8 +240,9 @@ Examples:
 elves check --hook
 
 Whether the install is behind, changes nothing: 0 — up to date, 1 — behind, the project's git ignores flow files, its
-compose file breaks task isolation or standards and architecture have no test:spec script, 2 — the check is
-unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
+compose file breaks task isolation, standards and architecture have no test:spec script or the CI of a project with
+"batch": true can't run the light set — on.pull_request filters out a batch branch or no job has the light set's if:
+(ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
 mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
@@ -2196,6 +2198,82 @@ function specScript(root: string): { lines: string[]; missing: boolean } {
   return { lines: [`${lead}; put in "scripts" — test without them, they don't run twice: ${spec}, ${filtered}`], missing: true };
 }
 
+/** Where the light set's form is: the spec skill on the machine (`install -g`). */
+const BATCHES_DOC = "~/.agents/skills/spec/ci.md, «Batches»";
+/** A batch branch for a workflow's `on.pull_request` filter — the name `task queue` gives (the github skill). */
+const BATCH_SAMPLE = "batch/2026-01-01-1";
+/** The light set's job condition (`BATCHES_DOC`); with `!` before it — a job of the full set. */
+const LIGHT_JOB = /(!\s*)?startsWith\(\s*github\.base_ref\s*,\s*'batch\/'\s*\)/g;
+
+/**
+ * Whether a GitHub Actions branch filter takes a branch: the patterns in order, `!` drops what the earlier ones took;
+ * `*` — anything but `/`, `**` — anything, `?`, `+` and `[…]` — as in a regex (GitHub's filter pattern cheat sheet).
+ */
+function filterTakes(patterns: unknown[], branch: string): boolean {
+  let takes = false;
+  for (const p of patterns) {
+    if (typeof p !== "string") continue;
+    const glob = p.replace(/^!/, "");
+    let re: RegExp;
+    try {
+      re = new RegExp(`^${glob.replace(/[.^${}()|\\]/g, "\\$&").replace(/\*\*?/g, (m) => (m === "**" ? ".*" : "[^/]*"))}$`);
+    } catch {
+      continue;
+    }
+    if (re.test(branch)) takes = !p.startsWith("!");
+  }
+  return takes;
+}
+
+/** A workflow's triggers and jobs (`Bun.YAML`); not YAML — null: GitHub doesn't run it. */
+function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
+  try {
+    const wf: unknown = Bun.YAML.parse(text);
+    return wf && typeof wf === "object" ? wf : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A batch project's CI (`"batch": true` in the manifest, epic #645): a PR into the batch branch runs the light set —
+ * without it a batch saves nothing (`BATCHES_DOC`). A mismatch update doesn't fix, as the compose file and
+ * `test:spec`: a `❌` line per workflow whose `on.pull_request` filters out a batch branch — that PR gets no run, a
+ * required check waits as "Expected"; and one if no job of `.github/workflows/*.y(a)ml` has the light set's condition —
+ * the task PRs run the full set. A workflow that doesn't parse runs nothing on GitHub either — no jobs. Not a batch
+ * project — CI isn't read.
+ */
+function batchCi(root: string): { lines: string[]; missing: boolean } {
+  if (readManifest(root).batch !== true) return { lines: [], missing: false };
+  const dir = ".github/workflows";
+  let files: string[] = [];
+  try {
+    files = readdirSync(path.join(root, dir)).filter((f) => /\.ya?ml$/.test(f)).sort();
+  } catch {
+    // no workflows — no light job either
+  }
+  const lines: string[] = [];
+  let light = false;
+  for (const f of files) {
+    const wf = workflowOf(readFileSync(path.join(root, dir, f), "utf8"));
+    const on = wf?.on;
+    const pr = on && typeof on === "object" && !Array.isArray(on) ? (on as Record<string, unknown>).pull_request : undefined;
+    const filter = pr && typeof pr === "object" ? (pr as Record<string, unknown>) : {};
+    const [key, patterns] = "branches" in filter ? ["branches", filter.branches] : ["branches-ignore", filter["branches-ignore"]];
+    const list = [patterns ?? []].flat();
+    if (list.length && filterTakes(list, BATCH_SAMPLE) !== (key === "branches")) {
+      lines.push(`  ❌ ${dir}/${f}: on.pull_request.${key} ${list.join(", ")} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})`);
+    }
+    const jobs = wf?.jobs && typeof wf.jobs === "object" ? Object.values(wf.jobs) : [];
+    light ||= jobs.some((j) => {
+      const cond: unknown = (j as { if?: unknown } | null)?.if;
+      return typeof cond === "string" && [...cond.matchAll(LIGHT_JOB)].some((m) => !m[1]);
+    });
+  }
+  if (!light) lines.push(`  ❌ ${dir}: no job with if: startsWith(github.base_ref, 'batch/') — a PR into a batch branch runs the full set, the batch saves nothing; the light job — ${BATCHES_DOC}`);
+  return { lines, missing: lines.length > 0 };
+}
+
 /** The check failed: what and why. */
 const unavailable = (global: boolean, e: unknown): Result => ({ code: 2, text: `Elves ${global ? "on the machine" : "in the project"}: check unavailable — ${reason(e)}` });
 
@@ -2311,10 +2389,12 @@ function check(global: boolean): Result {
   const compose = global ? { lines: [], violations: false } : composeCheck(root);
   // standards without test:spec — a mismatch update doesn't add either
   const spec = global ? { lines: [], missing: false } : specScript(root);
-  const project = [...warnings, ...compose.lines, ...spec.lines, ...(global ? [] : cloudLines(root)), ...mode];
+  // a batch project's CI without the light set — a mismatch update doesn't fix either
+  const batch = global ? { lines: [], missing: false } : batchCi(root);
+  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...(global ? [] : cloudLines(root)), ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
   const ignored = changes.filter((c) => c.op === "❌");
-  if (!stale.length && !ignored.length) return { code: compose.violations || spec.missing ? 1 : 0, compose: compose.violations, spec: spec.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
+  if (!stale.length && !ignored.length) return { code: compose.violations || spec.missing || batch.missing ? 1 : 0, compose: compose.violations, spec: spec.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
   const m = readManifest(root);
   const fixable = ignored.some((c) => !c.manual);
   const lost = "ignores flow files — they are missing from the commit, other checkouts and the cloud session:";

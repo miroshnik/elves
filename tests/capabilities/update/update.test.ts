@@ -910,6 +910,80 @@ describe("check проекта с test:spec называет test, которы�
   });
 });
 
+// строки check проекта с пачками: нет джобы лёгкого набора; pull_request, который не пускает PR в ветку пачки
+const BATCHES_DOC = "~/.agents/skills/spec/ci.md, «Batches»";
+const NO_LIGHT_JOB = `  ❌ .github/workflows: no job with if: startsWith(github.base_ref, 'batch/') — a PR into a batch branch runs the full set, the batch saves nothing; the light job — ${BATCHES_DOC}\n`;
+const NO_RUN = (file: string, filter: string) =>
+  `  ❌ .github/workflows/${file}: on.pull_request.${filter} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})\n`;
+const UP_TO_DATE = /^Elves in the project: up to date \([^)\n]+\)\n {2}tasks: with permission\n {2}language: en\n$/;
+// джобы фрагмента ci.md «Batches»: лёгкий набор на PR в ветку пачки, полный — на остальном
+const BATCHES_JOBS = /\n## Batches[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/spec/ci.md")))![1]!;
+const workflow = (file: string, yaml: string) => writeTree(sb.proj, { [`.github/workflows/${file}`]: yaml });
+const PR_AND_MAIN = "on:\n  pull_request:\n  push:\n    branches: [main]\n";
+
+/**
+ * Пачку включает `"batch": true` в `.agents/elves.json` (эпик #645, вопрос 6), но экономит она только с CI, который на PR
+ * в ветку пачки гоняет лёгкий набор (скилл spec, `ci.md`, «Batches»): без джобы лёгкого набора задачи пачки гоняют
+ * полный, а `pull_request` с `branches` без ветки пачки не запускает ничего — обязательная проверка висит «Expected».
+ */
+describe("check проекта с пачками сверяет, что CI умеет лёгкий набор", () => {
+  beforeEach(() => {
+    elves(sb, ["install"]);
+    editManifest(sb.proj, { batch: true });
+  });
+
+  it("CI без джобы лёгкого набора — строка ❌ со ссылкой на ci.md, код 1", () => {
+    // workflow нет вовсе — та же строка
+    const none = elves(sb, ["check"]);
+    expect(none.code).toBe(1);
+    expect(none.stdout).toContain("in the project: up to date");
+    expect(none.stdout).toEndWith(NO_LIGHT_JOB + MODE_ASK);
+    // джоба полного набора с !startsWith — не лёгкий набор
+    workflow("ci.yml", `${PR_AND_MAIN}jobs:\n  test:\n    if: \${{ !startsWith(github.base_ref, 'batch/') }}\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n`);
+    const before = snapshot(sb.proj);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toEndWith(NO_LIGHT_JOB + MODE_ASK);
+    expect(snapshot(sb.proj)).toEqual(before);
+  });
+
+  it("pull_request только в main — строка ❌: PR в ветку пачки без прогона", () => {
+    const cases: [filter: string, file: string, line: string | null][] = [
+      ["branches: [main]", "ci.yml", "branches main"],
+      ["branches: [main, 'release/**']", "ci.yml", "branches main, release/**"],
+      ["branches: ['**', '!batch/*']", "ci.yml", "branches **, !batch/*"],
+      ["branches-ignore: ['batch/**']", "ci.yml", "branches-ignore batch/**"],
+      ["branches: [main]", "ci.yaml", "branches main"],
+      // фильтр пускает ветку пачки — строки нет
+      ["branches: [main, 'batch/**']", "ci.yml", null],
+      ["branches: ['batch/*']", "ci.yml", null],
+      ["branches-ignore: ['release/**']", "ci.yml", null],
+    ];
+    for (const [filter, file, line] of cases) {
+      rmSync(path.join(sb.proj, ".github"), { recursive: true, force: true });
+      workflow(file, `on:\n  pull_request:\n    ${filter}\n  push:\n    branches: [main]\n${BATCHES_JOBS}`);
+      const r = elves(sb, ["check"]);
+      if (line) expect(r).toMatchObject({ code: 1, stdout: expect.stringContaining(NO_RUN(file, line) + MODE_ASK) });
+      else expect(r).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+    }
+  });
+
+  it("CI по фрагменту ci.md «Batches» — ни строки сверх обычных, код 0", () => {
+    workflow("ci.yml", PR_AND_MAIN + BATCHES_JOBS);
+    // workflow не на pull_request — не сверяется
+    workflow("deploy.yml", "on:\n  push:\n    branches: [main]\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo deploy\n");
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+  });
+
+  it("проект без batch — CI не сверяется", () => {
+    workflow("ci.yml", "on:\n  pull_request:\n    branches: [main]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n");
+    for (const batch of [undefined, false]) {
+      editManifest(sb.proj, { batch });
+      expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+    }
+  });
+});
+
 describe("Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart", () => {
   beforeEach(() => mkdirSync(path.join(sb.home, ".claude")));
 
