@@ -1,4 +1,5 @@
 {
   "auto": true,
-  "language": "ru"
+  "language": "ru",
+  "batch": true
 }

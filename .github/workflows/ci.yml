@@ -1,7 +1,9 @@
 # CI Elves: тесты скиллов (bun test), типы, документация спеки собирается (--strict), дифф спеки в summary PR;
 # на main — публикация docs/spec в ветку spec (в main документации нет). Ветки и PR — параллельно, устаревший прогон PR отменяется;
 # прогон main не отменяется и не вытесняется (docs/ci-concurrency.md): группа у него своя — общий ресурс (ветка spec) только
-# у spec-publish, очередь — там.
+# у spec-publish, очередь — там. Elves — проект с пачками ("batch": true в .agents/elves.json, эпик #645): PR в ветку пачки
+# batch/… гоняет лёгкий набор — job batch, полный набор (tests) — PR в main, выпуск пачки среди них, и сам main
+# (skills/spec/ci.md, «Batches»).
 name: CI
 
 on:
@@ -14,7 +16,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # PR в ветку пачки — проверки перед коммитом в чистом окружении: типы, стандарты, тесты, что импортируют изменённое;
+  # остальное (test:slow, тесты, что берут код не импортом, spec:doc) видит PR выпуска в main
+  batch:
+    if: startsWith(github.base_ref, 'batch/')
+    runs-on: ubuntu-latest
+    env:
+      BASE: origin/${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # ветка пачки с историей: с ней сравнивают --changed и spec-diff
+      - uses: oven-sh/setup-bun@v2
+      # затронутые тесты под Node и в zsh — как в tests
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
+      - name: zsh
+        run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test:spec
+      - run: bun run test --changed="$BASE" # файлы тестов, что импортируют изменённый PR файл; не затронуто ничего — зелёный
+      - name: Дифф спеки в summary
+        run: bun run spec:diff --base "$BASE" --full >> "$GITHUB_STEP_SUMMARY" # без отчёта прогона: имена — по исходникам
+
   tests:
+    if: ${{ !startsWith(github.base_ref, 'batch/') }} # полный набор: PR в main, выпуск пачки среди них, и main
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
