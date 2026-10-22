@@ -643,8 +643,13 @@ comes out as an `○` line (a label is needed — set it by hand). A decision wh
 name belongs to a slice label (module `web` and the app label `web`) — also an
 `○` line: a slice label isn't set as a decision label. It labels the tasks from
 "Closes #N" (the PR–task link; right after the PR is created GitHub hasn't set
-it yet — the tasks from the PR body's keywords as GitHub understands them; none
-at all — an error), creates a missing label with the kind's color; it doesn't
+it yet — the PR's tasks by the one rule of the script: the task branch's number
+and the PR body's keywords as GitHub understands them, so a fix PR into a batch
+with `Refs #N` labels its task by the branch; none at all — an error). A
+batch's release PR (the batch branch into the default one) — an `○` line, no
+labels (#650): its tasks got theirs from their PRs into the batch, the
+release's diff would give each the whole batch's, and a red release names its
+guilty task by them. It creates a missing label with the kind's color; it doesn't
 remove an earlier label of a decision missing from the diff — an `=` line. The
 task's epic gets the same labels — the union of its subtasks; same with
 `task new --epic --labels`. GitHub puts at most 100 labels on an issue, and a
@@ -697,7 +702,11 @@ A PR into a batch branch (#649) — first the batch's release PR (REST,
 `pulls?head=<owner>:<batch>`): open — code `1` and the wait for its close
 (`wait-ci.sh issue <R>`: a subagent — a regular call with `--timeout 540`, a
 session — a background command), then `premerge` again: a merge into the batch
-now would change what the release's CI checked; merged — code `1` and the
+now would change what the release's CI checked. Open and red with the PR of
+one of its tasks (the task branch or `Closes #N` — the release's `Closes #N`)
+— the guilty task's fix (#650): an `○` line, the check goes on as usual; a
+live executor's PR (its task isn't in the release) and any PR while the
+release is green or running — held, as above. Merged — code `1` and the
 move: `gh pr edit <N> --base <T>`, a rebase onto `origin/<T>` (the batch's
 commits are there already, rebased, with other SHAs — GitHub's rebase merge
 would replay them), `push --force-with-lease`, `ci-wait`, `premerge` again.
@@ -965,7 +974,15 @@ merged into the batch without an open PR of it isn't a live executor. With
 live executors — the owner's word «release», the same command; `Next:` names
 it once something is merged. The release PR open — ready tasks are held (`○ …
 ready, held`), no new executors till its merge: a merge into the batch now
-would change what the release's CI checked. Released — its release PR merged,
+would change what the release's CI checked. Red (#650) — `Next:` names the
+guilty task by the labels and its fix, with its executor's prompt (one text
+with `batch release`, below); not named by the labels — `batch release` names
+it (the bisect is its). The assignment of a task in a red open release —
+the fix's (`--assignment`, `--session`): the release PR and its failed
+checks, a new task branch `fix/<N>-<slug>` from `origin/<batch>`, not the
+task's earlier branch (rebase-merged into the batch already, so no restart
+line), the commits and the PR body with `Refs #N`; `--cloud` — refused: a
+cloud executor isn't in the batch. Released — its release PR merged,
 the branch maybe still on origin — the next batch starts only with a ready
 task to hand out (`○ no new batch branch` otherwise): a dispatcher that is
 done leaves no empty batch branch on origin, and the marker drops the batch
@@ -988,7 +1005,7 @@ nothing merged — a refusal. The batch branch is rebased onto a fresh
 in `main` after the hotfixes that went past the batch; on it already — no
 rebase (`=`); a conflict — a `!` line with the files, the branch unchanged, no
 PR, code 1: rebase it by hand in the checkout, then `batch release` again (a
-red release — the guilty task fixes it in the batch, #650). The committer —
+red release — the guilty task fixes it in the batch, below). The committer —
 the machine's git identity, none (CI) — `elves`. The PR into the default
 branch: the title — a conventional commit by the heaviest task type (`feat`,
 `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`) and
@@ -1002,7 +1019,8 @@ not in the release, the executors go on (question 2 of epic #645), their `pr
 premerge` holds the merge till the release, then moves the PR. The release PR
 already open — `=` and its steps again, no second PR; merged — the closing
 steps. `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
-`gh pr merge <R> --rebase`; after the merge — a dispatcher that goes on runs
+`gh pr merge <R> --rebase` (FAIL — `batch release` again: a red release,
+below); after the merge — a dispatcher that goes on runs
 `task queue` at once (the next batch from the merged default branch, the live
 executors' PRs go into it), one that stops doesn't (they go into the default
 branch); then `wait-ci.sh merged <R>` where the merge deploys and `task close
@@ -1010,6 +1028,37 @@ N` of each task of the batch — GitHub closed them by `Closes`, close writes
 the actual and Done and removes the branches (`task close` below). The
 release's CI and deploy waits are the session's that ran it, not the batch
 tasks' (question 5 of the epic).
+
+A red release (#650; question 3 of the epic — fixed in the batch, not
+reverted): the full set runs first on the release, so its red names the
+guilty task, and the release PR stays open — the other tasks wait for it, no
+new executors (`task queue` holds them, `pr premerge` — their PRs). The
+release's checks — `checkStates` of its head (REST), as `task show` and
+`ci-wait` read them: `fail` or `cancel` — red, one running or none yet — the
+steps above. Red — a `!` line with the checks and the guilty task: the
+release's only task; otherwise the files the failed GitHub Actions jobs' logs
+name (a failure line of Bun, Vitest, Jest, Playwright or its file header
+above it, a compiler error) — their decisions by the rule of `pr labels`
+against the decision labels of the release's tasks (`Closes #N` of the
+release): one task holds them — it; none or several — a bisect on the machine
+(question 1 of the task: in CI a push into the batch branch starts no run,
+and a run per step there is the full set). The bisect: the batch's commits
+over its merge-base with `origin/<base>` in blocks by `Refs #N` of the
+release's tasks (a commit without one — the block before it), a temporary
+worktree (always removed), dependencies by its lockfile, the check — the
+failed test files that exist at the commit by the project's `test` script, a
+compiler error — `typecheck`, neither named — the failed checks named like a
+script (the scripts go through `slot`); first the head (green on the machine —
+the red isn't reproduced, nobody is blamed) and the base (red — not the
+batch's), then ⌈log₂N⌉ runs — the first red block's task. Not named — a `!`
+line why, the dispatcher names it by the logs or asks the owner. `Next:` —
+the guilty task's executor (continued with `SendMessage`, none alive — a new
+one) with its prompt: its assignment is the fix's (`task queue`, above), its
+PR into the batch with `Refs #N` on the light set, `pr premerge` lets it
+through the open red release; after its merge — the full run again on the
+same release PR: `batch release` prints its steps, no second PR. A fix PR of
+a release task open into the batch — an `○` line and the wait for it, no
+bisect.
 
 ### task drop
 
