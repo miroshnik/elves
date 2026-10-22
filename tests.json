@@ -3778,6 +3778,55 @@
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
   "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "актуализация эпика видит PR, влитый в ветку пачки, и blocked by до выпуска не снимает"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "блокер, влитый в ветку пачки, не держит задачу той же пачки; блокер вне пачки держит"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "в проекте без пачек очередь и задания — как раньше"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "задание исполнителя ведёт ветку задачи от ветки пачки и PR в неё"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "задача, влитая в ветку пачки, — `=` в очереди, task close её до выпуска не закрывает"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "облачный исполнитель в проекте с пачками — PR в main, как раньше"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "первый запуск создаёт ветку пачки от origin/main, следующий берёт ту же"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
    "task queue убирает worktree исполнителей закрытых задач"
   ],
   "name": "task queue не убирает чистый worktree исполнителя, чья выданная задача открыта"
@@ -9109,6 +9158,13 @@
   "describes": [
    "Тонкий проект сверяется с версией пакета и обновляется в задаче сессии"
   ],
+  "name": "`install` и `update` сохраняют `batch` в `.agents/elves.json`"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "Тонкий проект сверяется с версией пакета и обновляется в задаче сессии"
+  ],
   "name": "`install` и `update` сохраняют `env` в `.agents/elves.json`"
  },
  {
@@ -11983,7 +12039,35 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название queue.batchLead скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.batchRefresh скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.batchWait скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название queue.cloud скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.cloudBatch скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -12096,6 +12180,20 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.session скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionBatchLead скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.sessionBatchWait скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -17852,6 +17950,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "skills/github/reference.md: skills/github/reference.md, «What is checked» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "skills/github/reference.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",

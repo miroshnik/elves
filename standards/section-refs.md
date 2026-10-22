@@ -36,7 +36,7 @@
 
 ## Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 154 теста</summary>
+<details><summary>✅ 155 тестов</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -130,6 +130,7 @@
 - ✅ skills/github/reference.md: skills/github/reference.md, «Milestones — sets of tasks» — есть такой раздел
 - ✅ skills/github/reference.md: skills/github/reference.md, «Project (GitHub Projects)» — есть такой раздел
 - ✅ skills/github/reference.md: skills/github/reference.md, «What is checked» — есть такой раздел
+- ✅ skills/github/reference.md: skills/spec/ci.md, «Batches — the light set on a PR into a batch branch» — есть такой раздел
 - ✅ skills/github/scripts/github.ts: AGENTS.md, «Project knowledge and handoff» — есть такой раздел
 - ✅ skills/github/scripts/github.ts: AGENTS.md, «Session and branch» — есть такой раздел
 - ✅ skills/github/scripts/github.ts: AGENTS.md, «Task tracking» — есть такой раздел
