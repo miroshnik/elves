@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task show` (not `gh issue view`) and `task answer` (not `gh issue edit`); `task status`, `task drop`; `task actualize` and `task close` after a merge; `task queue` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
+description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task show` (not `gh issue view`) and `task answer` (not `gh issue edit`); `task status`, `task drop`; `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
 allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-url *)
 ---
 
@@ -9,9 +9,8 @@ allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-
 Principles — `AGENTS.md`, "Task tracking"; the full rules (types,
 decision labels, epics, dependencies, the project, milestones, the five
 epic-refresh checks) and what each command below checks, sets and prints —
-`reference.md` next to this file. By hand, projects drift apart and tasks
-lack a status, priority or epic link.
-The script `scripts/github.ts` next to this file checks the project
+`reference.md` next to this file.
+The script `scripts/github.ts` checks the project
 against the canon, fixes what the API can, and does each task step in one
 command; the agent goes through the UI steps and asks for confirmation on
 anything destructive. Syntax and a summary of a command —
@@ -20,8 +19,7 @@ milestones — `reference.md`, "Manual commands".
 
 **In Claude Code — at once a separate unsandboxed call**
 (`dangerouslyDisableSandbox`): `gh` fails on TLS in the sandbox, `task close`
-also calls Docker for the task's stacks — the sandbox denies its socket, and
-no `excludedCommands` entry takes a script run by `bun` out
+also calls Docker for the task's stacks — the sandbox denies its socket
 (`claude/CLAUDE.md`; `SKILL.md` of the task-env skill, "Checked on the machine").
 
 ## Project — check and fix
@@ -71,6 +69,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task close <N> [--no-git]
 bun --no-env-file <skill dir>/scripts/github.ts task resume
 bun --no-env-file <skill dir>/scripts/github.ts task queue [--epic N] [--type Task|Bug] [--priority Urgent,High]
 bun --no-env-file <skill dir>/scripts/github.ts task queue --assignment <N>
+bun --no-env-file <skill dir>/scripts/github.ts batch release
 bun --no-env-file <skill dir>/scripts/github.ts pr labels <PR>
 bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 ```
@@ -154,7 +153,9 @@ owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
 (`"batch": true` in `.agents/elves.json`) — executors merge into the
-dispatcher's batch branch, not `main` (`reference.md`, "task queue"). Before each launch — `get_usage`: the 5-hour limit at 85% and more —
+dispatcher's batch branch, not `main` (`reference.md`, "task queue"); the
+batch goes into `main` by `batch release` — once the queue's `Next:` names it
+or on the owner's «release». Before each launch — `get_usage`: the 5-hour limit at 85% and more —
 no new executors, the running ones finish, then `Remaining: N tasks, the
 limit`. After each executor's answer — `task queue` again: it alone
 removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:
