@@ -836,7 +836,15 @@ task. `task status` doesn't pin a handed-out task; `est` gives a subagent with
 executor's answer leaves the task not ready either: merged closes it, a question
 waits for the owner, waits for subagents — the same executor answers again,
 failed isn't restarted; after the app restarts the executor
-is continued, "task resume"). The assignment: the task by the canon in auto mode, a
+is continued, "task resume"). The assignment: the task by the canon, in the
+project's mode (`"auto"` in `.agents/elves.json` of the checkout, #667) — an auto
+project like a session in auto mode; outside auto the executor merged on green
+checks too, and the owner learned of a merge he hadn't said «yes» to from the
+dispatcher afterwards: "do the epic" is the work's scope, not a «yes» to each
+merge — so commits, push into the task branch, PR, CI and `pr premerge` by
+itself, then the answer «question: merge PR #N?» with the premerge result, and
+on the owner's «yes» the dispatcher forwards — `pr premerge` again, the merge
+and the steps after it (the queue's `Next:` names this wait); a
 restart line only for an In progress task with a branch `*/N-*` in the
 checkout or on its origin (it names the branch; the branch checked out in
 another worktree — work there, in Claude Code `EnterWorktree` with its path,
@@ -887,7 +895,8 @@ executors, the running ones finish, then `Remaining: N tasks, the limit`. An
 answer arrives as the subagent's notification; after each — `task queue`
 again. A question — to the owner in text; the answer — ✅ in the task's
 questions section and to the same executor with `SendMessage` (its context is
-intact). Waits for subagents — no restart: its subagents' answers wake it, and it
+intact); a merge question outside auto — the owner's «yes» to the same
+executor, the merge is its. Waits for subagents — no restart: its subagents' answers wake it, and it
 answers again. Failed — a comment in the task with what stopped, no restart; the
 owner's restart — the refused assignment's «waits for the previous executor» —
 wait for the previous executor's answer, not a third executor; failed
@@ -928,8 +937,9 @@ A cloud executor (claude.ai/code, #609) — `--assignment N --cloud`, called by
 the dispatcher itself: the brief,
 the cloud session's first prompt as is — whole, `task queue` refuses in
 the cloud; `#` only at its task (`docs/cloud-sessions.md`, "The
-brief"); after the merge — the cloud's close, without messaging the
-dispatcher or archiving its session. The hand-out — without a worktree
+brief"); outside auto it asks the owner for the merge in its session (#667:
+it can't message the dispatcher); after the merge — the cloud's close,
+without messaging the dispatcher or archiving its session. The hand-out — without a worktree
 (`@cloud`). A cloud session can't message a local one, so `Next:` gives the
 dispatcher the wait for the task's closing — `wait-ci.sh issue N` as a
 background command; PASS — `task close N`, then archiving the executor's
@@ -1019,7 +1029,8 @@ not in the release, the executors go on (question 2 of epic #645), their `pr
 premerge` holds the merge till the release, then moves the PR. The release PR
 already open — `=` and its steps again, no second PR; merged — the closing
 steps. `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
-`gh pr merge <R> --rebase` (FAIL — `batch release` again: a red release,
+`gh pr merge <R> --rebase` — outside auto on the owner's «yes» (#667), as an
+executor's merge (FAIL — `batch release` again: a red release,
 below); after the merge — a dispatcher that goes on runs
 `task queue` at once (the next batch from the merged default branch, the live
 executors' PRs go into it), one that stops doesn't (they go into the default
