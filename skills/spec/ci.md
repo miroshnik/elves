@@ -288,91 +288,62 @@ and Node; `test` — the project's script over `bun test`):
   takes them (`.spec-report-*.xml` in its `path`): the next run's durations
   are every shard's report.
 
-## Batches — the light set on a PR into a batch branch
+## Batches — no CI on a PR into a batch branch
 
 A dispatcher may release its tasks as one batch (#645): executors branch off
 the batch branch `batch/<YYYY-MM-DD>-<k>` and open their PRs into it, the
-batch reaches `main` by one release PR. The full set — shards, `spec`,
-`spec-diff` with the reports — is needed once, on what goes into `main`: the
-release PR and `main` itself. A PR into the batch branch gets the light set in
-one job — what the agent runs before a commit (`docs/testing.md`, "Run and
-result"), only in a clean environment; the jobs of the full set get an `if:`,
+batch reaches `main` by one release PR. CI runs once per batch, on what goes
+into `main`: the release PR and `main` itself. A PR into the batch branch
+starts no workflow (#676): its gate is the checks the executor runs before a
+commit (`docs/testing.md`, "Run and result") and `github pr premerge` — the
+fast checks on the merge with a batch branch that moved on. `on:` leaves the
+batch branch out, the jobs of the full set have no condition on the base,
 their steps don't change:
 
 ```yaml
-jobs:
-  batch: # a PR into a batch branch — the checks before a commit, in a clean environment
-    if: startsWith(github.base_ref, 'batch/')
-    runs-on: ubuntu-latest
-    env:
-      BASE: origin/${{ github.base_ref }}
-    steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # the batch branch with history: --changed, --only-changed and spec-diff compare with it
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
-      - uses: oven-sh/setup-bun@v2 # package.json checks go through slot under Bun; spec-diff
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test:spec
-      - run: pnpm test --changed="$BASE" --passWithNoTests # the test files that import a file the PR changed
-      - run: pnpm exec playwright install --with-deps
-      - run: pnpm exec playwright test --only-changed="$BASE" --pass-with-no-tests # the changed specs and what they import
-      - run: bun --no-env-file node_modules/.bin/elves spec-diff --base "$BASE" --full >> "$GITHUB_STEP_SUMMARY" # names by the sources
+on:
+  pull_request:
+    branches-ignore: ['batch/**'] # a PR into a batch branch — no run: the checks before a commit and pr premerge
+  push:
+    branches: [main] # a merge into the batch branch starts nothing either
 
-  test-spec:
-    if: ${{ !startsWith(github.base_ref, 'batch/') }} # the full set: a PR into main, the release among them, and main
+jobs:
+  test-spec: # the full set: a PR into main, the release among them, and main
     # … the steps as above
   unit:
-    if: ${{ !startsWith(github.base_ref, 'batch/') }}
     # …
   e2e:
-    if: ${{ !startsWith(github.base_ref, 'batch/') }}
     # …
 ```
 
-- **The choice is by the PR's base** (`github.base_ref`) with an `if:` on the
-  jobs, not with `branches` or `paths` in `on:`: a workflow that `on:`
-  filtered out doesn't run and reports no checks — a required check waits as
-  "Expected" and the PR doesn't merge; a job skipped by `if:` reports
-  "skipped", and a required check counts it as passed (`ci-wait` doesn't wait
-  for it either). `spec` and `spec-diff` need the skipped jobs and are
-  skipped with them, `spec-publish` runs only on `main`.
-- **The condition is "not a batch", not "the base is `main`"**: any other PR —
-  a session outside the dispatcher, a hotfix, a stack — and `main` itself get
-  the full set, as before; on `push`, `github.base_ref` is empty.
-- **No run on the batch branch itself**: `on.push` stays `main` only — a merge
-  into the batch branch starts nothing, the batch is checked whole by its
-  release PR. A PR into the batch branch is in the same `concurrency` group as
-  any PR — by its number (`docs/ci-concurrency.md`).
-- **What the light set doesn't see, the release does**: tests that reach the
-  code not by an import (a script run as a process, a file read from disk,
-  an app behind its server — the agent runs them by path before the commit),
-  e2e of unchanged specs that open changed app code, `test:slow`. Such a red
-  shows up on the release PR, not on the task's PR (the guilty task is fixed
-  in the batch, #650).
-- **`spec-diff` — without the runner report.** The light job has no report,
-  and `spec-diff` runs without `--report`: the names come from the sources at
-  the two revisions (the base is the merge-base with the batch branch), as in
-  the agent's own `spec-diff` for the PR body — removed, changed and added
-  tests, a move into the tree, the decisions outside test names (the model,
-  exceptions, harness checks: a new registry or rule is visible). Not in the
-  lists — the tests only a run names: the items a harness check generates
-  (`invariant`, `examples`, `deadCode`), the `spec-claims` report, a name not
-  computable statically (a line in stderr). They are missing on both sides, so
-  they don't show up as "removed" either; the release PR's `spec-diff` with
-  the reports and the `spec` branch as the base names them for the whole
-  batch.
-- No Playwright — no browser install and no `--only-changed` step. `bun test`
-  — `bun run test --changed="$BASE"` (nothing affected passes by itself),
-  Jest — `--changedSince="$BASE"`.
+- **Why no run**: the executor has run the checks before a commit on the
+  same code, `pr premerge` — the fast ones on the merge with the batch
+  branch; the same set a second time in CI catches nothing new and only holds
+  the executor's slot while it waits for the run.
+- **What only the release sees**: tests that reach the code not by an import
+  (a script run as a process, a file read from disk, an app behind its
+  server — the agent runs them by path before the commit), e2e of unchanged
+  specs that open changed app code, `test:slow`. Such a red shows up on the
+  release PR; the guilty task fixes it in the batch (#650).
+- **`branches-ignore`, not `branches: [main]`**: any other PR — a session
+  outside the dispatcher, a hotfix, a stack — gets the full set, as before.
+- **Required checks — on the default branch only** (the `elves` ruleset of
+  `github project fix` is on `~DEFAULT_BRANCH`): a workflow that `on:`
+  filtered out reports no checks, and a ruleset with required checks on all
+  branches (`~ALL`) would hold a PR into the batch branch as "Expected" — it
+  never merges.
+- **`concurrency` — as any PR's**: the release PR is in its group by its
+  number (`docs/ci-concurrency.md`).
+- **The task PR's spec diff is the agent's**: its body is `spec-diff` output
+  against the batch branch, the names by the sources; the release PR's
+  `spec-diff` with the reports and the `spec` branch as the base names the
+  whole batch, the items only a run names among them.
 - **`elves check` holds a batch project to it** (`"batch": true` in
-  `.agents/elves.json`, an Elves clone too): a `❌` line and exit code 1 for a workflow whose
-  `on.pull_request` `branches` or `branches-ignore` filter out a batch branch,
-  and for `.github/workflows/*.yml` with no job under
-  `if: startsWith(github.base_ref, 'batch/')`.
+  `.agents/elves.json`, an Elves clone too): a `❌` line and exit code 1 for
+  a workflow of `.github/workflows/*.y(a)ml` that runs on a PR into a batch
+  branch — `on.pull_request` without a branch filter or with one that lets
+  `batch/…` in; a paths filter or `types` without `synchronize` — `❌` too,
+  it may run.
 
 ## No CI on `main` — publishing on PR merge
 

@@ -104,13 +104,8 @@ describe("Шаг, который ставит пакеты из сети, огр
     name: (s) => `${s.key} ограничен по времени`,
     check: throwing(stepViolation),
     violator: { name: "шаг zsh прогона PR #662", item: installSteps("ci.yml", `jobs:\n  tests:\n    timeout-minutes: 20\n    steps:\n${ZSH_662}`)[0]! },
-    // оба набора — лёгкий и полный: шаг под псевдонимом, выпавший из разбора, ушёл бы из реестра молча
-    includes: [
-      `${CI} jobs.batch «zsh»`,
-      `${CI} jobs.tests «zsh»`,
-      `${CI} jobs.batch «bun install --frozen-lockfile»`,
-      `${CI} jobs.tests «bun install --frozen-lockfile»`,
-    ],
+    // шаги окружения полного набора: выпавший из разбора ушёл бы из реестра молча
+    includes: [`${CI} jobs.tests «zsh»`, `${CI} jobs.tests «bun install --frozen-lockfile»`],
   });
 
   describe("примеры", () => {
@@ -151,24 +146,11 @@ describe("Каждая job ограничена по времени: завис�
     name: (j) => `${j.key} ограничена по времени`,
     check: throwing(jobViolation),
     violator: { name: "job tests прогона PR #662", item: jobItems("ci.yml", "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n")[0]! },
-    includes: [`${CI} jobs.batch`, `${CI} jobs.tests`, `${CI} jobs.spec-publish`, `${WORKFLOWS}/npm.yml jobs.publish`],
+    includes: [`${CI} jobs.tests`, `${CI} jobs.spec-publish`, `${WORKFLOWS}/npm.yml jobs.publish`],
   });
 
   it("пример: job без предела — ошибка с файлом и job", () => {
     const [j] = jobItems("ci.yml", "jobs:\n  tests:\n    steps:\n      - run: bun test\n");
     expect(jobViolation(j!)).toBe("ci.yml jobs.tests — без timeout-minutes: зависший шаг держит прогон до 6 часов, предела GitHub по умолчанию");
-  });
-});
-
-describe("Лёгкий и полный набор CI идут в одном окружении", () => {
-  it("job batch и tests ставят его одними шагами — до bun install включительно", () => {
-    const jobs = jobsOf(read(CI));
-    const setup = (job: string): Step[] => {
-      const steps = jobs[job]?.steps ?? [];
-      const i = steps.findIndex((s) => /\bbun install\b/.test(s.run ?? ""));
-      if (i < 0) throw new Error(`${CI} jobs.${job}: нет шага bun install — окружение не с чем сравнить`);
-      return steps.slice(0, i + 1);
-    };
-    expect(setup("batch")).toEqual(setup("tests"));
   });
 });

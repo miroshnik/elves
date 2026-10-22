@@ -57,10 +57,10 @@
  * with the task-env skill's command (`composeCheck`): a violation is a mismatch too, `update` doesn't fix it; so is a
  * project with standards or architecture without a `test:spec` script — `check` names the lines (`specScript`); a
  * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them; a project with
- * batches whose CI can't run the light set on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`). The
- * project's checks — the `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the
- * machine queue, the slot skill (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue
- * variables to tasks, it warns with a ready-made line (`turboEnv`).
+ * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`). The project's checks — the
+ * `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the machine queue, the slot skill
+ * (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue variables to tasks, it warns
+ * with a ready-made line (`turboEnv`).
  *
  * A copy on the machine without `--link` and a project's package version follow Elves releases — tags vYYYY.MM.DD — not
  * main: the bunx package from main is only a launcher — it finds the latest release and restarts from it by SHA
@@ -242,8 +242,8 @@ elves check --hook
 
 Whether the install is behind, changes nothing: 0 — up to date, 1 — behind, the project's git ignores flow files, its
 compose file breaks task isolation, standards and architecture have no test:spec script or the CI of a project (an
-Elves clone too) with "batch": true can't run the light set — on.pull_request filters out a batch branch or no job has the light set's if:
-(ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
+Elves clone too) with "batch": true runs a workflow on a PR into a batch branch — on.pull_request lets a batch branch in,
+its gate is the checks before a commit and pr premerge (ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
 mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
@@ -2207,12 +2207,10 @@ function specScript(root: string): { lines: string[]; missing: boolean } {
   return { lines: [`${lead}; put in "scripts" — test without them, they don't run twice: ${spec}, ${filtered}`], missing: true };
 }
 
-/** Where the light set's form is: the spec skill on the machine (`install -g`). */
+/** Where a batch project's CI is described: the spec skill on the machine (`install -g`). */
 const BATCHES_DOC = "~/.agents/skills/spec/ci.md, «Batches»";
 /** A batch branch for a workflow's `on.pull_request` filter — the name `task queue` gives (the github skill). */
 const BATCH_SAMPLE = "batch/2026-01-01-1";
-/** The light set's job condition (`BATCHES_DOC`); with `!` before it — a job of the full set. */
-const LIGHT_JOB = /(!\s*)?startsWith\(\s*github\.base_ref\s*,\s*'batch\/'\s*\)/g;
 
 /**
  * Whether a workflow gets a run on a PR into `base`, by its `on:` (tests/standards/pr-workflow-run): `yes`, `no` or
@@ -2221,9 +2219,10 @@ const LIGHT_JOB = /(!\s*)?startsWith\(\s*github\.base_ref\s*,\s*'batch\/'\s*\)/g
  * base it filters out gets no run whatever the diff. Its patterns — GitHub's filter pattern cheat sheet: in order, `!`
  * at the start drops what the earlier ones took, a later pattern takes it back; `*` — anything but `/`, `**` — anything,
  * `?`, `+` and `[…]` — as in a regex; a pattern that isn't one takes nothing. Then a paths filter and `types` without
- * `synchronize` — `unknown`. What follows from the answer is the reader's: `batchCi` — a `❌` line on `no` into a batch
- * branch. A copy — PR_RUN in skills/ci-wait/scripts/wait-ci.sh (`ci-wait pr` waits on `yes`): ci-wait and the
- * installer don't import each other (tests/standards/skill-imports), both answer by one table.
+ * `synchronize` — `unknown`. What follows from the answer is the reader's: `batchCi` — a `❌` line on `yes` and on
+ * `unknown` into a batch branch (a PR into it starts no workflow). A copy — PR_RUN in skills/ci-wait/scripts/wait-ci.sh
+ * (`ci-wait pr` waits on `yes`): ci-wait and the installer don't import each other (tests/standards/skill-imports),
+ * both answer by one table.
  */
 export function prRun(on: unknown, base: string): "yes" | "no" | "unknown" {
   const list = (v: unknown) => [v].flat();
@@ -2257,8 +2256,8 @@ export function prRun(on: unknown, base: string): "yes" | "no" | "unknown" {
   return "yes";
 }
 
-/** A workflow's triggers and jobs (`Bun.YAML`); not YAML — null: GitHub doesn't run it. */
-function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
+/** A workflow's triggers (`Bun.YAML`); not YAML — null: GitHub doesn't run it. */
+function workflowOf(text: string): { on?: unknown } | null {
   try {
     const wf: unknown = Bun.YAML.parse(text);
     return wf && typeof wf === "object" ? wf : null;
@@ -2269,14 +2268,14 @@ function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
 
 /**
  * A batch project's CI (`"batch": true` in the manifest, epic #645; `batchProject` of the locale module — the same
- * answer as `task queue`'s): a PR into the batch branch runs the light set —
- * without it a batch saves nothing (`BATCHES_DOC`). A mismatch update doesn't fix, as the compose file and
- * `test:spec`: a `❌` line per workflow whose `on.pull_request` filters out a batch branch — that PR gets no run, a
- * required check waits as "Expected"; and one if no job of `.github/workflows/*.y(a)ml` has the light set's condition —
- * the task PRs run the full set. Whether a PR into a batch branch gets a run — `prRun`'s answer; its `no` for a
- * workflow without a branch filter on `pull_request` (push only, `pull_request_target`) isn't a batch matter — it runs
- * on no task PR anyway. A workflow that doesn't parse runs nothing on GitHub either — no jobs. Not a batch project — CI
- * isn't read.
+ * answer as `task queue`'s), a thin project's and an Elves clone's alike (#672): a PR into the batch branch starts no
+ * workflow (#676) — its gate is the checks the executor
+ * runs before a commit and `pr premerge`, the full CI is the release PR's and `main`'s (`BATCHES_DOC`); a run on every
+ * task PR repeats what the executor ran and holds its slot. A mismatch update doesn't fix, as the compose file and
+ * `test:spec`: a `❌` line per workflow of `.github/workflows/*.y(a)ml` that by `prRun` runs on a PR into a batch
+ * branch — `yes`, or `unknown` (a paths filter, `types` without `synchronize`): it may run, the line says so. `no` —
+ * no line: a branch filter that leaves the batch branch out, push only, `pull_request_target`. A workflow that doesn't
+ * parse runs nothing on GitHub either. Not a batch project — CI isn't read.
  */
 function batchCi(root: string): { lines: string[]; missing: boolean } {
   if (!locale.batchProject(root)) return { lines: [], missing: false };
@@ -2285,26 +2284,15 @@ function batchCi(root: string): { lines: string[]; missing: boolean } {
   try {
     files = readdirSync(path.join(root, dir)).filter((f) => /\.ya?ml$/.test(f)).sort();
   } catch {
-    // no workflows — no light job either
+    // no workflows — nothing runs on a PR into a batch branch
   }
   const lines: string[] = [];
-  let light = false;
   for (const f of files) {
-    const wf = workflowOf(readFileSync(path.join(root, dir, f), "utf8"));
-    const on = wf?.on;
-    const pr = on && typeof on === "object" && !Array.isArray(on) ? (on as Record<string, unknown>).pull_request : undefined;
-    const filter = pr && typeof pr === "object" ? (pr as Record<string, unknown>) : {};
-    const key = ["branches", "branches-ignore"].find((k) => Object.hasOwn(filter, k));
-    if (key && prRun(on, BATCH_SAMPLE) === "no") {
-      lines.push(`  ❌ ${dir}/${f}: on.pull_request.${key} ${[filter[key] ?? []].flat().join(", ")} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})`);
-    }
-    const jobs = wf?.jobs && typeof wf.jobs === "object" ? Object.values(wf.jobs) : [];
-    light ||= jobs.some((j) => {
-      const cond: unknown = (j as { if?: unknown } | null)?.if;
-      return typeof cond === "string" && [...cond.matchAll(LIGHT_JOB)].some((m) => !m[1]);
-    });
+    const run = prRun(workflowOf(readFileSync(path.join(root, dir, f), "utf8"))?.on, BATCH_SAMPLE);
+    if (run === "no") continue;
+    const how = run === "yes" ? "runs" : "may run (by the PR's diff or event)";
+    lines.push(`  ❌ ${dir}/${f}: on.pull_request ${how} on a PR into a batch branch — its gate is the checks before a commit and pr premerge, the full CI is the release's; add branches-ignore: ['batch/**'] (${BATCHES_DOC})`);
   }
-  if (!light) lines.push(`  ❌ ${dir}: no job with if: startsWith(github.base_ref, 'batch/') — a PR into a batch branch runs the full set, the batch saves nothing; the light job — ${BATCHES_DOC}`);
   return { lines, missing: lines.length > 0 };
 }
 
@@ -2427,7 +2415,7 @@ function check(global: boolean): Result {
   const compose = global ? { lines: [], violations: false } : composeCheck(root);
   // standards without test:spec — a mismatch update doesn't add either
   const spec = global ? { lines: [], missing: false } : specScript(root);
-  // a batch project's CI without the light set — a mismatch update doesn't fix either
+  // a batch project's CI that runs on a PR into a batch branch — a mismatch update doesn't fix either
   const batch = global ? { lines: [], missing: false } : batchCi(root);
   const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...(global ? [] : cloudLines(root)), ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");

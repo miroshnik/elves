@@ -101,6 +101,7 @@ const TABLE: { on: unknown; base: string; run: Run; why: string }[] = [
   { on: pr({ branches: [MAIN, "batch/**"] }), base: BATCH, run: "yes", why: "ветки с веткой пачки" },
   { on: pr({ branches: ["batch/*"] }), base: BATCH, run: "yes", why: "batch/* — ветка пачки без / после batch/" },
   { on: pr({ "branches-ignore": ["batch/**"] }), base: BATCH, run: "no", why: "branches-ignore с веткой пачки" },
+  { on: pr({ "branches-ignore": ["batch/**"] }), base: MAIN, run: "yes", why: "шаблон пачек: PR в main идёт" },
   // ветки: отрицание, ?, +, […] — по шпаргалке шаблонов GitHub
   { on: pr({ branches: ["**", "!release/**"] }), base: MAIN, run: "yes", why: "отрицание снимает не базовую" },
   { on: pr({ branches: ["**", "!main"] }), base: MAIN, run: "no", why: "отрицание снимает базовую" },

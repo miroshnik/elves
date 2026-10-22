@@ -2,14 +2,15 @@
 # на main — публикация docs/spec в ветку spec (в main документации нет). Ветки и PR — параллельно, устаревший прогон PR отменяется;
 # прогон main не отменяется и не вытесняется (docs/ci-concurrency.md): группа у него своя — общий ресурс (ветка spec) только
 # у spec-publish, очередь — там. Elves — проект с пачками ("batch": true в .agents/elves.json, эпик #645): PR в ветку пачки
-# batch/… гоняет лёгкий набор — job batch, полный набор (tests) — PR в main, выпуск пачки среди них, и сам main
-# (skills/spec/ci.md, «Batches»).
+# batch/… CI не запускает — его ворота — проверки перед коммитом у исполнителя и github pr premerge (docs/testing.md);
+# полный набор (tests) — PR в main, выпуск пачки среди них, и сам main (skills/spec/ci.md, «Batches»).
 name: CI
 
 on:
   pull_request:
+    branches-ignore: ['batch/**'] # PR в ветку пачки — без прогона: проверки перед коммитом и pr premerge
   push:
-    branches: [main]
+    branches: [main] # мерж в ветку пачки тоже ничего не запускает
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
@@ -18,33 +19,22 @@ concurrency:
 # Пределы времени (tests/standards/ci-timeouts): у каждой job — с запасом к обычному прогону, у шага, что ставит пакеты
 # из сети, — свой; без них GitHub держит зависшую job до 6 часов, а ci-wait агента ждёт её всё это время (#674).
 jobs:
-  # PR в ветку пачки — проверки перед коммитом в чистом окружении: типы, стандарты, тесты, что импортируют изменённое;
-  # остальное (test:slow, тесты, что берут код не импортом, spec:doc) видит PR выпуска в main
-  batch:
-    if: startsWith(github.base_ref, 'batch/')
+  tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # обычно 3 минуты
-    env:
-      BASE: origin/${{ github.base_ref }}
-    # Окружение — шаги до bun install — задают якоря, tests берёт их псевдонимами: лёгкий и полный набор не расходятся
-    # по Node и zsh, иначе лёгкий зелёный, а выпуск пачки красный. Ключей слияния (<<) GitHub не разбирает — якорь у шага.
+    timeout-minutes: 20 # обычно 5–6 минут
     steps:
-      - &checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # база с историей: с ней сравнивают --changed и spec-diff
-      - &setup-bun
-        uses: oven-sh/setup-bun@v2
+          fetch-depth: 0 # spec-diff: merge-base с origin/main
+      - uses: oven-sh/setup-bun@v2
       # Node проекта в тестах под Node (harness-load, spec-harness): Playwright, загрузчик Node для ESLint, node:test;
       # `.ts` без флагов Node грузит с 22.18, а версия Node в образе раннера не задана
-      - &setup-node
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       # tests/capabilities/agent-shell запускает Bash-вызов агента в настоящем zsh — оболочке Claude Code на macOS.
       # Зеркало apt раннера зависает без вывода (PR #662 — 20 минут) и бывает медленным, но живым (main после PR #693 —
       # update дольше 40 с): команда — до 120 с, три попытки, шаг — до 8 минут
-      - &zsh
-        name: zsh
+      - name: zsh
         timeout-minutes: 8
         run: |
           command -v zsh && exit 0
@@ -53,26 +43,8 @@ jobs:
             echo "::warning::zsh: попытка $attempt — apt-get упал или не уложился в 120 с"
           done
           exit 1
-      - &install
-        run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
         timeout-minutes: 5
-      - run: bun run typecheck
-      - run: bun run test:spec
-      - run: bun run test --changed="$BASE" # файлы тестов, что импортируют изменённый PR файл; не затронуто ничего — зелёный
-      - name: Дифф спеки в summary
-        run: bun run spec:diff --base "$BASE" --full >> "$GITHUB_STEP_SUMMARY" # без отчёта прогона: имена — по исходникам
-
-  tests:
-    if: ${{ !startsWith(github.base_ref, 'batch/') }} # полный набор: PR в main, выпуск пачки среди них, и main
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # обычно 5–6 минут
-    steps:
-      # окружение — то же, что у batch (якоря там)
-      - *checkout
-      - *setup-bun
-      - *setup-node
-      - *zsh
-      - *install
       - run: bun run typecheck
       - run: bun run spec:doc
       - if: github.event_name == 'push'
