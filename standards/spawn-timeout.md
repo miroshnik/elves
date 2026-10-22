@@ -17,7 +17,7 @@ preload действует только на первый файл прогон�
 
 ## Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT
 
-<details><summary>✅ 48 тестов</summary>
+<details><summary>✅ 49 тестов</summary>
 
 - ✅ реестр «тесты Elves, которые запускают процессы» не пуст
 - ✅ нарушитель не проходит: файл с node:child_process без таймаута
@@ -63,6 +63,7 @@ preload действует только на первый файл прогон�
 - ✅ tests/standards/no-env-file/no-env-file.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/standards/old-name/old-name.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/standards/package-manager/package-manager.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
+- ✅ tests/standards/pr-workflow-run/pr-workflow-run.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/standards/project-manifest/project-manifest.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/standards/readme/readme.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/standards/spec-publish-job/spec-publish-job.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)

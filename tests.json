@@ -361,6 +361,13 @@
   "describes": [
    "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
   ],
+  "name": "workflow на PR (ветки с отрицанием, пускающие базовую) ждут: PASS — только с его прогоном и чеками"
+ },
+ {
+  "path": "tests/capabilities/ci-wait/ci-wait.test.ts",
+  "describes": [
+   "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
+  ],
   "name": "workflow на PR (ветки, пускающие базовую) ждут: PASS — только с его прогоном и чеками"
  },
  {
@@ -403,7 +410,7 @@
   "describes": [
    "Прогон Actions, не ставший чеком, — не PASS: workflow не разобран, не стартовал или не дал прогона на PR"
   ],
-  "name": "workflow, который на PR может не пойти (отрицание в ветках), не ждут — PASS по остальным чекам"
+  "name": "workflow, который на PR может не пойти (отрицание снимает базовую), не ждут — PASS по остальным чекам"
  },
  {
   "path": "tests/capabilities/ci-wait/ci-wait.test.ts",
@@ -16725,6 +16732,55 @@
   "name": "реестр «скрипты флоу, которые читают поле packageManager или называют lockfile» не пуст"
  },
  {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "bin/elves.ts отвечает на «прогон workflow на PR в базу» по таблице"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "skills/ci-wait/scripts/wait-ci.sh отвечает на «прогон workflow на PR в базу» по таблице"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "нарушитель не проходит: pr_expects до стандарта: отрицание и ?, +, […] в ветках — «не решить»"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "реестр «скрипты флоу с правилом prRun / PR_RUN» находит bin/elves.ts, skills/ci-wait/scripts/wait-ci.sh"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "реестр «скрипты флоу с правилом prRun / PR_RUN» не пуст"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "таблица ловит расхождение копий до стандарта: отрицание и ?, +, […] в ветках у pr_expects"
+ },
+ {
+  "path": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts",
+  "describes": [
+   "Прогон workflow на PR в базу решает одно правило: функция установщика и копия в wait-ci.sh — по одной таблице"
+  ],
+  "name": "фильтр путей и types без synchronize — «не решить» у обеих копий"
+ },
+ {
   "path": "tests/standards/project-manifest/project-manifest.test.ts",
   "describes": [
    "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
@@ -19217,6 +19273,13 @@
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
   "name": "tests/standards/package-manager/package-manager.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
+  "name": "tests/standards/pr-workflow-run/pr-workflow-run.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
