@@ -87,7 +87,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | Another task: work outside the task, a red-main bug, a flow copy's move | `task new`, then the question to the owner «queue #N?»; "yes" — its executor at once, the same as a dispatcher's (`task new` and `task status` in a session with a task print its prompt) |
 | Won't do, duplicate, replaced by others | `task drop N [--duplicate-of M]` |
 | PR ready (and after new commits) | `pr labels <PR>` — decision labels for the task and the epic |
-| PR's CI green (`ci-wait` PASS), before `gh pr merge` | `pr premerge <PR>` — a separate call; code `0` — merge, `3` — `main` is red: don't merge, wait for the bug |
+| PR's CI green (`ci-wait` PASS), before `gh pr merge` | `pr premerge <PR>` — a separate call; its codes — below |
 
 What the agent gets wrong without the details (all of them — `reference.md`,
 "Task and PR commands"):
@@ -152,8 +152,9 @@ tasks, each with an indented line — its executor's prompt. In Claude Code: an 
 is; at most 3 subagents and 5 cloud sessions at once, the
 owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
-`=` — a task in work (In progress, an open PR, handed out to an executor of
-this session), not launched again. Before each launch — `get_usage`: the 5-hour limit at 85% and more —
+`=` — a task in work, its line says why, not launched again. A batch project
+(`"batch": true` in `.agents/elves.json`) — executors merge into the
+dispatcher's batch branch, not `main` (`reference.md`, "task queue"). Before each launch — `get_usage`: the 5-hour limit at 85% and more —
 no new executors, the running ones finish, then `Remaining: N tasks, the
 limit`. After each executor's answer — `task queue` again: it alone
 removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:

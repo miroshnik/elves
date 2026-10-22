@@ -3174,6 +3174,204 @@ describe("task queue раздаёт задачи эпика или фильтр�
 });
 
 /**
+ * Пачка (эпик #645): диспетчер проекта с `"batch": true` собирает задачи своей группы в ветку пачки — исполнители
+ * ветвятся от неё и вливают в неё на лёгком наборе CI, а полный прогон и деплой — один на пачку, у её выпуска. Задача,
+ * влитая в пачку, до выпуска открыта и «В работе» (вопрос 1 эпика); GitHub не связывает с задачей PR не в ветку по
+ * умолчанию, поэтому PR пачки скрипт находит сам — по ветке задачи и «Closes #N».
+ */
+describe("task queue собирает задачи диспетчера в ветку пачки", () => {
+  const OTHER_SESSION = "5e1d0c9a-2b7f-4c3e-8a6d-1f0e9b8c7a65";
+  /** День в имени ветки пачки — по часам машины, как у скрипта. */
+  const day = () => {
+    const d = new Date();
+    const two = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+  };
+  const created = (r: { out: string }) => Number(/^Created #(\d+)/.exec(r.out)![1]);
+  const subtask = (f: FakeGitHub, title: string, ...more: string[]) => created(task(f, ["new", "--branch-type", "feat", "--title", title, "--epic", "45", ...more]));
+  /** Строки вывода без промптов исполнителей (у них отступ). */
+  const heads = (out: string) => out.split("\n").filter((l) => !l.startsWith("  "));
+  const marker = (config: string, id = SESSION) => path.join(config, "dispatchers", id);
+  /** Папка проекта диспетчера — чекаут на main с origin репозитория; `batch` — настройка проекта в .agents/elves.json. */
+  function project(batch: boolean) {
+    const c = checkout("fix/49-x", { merged: false });
+    temp.push(c.cleanup);
+    git(c.work, "switch", "-q", "main");
+    writeTree(c.work, { ".agents/elves.json": JSON.stringify({ language: "ru", ...(batch ? { batch: true } : {}) }) + "\n" });
+    return c.work;
+  }
+  /** Каталог с языком проекта, но не чекаут: задание исполнителя не ищет веток задачи. */
+  const projectDir = () => {
+    const dir = scratch();
+    writeTree(dir, { ".agents/elves.json": '{ "language": "ru" }\n' });
+    return dir;
+  };
+  /** Маркер диспетчера с веткой пачки — как его оставляет очередь проекта с пачками. */
+  function batchSession(branch: string): string {
+    const config = scratch();
+    writeTree(config, { [`dispatchers/${SESSION}`]: `bun --no-env-file github.ts task queue --epic 45 --repo ${REPO}\nbatch ${REPO} ${branch}\n` });
+    return config;
+  }
+  const remoteBatches = (work: string) =>
+    git(work, "ls-remote", "--heads", "origin")
+      .split("\n")
+      .map((l) => l.split("\t")[1] ?? "")
+      .filter((r) => r.startsWith("refs/heads/batch/"))
+      .map((r) => r.slice("refs/heads/".length));
+  const queueIn = (f: FakeGitHub, work: string, config: string, id = SESSION) => task(f, ["queue", "--epic", "45"], REPO, { ...inSession(config, id), cwd: work, run: noEst });
+  /** PR задачи, влитый в ветку пачки: GitHub его с задачей не связывает — только ветка и «Closes #N» в теле. */
+  const batchPr = (number: number, head: string, base: string) => ({ files: [], closes: [], body: `Closes #${number}`, head, base, model: null, merged: true });
+
+  it("первый запуск создаёт ветку пачки от origin/main, следующий берёт ту же", () => {
+    const work = project(true);
+    const f = new FakeGitHub(REC);
+    f.status(47, "Бэклог");
+    const config = scratch();
+    const name = `batch/${day()}-1`;
+    const main = git(work, "rev-parse", "origin/main");
+    const first = queueIn(f, work, config);
+    expect(first.code).toBe(0);
+    expect(first.out.split("\n")[0]).toBe(`+ batch branch ${name} from origin/main (${main.slice(0, 7)}) pushed: the executors branch from it and merge into it`);
+    expect(git(work, "ls-remote", "--heads", "origin", name)).toBe(`${main}\trefs/heads/${name}`);
+    // ветка — только на origin: чекаут диспетчера остаётся на своей ветке
+    expect(git(work, "branch", "--show-current")).toBe("main");
+    expect(git(work, "branch", "--list", "batch/*")).toBe("");
+    expect(readFileSync(marker(config), "utf8")).toEndWith(` task queue --epic 45 --repo ${REPO}\nbatch ${REPO} ${name}\n`);
+    // main ушёл вперёд — следующий запуск берёт ту же ветку, а не заводит новую
+    gitRepo(work, { init: false }).commit({ "b.txt": "b\n" }, "next");
+    git(work, "push", "-q", "origin", "main");
+    const second = queueIn(f, work, config);
+    expect(second.out.split("\n")[0]).toBe(`○ batch branch ${name} — the dispatcher's batch: the executors branch from it and merge into it`);
+    expect(remoteBatches(work)).toEqual([name]);
+    // перезапуск приложения: очередь — первой строкой маркера, строка пачки в команду не попадает
+    expect(task(f, ["resume"], REPO, inSession(config)).out.split("\n")[0]).toMatch(/re-read the queue: bun --no-env-file \S+github\.ts task queue --epic 45 --repo miroshnik\/elves — their tasks stay = in it$/);
+    // другой диспетчер в тот же день — следующий номер
+    expect(queueIn(f, work, scratch(), OTHER_SESSION).out.split("\n")[0]).toStartWith(`+ batch branch batch/${day()}-2 from origin/main`);
+    // пачку выпустили, её ветку удалили — продолжающий диспетчер заводит новую от свежего main
+    git(work, "push", "-q", "origin", "--delete", name);
+    const third = queueIn(f, work, config);
+    expect(third.out.split("\n")[0]).toBe(
+      `+ batch branch batch/${day()}-3 from origin/main (${git(work, "rev-parse", "origin/main").slice(0, 7)}) pushed — ${name} is gone from origin (released): the executors branch from it and merge into it`,
+    );
+  });
+
+  it("задание исполнителя ведёт ветку задачи от ветки пачки и PR в неё", () => {
+    const name = `batch/${day()}-1`;
+    const config = batchSession(name);
+    const f = new FakeGitHub(REC);
+    const lines = task(f, ["queue", "--assignment", "47"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
+    expect(lines[0]).toStartWith(`Задача #47 «${f.issue(47).title}» в ${REPO} (эпик #45): ты исполнитель сессии-диспетчера, задача идёт в пачку \`${name}\` — `);
+    expect(lines[0]).toContain(`ветка от свежего origin/${name}, а не от main (\`git fetch origin ${name}\`, затем ветка задачи на \`origin/${name}\`)`);
+    expect(lines[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`), зелёный CI, \`pr premerge\`, мерж, актуализация эпика.`);
+    expect(lines[0]).toEndWith("Деплоя и `task close` нет: задача — «В работе» до выпуска пачки, его делает диспетчер.");
+    // после мержа в пачку ждать нечего: полный прогон и деплой — у выпуска
+    const wait = lines.find((l) => l.startsWith("- CI жди"))!;
+    expect(wait).toContain("pr <PR> --timeout 540");
+    expect(wait).not.toContain("merged <PR>");
+    const refresh = lines.find((l) => l.startsWith("- актуализация эпика"))!;
+    expect(refresh).toContain("`task close` не зови — задачу, влитую в пачку, он не закрывает;");
+    expect(lines.filter((l) => l.includes("task close 47") && !l.includes("без PR"))).toEqual([]);
+    expect(lines.at(-1)).toStartWith("Ответ диспетчеру — одной строкой: `влито #<PR>`");
+    // сессия-исполнитель приложения — то же: ветка от пачки, PR в неё, без деплоя
+    const session = task(f, ["queue", "--assignment", "47", "--session"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
+    expect(session[0]).toContain(`ты сессия-исполнитель сессии-диспетчера, задача идёт в пачку \`${name}\``);
+    expect(session[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`)`);
+    expect(session.find((l) => l.startsWith("- CI жди фоновой командой"))).not.toContain("merged <PR>");
+    // пачка — репозитория диспетчера: задача другого проекта идёт в свой main
+    const other = task(new FakeGitHub(asOrg(REC)), ["queue", "--assignment", "47", "--session"], ORG, { ...inSession(config), cwd: projectDir() }).out.split("\n");
+    expect(other[0]).toContain("ветка от свежего origin/main, код и тесты, PR, зелёный CI");
+  });
+
+  it("блокер, влитый в ветку пачки, не держит задачу той же пачки; блокер вне пачки держит", () => {
+    const work = project(true);
+    const f = new FakeGitHub(REC);
+    const config = scratch();
+    queueIn(f, work, config);
+    const name = `batch/${day()}-1`;
+    f.status(47, "В работе");
+    const inside = subtask(f, "Ждёт влитую в пачку", "--blocked-by", "47");
+    const outside = subtask(f, "Ждёт влитую в другую пачку", "--blocked-by", "49");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    f.prs[301] = batchPr(49, "fix/49-x", "batch/2026-10-01-1");
+    const lines = heads(queueIn(f, work, config).out);
+    expect(lines).toContain(`+ #${inside} «GitHub · Ждёт влитую в пачку»`);
+    expect(lines).toContain(`○ #${outside} «GitHub · Ждёт влитую в другую пачку» — blocked by #49`);
+  });
+
+  it("в проекте без пачек очередь и задания — как раньше", () => {
+    const work = project(false);
+    const f = new FakeGitHub(REC);
+    f.status(47, "Бэклог");
+    const blocked = subtask(f, "Ждёт влитую в ветку пачки", "--blocked-by", "49");
+    f.prs[301] = batchPr(49, "fix/49-x", `batch/${day()}-1`);
+    const config = scratch();
+    const r = queueIn(f, work, config);
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n")[0]).toStartWith("Queue miroshnik/elves (epic #45): ");
+    expect(heads(r.out)).toContain(`○ #${blocked} «GitHub · Ждёт влитую в ветку пачки» — blocked by #49`);
+    expect(remoteBatches(work)).toEqual([]);
+    expect(readFileSync(marker(config), "utf8")).toMatch(/^bun --no-env-file \S+ task queue --epic 45 --repo miroshnik\/elves\n$/);
+    const lead = task(f, ["queue", "--assignment", "47"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n")[0];
+    expect(lead).toContain("ветка от свежего origin/main, код и тесты, PR, зелёный CI, `pr premerge`, мерж, деплой, актуализация эпика");
+    expect(lead).not.toContain("пачк");
+  });
+
+  it("задача, влитая в ветку пачки, — `=` в очереди, task close её до выпуска не закрывает", () => {
+    const work = project(true);
+    const f = new FakeGitHub(REC);
+    const config = scratch();
+    queueIn(f, work, config);
+    const name = `batch/${day()}-1`;
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    const merged = `PR #300 merged into ${name} — the task closes with the batch's release`;
+    // «В работе» до выпуска; статус сбили — влитая в пачку задача всё равно не готова: второй исполнитель сделал бы её заново
+    f.status(47, "В работе");
+    expect(heads(queueIn(f, work, config).out)).toContain(`= #47 «${f.issue(47).title}» — «В работе», ${merged}`);
+    f.status(47, "Бэклог");
+    expect(heads(queueIn(f, work, config).out)).toContain(`= #47 «${f.issue(47).title}» — ${merged}`);
+    const close = task(f, ["close", "47", "--no-git"], REPO, { run: noEst, cwd: work });
+    expect(close.code).toBe(2);
+    expect(close.err).toBe(
+      `error: #47 is too early to close: PR #300 merged into ${name}, not into main — the task closes with the batch's release (Closes #47 in the release PR); till then it stays «В работе»`,
+    );
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+    expect(f.issue(47).state).toBe("OPEN");
+  });
+
+  it("актуализация эпика видит PR, влитый в ветку пачки, и blocked by до выпуска не снимает", () => {
+    const f = new FakeGitHub(REC);
+    const name = `batch/${day()}-1`;
+    f.prs[300] = { ...batchPr(47, "feat/47-export", name), files: ["skills/github/scripts/github.ts"] };
+    // задача той же пачки её blocked by не ждёт (task queue), а вне пачки — ждёт до выпуска: связь остаётся
+    subtask(f, "Ждёт влитую в пачку", "--blocked-by", "47");
+    const r = task(f, ["actualize", "47"], REPO);
+    expect(r.code).toBe(0);
+    expect(byOp(f, "RemoveBlockedBy")).toEqual([]);
+    const assignment = task(f, ["actualize", "47", "--assignment"], REPO).out;
+    expect(assignment).toContain(`Выкачено: #47 «${f.issue(47).title}», PR #300 (\`gh pr view 300\`, \`gh pr diff 300\`).`);
+    expect(assignment).toContain("Файлы PR #300:\n- skills/github/scripts/github.ts");
+    // задача без эпика: строка после актуализации не зовёт task close — задача закроется выпуском пачки
+    const lone =created(task(f, ["new", "--branch-type", "feat", "--title", "Без эпика"]));
+    f.prs[301] = batchPr(lone, `feat/${lone}-x`, name);
+    expect(task(f, ["actualize", String(lone)], REPO).out).toBe(`○ refresh not needed: #${lone} has no epic. Next: no task close — #${lone} is merged into ${name}: it closes with the batch's release.`);
+  });
+
+  it("облачный исполнитель в проекте с пачками — PR в main, как раньше", () => {
+    const name = `batch/${day()}-1`;
+    const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", "--cloud"], REPO, { ...inSession(batchSession(name)), cwd: projectDir() });
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines[0]).toEndWith("код и тесты, PR, зелёный CI, мерж, деплой.");
+    expect(lines[1]).toBe(
+      `- PR — в ветку по умолчанию с полным CI, а не в ветку пачки диспетчера \`${name}\`: диспетчер узнаёт о твоём конце только по закрытию задачи, а мерж в пачку её не закрывает;`,
+    );
+    // `#` в брифе — только у его задачи (docs/cloud-sessions.md, «The brief»)
+    expect([...lines.slice(0, -1).join("\n").matchAll(/#(\d+)/g)].map((m) => m[1])).toEqual(["47"]);
+    expect(lines.at(-1)).toContain(`a cloud executor isn't in the batch ${name} — its PR goes into the default branch with the full CI: the dispatcher learns of its end only by the task's closing; `);
+  });
+});
+
+/**
  * Исполнитель диспетчера убрать свой worktree не может — он в нём работает, а `task close` ставит его на origin/main
  * (#515). В пилоте #471 диспетчер 16 раз проверял `git status` и убирал worktree руками, ещё 4 worktree с ветками
  * `worktree-agent-*` оставили субагенты исполнителя. Их убирает следующий `task queue` диспетчера — только worktree

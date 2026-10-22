@@ -1885,6 +1885,96 @@ function handOutsIn(file: string, slug: string): HandOut[] {
     .filter((h) => Number.isInteger(h.number) && h.number > 0);
 }
 
+/**
+ * A batch branch (epic #645): the dispatcher's tasks merge into it, and it goes into the default branch with one release
+ * — one full CI run and one deploy. `batch/<YYYY-MM-DD>-<k>` (question 4 of the epic): `release/*` is taken in git-flow
+ * projects and gets mixed up with the flow's releases.
+ */
+const BATCH_BRANCH = /^batch\/(\d{4}-\d{2}-\d{2})-(\d+)$/;
+const isBatchBranch = (branch: string) => BATCH_BRANCH.test(branch);
+
+/**
+ * Whether the project releases its dispatcher's tasks in batches — `"batch": true` in `.agents/elves.json` of the
+ * checkout's root (question 6 of the epic): a project setting, not the owner's word on a run — without the light set in
+ * the project's CI a batch saves nothing. No manifest, a broken one, no field — no batches.
+ */
+function batchProject(io: Io): boolean {
+  const file = path.join(locale.projectRoot(io.cwd ?? process.cwd()), ".agents", "elves.json");
+  try {
+    return JSON.parse(readFileSync(file, "utf8"))?.batch === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The dispatcher's batch branches — the marker's lines `batch <owner/repo> <branch>` after the queue command
+ * (`dispatcherFile`): the queue writes them, the executors' assignments read them — a subagent shares the session's id.
+ * No marker — none.
+ */
+function batchesIn(file: string | null): { repo: string; branch: string }[] {
+  if (!file || !existsSync(file)) return [];
+  return readFileSync(file, "utf8")
+    .split("\n")
+    .map((l) => /^batch (\S+\/\S+) (\S+)$/.exec(l.trim()))
+    .filter((m): m is RegExpExecArray => m !== null && isBatchBranch(m[2]!))
+    .map((m) => ({ repo: m[1]!, branch: m[2]! }));
+}
+
+/** The repository's batch branch in this dispatcher session; none — null. */
+function batchOf(io: Io, slug: string): string | null {
+  return batchesIn(dispatcherFile(io)).find((b) => b.repo.toLowerCase() === slug.toLowerCase())?.branch ?? null;
+}
+
+/** The queue command of the dispatcher marker — its first line; the batch lines follow it. */
+const queueCommandIn = (file: string) => readFileSync(file, "utf8").split("\n")[0]!.trim();
+
+/** Today by the machine's clock — `YYYY-MM-DD`, the day of a batch branch's name. */
+function localDay(): string {
+  const d = new Date();
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
+/**
+ * The dispatcher's batch branch of the repository (epic #645). The first queue of a batch project (`batchProject`)
+ * creates it from a fresh origin/<base> and pushes it without a local branch — the dispatcher's checkout stays where it
+ * is; `k` — the first free number of the day on origin and in the marker. The next queues take the same one: the marker
+ * keeps it (`batchesIn`). Gone from origin — released (#649) or deleted: a new one, the `+` line names the previous one.
+ * Not a batch project — null, no line; the session not identified, the directory not the repository's checkout — a
+ * `○`/`!` line and null: the executors go into the default branch, as without batches. Origin not read — the kept one
+ * stays (a `!` line): a new batch next to it would split the dispatcher's tasks; a new one not created — null.
+ */
+function dispatcherBatch(io: Io, slug: string, base: string, file: string | null): string | null {
+  if (!batchProject(io)) return null;
+  const off = `executors go into ${base}, as without batches`;
+  if (!file) return io.out(`○ batch: true, but the session isn't recognized (no CLAUDE_CODE_SESSION_ID) — no batch branch: ${off}`), null;
+  if (!checkoutOfRepo(io, originUrl(io), slug)) {
+    return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in the project folder`), null;
+  }
+  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
+  const why = (r: RunResult) => r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`;
+  const failed = (what: string, r: RunResult) => (io.out(`! ${what}: ${why(r)} — no batch branch: ${off}`), null);
+  const kept = batchOf(io, slug);
+  const listed = git("ls-remote", "--heads", "origin");
+  if (listed.status !== 0) return kept ? (io.out(`! git ls-remote --heads origin: ${why(listed)} — the batch branch stays ${kept}`), kept) : failed("git ls-remote --heads origin", listed);
+  const heads = listed.stdout.split("\n").map((l) => (l.split("\t")[1] ?? "").trim().replace(/^refs\/heads\//, ""));
+  if (kept && heads.includes(kept)) return io.out(`○ batch branch ${kept} — the dispatcher's batch: the executors branch from it and merge into it`), kept;
+  const fetched = git("fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
+  if (fetched.status !== 0) return failed(`git fetch origin ${base}`, fetched);
+  const parsed = git("rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`);
+  // an empty source of a refspec deletes the ref — the push goes only with the commit's SHA
+  const sha = parsed.status === 0 ? parsed.stdout.trim() : "";
+  if (!/^[0-9a-f]{40,64}$/.test(sha)) return failed(`git rev-parse origin/${base}`, parsed);
+  const day = localDay();
+  const taken = [...heads, kept ?? ""].map((b) => BATCH_BRANCH.exec(b)).flatMap((m) => (m && m[1] === day ? [Number(m[2])] : []));
+  const name = `batch/${day}-${Math.max(0, ...taken) + 1}`;
+  const pushed = git("push", "-q", "origin", `${sha}:refs/heads/${name}`);
+  if (pushed.status !== 0) return failed(`git push origin ${name}`, pushed);
+  io.out(`+ batch branch ${name} from origin/${base} (${sha.slice(0, 7)}) pushed${kept ? ` — ${kept} is gone from origin (released)` : ""}: the executors branch from it and merge into it`);
+  return name;
+}
+
 /** A path without symbolic links (`/var` → `/private/var` on macOS) — a worktree's and a hand-out's compare so; gone — as is. */
 function realPath(p: string): string {
   try {
@@ -2518,9 +2608,13 @@ function executorPrompt(slug: string, number: number, epic: number | null): stri
 
 /**
  * A cloud executor's brief and the dispatcher's steps after it (`task queue --assignment N --cloud`, #609). The brief —
- * without local paths and `#` but at its task: numbers in the title and the epic go without it.
+ * without local paths and `#` but at its task: numbers in the title and the epic go without it. A batch project (#648,
+ * question 1 of the task) — the cloud executor isn't in the batch: its PR goes into the default branch with the full CI,
+ * as before, the brief and `Next:` say so. A cloud session can't message a local one, the dispatcher learns of its end
+ * only by the task's closing, and GitHub closes a task only by a merge into the default branch — in a batch the task
+ * stays open till the release, and the wait would never end.
  */
-function cloudBrief(io: Io, slug: string, issue: Issue): void {
+function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null): void {
   const number = issue.number;
   const vars = {
     task: N.subagentPrompt.task,
@@ -2531,10 +2625,13 @@ function cloudBrief(io: Io, slug: string, issue: Issue): void {
     actual: N.est.cloud.actual.replace(/:$/, ""),
     state: N.comments.state,
     questions: N.sections.questions,
+    batch: batch ?? "",
   };
-  for (const line of [N.queue.cloud, N.queue.cloudDoc, N.queue.repeats, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion]) io.out(locale.fill(line, vars));
+  const lines = [N.queue.cloud, ...(batch ? [N.queue.cloudBatch] : []), N.queue.cloudDoc, N.queue.repeats, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion];
+  for (const line of lines) io.out(locale.fill(line, vars));
   io.out(
     `Next: the lines above — the cloud session's first prompt as is, the session started from the project folder (the cloud starts from main); ` +
+      (batch ? `a cloud executor isn't in the batch ${batch} — its PR goes into the default branch with the full CI: the dispatcher learns of its end only by the task's closing; ` : "") +
       `then as a background command: bash ${waitCi()} issue ${number} — a cloud session can't message a local one (docs/cloud-sessions.md), the task's closing is the signal: ` +
       `PASS — bun --no-env-file ${import.meta.path} task close ${number} (the actual with --write, ${STATUS}, the merged branch), then archive the executor's session in an auto project where the agent has the tool; ` +
       `TIMEOUT — the task's ${q(N.sections.questions)} and its ${q(N.comments.state)} comment, the executor's session, then the same wait again`,
@@ -2557,11 +2654,33 @@ const SESSION_ARCHIVE =
  * A task's open PR: linked to it by GitHub, or one of the repository's recent ones by the task branch or `Closes #N` in
  * its body. The queue's «=» (the executor waits for its CI) and the epic refresh's «already going» (#636).
  */
-function openPrOf(io: Io, slug: string): (i: Issue) => number | undefined {
+function openPrOf(io: Io, slug: string, recent: Recent = recentPrs(io, slug)): (i: Issue) => number | undefined {
+  const open = recent.nodes.filter((p) => p.state === "OPEN");
+  return (i) => i.prs.find((p) => p.state === "OPEN")?.number ?? open.find((p) => prOfTask(p, i.number))?.number;
+}
+
+/** The repository's latest open and merged PRs (`Q.RecentPrs`, newest first) and its default branch. */
+interface Recent {
+  base: string;
+  nodes: Any[];
+}
+
+function recentPrs(io: Io, slug: string): Recent {
   const [owner, name] = slug.split("/");
-  const recent = (graphql(io, Q.RecentPrs, { owner, name })?.repository?.pullRequests?.nodes ?? []).filter((p: Any) => p.state === "OPEN");
-  return (i) =>
-    i.prs.find((p) => p.state === "OPEN")?.number ?? recent.find((p: Any) => isTaskBranch(p.headRefName ?? "", i.number) || closingInBody(p.body ?? "").includes(i.number))?.number;
+  const r = graphql(io, Q.RecentPrs, { owner, name })?.repository;
+  return { base: r?.defaultBranchRef?.name ?? "main", nodes: (r?.pullRequests?.nodes ?? []).filter(Boolean) };
+}
+
+/** A recent PR is the task's: its branch is the task branch, or its body has «Closes #N». */
+const prOfTask = (p: Any, number: number) => isTaskBranch(p.headRefName ?? "", number) || closingInBody(p.body ?? "").includes(number);
+
+/**
+ * The task's PR merged into the batch branch (#648): a linked one, or among the recent ones by the task branch and
+ * «Closes #N» — GitHub links a PR to a task only by a merge into the default branch. None — undefined.
+ */
+function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Issue["prs"]) => number | undefined {
+  const merged = recent.nodes.filter((p) => p.merged && p.baseRefName === batch);
+  return (number, linked = []) => linked.find((p) => p.merged && p.base === batch)?.number ?? merged.find((p) => prOfTask(p, number))?.number;
 }
 
 /**
@@ -2571,7 +2690,9 @@ function openPrOf(io: Io, slug: string): (i: Issue) => number | undefined {
  * in work. Ready — open, not an epic, not in work, no open blockers (other repositories' too), no external blocker
  * label; order — Priority, then the number. In work (`=`) — "In progress", an open PR (linked, or by the task branch and
  * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`).
- * Marks the session as a dispatcher (`dispatcherFile`). Before the queue — finished agents' worktrees
+ * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
+ * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
+ * doesn't hold. Before the queue — finished agents' worktrees
  * (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those a subagent still works in.
  * The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
  */
@@ -2594,7 +2715,21 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     if (found.length >= 100) io.out("○ the search gave 100 open tasks — the queue sees only them: narrow it with --epic");
     numbers = found.filter((x) => x?.state === "OPEN").map((x) => x.number);
   }
-  const openPr = openPrOf(io, slug);
+  const recent = recentPrs(io, slug);
+  const openPr = openPrOf(io, slug, recent);
+  const args = [o.epic !== undefined && `--epic ${o.epic}`, o.type !== undefined && `--type ${o.type}`, o.priority?.length && `--priority ${o.priority.join(",")}`].filter(Boolean).join(" ");
+  const file = dispatcherFile(io);
+  // the batch branch before the readiness: a blocker merged into it doesn't hold a task of the same batch (#648)
+  const batch = dispatcherBatch(io, slug, recent.base, file);
+  const inBatch = batch === null ? null : batchPrOf(recent, batch);
+  if (file) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
+    writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
+    // the batch lines after the queue command: other repositories' stay, this one's — the current batch
+    const batches = [...batchesIn(file).filter((b) => b.repo.toLowerCase() !== slug.toLowerCase()), ...(batch ? [{ repo: slug, branch: batch }] : [])];
+    writeFileSync(file, `bun --no-env-file ${import.meta.path} task queue ${args ? `${args} ` : ""}--repo ${slug}\n${batches.map((b) => `batch ${b.repo} ${b.branch}\n`).join("")}`);
+  } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
   const handed = handedOut(io, slug);
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
@@ -2620,7 +2755,13 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     // the task is in work: In progress, an open PR (the executor waits for its CI — #513: it was ○ and the dispatcher
     // lost it from both lists), or handed out to an executor of this session that hasn't set In progress yet
     const pr = openPr(i);
-    const work = [status === N.status.inProgress ? q(N.status.inProgress) : "", pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`].filter(Boolean);
+    // merged into the batch branch (question 1 of epic #645): open and In progress till the release — not given out again
+    const merged = inBatch?.(i.number, i.prs);
+    const work = [
+      status === N.status.inProgress ? q(N.status.inProgress) : "",
+      pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`,
+      merged === undefined ? "" : `PR #${merged} merged into ${batch} — the task closes with the batch's release`,
+    ].filter(Boolean);
     const hand = handed.find((h) => h.number === i.number);
     // a cloud executor's wait for the task's closing dies with the app's process: the line names it, task resume — the queue
     if (!work.length && hand?.executor === "cloud") work.push(`handed out to a cloud executor of this session, its wait — a background command: bash ${waitCi()} issue ${i.number}`);
@@ -2631,7 +2772,10 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       running.push(`= ${label} — ${work.join(", ")}`);
       continue;
     }
-    const blockers = i.blockers.filter((b) => b.state === "OPEN").map((b) => blockerRef(slug, b));
+    // a blocker merged into this batch's branch doesn't hold its task: the executor branches from the batch (#648); a
+    // blocker outside it — merged into another batch or not merged — holds, as without batches
+    const batched = (b: Blocker) => inBatch !== null && b.repo.toLowerCase() === slug.toLowerCase() && inBatch(b.number) !== undefined;
+    const blockers = i.blockers.filter((b) => b.state === "OPEN" && !batched(b)).map((b) => blockerRef(slug, b));
     const external = i.labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l));
     if (status === N.status.done) waiting.push(`○ ${label} — ${STATUS} ${q(status)}, but the task is open`);
     else if (blockers.length) waiting.push(`○ ${label} — blocked by ${blockers.join(", ")}`);
@@ -2639,14 +2783,6 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     else ready.push(i);
   }
   ready.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
-  const args = [o.epic !== undefined && `--epic ${o.epic}`, o.type !== undefined && `--type ${o.type}`, o.priority?.length && `--priority ${o.priority.join(",")}`].filter(Boolean).join(" ");
-  const file = dispatcherFile(io);
-  if (file) {
-    mkdirSync(path.dirname(file), { recursive: true });
-    // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
-    writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-    writeFileSync(file, `bun --no-env-file ${import.meta.path} task queue ${args ? `${args} ` : ""}--repo ${slug}\n`);
-  } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
   appWorktreeWarning(io);
   // the executor the dispatcher continues with SendMessage — an answered question, a restart — has no lock (#533)
   const executors = handed.flatMap((h) => (h.worktree === null ? [] : [{ number: h.number, worktree: realPath(h.worktree) }]));
@@ -3035,7 +3171,10 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     const where = o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree;
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
-  if (o.cloud) return cloudBrief(io, slug, issue), 0;
+  // the dispatcher's batch of the repository (#648): the task branch from it, the PR into it, the task open till the
+  // release; the session's own task isn't the batch's — it goes into the default branch, as a session outside a dispatcher
+  const batch = own?.slug === slug && own.number === number ? null : batchOf(io, slug);
+  if (o.cloud) return cloudBrief(io, slug, issue, batch), 0;
   const restart = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress ? taskBranchesHere(io, slug, number) : [];
   const vars = {
     task: N.subagentPrompt.task,
@@ -3051,12 +3190,28 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     branches: restart.map((b) => `\`${b}\``).join(", "),
     doneQuestions: N.lastLine.questions,
     remaining: N.lastLine.remaining,
+    batch: batch ?? "",
   };
   const resume = restart.length ? [N.queue.resume] : [];
-  // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's wait
+  // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's
+  // wait; in a batch — the lead, the wait and the refresh without the deploy and `task close`: they are the release's
   const lines = o.session
-    ? [N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
-    : [N.queue.lead, ...resume, N.queue.subagent, N.queue.session, N.queue.wait, N.queue.git, N.queue.subagents, N.queue.live, N.queue.refresh, N.queue.repeats, N.queue.found, N.queue.question, N.queue.answer];
+    ? [batch ? N.queue.sessionBatchLead : N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.sessionBatchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    : [
+        batch ? N.queue.batchLead : N.queue.lead,
+        ...resume,
+        N.queue.subagent,
+        N.queue.session,
+        batch ? N.queue.batchWait : N.queue.wait,
+        N.queue.git,
+        N.queue.subagents,
+        N.queue.live,
+        batch ? N.queue.batchRefresh : N.queue.refresh,
+        N.queue.repeats,
+        N.queue.found,
+        N.queue.question,
+        N.queue.answer,
+      ];
   for (const line of lines) io.out(locale.fill(line, vars));
   if (o.session) {
     io.out(
@@ -3257,13 +3412,19 @@ const textBlock = (body: string) => (body ? `~~~~markdown\n${body}\n~~~~` : N.ac
  */
 export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assignment: boolean } = { assignment: false }): number {
   const issue = loadIssue(io, slug, number);
-  const later = `Next: task close ${number} — after the deploy, where the merge deploys.`;
-  if (!issue.parent) return io.out(`○ refresh not needed: #${number} has no epic. ${later}`), 0;
   const linked = issue.prs.filter((p) => p.merged);
-  const prs = linked.length ? linked : unlinkedPrs(io, slug, number).prs.filter((p) => p.merged);
+  const found = linked.length ? null : unlinkedPrs(io, slug, number);
+  const prs = linked.length ? linked : [...found!.prs, ...found!.batched].filter((p) => p.merged);
+  // merged only into a batch branch (#648): what shipped is in the batch, the task closes with its release; its
+  // blocked-by links stay till then — a task of the same batch isn't held by them (task queue), one outside it is
+  const released = prs.filter((p) => !isBatchBranch(p.base));
+  const later = prs.length && !released.length
+    ? `Next: no task close — #${number} is merged into ${prs[0]!.base}: it closes with the batch's release.`
+    : `Next: task close ${number} — after the deploy, where the merge deploys.`;
+  if (!issue.parent) return io.out(`○ refresh not needed: #${number} has no epic. ${later}`), 0;
   const epic = loadTaskText(io, slug, issue.parent.number);
   const open = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).map((x) => loadTaskText(io, slug, x.number));
-  if (!o.assignment) refreshMechanics(io, slug, { number, merged: prs.length > 0, epic, open });
+  if (!o.assignment) refreshMechanics(io, slug, { number, merged: released.length > 0, epic, open });
   if (!open.length) return io.out(`○ refresh not needed: epic #${epic.number} has no open tasks besides #${number}. ${later}`), 0;
   // the board with its Status (and its language) — the assignment names where a repeat finding goes (#636)
   const ctx = o.assignment ? taskContext(io, slug) : null;
@@ -3332,12 +3493,15 @@ function refreshReported(epic: TaskText, number: number): boolean {
  * any change until the subagent's report is on the epic (`refreshReported`, #571): an executor closed its task and
  * answered while its refresh subagent still worked in its worktree — the dispatcher's next queue removed the worktree,
  * and the subagent was left without a directory. Close names the three lines, one of which ends the session's answer,
- * and archiving the session in auto mode — except a session with questions for the owner.
+ * and archiving the session in auto mode — except a session with questions for the owner. A task merged only into a
+ * batch branch (#648, question 1 of epic #645) — refused before any change: it stays In progress till the release, and
+ * the generic refusal would send its executor to close the issue by hand as a task without a PR.
  */
 export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boolean }): number {
   const ctx = taskContext(io, slug);
   const issue = loadIssue(io, slug, number);
-  const linked = issue.prs.filter((p) => p.merged);
+  // a merge into a batch branch isn't the task's merge (#648): it closes with the batch's release
+  const linked = issue.prs.filter((p) => p.merged && !isBatchBranch(p.base));
   const closedNoPr = !issue.prs.length && issue.state === "CLOSED" && issue.stateReason === "COMPLETED";
   // GitHub may not link a merged PR to the task for hours: the task is open, no merged PR among the linked ones — we
   // look for the task's PR ourselves
@@ -3345,6 +3509,14 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
   const fresh = (found?.prs ?? []).filter((p) => !issue.prs.some((x) => x.number === p.number));
   const unlinked = fresh.filter((p) => p.merged);
   const merged = linked.length ? linked : unlinked;
+  const batched = merged.length ? [] : [...issue.prs, ...(found?.batched ?? [])].filter((p) => p.merged && isBatchBranch(p.base));
+  if (batched.length) {
+    const prs = [...new Set(batched.map((p) => `#${p.number}`))].join(", ");
+    throw new GhError(
+      `#${number} is too early to close: PR ${prs} merged into ${batched[0]!.base}, not into ${found?.base ?? "the default branch"} — ` +
+        `the task closes with the batch's release (Closes #${number} in the release PR); till then it stays ${q(N.status.inProgress)}`,
+    );
+  }
   if (!merged.length && !closedNoPr) {
     const prs = [...issue.prs, ...fresh].map((p) => `#${p.number} ${p.state === "OPEN" ? "open" : "closed without a merge"}`).join(", ");
     const what = prs ? `PR ${prs}` : `the task is ${issue.state === "OPEN" ? "open" : "closed without being done"}, no merged PR`;
@@ -3439,7 +3611,7 @@ export function cmdTaskResume(io: Io): number {
     io.out(
       "Dispatcher session: its executors (background subagents) stopped with the app's process, their transcripts are intact — " +
         "continue each with SendMessage by its id from the app's notification, not a new executor: it goes on with its context in its own worktree" +
-        (queued ? `; then re-read the queue: ${readFileSync(dispatcher!, "utf8").trim()} — their tasks stay = in it` : ""),
+        (queued ? `; then re-read the queue: ${queueCommandIn(dispatcher!)} — their tasks stay = in it` : ""),
     );
     io.out(
       "Dispatcher session: a new executor — only for one that can't be continued, with the same prompt; " +
@@ -3541,20 +3713,24 @@ function renameBranch(io: Io, slug: string, target: string): boolean {
 /**
  * The task's PRs that GitHub didn't link to it: among the latest open and merged PRs into the default branch — the
  * task's branch or "Closes #N" in the body (as `pr labels` does before the link appears). `why` — what it was found by.
+ * `batched` — the same into a batch branch (#648): GitHub never links those, and they don't close the task — the
+ * batch's release does.
  */
-function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs: (Issue["prs"][number] & { why: string })[] } {
-  const [owner, name] = slug.split("/");
-  const r = graphql(io, Q.RecentPrs, { owner, name })?.repository;
-  const base: string = r?.defaultBranchRef?.name ?? "main";
-  const prs: (Issue["prs"][number] & { why: string })[] = [];
-  for (const p of r?.pullRequests?.nodes ?? []) {
-    if (p.baseRefName !== base) continue;
+function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs: UnlinkedPr[]; batched: UnlinkedPr[] } {
+  const { base, nodes } = recentPrs(io, slug);
+  const prs: UnlinkedPr[] = [];
+  const batched: UnlinkedPr[] = [];
+  for (const p of nodes) {
+    const into: string = p.baseRefName ?? "";
+    if (into !== base && !isBatchBranch(into)) continue;
     const head: string = p.headRefName ?? "";
     const why = isTaskBranch(head, number) ? `branch ${head}` : closingInBody(p.body ?? "").includes(number) ? `«Closes #${number}» in the body` : null;
-    if (why) prs.push({ number: p.number, state: p.state ?? "", merged: Boolean(p.merged), head, base, why });
+    if (why) (into === base ? prs : batched).push({ number: p.number, state: p.state ?? "", merged: Boolean(p.merged), head, base: into, why });
   }
-  return { base, prs };
+  return { base, prs, batched };
 }
+
+type UnlinkedPr = Issue["prs"][number] & { why: string };
 
 /**
  * The est script next to the skill (`../est/scripts/est.ts`: the project copy, `~/.agents/skills` and the clone are
@@ -4373,7 +4549,8 @@ Right after the merge, in parallel with the deploy: the epic refresh's mechanics
 label without open questions, milestones without open tasks; a comment on the epic) and the subagent's prompt;
 --assignment (read-only, the subagent's first call) — its whole assignment: the texts of the epic and its open tasks,
 the PR files, copies of links and answers in comments, the checks by meaning; no epic or no open tasks in it —
-"refresh not needed".
+"refresh not needed". A PR merged into a batch branch (batch/*) is what shipped too, but the blocked-by links on the
+task stay till the batch's release.
 
 Examples:
   github task actualize 42
@@ -4410,7 +4587,11 @@ waits for the task's closing (ci-wait issue N, background) and closes it locally
 queue's = line names that wait. --session — printed by the dispatcher: the prompt of an app executor session
 (start_session in the folder of another project, its own worktree) — a session by its project's canon and mode, named
 by the task, waiting in the background, ending with the canon's last line — and how to start it; the hand-out has no
-worktree, the task is = in the queue.
+worktree, the task is = in the queue. A batch project ("batch": true in .agents/elves.json): the first queue pushes the
+dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), the next ones take the same (○), it is
+kept in the marker; the assignment — the task branch from it and the PR into it, no deploy and no task close, the task
+closes with the batch's release; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
+cloud executor isn't in the batch — its PR goes into the default branch.
 
 Examples:
   github task queue --epic 40
@@ -4423,7 +4604,8 @@ Examples:
 After the PR merge and the deploy (or a close without a PR) in one call: the actual (est fact --write), Status Done, the
 epic and the milestone, the task's stacks taken down with their volumes (task-env down), the merged branches removed
 (--no-git — without git). The epic has other open tasks and no report of the refresh subagent on it («Refresh after
-#N, result: …») — a refusal before any changes. A task of the scripts' own repository: before the actual the scripts'
+#N, result: …») — a refusal before any changes; so is a task merged only into a batch branch (batch/*): it closes with
+the batch's release. A task of the scripts' own repository: before the actual the scripts'
 clone catches up with origin (pull --ff-only; only on the default branch, without uncommitted changes). Docker and gh
 don't work in an agent's sandbox — run it outside.
 
