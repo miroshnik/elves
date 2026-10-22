@@ -119,7 +119,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 193 теста</summary>
+<details><summary>✅ 195 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -287,6 +287,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «outside scope» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «perimeter» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «proxy …: routes not read» из skills/dashboard/SKILL.md печатает или пишет скрипт
+- ✅ цитату «question: merge PR #N?» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «questions» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «queue #263?» из AGENTS.md печатает или пишет скрипт
 - ✅ цитату «queue #M?» из claude/CLAUDE.md печатает или пишет скрипт
@@ -308,6 +309,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «waits for the previous executor» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «working» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «workspace package \<path> is in the code roots» из skills/spec/checks.md печатает или пишет скрипт
+- ✅ цитату «yes» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «…» из skills/github/reference.md печатает или пишет скрипт
 - ✅ вне охвата: api/DATABASE_URL is declared
   > пример названия с подставленным элементом: шаблон «{name} is declared» — в en.json
@@ -323,7 +325,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ## Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 351 тест</summary>
+<details><summary>✅ 355 тестов</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -465,6 +467,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.cloudDispatcher скрипты читают из словаря
 - ✅ название queue.cloudDoc скрипты читают из словаря
 - ✅ название queue.cloudEpic скрипты читают из словаря
+- ✅ название queue.cloudModeAsk скрипты читают из словаря
 - ✅ название queue.cloudQuestion скрипты читают из словаря
 - ✅ название queue.epic скрипты читают из словаря
 - ✅ название queue.fixLead скрипты читают из словаря
@@ -473,6 +476,9 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.git скрипты читают из словаря
 - ✅ название queue.lead скрипты читают из словаря
 - ✅ название queue.live скрипты читают из словаря
+- ✅ название queue.merge скрипты читают из словаря
+- ✅ название queue.modeAsk скрипты читают из словаря
+- ✅ название queue.modeAuto скрипты читают из словаря
 - ✅ название queue.prompt скрипты читают из словаря
 - ✅ название queue.question скрипты читают из словаря
 - ✅ название queue.refresh скрипты читают из словаря

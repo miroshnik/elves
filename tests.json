@@ -4429,6 +4429,34 @@
  {
   "path": "tests/capabilities/github-task/github-task.test.ts",
   "describes": [
+   "Исполнитель диспетчера в проекте без auto мержит по «да» владельца"
+  ],
+  "name": "`batch release` в проекте без auto мержит выпуск по «да» владельца"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Исполнитель диспетчера в проекте без auto мержит по «да» владельца"
+  ],
+  "name": "`task queue` в проекте без auto сообщает диспетчеру, что мерж каждой задачи ждёт «да» владельца"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Исполнитель диспетчера в проекте без auto мержит по «да» владельца"
+  ],
+  "name": "задание исполнителя в auto-проекте мержит задачу на зелёных проверках без вопроса"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
+   "Исполнитель диспетчера в проекте без auto мержит по «да» владельца"
+  ],
+  "name": "задание исполнителя в проекте без auto останавливает его перед мержем вопросом диспетчеру"
+ },
+ {
+  "path": "tests/capabilities/github-task/github-task.test.ts",
+  "describes": [
    "Красный выпуск чинится в пачке"
   ],
   "name": "Next: очереди и шаги batch release на красном выпуске называют виновную задачу и её починку"
@@ -4655,6 +4683,13 @@
   "describes": [
    "Задача целиком без спроса — настройка проекта, по умолчанию «нет»"
   ],
+  "name": "install в клоне Elves с batch сохраняет batch в .agents/elves.json, как в тонком проекте"
+ },
+ {
+  "path": "tests/capabilities/install/install.test.ts",
+  "describes": [
+   "Задача целиком без спроса — настройка проекта, по умолчанию «нет»"
+  ],
   "name": "без терминала и без флага вопроса нет — у новой установки в .agents/elves.json auto: false"
  },
  {
@@ -4662,7 +4697,7 @@
   "describes": [
    "Задача целиком без спроса — настройка проекта, по умолчанию «нет»"
   ],
-  "name": "в клоне Elves install флоу не ставит — пишет в .agents/elves.json только auto и language: с флагом — его значение, без флага и терминала — прежнее; в .claude/settings.json — хук облачной сессии"
+  "name": "в клоне Elves install флоу не ставит — пишет в .agents/elves.json auto и language: с флагом — его значение, без флага и терминала — прежнее; в .claude/settings.json — хук облачной сессии"
  },
  {
   "path": "tests/capabilities/install/install.test.ts",
@@ -8563,6 +8598,20 @@
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
+   "check клона Elves с пачками сверяет CI, как в тонком проекте"
+  ],
+  "name": "check в клоне Elves с batch и job лёгкого набора — без ❌ по пачкам"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "check клона Elves с пачками сверяет CI, как в тонком проекте"
+  ],
+  "name": "check в клоне Elves с batch называет ❌, когда в CI нет job с if: startsWith(github.base_ref, 'batch/')"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
    "check облачной сессии называет окружение без Bun проекта и zsh — строкой с командой"
   ],
   "name": "check вне облачной сессии окружение облака не проверяет: Bun старше packageManager — без строки окружения"
@@ -10160,6 +10209,158 @@
   "name": "реестр «блоки concurrency в .github/workflows и YAML-фрагментах skills/**/*.md и docs/*.md» не пуст"
  },
  {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": ".github/workflows/ci.yml jobs.batch ограничена по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": ".github/workflows/ci.yml jobs.spec-publish ограничена по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": ".github/workflows/ci.yml jobs.tests ограничена по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": ".github/workflows/npm.yml jobs.publish ограничена по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": "нарушитель не проходит: job tests прогона PR #662"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": "пример: job без предела — ошибка с файлом и job"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": "реестр «job в .github/workflows» находит .github/workflows/ci.yml jobs.batch, .github/workflows/ci.yml jobs.tests, .github/workflows/ci.yml jobs.spec-publish, .github/workflows/npm.yml jobs.publish"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию"
+  ],
+  "name": "реестр «job в .github/workflows» не пуст"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Лёгкий и полный набор CI идут в одном окружении"
+  ],
+  "name": "job batch и tests ставят его одними шагами — до bun install включительно"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами",
+   "примеры"
+  ],
+  "name": "предел — минут больше нуля или выражение; ноль и текст — не предел"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами",
+   "примеры"
+  ],
+  "name": "сборка, тесты, публикация и проверка наличия — не установка"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами",
+   "примеры"
+  ],
+  "name": "установка — системным менеджером с опциями до команды, менеджером проекта, pip и playwright"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами",
+   "примеры"
+  ],
+  "name": "шаг без своего предела — ошибка с файлом, job и шагом, даже если предел есть у job"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами",
+   "примеры"
+  ],
+  "name": "шаг под псевдонимом якоря — шаг своей job со своим пределом; без имени — ключ по первой строке run"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": ".github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile» ограничен по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": ".github/workflows/ci.yml jobs.batch «zsh» ограничен по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": ".github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile» ограничен по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": ".github/workflows/ci.yml jobs.tests «zsh» ограничен по времени"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": "нарушитель не проходит: шаг zsh прогона PR #662"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": "реестр «шаги установки пакетов в .github/workflows» находит .github/workflows/ci.yml jobs.batch «zsh», .github/workflows/ci.yml jobs.tests «zsh», .github/workflows/ci.yml jobs.batch «bun install --frozen-lockfile», .github/workflows/ci.yml jobs.tests «bun install --frozen-lockfile»"
+ },
+ {
+  "path": "tests/standards/ci-timeouts/ci-timeouts.test.ts",
+  "describes": [
+   "Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами"
+  ],
+  "name": "реестр «шаги установки пакетов в .github/workflows» не пуст"
+ },
+ {
   "path": "tests/standards/cli-help/cli-help.test.ts",
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
@@ -10808,6 +11009,14 @@
    "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
    "примеры"
   ],
+  "name": "переменная в скобках (env[\"ELVES_CONFIG_DIR\"]) — то же правило, чисто"
+ },
+ {
+  "path": "tests/standards/config-dir/config-dir.test.ts",
+  "describes": [
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "примеры"
+  ],
   "name": "правило есть, а рядом второй путь к каталогу — нарушение со строкой"
  },
  {
@@ -10888,6 +11097,13 @@
    "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
   ],
   "name": "реестр «скрипты скиллов и установщик, которым нужен каталог личной конфигурации» не пуст"
+ },
+ {
+  "path": "tests/standards/consumer-typecheck/consumer-typecheck.test.ts",
+  "describes": [
+   "Пакет @miroshnik/elves в тайпчеке проекта"
+  ],
+  "name": "модули из exports пакета проходят тайпчек проекта-потребителя со строгими опциями"
  },
  {
   "path": "tests/standards/exception-files/exception-files.test.ts",
@@ -12263,6 +12479,13 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
+  "name": "название queue.cloudModeAsk скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
   "name": "название queue.cloudQuestion скрипты читают из словаря"
  },
  {
@@ -12313,6 +12536,27 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.live скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.merge скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.modeAsk скрипты читают из словаря"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
+  ],
+  "name": "название queue.modeAuto скрипты читают из словаря"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -14979,6 +15223,13 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
+  "name": "цитату «question: merge PR #N?» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
   "name": "цитату «questions» из skills/dashboard/SKILL.md печатает или пишет скрипт"
  },
  {
@@ -15120,6 +15371,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «workspace package <path> is in the code roots» из skills/spec/checks.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/flow-english/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «yes» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/flow-english/flow-english.test.ts",
@@ -19307,6 +19565,13 @@
   "describes": [
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
+  "name": "tests/standards/consumer-typecheck/consumer-typecheck.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
   "name": "tests/standards/fast-tests/fast-tests.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
@@ -19371,6 +19636,13 @@
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
   "name": "tests/standards/spec-publish-job/spec-publish-job.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
+  "name": "tests/standards/temp-worktree/temp-worktree.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
@@ -19564,5 +19836,76 @@
    "Ветка задачи разбирается одинаково во всех скиллах"
   ],
   "name": "таблица ловит расхождения разбора до стандарта: регистр, тип вне списка, глубокий префикс, дата"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "worktree add в skills/github/scripts/github.ts › inTempWorktree — в функции временного worktree"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "в копии до стандарта места — в bisectRelease, cmdBatchRelease и cmdPrPremerge, и каждое — нарушение"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "место — вызов git с worktree add в коде и в shell; комментарий и другие подкоманды worktree — не место"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "нарушитель не проходит: копия до стандарта в bisectRelease"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "нарушитель не проходит: копия до стандарта в cmdBatchRelease"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "нарушитель не проходит: копия до стандарта в cmdPrPremerge"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "реестр «места с worktree add в скриптах флоу» находит skills/github/scripts/github.ts › inTempWorktree"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция",
+   "скрипты флоу зовут worktree add только в ней: копия до стандарта — нарушитель"
+  ],
+  "name": "реестр «места с worktree add в скриптах флоу» не пуст"
+ },
+ {
+  "path": "tests/standards/temp-worktree/temp-worktree.test.ts",
+  "describes": [
+   "Временный worktree заводит и убирает одна функция"
+  ],
+  "name": "ошибка внутри временного worktree не оставляет его в git worktree list чекаута"
  }
 ]
