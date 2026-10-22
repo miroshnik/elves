@@ -156,30 +156,42 @@ load_required() {
   return 0
 }
 
+# Whether a workflow gets a run on a PR into $base, by its `on:` (jq pr_run($base) over the value of `on:`): "yes", "no"
+# or "unknown" — not decidable without the PR's diff and event. `pull_request` as a string, in an array, a key with
+# filters or null; `pull_request_target` runs in the base — "no". The branch filter goes first: a base it filters out
+# gets no run whatever the diff. Its patterns — GitHub's filter pattern cheat sheet: in order, `!` at the start drops
+# what the earlier ones took, a later pattern takes it back; `*` — anything but `/`, `**` — anything, `?`, `+` and `[…]`
+# — as in a regex; a pattern that isn't one takes nothing. Then a paths filter and `types` without `synchronize` —
+# "unknown". A copy — in the installer (prRun, bin/elves.ts: check of a batch project): both answer by one table,
+# tests/standards/pr-workflow-run.
+PR_RUN='def pr_run($base):
+  def list: if type == "array" then . else [.] end;
+  def takes: reduce (.[] | strings) as $p (false;
+    ($p | startswith("!")) as $neg
+    | ("^" + ($p | if $neg then .[1:] else . end
+               | gsub("(?<c>[.^$(){}|\\\\])"; "\\\(.c)")
+               | gsub("(?<s>\\*\\*?)"; if .s == "**" then ".*" else "[^/]*" end)) + "$") as $re
+    | if (try ($base | test($re)) catch false) then ($neg | not) else . end);
+  (if type == "string" or type == "array" then (if list | any(.[]; . == "pull_request") then {} else null end)
+   elif type == "object" and has("pull_request") then (.pull_request | if . == null then {} else . end)
+   else null end)
+  | if . == null then "no"
+    elif type != "object" then "unknown"
+    elif (if has("branches") then (.branches | list | takes | not)
+          else has("branches-ignore") and (.["branches-ignore"] | list | takes) end) then "no"
+    elif has("paths") or has("paths-ignore") then "unknown"
+    elif has("types") and (.types | list | any(.[]; . == "synchronize") | not) then "unknown"
+    else "yes" end;'
+
 # expected: paths of the workflows that should produce a run at the head on a PR event — by the `on:` of their files at
-# its SHA (#356). We wait for `pull_request` without filters or with branches that let the base in; a path filter, `types`
-# without `synchronize`, negation and other special characters in branches can't be decided without the PR diff — we
-# don't wait: a false TIMEOUT is worse. A file that doesn't parse — we wait: a "dummy" run will give FAIL, and a PR from a
-# fork has none at all. Active workflows only.
+# its SHA (#356). We wait for a "yes" of PR_RUN — `pull_request` without filters or with branches that let the base in,
+# negation decided by the order of the patterns (#657: not waiting for it was a PASS before the run); a "no" and an
+# "unknown" (a path filter, `types` without `synchronize`) — we don't wait: a false TIMEOUT is worse. A file that doesn't
+# parse — we wait: a "dummy" run will give FAIL, and a PR from a fork has none at all. Active workflows only.
 expected='[]'; expected_for=""; workflows=""
 pr_expects() {  # stdin — a workflow as JSON (null — not parsed); code 0 — wait for its run on a PR into branch $1
-  jq -e --arg base "$1" '
-    def list: if type == "array" then . else [.] end;
-    def rx: "^" + (split("**") | map(split("*") | map(gsub("(?<c>[.^$(){}|\\\\])"; "\\\(.c)")) | join("[^/]*")) | join(".*")) + "$";
-    def match_base: list | if any(.[]; tostring | test("[?+\\[!]")) then null else any(.[]; tostring | rx as $r | $base | test($r)) end;
-    if type != "object" then true
-    else .on
-      | if type == "string" then (if . == "pull_request" then {} else null end)
-        elif type == "array" then (if any(.[]; . == "pull_request") then {} else null end)
-        elif type == "object" and has("pull_request") then (.pull_request // {})
-        else null end
-      | if type != "object" then false
-        elif has("paths") or has("paths-ignore") then false
-        elif has("types") and (.types | list | any(.[]; . == "synchronize") | not) then false
-        elif has("branches") then (.branches | match_base) == true
-        elif has("branches-ignore") then (.["branches-ignore"] | match_base) == false
-        else true end
-    end' >/dev/null
+  jq -e --arg base "$1" "$PR_RUN"'
+    if type != "object" then true else .on | pr_run($base) == "yes" end' >/dev/null
 }
 load_expected() {  # <sha> <base>
   local list path raw doc exp='[]'

@@ -2202,23 +2202,46 @@ const BATCH_SAMPLE = "batch/2026-01-01-1";
 const LIGHT_JOB = /(!\s*)?startsWith\(\s*github\.base_ref\s*,\s*'batch\/'\s*\)/g;
 
 /**
- * Whether a GitHub Actions branch filter takes a branch: the patterns in order, `!` drops what the earlier ones took;
- * `*` — anything but `/`, `**` — anything, `?`, `+` and `[…]` — as in a regex (GitHub's filter pattern cheat sheet).
+ * Whether a workflow gets a run on a PR into `base`, by its `on:` (tests/standards/pr-workflow-run): `yes`, `no` or
+ * `unknown` — not decidable without the PR's diff and event. `pull_request` as a string, in an array, a key with
+ * filters or null; `pull_request_target` runs in the base, not on the PR's head — `no`. The branch filter goes first: a
+ * base it filters out gets no run whatever the diff. Its patterns — GitHub's filter pattern cheat sheet: in order, `!`
+ * at the start drops what the earlier ones took, a later pattern takes it back; `*` — anything but `/`, `**` — anything,
+ * `?`, `+` and `[…]` — as in a regex; a pattern that isn't one takes nothing. Then a paths filter and `types` without
+ * `synchronize` — `unknown`. What follows from the answer is the reader's: `batchCi` — a `❌` line on `no` into a batch
+ * branch. A copy — PR_RUN in skills/ci-wait/scripts/wait-ci.sh (`ci-wait pr` waits on `yes`): ci-wait and the
+ * installer don't import each other (tests/standards/skill-imports), both answer by one table.
  */
-function filterTakes(patterns: unknown[], branch: string): boolean {
-  let takes = false;
-  for (const p of patterns) {
-    if (typeof p !== "string") continue;
-    const glob = p.replace(/^!/, "");
-    let re: RegExp;
-    try {
-      re = new RegExp(`^${glob.replace(/[.^${}()|\\]/g, "\\$&").replace(/\*\*?/g, (m) => (m === "**" ? ".*" : "[^/]*"))}$`);
-    } catch {
-      continue;
+export function prRun(on: unknown, base: string): "yes" | "no" | "unknown" {
+  const list = (v: unknown) => [v].flat();
+  const takes = (patterns: unknown[]) => {
+    let taken = false;
+    for (const p of patterns) {
+      if (typeof p !== "string") continue;
+      const negated = p.startsWith("!");
+      let re: RegExp;
+      try {
+        re = new RegExp(`^${(negated ? p.slice(1) : p).replace(/[.^$(){}|\\]/g, "\\$&").replace(/\*\*?/g, (m) => (m === "**" ? ".*" : "[^/]*"))}$`);
+      } catch {
+        continue;
+      }
+      if (re.test(base)) taken = !negated;
     }
-    if (re.test(branch)) takes = !p.startsWith("!");
-  }
-  return takes;
+    return taken;
+  };
+  let filter: unknown;
+  if (typeof on === "string" || Array.isArray(on)) {
+    if (!list(on).includes("pull_request")) return "no";
+    filter = {};
+  } else if (on && typeof on === "object" && Object.hasOwn(on, "pull_request")) {
+    filter = (on as Record<string, unknown>).pull_request ?? {};
+  } else return "no";
+  if (!filter || typeof filter !== "object" || Array.isArray(filter)) return "unknown";
+  const f = filter as Record<string, unknown>;
+  if (Object.hasOwn(f, "branches") ? !takes(list(f.branches)) : Object.hasOwn(f, "branches-ignore") && takes(list(f["branches-ignore"]))) return "no";
+  if (Object.hasOwn(f, "paths") || Object.hasOwn(f, "paths-ignore")) return "unknown";
+  if (Object.hasOwn(f, "types") && !list(f.types).includes("synchronize")) return "unknown";
+  return "yes";
 }
 
 /** A workflow's triggers and jobs (`Bun.YAML`); not YAML — null: GitHub doesn't run it. */
@@ -2237,8 +2260,10 @@ function workflowOf(text: string): { on?: unknown; jobs?: unknown } | null {
  * without it a batch saves nothing (`BATCHES_DOC`). A mismatch update doesn't fix, as the compose file and
  * `test:spec`: a `❌` line per workflow whose `on.pull_request` filters out a batch branch — that PR gets no run, a
  * required check waits as "Expected"; and one if no job of `.github/workflows/*.y(a)ml` has the light set's condition —
- * the task PRs run the full set. A workflow that doesn't parse runs nothing on GitHub either — no jobs. Not a batch
- * project — CI isn't read.
+ * the task PRs run the full set. Whether a PR into a batch branch gets a run — `prRun`'s answer; its `no` for a
+ * workflow without a branch filter on `pull_request` (push only, `pull_request_target`) isn't a batch matter — it runs
+ * on no task PR anyway. A workflow that doesn't parse runs nothing on GitHub either — no jobs. Not a batch project — CI
+ * isn't read.
  */
 function batchCi(root: string): { lines: string[]; missing: boolean } {
   if (!locale.batchProject(root)) return { lines: [], missing: false };
@@ -2256,10 +2281,9 @@ function batchCi(root: string): { lines: string[]; missing: boolean } {
     const on = wf?.on;
     const pr = on && typeof on === "object" && !Array.isArray(on) ? (on as Record<string, unknown>).pull_request : undefined;
     const filter = pr && typeof pr === "object" ? (pr as Record<string, unknown>) : {};
-    const [key, patterns] = "branches" in filter ? ["branches", filter.branches] : ["branches-ignore", filter["branches-ignore"]];
-    const list = [patterns ?? []].flat();
-    if (list.length && filterTakes(list, BATCH_SAMPLE) !== (key === "branches")) {
-      lines.push(`  ❌ ${dir}/${f}: on.pull_request.${key} ${list.join(", ")} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})`);
+    const key = ["branches", "branches-ignore"].find((k) => Object.hasOwn(filter, k));
+    if (key && prRun(on, BATCH_SAMPLE) === "no") {
+      lines.push(`  ❌ ${dir}/${f}: on.pull_request.${key} ${[filter[key] ?? []].flat().join(", ")} — a PR into a batch branch gets no run, a required check waits as "Expected"; choose the set by an if: on the jobs (${BATCHES_DOC})`);
     }
     const jobs = wf?.jobs && typeof wf.jobs === "object" ? Object.values(wf.jobs) : [];
     light ||= jobs.some((j) => {
@@ -3116,7 +3140,12 @@ function takeTag(args: string[]): { tag: string | undefined; rest: string[] } {
   return i < 0 ? { tag: undefined, rest: args } : { tag: args[i], rest: args.filter((_, j) => j !== i) };
 }
 
-async function main(argv: string[]): Promise<number> {
+/**
+ * The command line. It runs only as the entry point (`import.meta.main`, as the skills' scripts): a test imports the
+ * installer for `prRun` (tests/standards/pr-workflow-run); the installer under its path before the rename calls it
+ * itself.
+ */
+export async function main(argv: string[]): Promise<number> {
   const [cmd = "", ...args] = argv;
   // a skill's script — at this package's version, the project's: no launcher, the help is the script's
   if (Object.hasOwn(SCRIPTS, cmd)) return runScript(cmd, args);
@@ -3200,4 +3229,4 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-process.exitCode = await main(process.argv.slice(2));
+if (import.meta.main) process.exitCode = await main(process.argv.slice(2));
