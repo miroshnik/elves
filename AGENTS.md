@@ -118,15 +118,15 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   regression and a fix for a green PR are the same task. A new epic — the
   question «run the dispatcher on epic #M?», without In progress.
 - **A dispatcher** — "do all tasks of epic #M", "fix all High bugs", a "yes"
-  — any session, its task stays; one started for it — in the project folder,
-  not a worktree: executors start from `main`. `github task queue` prints
-  executors' prompts; an executor — a background subagent in its worktree or
-  a cloud session: at most 3 subagents and 5 cloud sessions at once, the
-  owner's number replaces either; failed — a task comment, no restart; an
-  executor session whose task closed — the dispatcher archives it in an auto
-  project, not one still working in the background or awaiting the owner's
-  answer; outside auto the owner closes it. A batch project — into `main` by
-  `github batch release`.
+  (scope, not merges outside auto) — any session, its task stays; one started
+  for it — in the project folder, not a worktree: executors start from `main`.
+  `github task queue` prints executors' prompts; an executor — a background
+  subagent (own worktree) or a cloud session: at most 3 subagents and 5 cloud
+  sessions at once, the owner's number replaces either; failed — a task
+  comment, no restart; an executor session whose task closed — the dispatcher
+  archives it in an auto project, not one still working in the background or
+  awaiting the owner's answer; outside auto the owner closes it. A batch
+  project — `github batch release`.
 - **The session is named `#<number> <task title>`** (without a task — by
   meaning, no number) as soon as the task is clear (no tool — ask the user):
   `est` links the session to the task by it.
