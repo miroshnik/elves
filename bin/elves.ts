@@ -738,6 +738,7 @@ interface Manifest {
   auto?: boolean;
   language?: string;
   env?: unknown;
+  batch?: unknown;
 }
 
 /**
@@ -761,9 +762,9 @@ function readManifest(root: string): Manifest {
  * doesn't compare the SHA and the tag: the install is up to date if what it installs matches (a release that changes
  * only the installer doesn't touch projects). auto and language — the project settings "a task entirely without
  * asking" and the language the agent works in, always written; the machine doesn't have them (undefined). `env` —
- * the project's task stack settings (the task-env skill: HTTP services and their ports): the project writes it, the
- * install carries it over. A dry run doesn't compare them either: editing a field by hand doesn't make the install
- * "behind".
+ * the project's task stack settings (the task-env skill: HTTP services and their ports), `batch` — the dispatcher's
+ * batches (the github skill): the project writes them, the install carries them over. A dry run doesn't compare them
+ * either: editing a field by hand doesn't make the install "behind".
  * The order survives a run cut off midway (an agent's sandbox refuses writes to `.claude/skills`): skills Elves no
  * longer has go while the old manifest still lists them, and the new manifest is written before the copies — a repeat
  * run takes them for the flow's and finishes the install instead of leaving them as someone else's.
@@ -1413,7 +1414,8 @@ const shownPackage = (spec: string | undefined) => (spec === undefined ? `withou
 
 /**
  * A project with a copy of the flow of an earlier release: the canon `.agents/elves/` (under the former name too) or a
- * manifest of a copy — the installed skills, the SHA; a thin project's manifest has only the mode, the language, env.
+ * manifest of a copy — the installed skills, the SHA; a thin project's manifest has only the mode, the language, env
+ * and batch.
  */
 function isCopy(root: string) {
   const m = readManifest(root);
@@ -1458,12 +1460,13 @@ function removeCopy(root: string) {
 }
 
 /** The fields of a project's manifest; the rest are a copy's (`isCopy`). */
-const PROJECT_FIELDS = ["auto", "language", "env"];
+const PROJECT_FIELDS = ["auto", "language", "env", "batch"];
 
 /**
- * The project's manifest: the mode, the language and the task stack settings (`env`, the task-env skill — the project
- * writes it, the install carries it over); the fields of a copy go, the manifest under the former name moves into it.
- * A dry run doesn't compare the values: auto and language edited by hand don't make the install behind.
+ * The project's manifest: the mode, the language, the task stack settings (`env`, the task-env skill) and the
+ * dispatcher's batches (`batch`, the github skill's `task queue`, epic #645) — the project writes those two, the install
+ * carries them over; the fields of a copy go, the manifest under the former name moves into it. A dry run doesn't
+ * compare the values: auto and language edited by hand don't make the install behind.
  */
 function projectManifest(root: string, auto: boolean, language: string) {
   const file = path.join(root, MANIFEST);
@@ -1471,7 +1474,8 @@ function projectManifest(root: string, auto: boolean, language: string) {
   if (dry) {
     if (!existsSync(file) || Object.keys(m).some((k) => !PROJECT_FIELDS.includes(k))) change(existsSync(file) ? "~" : "+", file);
   } else {
-    const text = JSON.stringify({ auto, language, ...(m.env === undefined ? {} : { env: m.env }) }, null, 2) + "\n";
+    const carried = { ...(m.env === undefined ? {} : { env: m.env }), ...(m.batch === undefined ? {} : { batch: m.batch }) };
+    const text = JSON.stringify({ auto, language, ...carried }, null, 2) + "\n";
     if (!existsSync(file) || readFileSync(file, "utf8") !== text) {
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, text);
