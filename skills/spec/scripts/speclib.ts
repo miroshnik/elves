@@ -280,23 +280,23 @@ export function loadDurations(file: string): Map<string, number> {
       }
       if (depth === 0) {
         const a = xmlAttrs(m[2] ?? "");
-        add(a.file || a.name || "", Number(a.time) * 1000);
+        add(a["file"] || a["name"] || "", Number(a["time"]) * 1000);
       }
       if (m[3] !== "/") depth++;
     }
   } else if (r.kind === "vitest") {
-    for (const tr of arr(r.data.testResults)) {
-      const [start, end] = [tr.startTime, tr.endTime];
-      const ms = typeof start === "number" && typeof end === "number" && end >= start ? end - start : arr(tr.assertionResults).reduce((s, a) => s + num(a.duration), 0);
-      add(str(tr.name), ms);
+    for (const tr of arr(r.data["testResults"])) {
+      const [start, end] = [tr["startTime"], tr["endTime"]];
+      const ms = typeof start === "number" && typeof end === "number" && end >= start ? end - start : arr(tr["assertionResults"]).reduce((s, a) => s + num(a["duration"]), 0);
+      add(str(tr["name"]), ms);
     }
   } else {
-    const rootDir = str(((r.data.config ?? {}) as Json).rootDir).replace(/\\/g, "/");
+    const rootDir = str(((r.data["config"] ?? {}) as Json)["rootDir"]).replace(/\\/g, "/");
     const total = (suite: Json): number =>
-      arr(suite.specs).reduce((s, spec) => s + arr(spec.tests).reduce((t, test) => t + arr(test.results).reduce((u, res) => u + num(res.duration), 0), 0), 0) +
-      arr(suite.suites).reduce((s, sub) => s + total(sub), 0);
-    for (const fileSuite of arr(r.data.suites)) {
-      const f = (str(fileSuite.file) || str(fileSuite.title)).replace(/\\/g, "/");
+      arr(suite["specs"]).reduce((s, spec) => s + arr(spec["tests"]).reduce((t, test) => t + arr(test["results"]).reduce((u, res) => u + num(res["duration"]), 0), 0), 0) +
+      arr(suite["suites"]).reduce((s, sub) => s + total(sub), 0);
+    for (const fileSuite of arr(r.data["suites"])) {
+      const f = (str(fileSuite["file"]) || str(fileSuite["title"])).replace(/\\/g, "/");
       add(rootDir ? posix.join(rootDir, f) : f, total(fileSuite));
     }
   }
@@ -319,12 +319,12 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 /** Vitest JSON (`--reporter=json`) — also the Jest format: testResults[].assertionResults[]. */
 export function parseVitest(data: Json, root: string): Test[] {
   const tests: Test[] = [];
-  for (const tr of arr(data.testResults)) {
-    const file = toRepoPath(str(tr.name), root);
-    for (const a of arr(tr.assertionResults)) {
-      const status = VITEST_STATUS[str(a.status)] ?? "failed";
-      const describes = arr(a.ancestorTitles).map((x) => String(x));
-      tests.push(makeTest(file, describes, str(a.title) || str(a.fullName), status));
+  for (const tr of arr(data["testResults"])) {
+    const file = toRepoPath(str(tr["name"]), root);
+    for (const a of arr(tr["assertionResults"])) {
+      const status = VITEST_STATUS[str(a["status"])] ?? "failed";
+      const describes = arr(a["ancestorTitles"]).map((x) => String(x));
+      tests.push(makeTest(file, describes, str(a["title"]) || str(a["fullName"]), status));
     }
   }
   return tests;
@@ -337,33 +337,33 @@ const PW_STATUS: Record<string, Status> = { expected: "passed", flaky: "passed",
  * (chromium, firefox…) — are folded into one row.
  */
 export function parsePlaywright(data: Json, root: string): Test[] {
-  const config = (data.config ?? {}) as Json;
-  const rootDir = str(config.rootDir).replace(/\\/g, "/");
+  const config = (data["config"] ?? {}) as Json;
+  const rootDir = str(config["rootDir"]).replace(/\\/g, "/");
   const tests: Test[] = [];
 
   const specToTest = (spec: Json, describes: string[], file: string): Test => {
     const statuses: Status[] = [];
     const reasons: string[] = [];
-    for (const t of arr(spec.tests)) {
-      statuses.push(PW_STATUS[str(t.status)] ?? "failed");
-      for (const ann of arr(t.annotations)) {
-        const type = str(ann.type);
-        if ((type === "skip" || type === "fixme") && str(ann.description)) reasons.push(str(ann.description));
+    for (const t of arr(spec["tests"])) {
+      statuses.push(PW_STATUS[str(t["status"])] ?? "failed");
+      for (const ann of arr(t["annotations"])) {
+        const type = str(ann["type"]);
+        if ((type === "skip" || type === "fixme") && str(ann["description"])) reasons.push(str(ann["description"]));
       }
     }
     let status: Status = "passed";
     for (const s of statuses) if (s !== "skipped") status = combineStatus(status, s);
     if (statuses.length && statuses.every((s) => s === "skipped")) status = "skipped";
-    return makeTest(file, describes, str(spec.title), status, reasons[0] ?? "");
+    return makeTest(file, describes, str(spec["title"]), status, reasons[0] ?? "");
   };
 
   const walk = (suite: Json, describes: string[], file: string): void => {
-    for (const spec of arr(suite.specs)) tests.push(specToTest(spec, describes, file));
-    for (const sub of arr(suite.suites)) walk(sub, [...describes, str(sub.title)], file);
+    for (const spec of arr(suite["specs"])) tests.push(specToTest(spec, describes, file));
+    for (const sub of arr(suite["suites"])) walk(sub, [...describes, str(sub["title"])], file);
   };
 
-  for (const fileSuite of arr(data.suites)) {
-    const f = (str(fileSuite.file) || str(fileSuite.title)).replace(/\\/g, "/");
+  for (const fileSuite of arr(data["suites"])) {
+    const f = (str(fileSuite["file"]) || str(fileSuite["title"])).replace(/\\/g, "/");
     const file = toRepoPath(rootDir ? posix.join(rootDir, f) : f, root);
     walk(fileSuite, [], file);
   }
@@ -407,7 +407,7 @@ export function parseJunit(text: string, root: string): Test[] {
       if (closing) stack.pop();
       else if (!selfClosing) {
         const a = xmlAttrs(m[3] ?? "");
-        stack.push({ name: a.name ?? "", file: (a.file ?? "").replace(/\\/g, "/") });
+        stack.push({ name: a["name"] ?? "", file: (a["file"] ?? "").replace(/\\/g, "/") });
       }
       continue;
     }
@@ -429,19 +429,19 @@ export function parseJunit(text: string, root: string): Test[] {
 
 /** A skipped describe's hook: a test always has `line`, a hook — the name `(unnamed)` and no `line` (bun 1.4). */
 function skippedHook(a: Record<string, string>, body: string): boolean {
-  return a.name === "(unnamed)" && a.line === undefined && /<skipped\b/.test(body);
+  return a["name"] === "(unnamed)" && a["line"] === undefined && /<skipped\b/.test(body);
 }
 
 function junitCase(a: Record<string, string>, body: string, stack: Suite[], root: string): Test {
   // describe — nested suites with file whose name isn't the file (the file's own suite isn't a describe)
   const describes = stack.filter((s) => s.file && s.name !== s.file).map((s) => s.name);
   const suiteFile = [...stack].reverse().find((s) => s.file)?.file ?? "";
-  const file = toRepoPath((a.file ?? "").replace(/\\/g, "/") || suiteFile, root);
+  const file = toRepoPath((a["file"] ?? "").replace(/\\/g, "/") || suiteFile, root);
   let status: Status = "passed";
   let reason = "";
   const sk = /<skipped\b([^>]*)/.exec(body);
   if (sk) {
-    const msg = (xmlAttrs(sk[1] ?? "").message ?? "").trim();
+    const msg = (xmlAttrs(sk[1] ?? "")["message"] ?? "").trim();
     if (msg === "TODO") status = "todo";
     else {
       status = "skipped";
@@ -450,17 +450,35 @@ function junitCase(a: Record<string, string>, body: string, stack: Suite[], root
   } else if (/<(failure|error)\b/.test(body)) {
     status = "failed";
   }
-  return makeTest(file, describes, a.name ?? "", status, reason);
+  return makeTest(file, describes, a["name"] ?? "", status, reason);
 }
 
 // ---------- source parsing ----------
 
-/** A Babel AST node: the type, bounds in the source and the fields of its type. */
+/**
+ * A Babel AST node: the type, bounds in the source and the fields of its type. The fields this module reads are
+ * declared: a field from the index signature is an error for a project with `noPropertyAccessFromIndexSignature`,
+ * whose typecheck checks this source (tests/standards/consumer-typecheck).
+ */
 interface AstNode {
   type: string;
   start: number;
   end: number;
   loc: { start: { line: number; column: number } };
+  arguments?: unknown;
+  callee?: unknown;
+  computed?: unknown;
+  key?: unknown;
+  left?: unknown;
+  name?: unknown;
+  object?: unknown;
+  operator?: unknown;
+  properties?: unknown;
+  property?: unknown;
+  quasis?: unknown;
+  right?: unknown;
+  tag?: unknown;
+  value?: unknown;
   [field: string]: unknown;
 }
 

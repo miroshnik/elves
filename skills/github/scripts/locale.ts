@@ -507,7 +507,7 @@ export function manifestOf(root: string): ManifestRead {
 function projectLanguage(dir: string = process.cwd()): string {
   const { file, fields } = manifestOf(projectRoot(dir));
   if (!file) return DEFAULT_LANGUAGE;
-  return typeof fields.language === "string" && LANGUAGE_CODE.test(fields.language) ? fields.language : LEGACY_LANGUAGE;
+  return typeof fields["language"] === "string" && LANGUAGE_CODE.test(fields["language"]) ? fields["language"] : LEGACY_LANGUAGE;
 }
 
 /**
@@ -516,7 +516,7 @@ function projectLanguage(dir: string = process.cwd()): string {
  * of the installer (the CI's light set) and `task queue` (the batch branch).
  */
 function batchProject(dir: string = process.cwd()): boolean {
-  return manifestOf(projectRoot(dir)).fields.batch === true;
+  return manifestOf(projectRoot(dir)).fields["batch"] === true;
 }
 
 /** The names of a language: `locales/<language>.json`, no dictionary for the language — `en`. */

@@ -781,7 +781,11 @@ the project's CI" below.
   don't transpile it: the package carries a build for Node — `elves pack`
   builds the modules of `exports` into `dist/` on publishing (#556); the
   `default` condition leads a runner on Node there, `types` and `bun` — to
-  the TypeScript source (tests/standards/harness-load).
+  the TypeScript source (tests/standards/harness-load). TypeScript checks a
+  `.ts` from `node_modules` with the project's options (`skipLibCheck` skips
+  only `.d.ts`), so the modules of `exports` pass the strictest ones —
+  `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature` and the
+  rest TypeScript keeps off by default (tests/standards/consumer-typecheck).
 - Rejected:
   - a copy of the skill in the project (`.agents/skills/spec`, the install of
     earlier releases): every update is a PR of thousands of lines and a task of
