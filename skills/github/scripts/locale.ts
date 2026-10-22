@@ -525,7 +525,7 @@ function projectLanguage(dir: string = process.cwd()): string {
 /**
  * Whether the project of `dir` releases its dispatcher's tasks in batches — `"batch": true` in its manifest
  * (`manifestOf`; epic #645, question 6): `true` itself — `"true"`, `1`, `"yes"` aren't batches. One answer for `check`
- * of the installer (the CI's light set) and `task queue` (the batch branch).
+ * of the installer (no CI on a PR into a batch branch) and `task queue` (the batch branch).
  */
 function batchProject(dir: string = process.cwd()): boolean {
   return manifestOf(projectRoot(dir)).fields["batch"] === true;

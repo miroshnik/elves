@@ -74,9 +74,9 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   The full run is CI's; `github pr premerge` stays as it is: `typecheck` and
   `test:spec` on the merge with a fresh `main` (`docs/pr-checks.md`). In a
   batch — the dispatcher's tasks go into a batch branch and reach `main` by
-  one release PR — the full run is the release's: CI on a task's PR into the
-  batch branch is this same set, only in a clean environment
-  (`skills/spec/ci.md`, "Batches").
+  one release PR — the full run is the release's: a task's PR into the batch
+  branch runs no CI, this set before the commit is its gate, the affected —
+  against `origin/<batch>` (`skills/spec/ci.md`, "Batches").
 - **A slow level — a script of its own.** Tests that need Docker or a live
   server go into a separate script (`test:slow`, by file name — the runner
   selects files, not test blocks), so `test` stays fast before every commit.

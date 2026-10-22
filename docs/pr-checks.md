@@ -38,12 +38,14 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   step. Failed — logs and a fix at once: it blocks the report and closing the
   task.
 - **A dispatcher's batch** (`"batch": true` in `.agents/elves.json`, epic
-  #645): a task's PR goes into the batch branch — the light set
-  (`skills/spec/ci.md`, "Batches — the light set on a PR into a batch
-  branch"), merged on its green, no deploy wait; the
-  batch reaches `main` by one release PR (`github batch release`) — the full
-  set, the preview and the deploy, by the rules above, once for the batch;
-  after the deploy — `github task close` of each task of the batch. While the
+  #645): a task's PR goes into the batch branch and runs no CI
+  (`skills/spec/ci.md`, "Batches") — its gate is the checks before a commit
+  (`docs/testing.md`) and `github pr premerge` (the fast checks on the
+  merge, if the batch moved on): no `ci-wait`, merged at once, no deploy
+  wait, no epic refresh; the batch reaches `main` by one release PR
+  (`github batch release`) — the full set, the preview and the deploy, by
+  the rules above, once for the batch; then the epic refresh, one per epic
+  of its tasks, and `github task close` of each task. While the
   release PR is open, a PR into the batch isn't merged: `github pr premerge`
   holds it, then moves it into the next batch or `main`. A red release isn't
   reverted: `github batch release` names the guilty task (the labels of the
