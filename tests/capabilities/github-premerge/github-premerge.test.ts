@@ -57,12 +57,25 @@ exit $fail
 /**
  * Чекаут сессии на ветке PR и origin — bare-репозиторий с путём вида …/miroshnik/elves.git. Голова PR лежит на
  * origin в `headRef` — по умолчанию `refs/pull/<N>/head`, как на GitHub; null — её на origin нет; `mainAfter` —
- * коммит, влитый в main после CI PR.
+ * коммит, влитый в базу PR после CI PR (или после ветки PR — у PR в ветку пачки CI нет); `base` — база PR: main или
+ * ветка пачки, она на origin — с того же коммита, что main.
  */
 // проект на русском, как Elves, чей проект GitHub записан: названия — из ru.json (язык — .agents/elves.json чекаута)
 const RU = { ".agents/elves.json": '{ "language": "ru" }\n' };
 
-function project({ pr, mainAfter, files = {}, headRef = `refs/pull/${PR}/head` }: { pr: Record<string, string | null>; mainAfter?: Record<string, string | null>; files?: Record<string, string | null>; headRef?: string | null }) {
+function project({
+  pr,
+  mainAfter,
+  files = {},
+  headRef = `refs/pull/${PR}/head`,
+  base = "main",
+}: {
+  pr: Record<string, string | null>;
+  mainAfter?: Record<string, string | null>;
+  files?: Record<string, string | null>;
+  headRef?: string | null;
+  base?: string;
+}) {
   const dir = scratch();
   const origin = path.join(dir, `${SLUG}.git`);
   mkdirSync(path.dirname(origin), { recursive: true });
@@ -72,14 +85,14 @@ function project({ pr, mainAfter, files = {}, headRef = `refs/pull/${PR}/head` }
   const repo = gitRepo(work);
   repo.commit({ ...RU, "package.json": PKG(), "bun.lock": "{}\n", "check.sh": CHECK, "items.txt": "a\nb\n", ...files }, "init");
   repo.git("remote", "add", "origin", origin);
-  repo.git("push", "-q", "origin", "main");
+  repo.git("push", "-q", "origin", "main", ...(base === "main" ? [] : [`main:refs/heads/${base}`]));
   repo.git("switch", "-q", "-c", "feat/7-x");
   const head = repo.commit(pr, "pr");
   if (headRef) repo.git("push", "-q", "origin", `HEAD:${headRef}`);
   if (mainAfter) {
-    repo.git("switch", "-q", "main");
+    repo.git("switch", "-q", ...(base === "main" ? ["main"] : ["-c", base, "main"]));
     repo.commit(mainAfter, "main after CI");
-    repo.git("push", "-q", "origin", "main");
+    repo.git("push", "-q", "origin", `HEAD:refs/heads/${base}`);
     repo.git("switch", "-q", "feat/7-x");
   }
   return { work, origin, head, git: repo.git };
@@ -668,7 +681,7 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(r.out).toBe(
       `❌ don't merge: ${BATCH} is released by PR #9 — the PR moves to main: gh pr edit ${PR} --base main, then git fetch origin main, git rebase origin/main ` +
         `(the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ci-wait, pr premerge ${PR} again; ` +
-        `into main the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${WAIT} merged ${PR}) and task close 61, as outside a batch`,
+        `into main the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${WAIT} merged ${PR}), the epic refresh and task close 61, as outside a batch`,
     );
     expect(proc.calls).toEqual([]);
   });
@@ -688,12 +701,55 @@ describe("Выпуск пачки — один PR в main", () => {
   });
 
   it("PR в ветку пачки без выпуска или с выпуском, закрытым без мержа, проверяется как обычно", () => {
-    const p = project({ pr: { "uses.txt": "b\n" } });
+    const p = project({ pr: { "uses.txt": "b\n" }, base: BATCH });
     for (const releases of [[], [{ number: 9, state: "closed" as const }]]) {
-      const r = premerge(fakeGh(p.head, { base: BATCH, releases }).gh, p.work);
+      const r = premerge(fakeGh(p.head, { base: BATCH, releases, suites: [] }).gh, p.work);
       expect(r.code).toBe(0);
-      expect(r.out).toBe(`✅ merge: ${BATCH} hasn't moved since the CI of PR #${PR} (CI since ${CI}, last movement of ${BATCH} — 2026-10-02T09:30:00Z) — CI checked this merge`);
+      expect(r.out).toStartWith(`✅ merge: PR #${PR} is on the fresh origin/${BATCH} `);
     }
+  });
+});
+
+/**
+ * PR задачи в ветку пачки CI не запускает (#676): проверки перед коммитом исполнитель прогнал сам, второй прогон того же
+ * набора в CI держал его слот ожиданием. Что проверено — сама голова PR, а не слияние, которое собрал CI: premerge
+ * решает по git — голова на свежей ветке пачки — вливать без проверок; пачка ушла вперёд — быстрые проверки на слиянии
+ * с ней, как при ушедшем main.
+ */
+describe("PR в ветку пачки CI не запускает — что проверено, premerge решает по git", () => {
+  const BATCH = "batch/2026-10-02-1";
+
+  it("pr premerge на PR в ветку пачки не требует прогона CI этого PR", () => {
+    // голова PR — на свежей ветке пачки, чеков у неё нет: CI на PR в пачку не идёт
+    const p = project({ pr: { "uses.txt": "b\n" }, base: BATCH });
+    const proc = processes();
+    const fake = fakeGh(p.head, { base: BATCH, suites: [] });
+    const r = premerge(fake.gh, p.work, proc.run);
+    expect(r.code).toBe(0);
+    const tip = p.git("rev-parse", `origin/${BATCH}`).slice(0, 7);
+    expect(r.out).toBe(`✅ merge: PR #${PR} is on the fresh origin/${BATCH} (${tip}) — a PR into the batch runs no CI: the checks before a commit checked this tree`);
+    // ни чеков головы, ни движения базы, ни чеков ветки пачки; быстрых проверок нет — их прогнал исполнитель
+    expect(fake.calls.filter((c) => /check-suites|activity|\/commits\//.test(c))).toEqual([]);
+    expect(proc.calls.filter((c) => c.cmd !== "git")).toEqual([]);
+    expect(worktrees(p.work)).toHaveLength(1);
+  });
+
+  it("пачка ушла вперёд после ветки PR — быстрые проверки на слиянии с ней; красное — не вливать, после правки — снова premerge, а не ci-wait", () => {
+    // в пачку после ветки PR влита задача, что добавила элемент реестра: слияние зелёное
+    const green = project({ pr: { "uses.txt": "b\n" }, base: BATCH, mainAfter: { "items.txt": "a\nb\nc\n" } });
+    const proc = processes();
+    const ok = premerge(fakeGh(green.head, { base: BATCH, suites: [] }).gh, green.work, proc.run);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain(`${BATCH} moved on past the head of PR #${PR} (origin/${BATCH} — `);
+    expect(ok.last).toBe(`✅ merge: test:spec is green on the merge with origin/${BATCH}`);
+    expect(proc.seen).toEqual([{ "items.txt": "a\nb\nc\n", "uses.txt": "b\n" }]);
+    // задача в пачке убрала элемент, на который ссылается PR: слияние красное, голая пачка — зелёная
+    const red = project({ pr: { "uses.txt": "b\n" }, base: BATCH, mainAfter: { "items.txt": "a\n" } });
+    const broken = premerge(fakeGh(red.head, { base: BATCH, suites: [] }).gh, red.work);
+    expect(broken.code).toBe(1);
+    expect(broken.last).toBe(
+      `❌ don't merge: test:spec is red on the merge with origin/${BATCH} — fix the root cause in the PR: rebase onto origin/${BATCH}, edit, push --force-with-lease, pr premerge ${PR} again`,
+    );
   });
 });
 
@@ -707,13 +763,13 @@ describe("Красный выпуск чинится в пачке", () => {
   const RED = { number: 9, state: "open" as const, body: "Выпуск пачки.\n\nCloses #61\nCloses #62\n", checks: { tests: "failure" } };
 
   it("pr premerge при красном открытом выпуске пропускает в пачку PR виновной задачи, а PR живых исполнителей держит", () => {
-    const p = project({ pr: { "uses.txt": "b\n" } });
+    const p = project({ pr: { "uses.txt": "b\n" }, base: BATCH });
     // починка #61: ветка задачи, в теле — Refs #61
-    const fix = premerge(fakeGh(p.head, { base: BATCH, body: "Refs #61", ref: "fix/61-red-release", releases: [RED] }).gh, p.work);
+    const fix = premerge(fakeGh(p.head, { base: BATCH, body: "Refs #61", ref: "fix/61-red-release", releases: [RED], suites: [] }).gh, p.work);
     expect(fix.code).toBe(0);
     expect(fix.out.split("\n")).toEqual([
       `○ ${BATCH} is being released — PR #9 into main is red (tests), and PR #${PR} is of its task #61: the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #9`,
-      `✅ merge: ${BATCH} hasn't moved since the CI of PR #${PR} (CI since ${CI}, last movement of ${BATCH} — 2026-10-02T09:30:00Z) — CI checked this merge`,
+      `✅ merge: PR #${PR} is on the fresh origin/${BATCH} (${p.git("rev-parse", `origin/${BATCH}`).slice(0, 7)}) — a PR into the batch runs no CI: the checks before a commit checked this tree`,
     ]);
     // живой исполнитель: его задачи в выпуске нет — ждёт выпуска
     const live = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #70", ref: "feat/70-live", releases: [RED] }).gh, p.work);

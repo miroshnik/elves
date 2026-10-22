@@ -3177,7 +3177,8 @@ describe("task queue раздаёт задачи эпика или фильтр�
 
 /**
  * Пачка (эпик #645): диспетчер проекта с `"batch": true` собирает задачи своей группы в ветку пачки — исполнители
- * ветвятся от неё и вливают в неё на лёгком наборе CI, а полный прогон и деплой — один на пачку, у её выпуска. Задача,
+ * ветвятся от неё и вливают в неё после проверок перед коммитом, без CI (#676), а полный прогон, деплой и актуализация
+ * эпиков — один раз на пачку, у её выпуска. Задача,
  * влитая в пачку, до выпуска открыта и «В работе» (вопрос 1 эпика); GitHub не связывает с задачей PR не в ветку по
  * умолчанию, поэтому PR пачки скрипт находит сам — по ветке задачи и «Closes #N».
  */
@@ -3266,24 +3267,49 @@ describe("task queue собирает задачи диспетчера в ве�
     const lines = task(f, ["queue", "--assignment", "47"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
     expect(lines[0]).toStartWith(`Задача #47 «${f.issue(47).title}» в ${REPO} (эпик #45): ты исполнитель сессии-диспетчера, задача идёт в пачку \`${name}\` — `);
     expect(lines[0]).toContain(`ветка от свежего origin/${name}, а не от main (\`git fetch origin ${name}\`, затем ветка задачи на \`origin/${name}\`)`);
-    expect(lines[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`), зелёный CI, \`pr premerge\`, мерж, актуализация эпика.`);
-    expect(lines[0]).toEndWith("Деплоя и `task close` нет: задача — «В работе» до выпуска пачки, его делает диспетчер.");
-    // после мержа в пачку ждать нечего: полный прогон и деплой — у выпуска
-    const wait = lines.find((l) => l.startsWith("- CI жди"))!;
-    expect(wait).toContain("pr <PR> --timeout 540");
-    expect(wait).not.toContain("merged <PR>");
-    const refresh = lines.find((l) => l.startsWith("- актуализация эпика"))!;
-    expect(refresh).toContain("`task close` не зови — задачу, влитую в пачку, он не закрывает;");
-    expect(lines.filter((l) => l.includes("task close 47") && !l.includes("без PR"))).toEqual([]);
+    expect(lines[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`), \`pr premerge\`, мерж.`);
     expect(lines.at(-1)).toStartWith("Ответ диспетчеру — одной строкой: `влито #<PR>`");
     // сессия-исполнитель приложения — то же: ветка от пачки, PR в неё, без деплоя
     const session = task(f, ["queue", "--assignment", "47", "--session"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
     expect(session[0]).toContain(`ты сессия-исполнитель сессии-диспетчера, задача идёт в пачку \`${name}\``);
     expect(session[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`)`);
-    expect(session.find((l) => l.startsWith("- CI жди фоновой командой"))).not.toContain("merged <PR>");
     // пачка — репозитория диспетчера: задача другого проекта идёт в свой main
     const other = task(new FakeGitHub(asOrg(REC)), ["queue", "--assignment", "47", "--session"], ORG, { ...inSession(config), cwd: projectDir() }).out.split("\n");
     expect(other[0]).toContain("ветка от свежего origin/main, код и тесты, PR, зелёный CI");
+  });
+
+  /**
+   * Пилот пачки (#676): исполнитель держал слот ещё на двух шагах после проверок перед коммитом — ожидании лёгкого CI на
+   * PR в пачку, который повторял те же проверки в чистом окружении, и актуализации эпика после каждого мержа в пачку.
+   * Теперь задача вливается в пачку сразу после проверок перед коммитом и `pr premerge`: CI — один полный прогон у
+   * выпуска, актуализация — одна на эпик, тоже у выпуска.
+   */
+  it("задание исполнителя пачки — мерж в пачку после проверок перед коммитом и pr premerge, без ожидания CI и без актуализации эпика", () => {
+    const name = `batch/${day()}-1`;
+    const config = batchSession(name);
+    const f = new FakeGitHub(REC);
+    const assignment = (...more: string[]) => task(f, ["queue", "--assignment", "47", ...more], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
+    const lines = assignment();
+    expect(lines[0]).toContain(`код и тесты, проверки перед коммитом, PR в пачку (\`gh pr create --base ${name}\`), \`pr premerge\`, мерж.`);
+    expect(lines[0]).toEndWith(
+      "Ожидания CI, деплоя, актуализации эпика и `task close` нет: задача — «В работе» до выпуска пачки, его делает диспетчер — с одним полным прогоном CI и одной актуализацией на эпик.",
+    );
+    expect(lines[0]).not.toContain("зелёный CI");
+    // CI не ждать: PR в пачку его не запускает — ворота у него проверки перед коммитом и pr premerge
+    const wait = lines.find((l) => l.startsWith("- CI не жди"))!;
+    expect(wait).toContain("проверки перед коммитом по канону (`lint`, `typecheck`, `test:spec`, затронутые тесты — `docs/testing.md`) и `pr premerge`");
+    expect(wait).toContain("после его кода 0 — `gh pr merge <PR> --rebase` без ожидания CI");
+    // ни ожидания CI, ни актуализации, ни task close — кроме задачи без PR: она не в пачке, её закрывает исполнитель
+    expect(lines.filter((l) => l.includes("wait-ci.sh"))).toEqual([]);
+    const refresh = lines.find((l) => l.startsWith("- актуализация эпика и `task close` — не твои"))!;
+    expect(refresh).toContain("обе — у выпуска пачки, одна актуализация на каждый эпик её задач, затем `task close` каждой, их делает диспетчер;");
+    expect(refresh.slice(0, refresh.indexOf("без PR"))).not.toMatch(/task actualize|task close 47/);
+    expect(lines.filter((l) => l !== refresh && /task actualize|task close 47/.test(l))).toEqual([]);
+    // сессия-исполнитель приложения — так же: CI не ждёт, актуализации нет
+    const session = assignment("--session");
+    expect(session[0]).toContain(`код и тесты, проверки перед коммитом, PR в пачку (\`gh pr create --base ${name}\`), \`pr premerge\`, мерж. Ожидания CI, деплоя, актуализации эпика`);
+    expect(session).toContain(wait);
+    expect(session.filter((l) => /wait-ci\.sh|task actualize|task close 47/.test(l))).toEqual([]);
   });
 
   it("блокер, влитый в ветку пачки, не держит задачу той же пачки; блокер вне пачки держит", () => {
@@ -3469,7 +3495,7 @@ describe("Выпуск пачки — один PR в main", () => {
         `^Next: the release PR #303 \\S+ — its checks: bash \\S+wait-ci\\.sh pr 303 as a background command; PASS — bun --no-env-file \\S+github\\.ts pr premerge 303, code 0 — the owner's «yes» \\(the project is without auto\\) — then gh pr merge 303 --rebase as a separate call\\. `,
       ),
     );
-    expect(next).toMatch(/after it — task close of each task of the batch, GitHub closed them by the release's «Closes»: bun --no-env-file \S+github\.ts task close 47; bun --no-env-file \S+github\.ts task close 49 — /);
+    expect(next).toMatch(/after the deploy and the refreshes' reports — task close of each task of the batch, GitHub closed them by the release's «Closes»: bun --no-env-file \S+github\.ts task close 47; bun --no-env-file \S+github\.ts task close 49 — /);
     // spec-diff нет — PR выпуска без раздела спеки, строка об этом
     const bare = new FakeGitHub(REC);
     bare.prs[300] = batchPr(47, "feat/47-export", name);
@@ -3581,7 +3607,7 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(q.out).toContain(`○ batch branch ${name} kept: released by PR #302, open PR #301 into it — its executor moves it to the next batch or main first (pr premerge says where)`);
     expect(q.out).toContain(`+ batch branch ${next} from origin/main (${git(work, "rev-parse", "--short=7", "origin/main")}) pushed — ${name} is released by PR #302: the executors branch from it and merge into it`);
     expect(readFileSync(marker(config), "utf8")).toEndWith(`\nbatch ${REPO} ${next}\n`);
-    // task close задачи выпуска ветку пачки с открытым PR в неё не удаляет; актуализация эпика после #47 — у её исполнителя
+    // task close задачи выпуска ветку пачки с открытым PR в неё не удаляет; актуализация эпика #47 — у выпуска, её отчёт есть
     f.comments[45] = [{ body: "Актуализация после #47, итог: блок актуален", url: "https://github.com/miroshnik/elves/issues/45#issuecomment-47" }];
     const close = task(f, ["close", "47"], REPO, { run: noEst, cwd: work });
     expect(close.code).toBe(0);
@@ -3591,7 +3617,7 @@ describe("Выпуск пачки — один PR в main", () => {
     const moved = premergeIn(f, work, config, 301);
     expect(moved.code).toBe(1);
     expect(moved.out).toBe(
-      `❌ don't merge: ${name} is released by PR #302 — the PR moves to ${next}: gh pr edit 301 --base ${next}, then git fetch origin ${next}, git rebase origin/${next} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ci-wait, pr premerge 301 again; in the batch ${next} the task waits for its release, as before: no deploy wait and no task close`,
+      `❌ don't merge: ${name} is released by PR #302 — the PR moves to ${next}: gh pr edit 301 --base ${next}, then git fetch origin ${next}, git rebase origin/${next} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, pr premerge 301 again; in the batch ${next} the task waits for its release, as before: no CI wait, no deploy wait, no epic refresh and no task close`,
     );
     // PR переведён — следующая очередь удаляет выпущенную ветку
     f.prs[301]!.base = next;
@@ -3635,12 +3661,68 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(remoteBatches(work)).toEqual([]);
     expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
   });
+
+  /**
+   * Актуализация эпика — у выпуска, а не у каждого мержа в пачку (#676): исполнитель пачки её не зовёт. Выпуск выкатил
+   * задачи нескольких эпиков — по одной актуализации на эпик: её задание называет задачи эпика и их PR в пачку (PR
+   * выпуска несёт файлы всей пачки), один отчёт на эпике закрывает каждую из них.
+   */
+  it("batch release после мержа выпуска — одна актуализация на эпик задач пачки, затем task close каждой задачи", () => {
+    const { work, f, config, name } = started();
+    // задачи пачки: #47 и третья — эпика #45, #49 — без эпика; в эпике остаётся открытая задача — актуализировать есть что
+    const third = subtaskOf45(f, "Третья задача пачки");
+    const waiting = subtaskOf45(f, "Ждёт следующей пачки");
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    mergeIntoBatch(work, name, "fix/49-y", "fix.txt", "fix(github): поправка");
+    mergeIntoBatch(work, name, `feat/${third}-third`, "third.txt", "feat(github): третья");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    f.prs[301] = batchPr(49, "fix/49-y", name);
+    f.prs[302] = batchPr(third, `feat/${third}-third`, name);
+    expect(release(f, work, config).code).toBe(0);
+    Object.assign(f.prs[303]!, { merged: true, state: "MERGED" });
+    for (const n of [47, 49, third]) f.closed(n);
+    // шаги после мержа: ожидание деплоя и в том же ходе — одна команда актуализации на все задачи выпуска, затем task close
+    const next = release(f, work, config).out.split("\n").at(-1)!;
+    expect(next).toMatch(new RegExp(`in the same turn — the epic refresh, one per epic of the batch's tasks: bun --no-env-file \\S+github\\.ts task actualize 47 49 ${third} — it groups them by epic`));
+    expect(next.indexOf("task actualize")).toBeLessThan(next.indexOf("task close 47"));
+    // актуализация группирует по эпикам: эпик #45 — один субагент на #47 и третью, у #49 эпика нет
+    const r = task(f, ["actualize", "47", "49", String(third)], REPO);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines.filter((l) => l.startsWith("Next: a subagent"))).toHaveLength(1);
+    expect(lines).toContain(`Задача #47, #${third} (эпик #45): актуализация блока после мержа — открытые задачи эпика привести в соответствие с выкаченным.`);
+    expect(lines).toContainEqual(expect.stringContaining(` task actualize 47 ${third} --assignment --repo ${REPO}\``));
+    expect(lines).toContain("○ refresh not needed: #49 has no epic. Next: task close 49 — after the deploy, where the merge deploys.");
+    // задание: что выкатила каждая задача — её PR в пачку, а не PR выпуска; одна строка отчёта на обе
+    const assignment = task(f, ["actualize", "47", String(third), "--assignment"], REPO).out;
+    expect(assignment).toContain(
+      `Выкачено: #47 «${f.issue(47).title}», PR #300 (\`gh pr view 300\`, \`gh pr diff 300\`); #${third} «${f.issue(third).title}», PR #302 (\`gh pr view 302\`, \`gh pr diff 302\`).`,
+    );
+    expect(assignment).not.toContain("PR #303");
+    expect(assignment).toContain(`### #${waiting} «GitHub · Ждёт следующей пачки»`);
+    expect(assignment).toContain(`одной строкой «Актуализация после #47, #${third}, итог: …»`);
+    expect(assignment).toContain(`По нему \`task close 47\`, \`task close ${third}\` видит, что актуализация закончена`);
+    expect(task(f, ["actualize", "47", "49", "--assignment"], REPO).err).toBe("error: --assignment — the tasks of one epic, as its refresh prompt names them: #47 — epic #45; #49 — no epic");
+    // до отчёта task close отказывает — по эпику: называет задачи эпика из выпуска и их актуализацию
+    const early = task(f, ["close", String(third)], REPO, { run: noEst, cwd: work });
+    expect(early.code).toBe(2);
+    expect(early.err).toStartWith(
+      `error: #${third} is too early to close: the epic refresh hasn't reported — epic #45 has open tasks besides #47, #${third} (1), and no comment «Актуализация после #47, #${third}, итог: …» on it. ` +
+        `The release PR #303 shipped #47, #${third} of the epic — one refresh for them. The refresh subagent is at work — `,
+    );
+    expect(early.err).toContain(`it wasn't launched — task actualize 47 ${third} and the subagent with its prompt;`);
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+    // один отчёт на эпике — task close каждой задачи эпика его принимает
+    f.comments[45] = [{ body: `Актуализация после #47, #${third}, итог: блок актуален`, url: "https://github.com/miroshnik/elves/issues/45#issuecomment-676" }];
+    for (const n of [47, third, 49]) expect(task(f, ["close", String(n)], REPO, { run: noEst, cwd: work }).code).toBe(0);
+    expect(statusSet(f)).toEqual(expect.arrayContaining([[47, "Готово"], [third, "Готово"], [49, "Готово"]]));
+  });
 });
 
 /**
  * Красный выпуск (#650, вопрос 3 эпика #645): полный набор впервые идёт на выпуске, и его красный называет виновную
  * задачу — по меткам решений упавших тестов, иначе бисектом по границам задач на машине; чинит её она же — PR в ветку
- * пачки с «Refs #N» на лёгком наборе, затем полный прогон выпуска заново на том же PR, без revert'а. Остальные задачи
+ * пачки с «Refs #N» после проверок перед коммитом, без CI, затем полный прогон выпуска заново на том же PR, без revert'а. Остальные задачи
  * пачки ждут выпуска. git — настоящий во временном репозитории; чеки выпуска и лог его упавшей джобы — фейка GitHub.
  */
 describe("Красный выпуск чинится в пачке", () => {
@@ -3775,11 +3857,12 @@ describe("Красный выпуск чинится в пачке", () => {
     expect(lines[0]).toContain(
       `task status 47 "В работе" --branch fix/47-<slug>\`, новая ветка от свежего origin/${name} (\`git fetch origin ${name}\`, затем ветка на \`origin/${name}\`), а не от прежней ветки задачи \`feat/47-export\` — она уже в пачке, влита rebase-мержем, причина — по упавшим проверкам (\`gh pr checks ${pr}\`, их логи)`,
     );
-    expect(lines[0]).toContain(`коммиты с \`Refs #47\`, PR в пачку (\`gh pr create --base ${name}\`, в теле \`Refs #47\`)`);
-    expect(lines[0]).toEndWith(`Деплоя и \`task close\` нет: после мержа диспетчер гонит выпуск заново — полный прогон на том же PR #${pr}.`);
-    // строки перезапуска «продолжи её работу» на влитой ветке нет; ожидание CI — лёгкого набора пачки
+    expect(lines[0]).toContain(`коммиты с \`Refs #47\`, проверки перед коммитом, PR в пачку (\`gh pr create --base ${name}\`, в теле \`Refs #47\`)`);
+    expect(lines[0]).toEndWith(`Ожидания CI, деплоя, актуализации эпика и \`task close\` нет: после мержа диспетчер гонит выпуск заново — полный прогон на том же PR #${pr}.`);
+    // строки перезапуска «продолжи её работу» на влитой ветке нет; CI на PR починки в пачку не идёт — не ждать
     expect(lines.filter((l) => l.startsWith("Задача уже «В работе»"))).toEqual([]);
-    expect(lines.find((l) => l.startsWith("- CI жди"))).not.toContain("merged <PR>");
+    expect(lines.find((l) => l.startsWith("- CI не жди"))).toBeDefined();
+    expect(lines.filter((l) => l.includes("wait-ci.sh"))).toEqual([]);
     // сессия-исполнитель приложения — та же починка; облачный исполнитель не в пачке — отказ
     expect(assignment("--session").out.split("\n")[0]).toContain(`ты сессия-исполнитель сессии-диспетчера — починка в пачке \`${name}\`: её PR выпуска #${pr} красный (tests)`);
     const cloud = assignment("--cloud");
@@ -3797,7 +3880,7 @@ describe("Красный выпуск чинится в пачке", () => {
     expect(queue).toContain(`guilty: #47 «${title}» — the label export — the failed files' decision export`);
     const next = queue.at(-2)!;
     expect(next).toStartWith(`Next: the release PR ${pull(pr)} of ${name} is red (tests) — the guilty task #47 «${title}» fixes it in the batch: its executor — continued with SendMessage, the indented line its message; `);
-    expect(next).toContain(`Its assignment (task queue --assignment 47) names the red release: a new task branch from origin/${name}, the PR into ${name} with Refs #47, the light set; `);
+    expect(next).toContain(`Its assignment (task queue --assignment 47) names the red release: a new task branch from origin/${name}, the PR into ${name} with Refs #47, the checks before a commit, no CI; `);
     expect(next).toContain(`after its merge into ${name} — the release's full run again on the same PR #${pr}: batch release prints its steps; the other tasks of the batch wait — no new executors till the release's merge; `);
     // отступ — промпт её исполнителя, как у готовой задачи очереди
     expect(queue.at(-1)).toMatch(/^ {2}Задача #47 в miroshnik\/elves \(эпик #45\): ты исполнитель сессии-диспетчера\. Задание целиком печатает `bun --no-env-file \S+github\.ts task queue --assignment 47 --repo miroshnik\/elves`/);

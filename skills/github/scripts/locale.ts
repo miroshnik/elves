@@ -71,7 +71,9 @@ export interface Names {
   actualize: {
     lead: string;
     fetch: string;
+    /** What shipped: `shippedTask` of each task shipped together (a batch's release, #676) — one line. */
     shipped: string;
+    shippedTask: string;
     prs: string;
     noPr: string;
     files: string;
@@ -133,7 +135,9 @@ export interface Names {
     answer: string;
     /**
      * The executor of a dispatcher's batch (#648) in place of `lead`, `wait` and `refresh`: the task branch from the batch
-     * branch, the PR into it, no deploy and no `task close` — the task stays In progress till the release.
+     * branch, the PR into it, no deploy and no `task close` — the task stays In progress till the release; no CI wait and
+     * no epic refresh (#676) — a PR into the batch runs no CI, the refresh is the release's. `batchWait` — in place of
+     * `sessionWait` too: the session's wait is the same none.
      */
     batchLead: string;
     batchWait: string;
@@ -162,9 +166,8 @@ export interface Names {
      * by its canon and mode, named by the task, waits in the background, the canon's last line.
      */
     sessionLead: string;
-    /** An app executor session of a dispatcher's batch (#648) in place of `sessionLead` and `sessionWait`. */
+    /** An app executor session of a dispatcher's batch (#648) in place of `sessionLead`; `batchWait` — of `sessionWait`. */
     sessionBatchLead: string;
-    sessionBatchWait: string;
     sessionIs: string;
     sessionName: string;
     sessionWait: string;
