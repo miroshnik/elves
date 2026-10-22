@@ -208,6 +208,16 @@ export function realRun(cmd: string, args: string[], cwd?: string): RunResult {
   return { status: r.error ? null : r.status, stdout: r.stdout ?? "", stderr: r.error ? String(r.error.message) : (r.stderr ?? "") };
 }
 
+/** git in a directory: `io.run` (tests replace it), otherwise the real process — the file's one wrapper. */
+function git(io: Io, cwd: string | undefined, ...args: string[]): RunResult {
+  return (io.run ?? realRun)("git", args, cwd);
+}
+
+/** Why a process failed: the last line of its stderr, otherwise its exit code. */
+function why(r: RunResult): string {
+  return r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`;
+}
+
 const pause = (ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 export interface ProjectRef {
@@ -1957,11 +1967,9 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
   if (!checkoutOfRepo(io, originUrl(io), slug)) {
     return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in the project folder`), none;
   }
-  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
-  const why = (r: RunResult) => r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`;
   const failed = (what: string, r: RunResult) => (io.out(`! ${what}: ${why(r)} — no batch branch: ${off}`), null);
   const kept = batchOf(io, slug);
-  const listed = git("ls-remote", "--heads", "origin");
+  const listed = git(io, io.cwd, "ls-remote", "--heads", "origin");
   if (listed.status !== 0) {
     if (kept) return io.out(`! git ls-remote --heads origin: ${why(listed)} — the batch branch stays ${kept}`), { batch: kept, start: null };
     return failed("git ls-remote --heads origin", listed), none;
@@ -1971,9 +1979,9 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
   const keptRelease = kept ? releasePrOf(recent, kept) : undefined;
   if (kept && heads.includes(kept) && !keptRelease?.merged) return io.out(`○ batch branch ${kept} — the dispatcher's batch: the executors branch from it and merge into it`), { batch: kept, start: null };
   const start = () => {
-    const fetched = git("fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
+    const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
     if (fetched.status !== 0) return failed(`git fetch origin ${base}`, fetched);
-    const parsed = git("rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`);
+    const parsed = git(io, io.cwd, "rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`);
     // an empty source of a refspec deletes the ref — the push goes only with the commit's SHA
     const sha = parsed.status === 0 ? parsed.stdout.trim() : "";
     if (!/^[0-9a-f]{40,64}$/.test(sha)) return failed(`git rev-parse origin/${base}`, parsed);
@@ -1981,7 +1989,7 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
     const named = [...heads, kept ?? "", ...recent.nodes.flatMap((p) => [p.headRefName ?? "", p.baseRefName ?? ""])];
     const taken = named.map((b) => BATCH_BRANCH.exec(b)).flatMap((m) => (m && m[1] === day ? [Number(m[2])] : []));
     const name = `batch/${day}-${Math.max(0, ...taken) + 1}`;
-    const pushed = git("push", "-q", "origin", `${sha}:refs/heads/${name}`);
+    const pushed = git(io, io.cwd, "push", "-q", "origin", `${sha}:refs/heads/${name}`);
     if (pushed.status !== 0) return failed(`git push origin ${name}`, pushed);
     const previous = !kept ? "" : keptRelease?.merged ? ` — ${kept} is released by PR #${keptRelease.number}` : ` — ${kept} is gone from origin (released)`;
     io.out(`+ batch branch ${name} from origin/${base} (${sha.slice(0, 7)}) pushed${previous}: the executors branch from it and merge into it`);
@@ -2050,7 +2058,6 @@ const openInto = (recent: Recent, branch: string): Any[] => recent.nodes.filter(
  * dispatcher.
  */
 function dropReleased(io: Io, recent: Recent, batches: string[]): void {
-  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
   for (const b of batches) {
     const release = releasePrOf(recent, b);
     if (!release?.merged) continue;
@@ -2059,7 +2066,7 @@ function dropReleased(io: Io, recent: Recent, batches: string[]): void {
       io.out(`○ batch branch ${b} kept: released by PR #${release.number}, open PR ${open.map((p) => `#${p.number}`).join(", ")} into it — its executor moves it to the next batch or ${recent.base} first (pr premerge says where)`);
       continue;
     }
-    const d = git("push", "-q", "origin", "--delete", b);
+    const d = git(io, io.cwd, "push", "-q", "origin", "--delete", b);
     io.out(d.status === 0 ? `+ batch branch ${b} deleted: released by PR #${release.number}, no open PR into it` : `! git push origin --delete ${b}: ${d.stderr.trim()}`);
   }
 }
@@ -2996,7 +3003,7 @@ function specDiffOf(io: Io, base: string, head: string): string | null {
   const script = specDiffScript(io);
   if (!existsSync(script)) return io.out(`○ spec-diff is not installed (${script}) — the release PR without the spec section`), null;
   const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "--base", `origin/${base}`, "--head", head], io.cwd);
-  if (r.status !== 0) return io.out(`! spec-diff: ${r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`} — the release PR without the spec section`), null;
+  if (r.status !== 0) return io.out(`! spec-diff: ${why(r)} — the release PR without the spec section`), null;
   return r.stdout.trim() || null;
 }
 
@@ -3123,16 +3130,13 @@ function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], file
  * batch's; then ⌈log₂N⌉ runs: the first red block's task. One block — it, without runs.
  */
 function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks: number[], files: string[], red: string[]): Guilty | null {
-  const run = io.run ?? realRun;
-  const git = (cwd: string | undefined, ...args: string[]) => run("git", args, cwd);
-  const why = (x: RunResult) => x.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${x.status}`;
   const stop = (line: string) => (io.out(`! bisect: ${line}`), null);
   const byLogs = "the guilty task by the failed checks' logs";
   if (!checkoutOfRepo(io, originUrl(io), slug)) return stop(`the current directory is not a checkout of ${slug} — ${byLogs}`);
-  const fetched = git(io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
+  const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
   if (fetched.status !== 0) return stop(`git fetch origin ${base} ${batch}: ${why(fetched)}`);
-  const mb = git(io.cwd, "merge-base", `refs/remotes/origin/${base}`, `refs/remotes/origin/${batch}`).stdout.trim();
-  const listed = git(io.cwd, "log", "--reverse", "--first-parent", "--format=%H%x1f%B%x1e", `${mb}..refs/remotes/origin/${batch}`);
+  const mb = git(io, io.cwd, "merge-base", `refs/remotes/origin/${base}`, `refs/remotes/origin/${batch}`).stdout.trim();
+  const listed = git(io, io.cwd, "log", "--reverse", "--first-parent", "--format=%H%x1f%B%x1e", `${mb}..refs/remotes/origin/${batch}`);
   if (!mb || listed.status !== 0) return stop(`the commits of ${batch} over origin/${base} not read: ${why(listed)}`);
   const blocks: { task: number | null; last: string; commits: number }[] = [];
   for (const record of listed.stdout.split("\x1e")) {
@@ -3149,14 +3153,9 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
   const first = blocks[0]!;
   if (blocks.length === 1) return first.task === null ? stop(`the batch's commits have no Refs #N of its tasks — ${byLogs}`) : { number: first.task, why: "the batch's only task block" };
 
-  const dir = mkdtempSync(path.join(os.tmpdir(), "elves-bisect-"));
-  try {
-    const head = blocks.at(-1)!.last;
-    const add = git(io.cwd, "worktree", "add", "-q", "--detach", dir, head);
-    if (add.status !== 0) return stop(`git worktree add: ${why(add)}`);
+  const bisect = (dir: string): Guilty | null => {
     // the check — chosen by the head's scripts: what the failed checks' logs name
-    const pkg = path.join(dir, "package.json");
-    const scripts: Record<string, unknown> = existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
+    const scripts = scriptsOf(dir);
     const tests = files.filter(isTestFile);
     const plan = [...(files.some((f) => !isTestFile(f)) && scripts["typecheck"] ? [{ script: "typecheck", tests: false }] : []), ...(tests.length && scripts["test"] ? [{ script: "test", tests: true }] : [])];
     if (!plan.length) plan.push(...red.filter((n) => scripts[n]).map((n) => ({ script: n, tests: false })));
@@ -3165,21 +3164,13 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
     io.out(`bisect: the check — ${shown}; the head, the base, then ${plural(Math.ceil(Math.log2(blocks.length)), "run", "runs")}`);
     /** The check at a commit: red, green, or why it didn't run. */
     const check = (sha: string): string => {
-      const co = git(dir, "checkout", "-q", "--detach", sha);
+      const co = git(io, dir, "checkout", "-q", "--detach", sha);
       if (co.status !== 0) return `git checkout: ${why(co)}`;
-      const cmds = projectCommands(dir);
-      if (cmds.install) {
-        const r = run(cmds.install[0]!, cmds.install.slice(1), dir);
-        if (r.status !== 0) return `${cmds.install.join(" ")}: ${why(r)}`;
-      }
-      for (const s of plan) {
-        // a failed test not there yet fails nothing at this commit
-        const present = s.tests ? tests.filter((f) => existsSync(path.join(dir, f))) : [];
-        if (s.tests && !present.length) continue;
-        const argv = [...cmds.run(s.script), ...(present.length && packageManager(dir).name === "npm" ? ["--"] : []), ...present];
-        if (run(argv[0]!, argv.slice(1), dir).status !== 0) return "red";
-      }
-      return "green";
+      // a failed test not there yet fails nothing at this commit
+      const present = tests.filter((f) => existsSync(path.join(dir, f)));
+      const c = checkTree(io, dir, plan.flatMap((s) => (!s.tests ? [{ script: s.script }] : present.length ? [{ script: s.script, args: present }] : [])));
+      if (c.install && c.install.result.status !== 0) return `${c.install.cmd}: ${why(c.install.result)}`;
+      return c.red ? "red" : "green";
     };
     const probe = (k: number): string => {
       const sha = k < 0 ? mb : blocks[k]!.last;
@@ -3205,10 +3196,13 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
     const guilty = blocks[hi]!;
     if (guilty.task === null) return stop(`the first red block — commits without Refs #N up to ${guilty.last.slice(0, 7)} — ${byLogs}`);
     return { number: guilty.task, why: `the first red task block of the bisect (${guilty.last.slice(0, 7)})` };
-  } finally {
-    git(io.cwd, "worktree", "remove", "--force", dir);
-    rmSync(dir, { recursive: true, force: true });
-    git(io.cwd, "worktree", "prune");
+  };
+  try {
+    return inTempWorktree(io, "bisect", blocks.at(-1)!.last, bisect);
+  } catch (e) {
+    // the temporary worktree not added — the only GhError of the bisect
+    if (!(e instanceof GhError)) throw e;
+    return stop(e.message);
   }
 }
 
@@ -3338,40 +3332,31 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
     io.out(`○ PR #${p.number}${of.length ? ` (${of.map((n) => `#${n}`).join(", ")})` : ""} into ${batch} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or ${base}`);
   }
 
-  const run = io.run ?? realRun;
-  const git = (cwd: string | undefined, ...args: string[]) => run("git", args, cwd);
-  const why = (x: RunResult) => x.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${x.status}`;
-  const fetched = git(io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
+  const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base} ${batch}: ${why(fetched)}`);
-  const sha = (cwd: string | undefined, ref: string) => git(cwd, "rev-parse", "--verify", `${ref}^{commit}`).stdout.trim();
+  const sha = (cwd: string | undefined, ref: string) => git(io, cwd, "rev-parse", "--verify", `${ref}^{commit}`).stdout.trim();
   const old = sha(io.cwd, `refs/remotes/origin/${batch}`);
   const onto = sha(io.cwd, `refs/remotes/origin/${base}`);
   let head = old;
-  if (git(io.cwd, "merge-base", "--is-ancestor", onto, old).status === 0) io.out(`= ${batch} is on origin/${base} (${onto.slice(0, 7)}) — no rebase`);
+  if (git(io, io.cwd, "merge-base", "--is-ancestor", onto, old).status === 0) io.out(`= ${batch} is on origin/${base} (${onto.slice(0, 7)}) — no rebase`);
   else {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "elves-release-"));
-    try {
-      const add = git(io.cwd, "worktree", "add", "-q", "--detach", dir, old);
-      if (add.status !== 0) throw new GhError(`git worktree add: ${why(add)}`);
+    // the rebased head; a conflict — null
+    const rebasedHead = inTempWorktree(io, "release", old, (dir) => {
       // the commits keep their authors; the committer — the machine's git identity, none (CI) — the flow's
-      const who = git(dir, "config", "user.email").stdout.trim() ? [] : ["-c", "user.name=elves", "-c", "user.email=elves@localhost"];
-      const rebased = git(dir, ...who, "rebase", "-q", onto);
-      if (rebased.status !== 0) {
-        const files = git(dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
-        git(dir, "rebase", "--abort");
-        io.out(
-          `! ${batch} doesn't rebase onto origin/${base}: ${files.length ? `a conflict — ${files.join(", ")}` : why(rebased)} — the branch is unchanged, no release PR. ` +
-            `Rebase it by hand in the checkout: git switch --detach origin/${batch}, git rebase origin/${base}, resolve, git push --force-with-lease origin HEAD:${batch}; then batch release again`,
-        );
-        return 1;
-      }
-      head = sha(dir, "HEAD");
-    } finally {
-      git(io.cwd, "worktree", "remove", "--force", dir);
-      rmSync(dir, { recursive: true, force: true });
-      git(io.cwd, "worktree", "prune");
-    }
-    const pushed = git(io.cwd, "push", "-q", `--force-with-lease=refs/heads/${batch}:${old}`, "origin", `${head}:refs/heads/${batch}`);
+      const who = git(io, dir, "config", "user.email").stdout.trim() ? [] : ["-c", "user.name=elves", "-c", "user.email=elves@localhost"];
+      const rebased = git(io, dir, ...who, "rebase", "-q", onto);
+      if (rebased.status === 0) return sha(dir, "HEAD");
+      const files = git(io, dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
+      git(io, dir, "rebase", "--abort");
+      io.out(
+        `! ${batch} doesn't rebase onto origin/${base}: ${files.length ? `a conflict — ${files.join(", ")}` : why(rebased)} — the branch is unchanged, no release PR. ` +
+          `Rebase it by hand in the checkout: git switch --detach origin/${batch}, git rebase origin/${base}, resolve, git push --force-with-lease origin HEAD:${batch}; then batch release again`,
+      );
+      return null;
+    });
+    if (rebasedHead === null) return 1;
+    head = rebasedHead;
+    const pushed = git(io, io.cwd, "push", "-q", `--force-with-lease=refs/heads/${batch}:${old}`, "origin", `${head}:refs/heads/${batch}`);
     if (pushed.status !== 0) throw new GhError(`git push --force-with-lease origin ${batch}: ${why(pushed)}`);
     io.out(`+ ${batch} rebased onto origin/${base} (${onto.slice(0, 7)}): ${old.slice(0, 7)} → ${head.slice(0, 7)}, pushed`);
   }
@@ -3401,7 +3386,7 @@ const APP_WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/](?!agent-)[^\\/]+$/;
  * dispatcher gets a `!` line, the queue still goes: subagent executors branch from origin/main in their own worktrees.
  */
 function appWorktreeWarning(io: Io): void {
-  const top = (io.run ?? realRun)("git", ["rev-parse", "--show-toplevel"], io.cwd).stdout.trim();
+  const top = git(io, io.cwd, "rev-parse", "--show-toplevel").stdout.trim();
   if (!APP_WORKTREE.test(top)) return;
   const project = top.replace(/[\\/]\.claude[\\/]worktrees[\\/][^\\/]+$/, "");
   io.out(
@@ -3470,23 +3455,21 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  */
 function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolean): void {
   if (!checkoutOfRepo(io, originUrl(io), slug)) return;
-  const git = (cwd: string | undefined, ...args: string[]) => (io.run ?? realRun)("git", args, cwd);
-  const listed = git(io.cwd, "worktree", "list", "--porcelain");
+  const listed = git(io, io.cwd, "worktree", "list", "--porcelain");
   if (listed.status !== 0) return;
   const all = worktreeList(listed.stdout);
-  const here = git(io.cwd, "rev-parse", "--show-toplevel").stdout.trim();
-  const base = git(io.cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim().replace(/^origin\//, "") || "main";
+  const here = git(io, io.cwd, "rev-parse", "--show-toplevel").stdout.trim();
+  const base = git(io, io.cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim().replace(/^origin\//, "") || "main";
   const upstream = `origin/${base}`;
-  const why = (r: RunResult) => r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`;
   /** Commits of the ref outside origin/<base> by patch (`git cherry`), or why they couldn't be counted. */
   const unmerged = (ref: string): string | null => {
-    const r = git(io.cwd, "cherry", upstream, ref);
+    const r = git(io, io.cwd, "cherry", upstream, ref);
     if (r.status !== 0) return `git cherry ${upstream}: ${why(r)}`;
     const n = r.stdout.split("\n").filter((l) => l.startsWith("+")).length;
     return n ? `${plural(n, "commit", "commits")} not in ${upstream}` : null;
   };
   const deleteBranch = (branch: string) => {
-    const d = git(io.cwd, "branch", "-D", branch);
+    const d = git(io, io.cwd, "branch", "-D", branch);
     if (d.status !== 0) io.out(`! git branch -D ${branch}: ${why(d)}`);
     return d.status === 0;
   };
@@ -3502,7 +3485,7 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
       io.out(`○ worktree ${w.path} left: ${guest}`);
       continue;
     }
-    const status = git(w.path, "status", "--porcelain");
+    const status = git(io, w.path, "status", "--porcelain");
     if (status.status !== 0) {
       io.out(`! worktree ${w.path}: git status: ${why(status)}`);
       continue;
@@ -3514,8 +3497,8 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
       continue;
     }
     // a stale lock: its process is gone, and a locked worktree isn't removed without double force — which would drop the dirty check too
-    if (w.locked !== null) git(io.cwd, "worktree", "unlock", w.path);
-    const removed = git(io.cwd, "worktree", "remove", w.path);
+    if (w.locked !== null) git(io, io.cwd, "worktree", "unlock", w.path);
+    const removed = git(io, io.cwd, "worktree", "remove", w.path);
     if (removed.status !== 0) {
       io.out(`! git worktree remove ${w.path}: ${why(removed)}`);
       continue;
@@ -3525,7 +3508,7 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
   }
   // a branch checked out anywhere — a locked worktree's included — isn't loose
   const checkedOut = new Set(all.map((w) => w.branch).filter(Boolean));
-  const loose = git(io.cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/worktree-agent-*")
+  const loose = git(io, io.cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/worktree-agent-*")
     .stdout.split("\n")
     .map((b) => b.trim())
     .filter((b) => b && !checkedOut.has(b))
@@ -3634,7 +3617,7 @@ function aliveWhy(io: Io, w: Worktree, agents: Map<string, Subagent>): string | 
   const guest = id === null ? null : guestWhy(agents, id);
   if (guest) return guest;
   // the worktree's own HEAD log: the time of its latest entry (`HEAD@{<unix time>}`)
-  const r = (io.run ?? realRun)("git", ["reflog", "-1", "--date=unix", "--format=%gd"], w.path);
+  const r = git(io, w.path, "reflog", "-1", "--date=unix", "--format=%gd");
   const at = Number(/@\{(\d+)\}/.exec(r.stdout)?.[1]);
   const minutes = Math.floor((Date.now() / 1000 - at) / 60);
   return r.status === 0 && at > 0 && minutes < QUIET_MINUTES ? `HEAD moved ${Math.max(0, minutes)} min ago (a commit or a switch), quiet after ${QUIET_MINUTES}` : null;
@@ -3663,7 +3646,7 @@ function handOutFiles(io: Io): { session: string; file: string }[] {
  */
 function livePredecessors(io: Io, slug: string, number: number, own: string): string[] {
   if (!checkoutOfRepo(io, originUrl(io), slug)) return [];
-  const listed = (io.run ?? realRun)("git", ["worktree", "list", "--porcelain"], io.cwd);
+  const listed = git(io, io.cwd, "worktree", "list", "--porcelain");
   if (listed.status !== 0) return [];
   const mine = realPath(own);
   const all = worktreeList(listed.stdout).filter((w) => !w.prunable && realPath(w.path) !== mine);
@@ -3703,8 +3686,8 @@ function livePredecessors(io: Io, slug: string, number: number, own: string): st
  */
 function taskBranchesHere(io: Io, slug: string, number: number): string[] {
   if (!checkoutOfRepo(io, originUrl(io), slug)) return [];
-  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd).stdout.split("\n");
-  const refs = [...git("for-each-ref", "--format=%(refname)", "refs/heads/"), ...git("ls-remote", "--heads", "origin").map((l) => l.split("\t")[1] ?? "")];
+  const lines = (...args: string[]) => git(io, io.cwd, ...args).stdout.split("\n");
+  const refs = [...lines("for-each-ref", "--format=%(refname)", "refs/heads/"), ...lines("ls-remote", "--heads", "origin").map((l) => l.split("\t")[1] ?? "")];
   return [...new Set(refs.map((r) => r.trim().replace(/^refs\/heads\//, "")).filter((b) => isTaskBranch(b, number)))].sort();
 }
 
@@ -3741,7 +3724,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   const file = handedOutFile(io);
   const own = pinnedTask(io)?.task;
   // the executor's worktree — the checkout it calls the assignment in: the queue keeps it while the task is open (#533)
-  const top = (io.run ?? realRun)("git", ["rev-parse", "--show-toplevel"], io.cwd);
+  const top = git(io, io.cwd, "rev-parse", "--show-toplevel");
   const worktree = top.status === 0 ? top.stdout.trim() : "";
   const alive = worktree ? livePredecessors(io, slug, number, worktree) : [];
   if (alive.length) {
@@ -4291,12 +4274,11 @@ const CONFIG_LOCKED = /could not lock config file (.+)$/m;
  * together with its PR, by hand — left alone. Returns false when something is left undone.
  */
 function renameBranch(io: Io, slug: string, target: string): boolean {
-  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
-  const has = (ref: string) => git("rev-parse", "--verify", "--quiet", ref).status === 0;
+  const has = (ref: string) => git(io, io.cwd, "rev-parse", "--verify", "--quiet", ref).status === 0;
   if (!checkoutOfRepo(io, originUrl(io), slug)) return (io.out(`○ branch left alone: the current directory is not a checkout of ${slug}`), true);
-  const current = git("branch", "--show-current").stdout.trim();
+  const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   if (!current) {
-    const base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim() || "origin/main";
+    const base = git(io, io.cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim() || "origin/main";
     return (io.out(`○ branch left alone: HEAD is detached — a task branch from a fresh ${base}: git fetch origin && git switch -c ${target} ${base} --no-track`), true);
   }
   if (current === target) return (io.out(`= branch ${target}`), true);
@@ -4306,14 +4288,14 @@ function renameBranch(io: Io, slug: string, target: string): boolean {
   for (let k = 0; k < CONFIG_LOCK_TRIES; k++) {
     if (k) (io.sleep ?? pause)(CONFIG_LOCK_PAUSE_MS);
     const args = renamed ? ["config", "--rename-section", `branch.${current}`, `branch.${target}`] : ["branch", "-m", current, target];
-    const r = git(...args);
+    const r = git(io, io.cwd, ...args);
     // a branch without a section (no upstream) — nothing to rename in the config; est reads the `+ branch` line as a
     // switch of the checkout's branch (gitBranchesIn in skills/est/scripts/est.ts) — the format is shared
     if (r.status === 0 || (renamed && /no such section/.test(r.stderr))) {
       return (io.out(`+ branch ${current} → ${target}${k ? ` (.git/config was locked: ${k} retries)` : ""}`), true);
     }
     const locked = CONFIG_LOCKED.exec(r.stderr);
-    if (!locked) return (io.out(`! git ${args.join(" ")}: ${r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`}`), false);
+    if (!locked) return (io.out(`! git ${args.join(" ")}: ${why(r)}`), false);
     lock = `${path.resolve(io.cwd ?? process.cwd(), locked[1]!.trim())}.lock`;
     renamed ||= !has(`refs/heads/${current}`) && has(`refs/heads/${target}`);
   }
@@ -4359,7 +4341,7 @@ const estScript = (io: Io) => io.env["ELVES_EST"] ?? path.resolve(import.meta.di
 
 /** The origin URL of the current directory's checkout; not a checkout or no origin — "". */
 function originUrl(io: Io): string {
-  const remote = (io.run ?? realRun)("git", ["remote", "get-url", "origin"], io.cwd);
+  const remote = git(io, io.cwd, "remote", "get-url", "origin");
   return remote.status === 0 ? remote.stdout : "";
 }
 
@@ -4379,14 +4361,14 @@ function takeDownStacks(io: Io, number: number): void {
   const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "down", String(number)], io.cwd);
   const lines = r.stdout.split("\n").filter((l) => l.trim());
   for (const line of lines) io.out(line);
-  if (r.status !== 0 && !lines.length) io.out(`! task-env down: ${r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`}`);
+  if (r.status !== 0 && !lines.length) io.out(`! task-env down: ${why(r)}`);
 }
 
 /** est with arguments: its output without the marker is printed as is, a failure — its last error line as a `!` line. */
 function runEst(io: Io, est: string, args: string[]): void {
   const r = (io.run ?? realRun)("bun", ["--no-env-file", est, ...args], io.cwd);
   for (const line of r.stdout.split("\n")) if (line.trim() && !line.startsWith("<!--")) io.out(line);
-  if (r.status !== 0) io.out(`! est ${args[0]}: ${r.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${r.status}`}`);
+  if (r.status !== 0) io.out(`! est ${args[0]}: ${why(r)}`);
 }
 
 /**
@@ -4401,26 +4383,21 @@ function runEst(io: Io, est: string, args: string[]): void {
 function freshClone(io: Io, slug: string): void {
   const est = estScript(io);
   if (!existsSync(est)) return;
-  const run = io.run ?? realRun;
-  const top = run("git", ["rev-parse", "--show-toplevel"], path.dirname(est));
+  const top = git(io, path.dirname(est), "rev-parse", "--show-toplevel");
   if (top.status !== 0) return;
   const dir = top.stdout.trim();
-  const git = (...args: string[]) => run("git", args, dir);
-  const origin = git("remote", "get-url", "origin");
+  const origin = git(io, dir, "remote", "get-url", "origin");
   if (origin.status !== 0 || !checkoutOfRepo(io, origin.stdout, slug)) return;
-  const base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim().replace(/^origin\//, "") || "main";
-  const branch = git("branch", "--show-current").stdout.trim();
-  const left = (why: string) => io.out(`○ clone ${dir} left alone: ${why} — the actual is by its code`);
+  const base = git(io, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").stdout.trim().replace(/^origin\//, "") || "main";
+  const branch = git(io, dir, "branch", "--show-current").stdout.trim();
+  const left = (reason: string) => io.out(`○ clone ${dir} left alone: ${reason} — the actual is by its code`);
   if (branch !== base) return left(branch ? `on branch ${branch}, not ${base}` : `HEAD is detached, not on ${base}`);
-  const status = git("status", "--porcelain", "--untracked-files=no");
+  const status = git(io, dir, "status", "--porcelain", "--untracked-files=no");
   if (status.status !== 0 || status.stdout.trim()) return left("uncommitted changes");
-  const head = () => git("rev-parse", "--short", "HEAD").stdout.trim();
+  const head = () => git(io, dir, "rev-parse", "--short", "HEAD").stdout.trim();
   const before = head();
-  const pull = git("pull", "--ff-only", "--no-rebase", "--quiet", "origin", base);
-  if (pull.status !== 0) {
-    const why = pull.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${pull.status}`;
-    return io.out(`! clone ${dir}: git pull --ff-only origin ${base}: ${why} — the actual is by its code`);
-  }
+  const pull = git(io, dir, "pull", "--ff-only", "--no-rebase", "--quiet", "origin", base);
+  if (pull.status !== 0) return io.out(`! clone ${dir}: git pull --ff-only origin ${base}: ${why(pull)} — the actual is by its code`);
   const after = head();
   io.out(after === before ? `= clone ${dir} ${after}` : `+ clone ${dir} ${before} → ${after}`);
 }
@@ -4461,41 +4438,40 @@ function closeMilestone(io: Io, slug: string, issue: Issue, wasOpen: boolean): v
  * checks.
  */
 function cleanupBranches(io: Io, number: number, prs: { head: string; base: string }[]): void {
-  const git = (...args: string[]) => (io.run ?? realRun)("git", args, io.cwd);
-  const current = git("branch", "--show-current").stdout.trim();
+  const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   // a merged branch → the base it went into: each merged PR's head once
   const merged = new Map<string, string>();
   for (const p of prs) if (p.head && !merged.has(p.head)) merged.set(p.head, p.base || "main");
   const loose = current && !merged.has(current) && isTaskBranch(current, number) ? current : "";
   if (!merged.size && !loose) return io.out("○ the task branch not found — branches left alone");
-  git("fetch", "--prune", "origin");
+  git(io, io.cwd, "fetch", "--prune", "origin");
   if (loose) {
     const base = prs[0]?.base || "main";
-    const cherry = git("cherry", `origin/${base}`, loose);
+    const cherry = git(io, io.cwd, "cherry", `origin/${base}`, loose);
     if (cherry.status !== 0 || cherry.stdout.split("\n").some((l) => l.startsWith("+"))) io.out(`○ branch ${loose} is not merged into origin/${base} — left alone`);
     else merged.set(loose, base);
   }
   if (!merged.size) return;
   for (const [branch, base] of merged) {
     if (current === branch) {
-      const sw = git("switch", "--detach", `origin/${base}`);
+      const sw = git(io, io.cwd, "switch", "--detach", `origin/${base}`);
       if (sw.status !== 0) {
         io.out(`! git switch --detach origin/${base}: ${sw.stderr.trim()}`);
         continue;
       }
       io.out(`+ checkout — on origin/${base} (detached)`);
     }
-    if (git("branch", "--list", branch).stdout.trim()) {
-      const d = git("branch", "-D", branch);
+    if (git(io, io.cwd, "branch", "--list", branch).stdout.trim()) {
+      const d = git(io, io.cwd, "branch", "-D", branch);
       io.out(d.status === 0 ? `+ local branch ${branch} deleted` : `! git branch -D ${branch}: ${d.stderr.trim()}`);
     }
-    if (git("ls-remote", "--heads", "origin", branch).stdout.trim()) {
-      const d = git("push", "origin", "--delete", branch);
+    if (git(io, io.cwd, "ls-remote", "--heads", "origin", branch).stdout.trim()) {
+      const d = git(io, io.cwd, "push", "origin", "--delete", branch);
       io.out(d.status === 0 ? `+ remote branch ${branch} deleted` : `! git push origin --delete ${branch}: ${d.stderr.trim()}`);
     } else io.out(`○ remote branch ${branch} is already gone`);
   }
-  const top = git("rev-parse", "--show-toplevel").stdout.trim();
-  const common = git("rev-parse", "--git-common-dir").stdout.trim();
+  const top = git(io, io.cwd, "rev-parse", "--show-toplevel").stdout.trim();
+  const common = git(io, io.cwd, "rev-parse", "--git-common-dir").stdout.trim();
   if (!top || !common || path.resolve(io.cwd ?? process.cwd(), common) === path.join(top, ".git")) return;
   // an agent's worktree — an executor's: it can't remove the worktree it works in, the dispatcher's queue does (#515)
   if (AGENT_WORKTREE.test(top)) io.out(`○ agent worktree ${top}: the dispatcher's next task queue removes it`);
@@ -4833,6 +4809,60 @@ export function projectCommands(dir: string): { install: string[] | null; run: (
   return { install: pm.lockfile ? INSTALL[pm.name] : null, run: (script) => [pm.name, "run", script] };
 }
 
+/**
+ * A temporary worktree of the checkout at a revision (tests/standards/temp-worktree): a directory in the temp folder,
+ * `git worktree add --detach`, `work` in it, and the removal always — an error inside too: `worktree remove --force`,
+ * the directory, `worktree prune`. The flow's scripts add a worktree only here: a copy that forgot the `finally` or the
+ * `prune` left a worktree registered in the user's checkout. Not added — a GhError with git's reason.
+ */
+export function inTempWorktree<T>(io: Io, prefix: string, rev: string, work: (dir: string) => T): T {
+  const dir = mkdtempSync(path.join(os.tmpdir(), `elves-${prefix}-`));
+  try {
+    const add = git(io, io.cwd, "worktree", "add", "-q", "--detach", dir, rev);
+    if (add.status !== 0) throw new GhError(`git worktree add: ${why(add)}`);
+    return work(dir);
+  } finally {
+    git(io, io.cwd, "worktree", "remove", "--force", dir);
+    rmSync(dir, { recursive: true, force: true });
+    git(io, io.cwd, "worktree", "prune");
+  }
+}
+
+/** The tree's package.json scripts; no package.json — none. */
+function scriptsOf(dir: string): Record<string, unknown> {
+  const pkg = path.join(dir, "package.json");
+  return existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
+}
+
+/** A red script of a tree's check: its name, the command line and the result. */
+interface TreeRed {
+  script: string;
+  cmd: string;
+  result: RunResult;
+}
+
+/**
+ * A tree's check — `pr premerge` on the merge and on bare origin/<base>, the bisect of a red release at a boundary:
+ * dependencies by its lockfile (`projectCommands`), then the steps — a project script with its arguments (the test
+ * files; npm — after `--`) — in order, up to the first red one. `install` — its command and result, no lockfile — null;
+ * failed — no step ran.
+ */
+function checkTree(io: Io, dir: string, steps: { script: string; args?: string[] }[]): { install: { cmd: string; result: RunResult } | null; ran: string[]; red: TreeRed | null } {
+  const run = io.run ?? realRun;
+  const cmds = projectCommands(dir);
+  const install = cmds.install ? { cmd: cmds.install.join(" "), result: run(cmds.install[0]!, cmds.install.slice(1), dir) } : null;
+  const ran: string[] = [];
+  if (install && install.result.status !== 0) return { install, ran, red: null };
+  for (const s of steps) {
+    const args = s.args ?? [];
+    const argv = [...cmds.run(s.script), ...(args.length && packageManager(dir).name === "npm" ? ["--"] : []), ...args];
+    const result = run(argv[0]!, argv.slice(1), dir);
+    ran.push(s.script);
+    if (result.status !== 0) return { install, ran, red: { script: s.script, cmd: argv.join(" "), result } };
+  }
+  return { install, ran, red: null };
+}
+
 const tail = (r: RunResult, n = 20) => `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim()).slice(-n);
 /**
  * A failure line without the run time (bun `[1.2ms]`, Vitest `12ms`) and the compiler error position (`a.ts(3,5):` —
@@ -5049,19 +5079,17 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     return 0;
   } else io.out(`${base} moved after the CI of PR #${number} (CI since ${ci}, ${base} — ${moved}) — ${check}`);
 
-  const run = io.run ?? realRun;
-  const git = (cwd: string | undefined, ...args: string[]) => run("git", args, cwd);
   if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`the merge check runs from a checkout of ${slug}: the current directory is not one`);
-  const fetched = git(io.cwd, "fetch", "-q", "origin", base);
+  const fetched = git(io, io.cwd, "fetch", "-q", "origin", base);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base}: ${fetched.stderr.trim()}`);
   // the head — by its SHA, not refs/pull/<N>/head: GitHub creates that ref up to minutes after the PR, when CI has
   // already passed (#505), while a reachable commit (the head branch, refs/pull/<N>/merge) it gives by SHA
-  const got = git(io.cwd, "fetch", "-q", "origin", head);
-  if (got.status !== 0) throw new GhError(`PR head ${head} not fetched from origin (${got.stderr.trim().split("\n").at(-1)}) — was the PR updated? ci-wait again`);
+  const got = git(io, io.cwd, "fetch", "-q", "origin", head);
+  if (got.status !== 0) throw new GhError(`PR head ${head} not fetched from origin (${why(got)}) — was the PR updated? ci-wait again`);
   // commits of the PR already in the base by their changes (#649): a live executor's PR moved off a released batch —
   // by GitHub too, deleting the merged release's head in a repository that deletes head branches — carries the batch's
   // commits from before the release's rebase, and GitHub's rebase merge would replay them
-  const cherry = git(io.cwd, "cherry", `origin/${base}`, head);
+  const cherry = git(io, io.cwd, "cherry", `origin/${base}`, head);
   const applied = cherry.status === 0 ? cherry.stdout.split("\n").filter((l) => l.startsWith("-")).length : 0;
   if (applied) {
     io.out(
@@ -5071,22 +5099,8 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     return 1;
   }
 
-  const dirs: string[] = [];
-  /** A temporary worktree at origin/<base>: always removed. */
-  const worktree = (): string => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "elves-premerge-"));
-    dirs.push(dir);
-    const add = git(io.cwd, "worktree", "add", "-q", "--detach", dir, `origin/${base}`);
-    if (add.status !== 0) throw new GhError(`git worktree add: ${add.stderr.trim()}`);
-    return dir;
-  };
   const ON_MERGE = "on the merge";
-  /** The tree's package.json scripts; no package.json — none. */
-  const scriptsOf = (dir: string): Record<string, unknown> => {
-    const pkg = path.join(dir, "package.json");
-    return existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
-  };
-  type Red = { script: string; cmd: string; result: RunResult; failed: string[] };
+  type Red = TreeRed & { failed: string[] };
   /**
    * The tree's fast checks (`scripts` — those that exist) with dependencies from its lockfile, up to the first red one;
    * none — null.
@@ -5095,32 +5109,23 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     const defined = scriptsOf(dir);
     const present = scripts.filter((s) => defined[s]);
     if (!present.length) return null;
-    const cmds = projectCommands(dir);
-    if (cmds.install) {
-      const r = run(cmds.install[0]!, cmds.install.slice(1), dir);
-      if (r.status !== 0) throw new GhError(`installing dependencies ${where} failed (${cmds.install.join(" ")}): ${tail(r, 5).join(" / ")}`);
-      io.out(`+ dependencies${where === ON_MERGE ? "" : ` ${where}`}: ${cmds.install.join(" ")}`);
+    const { install, ran, red } = checkTree(io, dir, present.map((script) => ({ script })));
+    if (install) {
+      if (install.result.status !== 0) throw new GhError(`installing dependencies ${where} failed (${install.cmd}): ${tail(install.result, 5).join(" / ")}`);
+      io.out(`+ dependencies${where === ON_MERGE ? "" : ` ${where}`}: ${install.cmd}`);
     }
-    const ran: string[] = [];
-    for (const script of present) {
-      const cmd = cmds.run(script);
-      const result = run(cmd[0]!, cmd.slice(1), dir);
-      ran.push(script);
-      if (result.status === 0) continue;
-      const failed = [...new Set(asTsc(`${result.stdout}\n${result.stderr}`).split("\n").filter((l) => FAILED_LINE.test(l)).map((l) => l.trim()))];
-      return { ran, red: { script, cmd: cmd.join(" "), result, failed } };
-    }
-    return { ran, red: null };
+    if (!red) return { ran, red: null };
+    const failed = [...new Set(asTsc(`${red.result.stdout}\n${red.result.stderr}`).split("\n").filter((l) => FAILED_LINE.test(l)).map((l) => l.trim()))];
+    return { ran, red: { ...red, failed } };
   };
   const breaks = (script: string) => `❌ don't merge: ${script} is red on the merge with origin/${base} — fix the root cause in the PR: rebase onto origin/${base}, edit, push --force-with-lease, ci-wait again`;
-  try {
-    const dir = worktree();
-    const short = (ref: string) => git(dir, "rev-parse", "--short=7", ref).stdout.trim();
+  return inTempWorktree(io, "premerge", `origin/${base}`, (dir) => {
+    const short = (ref: string) => git(io, dir, "rev-parse", "--short=7", ref).stdout.trim();
     // like GitHub's merge-ref; a rebase merge without conflicts gives the same tree. A temporary merge doesn't need the
     // project's hooks
-    const merge = git(dir, "-c", "user.name=elves", "-c", "user.email=elves@localhost", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "--no-verify", "--no-edit", head);
+    const merge = git(io, dir, "-c", "user.name=elves", "-c", "user.email=elves@localhost", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "--no-verify", "--no-edit", head);
     if (merge.status !== 0) {
-      const files = git(dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
+      const files = git(io, dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
       if (!files.length) throw new GhError(`git merge: ${merge.stderr.trim()}`);
       io.out(`❌ don't merge: a merge conflict with origin/${base} — ${files.join(", ")}; rebase onto origin/${base}, push --force-with-lease, ci-wait again`);
       return 1;
@@ -5145,7 +5150,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
 
     // a red merge — is bare main red by the same thing: then it's not this PR that breaks it
     io.out(`checking bare origin/${base}: is it red by itself`);
-    const bare = checks(worktree(), `on origin/${base}`, [red.script])?.red;
+    const bare = inTempWorktree(io, "premerge", `origin/${base}`, (bareDir) => checks(bareDir, `on origin/${base}`, [red.script])?.red);
     if (!bare) {
       io.out(breaks(red.script));
       return 1;
@@ -5159,18 +5164,12 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
       io.out(breaks(red.script));
       return 1;
     }
-    const why = `${red.script} is red on bare origin/${base} too, with the same failures`;
-    const code = mainRed(`${base} is red by itself: ${why}`, why, [red.script], (names) => names.join(", "));
+    const reason = `${red.script} is red on bare origin/${base} too, with the same failures`;
+    const code = mainRed(`${base} is red by itself: ${reason}`, reason, [red.script], (names) => names.join(", "));
     if (code !== null) return code;
     io.out(breaks(red.script));
     return 1;
-  } finally {
-    for (const dir of dirs) {
-      git(io.cwd, "worktree", "remove", "--force", dir);
-      rmSync(dir, { recursive: true, force: true });
-    }
-    git(io.cwd, "worktree", "prune");
-  }
+  });
 }
 
 // ----------------------------------------------------------------------------
