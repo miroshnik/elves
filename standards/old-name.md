@@ -92,7 +92,7 @@
 - ✅ skills/github/reference.md · under the flow's former name `ai-dev` — справочник называет ruleset под прежним именем
 - ✅ skills/github/scripts/github.ts · FORMER_RULESET — ruleset ai-dev, поставленный project fix до переименования
 - ✅ skills/github/scripts/github.ts · configDir — каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс
-- ✅ skills/github/scripts/locale.ts · FORMER_MANIFEST — язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс
+- ✅ skills/github/scripts/locale.ts · manifestOf — язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс
 - ✅ skills/slot/SKILL.md · **The flow's former name.** — описание скилла называет прежние переменные очереди
 - ✅ skills/slot/SKILL.md · the tickets of an earlier release's slot — описание скилла называет прежнее место билетов
 - ✅ skills/slot/scripts/slot.ts · FORMER_ENV — переменные очереди AI_DEV_SLOT и AI_DEV_SLOT_CPUS проектов и slot прошлого релиза
@@ -104,7 +104,7 @@
 - ✅ skills/task-env/reference.md · ## The proxy before the rename — справочник описывает переход с прокси ai-dev-proxy
 - ✅ skills/task-env/scripts/task-env.ts · FORMER_PROXY — контейнер прокси ai-dev-proxy, который держит порт, — proxy up его удаляет
 - ✅ skills/task-env/scripts/task-env.ts · HELP — справка proxy up называет прокси ai-dev-proxy, которого он заменяет
-- ✅ skills/task-env/scripts/task-env.ts · MANIFESTS — настройки стека из .agents/ai-dev.json, пока update его не перенёс
+- ✅ skills/task-env/scripts/task-env.ts · manifestOf — настройки стека из .agents/ai-dev.json, пока update его не перенёс
 - ✅ skills/task-env/scripts/task-env.ts · proxyPort — порт прокси из AI_DEV_PROXY_PORT профиля владельца
 
 </details>

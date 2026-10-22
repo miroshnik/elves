@@ -8535,6 +8535,41 @@
  {
   "path": "tests/capabilities/update/update.test.ts",
   "describes": [
+   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+  ],
+  "name": "CI без джобы лёгкого набора — строка ❌ со ссылкой на ci.md, код 1"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+  ],
+  "name": "CI по фрагменту ci.md «Batches» — ни строки сверх обычных, код 0"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+  ],
+  "name": "batch, отличный от true, — не проект с пачками ни для check, ни для task queue"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+  ],
+  "name": "pull_request только в main — строка ❌: PR в ветку пачки без прогона"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
+   "check проекта с пачками сверяет, что CI умеет лёгкий набор"
+  ],
+  "name": "проект без batch — CI не сверяется"
+ },
+ {
+  "path": "tests/capabilities/update/update.test.ts",
+  "describes": [
    "check проекта со стандартами или архитектурой требует скрипт test:spec — быструю проверку pr premerge"
   ],
   "name": "test:spec — раннер команды test, без неё — по зависимостям: vitest, jest, bun test в проекте на Bun, без раннера — vitest; по корням спеки, что есть"
@@ -16127,7 +16162,7 @@
   "describes": [
    "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
   ],
-  "name": "skills/github/scripts/locale.ts · FORMER_MANIFEST — язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс"
+  "name": "skills/github/scripts/locale.ts · manifestOf — язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс"
  },
  {
   "path": "tests/standards/old-name/old-name.test.ts",
@@ -16211,7 +16246,7 @@
   "describes": [
    "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
   ],
-  "name": "skills/task-env/scripts/task-env.ts · MANIFESTS — настройки стека из .agents/ai-dev.json, пока update его не перенёс"
+  "name": "skills/task-env/scripts/task-env.ts · manifestOf — настройки стека из .agents/ai-dev.json, пока update его не перенёс"
  },
  {
   "path": "tests/standards/old-name/old-name.test.ts",
@@ -16583,6 +16618,104 @@
    "Скрипт флоу не читает packageManager и не ищет lockfile мимо функции packageManager"
   ],
   "name": "реестр «скрипты флоу, которые читают поле packageManager или называют lockfile» не пуст"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "skills/github/scripts/locale.ts: манифест проекта — по таблице правила"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "skills/task-env/scripts/task-env.ts: манифест проекта — по таблице правила"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "нарушитель не проходит: batchProject до стандарта: без прежнего имени манифеста"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "нарушитель не проходит: readManifest установщика до стандарта: JSON как есть, без ошибки"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "реестр «скрипты скиллов с ответом на «что в манифесте проекта»» находит skills/github/scripts/locale.ts, skills/task-env/scripts/task-env.ts"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "реестр «скрипты скиллов с ответом на «что в манифесте проекта»» не пуст"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+  ],
+  "name": "таблица ловит расхождения копий до стандарта: прежний манифест у batchProject, не объект и битый файл у readManifest"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "bin/elves.ts: манифест разбирает только manifestOf"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "skills/github/scripts/locale.ts: манифест разбирает только manifestOf"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "skills/task-env/scripts/task-env.ts: манифест разбирает только manifestOf"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "нарушитель не проходит: скрипт скилла разбирает манифест сам"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "нарушитель не проходит: установщик разбирает манифест сам"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "реестр «скрипты флоу, которые называют файл манифеста» находит skills/github/scripts/locale.ts, skills/task-env/scripts/task-env.ts, bin/elves.ts"
+ },
+ {
+  "path": "tests/standards/project-manifest/project-manifest.test.ts",
+  "describes": [
+   "Скрипт флоу не разбирает манифест мимо manifestOf"
+  ],
+  "name": "реестр «скрипты флоу, которые называют файл манифеста» не пуст"
  },
  {
   "path": "tests/standards/readme/readme.test.ts",
@@ -17376,6 +17509,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "bin/elves.ts: README.md, «Installation» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "bin/elves.ts: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
   "path": "tests/standards/section-refs/section-refs.test.ts",
@@ -18383,6 +18523,13 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
+  "name": "tests/capabilities/update/update.md: skills/spec/ci.md, «Batches» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/section-refs/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
   "name": "tests/standards/skill-imports/skill-imports.md: AGENTS.md, «Language» — есть такой раздел"
  },
  {
@@ -18951,6 +19098,13 @@
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
   "name": "tests/standards/package-manager/package-manager.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
+  "name": "tests/standards/project-manifest/project-manifest.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/spawn-timeout/spawn-timeout.test.ts",

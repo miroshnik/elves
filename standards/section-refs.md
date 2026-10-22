@@ -36,7 +36,7 @@
 
 ## Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 155 тестов</summary>
+<details><summary>✅ 157 тестов</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -48,6 +48,7 @@
 - ✅ bin/elves.ts: AGENTS.md, «Language» — есть такой раздел
 - ✅ bin/elves.ts: AGENTS.md, «What I do without asking and what needs a yes» — есть такой раздел
 - ✅ bin/elves.ts: README.md, «Installation» — есть такой раздел
+- ✅ bin/elves.ts: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ claude/CLAUDE.md: AGENTS.md, «First step of a session» — есть такой раздел
 - ✅ claude/CLAUDE.md: docs/pr-checks.md, «Auto-fix» — есть такой раздел
 - ✅ claude/CLAUDE.md: skills/task-env/SKILL.md, «Docker and the sandbox» — есть такой раздел
@@ -191,6 +192,7 @@
 - ✅ skills/task-env/scripts/task-env.ts: skills/task-env/SKILL.md, «Network subnets» — есть такой раздел
 - ✅ tests/capabilities/est/est.md: docs/cloud-sessions.md, «The brief» — есть такой раздел
 - ✅ tests/capabilities/task-env/task-env.md: skills/task-env/SKILL.md, «Network subnets» — есть такой раздел
+- ✅ tests/capabilities/update/update.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ tests/standards/skill-imports/skill-imports.md: AGENTS.md, «Language» — есть такой раздел
 - ✅ tests/standards/task-branch/task-branch.md: AGENTS.md, «Session and branch» — есть такой раздел
 
