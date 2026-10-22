@@ -545,6 +545,8 @@ describe("Прогон Actions, не ставший чеком, — не PASS: w
     ["on: pull_request", "on: pull_request\n"],
     ["on: [push, pull_request]", "on: [push, pull_request]\n"],
     ["ветки, пускающие базовую", "on:\n  pull_request:\n    branches: [develop, 'm*n']\n"],
+    // #657: отрицание решается по порядку шаблонов, без диффа PR; не ждать его — PASS до прогона, мерж без тестов
+    ["ветки с отрицанием, пускающие базовую", "on:\n  pull_request:\n    branches: ['**', '!release/**']\n"],
     ["branches-ignore без базовой", "on:\n  pull_request:\n    branches-ignore: ['release/**']\n"],
     ["types с synchronize", "on:\n  pull_request:\n    types: [opened, synchronize]\n"],
   ];
@@ -557,12 +559,13 @@ describe("Прогон Actions, не ставший чеком, — не PASS: w
     });
   }
 
-  // сторожа от перекоррекции: пойдёт ли такой workflow на этот PR, без диффа не решить — ожидание дало бы ложный TIMEOUT
+  // сторожа от перекоррекции: такой workflow на этот PR не пойдёт или без диффа не решить, пойдёт ли, — ожидание дало бы
+  // ложный TIMEOUT
   const notDue: [string, string, string?][] = [
     ["только push", "on:\n  push:\n    branches: [main]\n"],
     ["фильтр путей", "on:\n  pull_request:\n    paths: ['src/**']\n"],
     ["ветки без базовой", "on:\n  pull_request:\n    branches: ['release/**']\n"],
-    ["отрицание в ветках", "on:\n  pull_request:\n    branches: ['**', '!main']\n"],
+    ["отрицание снимает базовую", "on:\n  pull_request:\n    branches: ['**', '!main']\n"],
     ["types без synchronize", "on:\n  pull_request:\n    types: [labeled]\n"],
     ["pull_request_target", "on: pull_request_target\n"],
     ["workflow выключен", "on: pull_request\n", "disabled_manually"],
