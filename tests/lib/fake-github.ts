@@ -48,7 +48,7 @@ export class FakeGitHub {
    * задачи, с которыми GitHub связал PR (`closes`; тело может называть и другие), голова, модель архитектуры в ней (ModelAt);
    * `merged`, `state`, `base` — для `task close`.
    */
-  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]> }> = {};
+  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]>; logs?: Record<string, string> }> = {};
   /** Задача → числовые поля проекта по имени поля (IssueShow): оценка, факт. */
   numbers: Record<number, Record<string, number>> = {};
   /** Задача → id milestone (IssueRef.milestone); открытые задачи milestone считаются по состоянию записей. */
@@ -115,6 +115,20 @@ export class FakeGitHub {
     if (args[0] === "api" && args[1] === "-X" && args[2] === "POST" && args[3] === `repos/${this.repo.nameWithOwner}/pulls`) return JSON.stringify(this.createPr(JSON.parse(stdin ?? "{}")));
     const pulls = args[0] === "api" && args[1]?.startsWith(`repos/${this.repo.nameWithOwner}/pulls`) ? this.restPulls(args[1]) : null;
     if (pulls) return JSON.stringify(pulls);
+    // чеки головы PR (`sha<номер>`) и лог джобы Actions по id её check-run — что читает красный выпуск пачки
+    const commit = args[0] === "api" ? new RegExp(`^repos/${this.repo.nameWithOwner}/commits/sha(\\d+)/(check-runs|status)\\b`).exec(args[1] ?? "") : null;
+    if (commit) {
+      const n = Number(commit[1]);
+      const runs = this.restCheckRuns(n);
+      return JSON.stringify(commit[2] === "status" ? { sha: `sha${n}`, state: "pending", statuses: [] } : { total_count: runs.length, check_runs: runs });
+    }
+    const job = args[0] === "api" ? new RegExp(`^repos/${this.repo.nameWithOwner}/actions/jobs/(\\d+)/logs$`).exec(args[1] ?? "") : null;
+    if (job) {
+      const id = Number(job[1]);
+      const n = Math.floor(id / 100);
+      const run = this.restCheckRuns(n).find((r) => r.id === id);
+      return (run && this.prs[n]?.logs?.[run.name]) ?? "";
+    }
     if (args[0] !== "api" || args[1] !== "graphql") throw new Error(`fake gh: неожиданный вызов gh ${args.join(" ")}`);
     const { query, variables } = JSON.parse(stdin ?? "{}");
     const { kind, op } = opOf(query);
@@ -314,6 +328,16 @@ export class FakeGitHub {
     const p = this.prs[number]!;
     return { number, state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), isDraft: Boolean(p.draft), headRefName: p.head, baseRefName: p.base ?? "main", commits: { nodes: [{ commit: { statusCheckRollup: this.rollup(p.checks ?? {}) } }] } };
   }
+  /**
+   * Check-runs головы PR в REST вне облака, как их отдаёт GitHub Actions: id — `номер·100 + k` (id джобы — по нему
+   * `actions/jobs/<id>/logs` отдаёт лог из `logs` по имени чека), значения — строчные.
+   */
+  private restCheckRuns(n: number): Any[] {
+    let k = 0;
+    return Object.entries(this.prs[n]?.checks ?? {}).flatMap(([name, runs]) =>
+      [runs].flat().map((v) => ({ id: n * 100 + ++k, name, status: v === "IN_PROGRESS" ? "in_progress" : "completed", conclusion: v === "IN_PROGRESS" ? null : v.toLowerCase(), app: { id: 15368 } })),
+    );
+  }
   private rollup(checks: Record<string, string | string[]>): Any {
     let id = 0;
     const nodes = Object.entries(checks).flatMap(([name, runs]) =>
@@ -370,9 +394,12 @@ export class FakeGitHub {
     return {
       data: {
         repository: {
+          defaultBranchRef: { name: "main" },
           pullRequest: {
             number,
             headRefOid: pr.head,
+            headRefName: pr.head,
+            baseRefName: pr.base ?? "main",
             body: pr.body ?? "",
             closingIssuesReferences: { nodes: pr.closes.map((n) => ({ number: n })) },
             files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: pr.files.map((f) => (typeof f === "string" ? { path: f, changeType: "MODIFIED", additions: 1, deletions: 1 } : f)) },
@@ -387,7 +414,7 @@ export class FakeGitHub {
   }
   private livePrs(): Any[] {
     return Object.entries(this.prs)
-      .map(([n, p]) => ({ number: Number(n), state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), headRefName: p.head, baseRefName: p.base ?? "main", body: p.body ?? "" }))
+      .map(([n, p]) => ({ number: Number(n), state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), headRefName: p.head, headRefOid: `sha${n}`, baseRefName: p.base ?? "main", body: p.body ?? "" }))
       .filter((p) => p.state !== "CLOSED")
       .sort((a, b) => b.number - a.number);
   }

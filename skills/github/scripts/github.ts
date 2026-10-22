@@ -488,10 +488,12 @@ export const Q = {
     labels(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id name color description issues(states: OPEN, first: ${OPEN_SHOWN}) { totalCount nodes { number } } } }
   }
 }`,
+  // the PR's head and base too: `pr labels` doesn't label from a batch's release PR (#650)
   PrChange: `query PrChange($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     pullRequest(number: $number) {
-      number headRefOid body
+      number headRefOid headRefName baseRefName body
       closingIssuesReferences(first: 20) { nodes { number } }
       files(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { path changeType additions deletions } }
     }
@@ -530,16 +532,16 @@ fragment Head on PullRequest {
   RecentPrs: `query RecentPrs($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
-    pullRequests(states: [OPEN, MERGED], first: ${RECENT_PRS}, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName baseRefName body } }
+    pullRequests(states: [OPEN, MERGED], first: ${RECENT_PRS}, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName headRefOid baseRefName body } }
   }
 }`,
   // a batch's PRs (batch release, #649): into the batch branch — all of them, not the recent ones: a task missed is a task
-  // the release doesn't close; and its release PR — the batch branch as the head
+  // the release doesn't close; and its release PR — the batch branch as the head, its head commit for its checks (#650)
   BatchPrs: `query BatchPrs($owner: String!, $name: String!, $batch: String!) {
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
-    into: pullRequests(baseRefName: $batch, states: [OPEN, MERGED], first: 100) { nodes { number state merged headRefName baseRefName body } }
-    release: pullRequests(headRefName: $batch, states: [OPEN, MERGED], first: 10, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName baseRefName body } }
+    into: pullRequests(baseRefName: $batch, states: [OPEN, MERGED], first: 100) { nodes { number state merged headRefName headRefOid baseRefName body } }
+    release: pullRequests(headRefName: $batch, states: [OPEN, MERGED], first: 10, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { number state merged headRefName headRefOid baseRefName body } }
   }
 }`,
   // task show and task answer: the description, the epic with its description and subtasks, blocked by, the PRs with
@@ -1990,10 +1992,52 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
 }
 
 /**
- * The batch's release PR (#649): its head is the batch branch, its base the default branch — open or merged, the
- * latest of the recent PRs; none — undefined.
+ * A PR in one shape (#650): a GraphQL node (`headRefName`, `headRefOid`), a REST row (`head.ref`, `merged_at`) or a
+ * task's PR (`head` and `base` — strings) — the batch rules below read every source by one function each.
  */
-const releasePrOf = (recent: Recent, batch: string): Any | undefined => recent.nodes.find((p) => p.headRefName === batch && p.baseRefName === recent.base);
+interface PrRef {
+  number: number;
+  state: "OPEN" | "MERGED" | "CLOSED";
+  merged: boolean;
+  head: string;
+  base: string;
+  body: string;
+  /** The head commit; not read — "". */
+  sha: string;
+}
+
+function prRef(p: Any): PrRef {
+  if (p.head && typeof p.head === "object") {
+    const merged = Boolean(p.merged_at) || p.merged === true;
+    return { number: p.number, state: p.state === "open" ? "OPEN" : merged ? "MERGED" : "CLOSED", merged, head: p.head.ref ?? "", base: p.base?.ref ?? "", body: p.body ?? "", sha: p.head.sha ?? "" };
+  }
+  const merged = Boolean(p.merged);
+  return { number: p.number, state: p.state || (merged ? "MERGED" : "OPEN"), merged, head: p.headRefName ?? p.head ?? "", base: p.baseRefName ?? p.base ?? "", body: p.body ?? "", sha: p.headRefOid ?? "" };
+}
+
+/**
+ * The batch's release PR (#649) — one rule for GraphQL's and REST's PRs: its head is the batch branch, its base the
+ * default branch, open or merged — the first one of those given (they come newest first); none — undefined.
+ */
+function releaseOf(prs: Any[], batch: string, main: string): PrRef | undefined {
+  return prs.map(prRef).find((p) => p.head === batch && p.base === main && p.state !== "CLOSED");
+}
+const releasePrOf = (recent: Recent, batch: string) => releaseOf(recent.nodes, batch, recent.base);
+
+/**
+ * The tasks of a PR (#650 — one rule): the task branch's number and «Closes #N» of its body — GitHub links a PR to a
+ * task only by a merge into the default branch, so a batch's PRs are found by these; `why` — what each one is found by.
+ */
+function taskLinks(p: Any): { number: number; why: string }[] {
+  const r = prRef(p);
+  const branch = taskBranch(r.head);
+  const out = branch ? [{ number: branch.issue, why: `branch ${r.head}` }] : [];
+  for (const n of closingInBody(r.body)) if (!out.some((x) => x.number === n)) out.push({ number: n, why: `«Closes #${n}» in the body` });
+  return out;
+}
+const prTasks = (p: Any) => taskLinks(p).map((x) => x.number);
+/** The PR is the task's: its branch is the task branch, or its body has «Closes #N». */
+const prOfTask = (p: Any, number: number) => prTasks(p).includes(number);
 
 /** Open PRs into the branch — a live executor's into a batch branch. */
 const openInto = (recent: Recent, branch: string): Any[] => recent.nodes.filter((p) => p.state === "OPEN" && p.baseRefName === branch);
@@ -2370,18 +2414,28 @@ function restIssueShow(io: Io, slug: string, number: number): Any {
  */
 function restPrs(io: Io, slug: string, number: number): Any[] {
   const prs: Any[] = rest(io, `repos/${slug}/pulls?state=all&sort=updated&direction=desc&per_page=${RECENT_PRS}`) ?? [];
-  const mine = prs.filter((p) => p.base?.ref === p.base?.repo?.default_branch && (p.state === "open" || p.merged_at) && (isTaskBranch(p.head?.ref ?? "", number) || closingInBody(p.body ?? "").includes(number)));
+  const mine = prs.filter((p) => p.base?.ref === p.base?.repo?.default_branch && (p.state === "open" || p.merged_at) && prOfTask(p, number));
   return mine.map((p) => {
     const open = p.state === "open";
-    const runs: Any[] = open ? (rest(io, `repos/${slug}/commits/${p.head.sha}/check-runs?per_page=100`)?.check_runs ?? []) : [];
-    const statuses: Any[] = open ? (rest(io, `repos/${slug}/commits/${p.head.sha}/status`)?.statuses ?? []) : [];
-    const up = (v: unknown) => (v ? String(v).toUpperCase() : null);
-    const nodes = [
-      ...runs.map((c) => ({ __typename: "CheckRun", name: c.name, status: up(c.status), conclusion: up(c.conclusion), databaseId: c.id, checkSuite: { app: { databaseId: c.app?.id ?? null } } })),
-      ...statuses.map((c) => ({ __typename: "StatusContext", context: c.context, state: up(c.state) })),
-    ];
+    const nodes = open ? restRollup(io, slug, p.head.sha).nodes : [];
     return { number: p.number, state: open ? "OPEN" : "MERGED", merged: !open, isDraft: Boolean(p.draft), headRefName: p.head?.ref ?? "", commits: { nodes: [{ commit: { statusCheckRollup: nodes.length ? { contexts: { nodes } } : null } }] } };
   });
+}
+
+/**
+ * A commit's checks over REST in the shape of `HEAD_CHECKS` (`checkStates` reads them): its check-runs and the hosting's
+ * commit statuses; `runs` — the check-runs as REST gives them (their ids are the Actions jobs' ids). `task show` in the
+ * cloud (#603) and a batch's release (#650).
+ */
+function restRollup(io: Io, slug: string, sha: string): { nodes: Any[]; runs: Any[] } {
+  const runs: Any[] = rest(io, `repos/${slug}/commits/${sha}/check-runs?per_page=100`)?.check_runs ?? [];
+  const statuses: Any[] = rest(io, `repos/${slug}/commits/${sha}/status`)?.statuses ?? [];
+  const up = (v: unknown) => (v ? String(v).toUpperCase() : null);
+  const nodes = [
+    ...runs.map((c) => ({ __typename: "CheckRun", name: c.name, status: up(c.status), conclusion: up(c.conclusion), databaseId: c.id, checkSuite: { app: { databaseId: c.app?.id ?? null } } })),
+    ...statuses.map((c) => ({ __typename: "StatusContext", context: c.context, state: up(c.state) })),
+  ];
+  return { nodes, runs };
 }
 
 /** A comment as task show prints it (#651): the author's login, the time in UTC, the text. */
@@ -2716,9 +2770,6 @@ function recentPrs(io: Io, slug: string): Recent {
   return { base: r?.defaultBranchRef?.name ?? "main", nodes: (r?.pullRequests?.nodes ?? []).filter(Boolean) };
 }
 
-/** A recent PR is the task's: its branch is the task branch, or its body has «Closes #N». */
-const prOfTask = (p: Any, number: number) => isTaskBranch(p.headRefName ?? "", number) || closingInBody(p.body ?? "").includes(number);
-
 /**
  * The task's PR merged into the batch branch (#648): a linked one, or among the recent ones by the task branch and
  * «Closes #N» — GitHub links a PR to a task only by a merge into the default branch. None — undefined.
@@ -2738,7 +2789,8 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
  * doesn't hold. The batch's release (#649): nothing ready and every task in work merged into the batch — `Next:` names
- * `batch release`; its PR open — ready tasks are held (`○`), no new executors till its merge. Before the queue —
+ * `batch release`; its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
+ * names its guilty task by the labels and the fix (`redRelease`, `fixSteps`), the bisect — `batch release`'s. Before the queue —
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
  * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`).
  */
@@ -2860,7 +2912,11 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // the owner's word «release» — the same command with live executors: they go on, their PRs wait for the release
   // (question 2 of epic #645)
   const now = settled ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
-  if (releasing !== null) {
+  // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
+  const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
+  if (release && batch && checks?.state === "red") {
+    for (const line of fixSteps(slug, batch, release, checks, redRelease(io, slug, batch, recent.base, release, openInto(recent, batch), checks, false), false)) io.out(line);
+  } else if (releasing !== null) {
     io.out(
       `Next: the release of ${batch} is open — PR #${releasing} https://github.com/${slug}/pull/${releasing}: no new executors till its merge, ` +
         `the live executors' PRs into ${batch} wait for it (pr premerge refuses the merge); its steps — ${releaseCommand} prints them; ` +
@@ -2887,17 +2943,13 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
 }
 
 /**
- * The tasks merged into a batch branch (#649): each merged PR into it with its tasks — the task branch's number and
- * «Closes #N» of its body (GitHub links a PR to a task only by a merge into the default branch) — and the task branch's
- * type; a PR without a task — none. By the PR number.
+ * The tasks merged into a batch branch (#649): each merged PR into it with its tasks (`prTasks`: the task branch's
+ * number and «Closes #N» of its body) and the task branch's type; a PR without a task — none. By the PR number.
  */
 function batchTasks(prs: Recent, batch: string): { pr: number; tasks: number[]; type: string | null }[] {
   return prs.nodes
     .filter((p) => p.merged && p.baseRefName === batch)
-    .map((p) => {
-      const branch = taskBranch(p.headRefName ?? "");
-      return { pr: p.number as number, tasks: [...new Set([...(branch ? [branch.issue] : []), ...closingInBody(p.body ?? "")])], type: branch?.type ?? null };
-    })
+    .map((p) => ({ pr: p.number as number, tasks: prTasks(p), type: taskBranch(p.headRefName ?? "")?.type ?? null }))
     .filter((x) => x.tasks.length)
     .sort((a, b) => a.pr - b.pr);
 }
@@ -2928,10 +2980,289 @@ function specDiffOf(io: Io, base: string, head: string): string | null {
   return r.stdout.trim() || null;
 }
 
+/** GitHub Actions — the app whose check-runs are jobs with a log (`actions/jobs/<check-run id>/logs`). */
+const ACTIONS_APP = 15368;
+
+/** A release's checks (#650): red, still running (or none yet) or green; the red names and their latest Actions runs. */
+interface ReleaseChecks {
+  state: "red" | "pending" | "green";
+  red: string[];
+  failed: Any[];
+}
+
+/**
+ * The release PR's checks (#650) by `checkStates` — the rule of `task show` and `ci-wait`: a red one (`fail`, `cancel` —
+ * ci-wait's FAIL) — red; otherwise one still running or none yet (the head moved: a fix merged into the batch, the full
+ * run starts again) — pending; otherwise green. `failed` — the latest GitHub Actions run of each red name: its job's
+ * log names the failed files. Not read (REST failed, no head commit) — pending and an `○` line.
+ */
+function releaseChecks(io: Io, slug: string, release: PrRef): ReleaseChecks {
+  const pending: ReleaseChecks = { state: "pending", red: [], failed: [] };
+  if (!release.sha) return pending;
+  let rollup: { nodes: Any[]; runs: Any[] };
+  try {
+    rollup = restRollup(io, slug, release.sha);
+  } catch (e) {
+    if (!(e instanceof GhError)) throw e;
+    return io.out(`○ the checks of the release PR #${release.number} not read: ${e.message}`), pending;
+  }
+  const by = [...checkStates(rollup.nodes)];
+  const red = by
+    .filter(([, v]) => v === "fail" || v === "cancel")
+    .map(([k]) => k)
+    .sort();
+  const latest = new Map<string, Any>();
+  for (const r of rollup.runs) if (red.includes(r.name) && r.app?.id === ACTIONS_APP && !(latest.get(r.name)?.id > r.id)) latest.set(r.name, r);
+  if (!red.length) return { ...pending, state: !by.length || by.some(([, v]) => v === "pending") ? "pending" : "green" };
+  return { state: "red", red, failed: [...latest.values()] };
+}
+
+/** A test file's path — `x.test.ts`, `x.spec.tsx`, `x.e2e.ts` in any directory: Bun, Vitest, Jest, Playwright. */
+const TEST_FILE = /((?:[\w.@-]+\/)*[\w.@-]+\.(?:test|spec|e2e)\.[cm]?[jt]sx?)\b/;
+const isTestFile = (p: string) => new RegExp(`^${TEST_FILE.source}$`).test(p);
+
+/**
+ * The files a failed job's log names (#650): a failed test's file — in its failure line (Vitest, Jest, Playwright) or in
+ * the file header above it (Bun: `tests/…/x.test.ts:`), a compiler error's file — `a.ts(3,5): error TS…` (a `bun check`
+ * block too, `asTsc`); failure lines — `FAILED_LINE`, as on the merge. Paths — the checkout's: the runner's workspace
+ * prefix (`…/work/<repo>/<repo>/`), the log's timestamps and colors are cut.
+ */
+function failedFilesIn(log: string): string[] {
+  const out: string[] = [];
+  const rel = (p: string) => p.replace(/^.*?\/work\/[^/]+\/[^/]+\//, "").replace(/^\.\//, "");
+  const header = new RegExp(`^\\s*/?${TEST_FILE.source}:$`);
+  let current: string | null = null;
+  for (const raw of asTsc(log).split("\n")) {
+    const line = raw
+      .replace(/\u001b\[[\d;]*m/g, "")
+      .replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, "")
+      .trimEnd();
+    const file = header.exec(line);
+    if (file) {
+      current = rel(file[1]!);
+      continue;
+    }
+    if (!FAILED_LINE.test(line)) continue;
+    const found = /^\s*(\S+?)\(\d+,\d+\): error TS\d+/.exec(line)?.[1] ?? TEST_FILE.exec(line)?.[1] ?? current;
+    if (found && !out.includes(rel(found))) out.push(rel(found));
+  }
+  return out;
+}
+
+/** The files the release's failed Actions jobs name in their logs (`failedFilesIn`); a log not read — an `○` line. */
+function failedFilesOf(io: Io, slug: string, failed: Any[]): string[] {
+  const out: string[] = [];
+  for (const r of failed) {
+    let log: string;
+    try {
+      log = io.gh(["api", `repos/${slug}/actions/jobs/${r.id}/logs`]);
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      io.out(`○ the log of ${r.name} not read: ${e.message}`);
+      continue;
+    }
+    for (const f of failedFilesIn(log)) if (!out.includes(f)) out.push(f);
+  }
+  return out;
+}
+
+/** The guilty task of a red release and what named it (#650). */
+interface Guilty {
+  number: number;
+  why: string;
+}
+
+/**
+ * The guilty task by the labels (#650): the failed files' decisions — `decisionsOfFiles`, the rule of `pr labels`, a
+ * code file's module from the release head's model — against the decision labels of the release's tasks: `pr labels`
+ * of each task's PR into the batch set them (it doesn't label from the release PR). One task holds them — it; none or
+ * several — null and an `○` line: the bisect decides.
+ */
+function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], files: string[]): Guilty | null {
+  const changed = files.map((p) => ({ path: p, changeType: "MODIFIED", additions: 1, deletions: 1 }));
+  const modules = files.some((f) => f.split("/")[0] !== "tests") ? modulesAt(io, slug, sha, "the release head") : {};
+  const decisions = [...decisionsOfFiles(changed, modules).changed.keys()];
+  const none = "no guilty task by the labels";
+  if (!decisions.length) return io.out(`○ the failed files name no decision — ${none}`), null;
+  const held = (i: Issue) => decisions.filter((d) => i.labels.some((l) => l === d || legacyDecision(l)?.name === d));
+  const holders = issues.filter((i) => held(i).length);
+  const what = `the failed files' ${decisions.length > 1 ? "decisions" : "decision"} ${decisions.join(", ")}`;
+  if (holders.length === 1) return { number: holders[0]!.number, why: `the label ${held(holders[0]!).join(", ")} — ${what}` };
+  io.out(`○ ${what} — ${holders.length ? `the labels of ${holders.map((i) => `#${i.number}`).join(", ")}: not one task` : "no task of the release has the label"} — ${none}`);
+  return null;
+}
+
+/**
+ * The bisect of a red release by the task boundaries (#650; question 1 of the task — on the machine, not in CI: a push
+ * into the batch branch starts no run there, and a run per step there would be the full set). The batch's commits over
+ * its merge-base with origin/<base> in blocks by «Refs #N» of the release's tasks (a commit without one — the block
+ * before it); the check at a block's last commit in a temporary worktree (always removed), dependencies by its
+ * lockfile: the failed test files there by the project's `test` script, a compiler error — `typecheck`, neither named —
+ * the failed checks named like a script; the scripts go through `slot`, the machine queue. First the head — red on the
+ * machine, otherwise the red isn't reproduced and nobody is blamed — and the base — green, otherwise the red isn't the
+ * batch's; then ⌈log₂N⌉ runs: the first red block's task. One block — it, without runs.
+ */
+function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks: number[], files: string[], red: string[]): Guilty | null {
+  const run = io.run ?? realRun;
+  const git = (cwd: string | undefined, ...args: string[]) => run("git", args, cwd);
+  const why = (x: RunResult) => x.stderr.trim().split("\n").filter(Boolean).pop() ?? `code ${x.status}`;
+  const stop = (line: string) => (io.out(`! bisect: ${line}`), null);
+  const byLogs = "the guilty task by the failed checks' logs";
+  if (!checkoutOfRepo(io, originUrl(io), slug)) return stop(`the current directory is not a checkout of ${slug} — ${byLogs}`);
+  const fetched = git(io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
+  if (fetched.status !== 0) return stop(`git fetch origin ${base} ${batch}: ${why(fetched)}`);
+  const mb = git(io.cwd, "merge-base", `refs/remotes/origin/${base}`, `refs/remotes/origin/${batch}`).stdout.trim();
+  const listed = git(io.cwd, "log", "--reverse", "--first-parent", "--format=%H%x1f%B%x1e", `${mb}..refs/remotes/origin/${batch}`);
+  if (!mb || listed.status !== 0) return stop(`the commits of ${batch} over origin/${base} not read: ${why(listed)}`);
+  const blocks: { task: number | null; last: string; commits: number }[] = [];
+  for (const record of listed.stdout.split("\x1e")) {
+    const [sha = "", message = ""] = record.replace(/^\n/, "").split("\x1f");
+    if (!sha.trim()) continue;
+    const prev = blocks.at(-1);
+    const task = [...message.matchAll(/\bRefs:?\s+#(\d+)\b/gi)].map((m) => Number(m[1])).find((n) => tasks.includes(n)) ?? prev?.task ?? null;
+    if (prev && prev.task === task) Object.assign(prev, { last: sha.trim(), commits: prev.commits + 1 });
+    else blocks.push({ task, last: sha.trim(), commits: 1 });
+  }
+  const named = (b: (typeof blocks)[number]) => (b.task === null ? "commits without Refs #N" : `#${b.task}`);
+  if (!blocks.length) return stop(`no commits in ${batch} over origin/${base}`);
+  io.out(`bisect: ${batch} over origin/${base} (${mb.slice(0, 7)}) — ${plural(blocks.length, "task block", "task blocks")}: ${blocks.map((b) => `${named(b)} (${plural(b.commits, "commit", "commits")})`).join(", ")}`);
+  const first = blocks[0]!;
+  if (blocks.length === 1) return first.task === null ? stop(`the batch's commits have no Refs #N of its tasks — ${byLogs}`) : { number: first.task, why: "the batch's only task block" };
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), "elves-bisect-"));
+  try {
+    const head = blocks.at(-1)!.last;
+    const add = git(io.cwd, "worktree", "add", "-q", "--detach", dir, head);
+    if (add.status !== 0) return stop(`git worktree add: ${why(add)}`);
+    // the check — chosen by the head's scripts: what the failed checks' logs name
+    const pkg = path.join(dir, "package.json");
+    const scripts: Record<string, unknown> = existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
+    const tests = files.filter(isTestFile);
+    const plan = [...(files.some((f) => !isTestFile(f)) && scripts.typecheck ? [{ script: "typecheck", tests: false }] : []), ...(tests.length && scripts.test ? [{ script: "test", tests: true }] : [])];
+    if (!plan.length) plan.push(...red.filter((n) => scripts[n]).map((n) => ({ script: n, tests: false })));
+    if (!plan.length) return stop(`the failed checks ${red.join(", ")} name no test file or compiler error, and no package.json script is named like them — ${byLogs}`);
+    const shown = plan.map((s) => [...projectCommands(dir).run(s.script), ...(s.tests ? tests : [])].join(" ")).join(", then ");
+    io.out(`bisect: the check — ${shown}; the head, the base, then ${plural(Math.ceil(Math.log2(blocks.length)), "run", "runs")}`);
+    /** The check at a commit: red, green, or why it didn't run. */
+    const check = (sha: string): string => {
+      const co = git(dir, "checkout", "-q", "--detach", sha);
+      if (co.status !== 0) return `git checkout: ${why(co)}`;
+      const cmds = projectCommands(dir);
+      if (cmds.install) {
+        const r = run(cmds.install[0]!, cmds.install.slice(1), dir);
+        if (r.status !== 0) return `${cmds.install.join(" ")}: ${why(r)}`;
+      }
+      for (const s of plan) {
+        // a failed test not there yet fails nothing at this commit
+        const present = s.tests ? tests.filter((f) => existsSync(path.join(dir, f))) : [];
+        if (s.tests && !present.length) continue;
+        const argv = [...cmds.run(s.script), ...(present.length && packageManager(dir).name === "npm" ? ["--"] : []), ...present];
+        if (run(argv[0]!, argv.slice(1), dir).status !== 0) return "red";
+      }
+      return "green";
+    };
+    const probe = (k: number): string => {
+      const sha = k < 0 ? mb : blocks[k]!.last;
+      const r = check(sha);
+      io.out(`○ ${k < 0 ? `the base ${sha.slice(0, 7)}` : `${sha.slice(0, 7)} — after ${named(blocks[k]!)}`}: ${r === "red" || r === "green" ? r : `not checked — ${r}`}`);
+      return r;
+    };
+    const top = probe(blocks.length - 1);
+    if (top === "green") return stop(`the head of ${batch} is green on the machine — the release's red isn't reproduced (the merge with origin/${base}, the CI's environment, an unstable test — by its cause): nobody is blamed, ${byLogs}`);
+    if (top !== "red") return stop(`the head not checked — ${byLogs}`);
+    const bottom = probe(-1);
+    if (bottom === "red") return stop(`the base is red on the machine too — the red isn't the batch's (main or the machine): nobody in the batch is blamed`);
+    if (bottom !== "green") return stop(`the base not checked — ${byLogs}`);
+    let lo = -1;
+    let hi = blocks.length - 1;
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      const r = probe(mid);
+      if (r === "red") hi = mid;
+      else if (r === "green") lo = mid;
+      else return stop(`a boundary not checked — ${byLogs}`);
+    }
+    const guilty = blocks[hi]!;
+    if (guilty.task === null) return stop(`the first red block — commits without Refs #N up to ${guilty.last.slice(0, 7)} — ${byLogs}`);
+    return { number: guilty.task, why: `the first red task block of the bisect (${guilty.last.slice(0, 7)})` };
+  } finally {
+    git(io.cwd, "worktree", "remove", "--force", dir);
+    rmSync(dir, { recursive: true, force: true });
+    git(io.cwd, "worktree", "prune");
+  }
+}
+
+/**
+ * A red release (#650) — what its fix is. A release task's PR into the batch is open — the fix is going (`fixing`):
+ * wait for it, no bisect. Otherwise the guilty task: the release's only task, by the labels of the failed files'
+ * decisions (`guiltyByLabels`), otherwise the bisect (`bisectRelease`) — `batch release`'s; the queue (`bisect` false)
+ * names that command. Prints its lines.
+ */
+function redRelease(io: Io, slug: string, batch: string, base: string, release: PrRef, into: Any[], checks: ReleaseChecks, bisect: boolean): { fixing: PrRef | null; guilty: (Guilty & { issue: Issue }) | null } {
+  const tasks = prTasks(release);
+  const fixing = into.map(prRef).find((p) => p.state === "OPEN" && prTasks(p).some((n) => tasks.includes(n))) ?? null;
+  if (fixing) {
+    io.out(`○ the fix PR #${fixing.number} (${prTasks(fixing).map((n) => `#${n}`).join(", ")}) into ${batch} is open — its executor goes on; after its merge the release's full run goes again on PR #${release.number}`);
+    return { fixing, guilty: null };
+  }
+  const issues = tasks.map((n) => loadIssue(io, slug, n));
+  const named = (): Guilty | null => {
+    if (issues.length < 2) return issues.length ? { number: tasks[0]!, why: "the release's only task" } : null;
+    const files = failedFilesOf(io, slug, checks.failed);
+    io.out(files.length ? `○ the failed checks' logs name ${files.join(", ")}` : `○ the failed checks' logs name no file`);
+    return guiltyByLabels(io, slug, release.sha, issues, files) ?? (bisect ? bisectRelease(io, slug, batch, base, tasks, files, checks.red) : null);
+  };
+  const guilty = named();
+  if (!guilty) return { fixing: null, guilty: null };
+  const issue = issues.find((i) => i.number === guilty.number) ?? loadIssue(io, slug, guilty.number);
+  io.out(`guilty: #${guilty.number} ${q(issue.title)} — ${guilty.why}`);
+  return { fixing: null, guilty: { ...guilty, issue } };
+}
+
+/**
+ * The red release a task's fix is for (#650): the batch's release PR is open, has the task in its «Closes #N», and its
+ * checks are red; otherwise null — the task's assignment is the batch's usual one.
+ */
+function fixOf(io: Io, slug: string, batch: string, number: number): { release: PrRef; red: string[] } | null {
+  const release = releasePrOf(batchPrs(io, slug, batch), batch);
+  if (release?.state !== "OPEN" || !prOfTask(release, number)) return null;
+  const checks = releaseChecks(io, slug, release);
+  return checks.state === "red" ? { release, red: checks.red } : null;
+}
+
+/**
+ * The fix of a red release (#650) — `Next:` of `batch release` and of the queue, one text: the guilty task's executor
+ * (continued, or a new one with the same prompt) fixes it in the batch by its assignment, then the release's full run
+ * goes again on the same PR; the other tasks wait for the release. The fix going — its wait; the guilty task not named
+ * — `batch release` names it (the queue), or the logs (after the bisect).
+ */
+function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseChecks, r: ReturnType<typeof redRelease>, bisected: boolean): string[] {
+  const lead = `Next: the release PR #${release.number} https://github.com/${slug}/pull/${release.number} of ${batch} is red (${checks.red.join(", ")})`;
+  const again =
+    `after its merge into ${batch} — the release's full run again on the same PR #${release.number}: batch release prints its steps; ` +
+    `the other tasks of the batch wait — no new executors till the release's merge; ${SESSION_ARCHIVE}.`;
+  if (r.fixing) return [`${lead}: its fix PR #${r.fixing.number} into ${batch} is open — wait for its executor's answer; ${again}`];
+  const g = r.guilty;
+  if (g) {
+    return [
+      `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new background subagent in its own worktree with it as the prompt. ` +
+        `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the light set; ${again}`,
+      `  ${executorPrompt(slug, g.number, g.issue.parent?.number ?? null)}`,
+    ];
+  }
+  const command = `bun --no-env-file ${import.meta.path} batch release --repo ${slug}`;
+  return [
+    bisected
+      ? `${lead} — the guilty task isn't named (the lines above say why): by the failed checks' logs (gh pr checks ${release.number}) the dispatcher names it or asks the owner, then its fix — task queue --assignment <N> to its executor; ${again}`
+      : `${lead} — the guilty task: ${command} names it (the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command) and prints its fix; ${again}`,
+  ];
+}
+
 /**
  * The release of the dispatcher's batch (#649, epic #645): what is merged into the batch branch goes into the default
  * branch by one PR — one full CI run and one deploy for the batch. The batch — the session's (its marker, `batchOf`) or
- * the one named. Its release PR open — its steps again; merged — the closing steps. Otherwise: the tasks merged into
+ * the one named. Its release PR open — its steps again, red (#650) — its guilty task and the fix in the batch
+ * (`redRelease`, `fixSteps`), the PR stays open; merged — the closing steps. Otherwise: the tasks merged into
  * the batch (`batchTasks`; none — a refusal), the batch branch rebased onto a fresh origin/<base> in a temporary
  * worktree and pushed with `--force-with-lease` (on it already — no rebase; a conflict — a `!` line, code 1, the branch
  * unchanged), the PR into the default branch: the title — a conventional commit by the heaviest task type, the body —
@@ -2953,26 +3284,34 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
     `${tasks.map((n) => `${script} task close ${n}`).join("; ")} — the batch branch ${batch} goes with them (while a live executor's PR is into it — kept, the dispatcher's task queue deletes it later)`;
   const steps = (pr: number, tasks: number[]) =>
     `Next: the release PR ${link(pr)} — its checks: bash ${waitCi()} pr ${pr} as a background command; PASS — ${script} pr premerge ${pr}, code 0 — gh pr merge ${pr} --rebase as a separate call. ` +
+    `FAIL — ${script} batch release --repo ${slug} again: it names the guilty task and prints its fix in the batch, the release PR stays open. ` +
     `After the merge: the dispatcher goes on — task queue at once: it starts the next batch from the merged ${base}, and the live executors' PRs go into it (their pr premerge moves them); ` +
     `it stops — no queue: they go into ${base} with the full CI. Then ${closing(pr, tasks)}.`;
   const release = releasePrOf(prs, batch);
   if (release) {
-    const tasks = closingInBody(release.body ?? "");
+    const tasks = prTasks(release);
     if (release.merged) {
       io.out(`○ ${batch} is released by PR ${link(release.number)}`);
       io.out(`Next: ${closing(release.number, tasks)}.`);
-    } else {
-      io.out(`= the release PR ${link(release.number)} of ${batch} is open`);
-      io.out(steps(release.number, tasks));
+      return 0;
     }
+    // a red release (#650): its guilty task fixes it in the batch, then the full run again on the same PR
+    const checks = releaseChecks(io, slug, release);
+    if (checks.state === "red") {
+      io.out(`! the release PR ${link(release.number)} of ${batch} is red: ${checks.red.join(", ")}`);
+      const r = redRelease(io, slug, batch, base, release, openInto(prs, batch), checks, true);
+      for (const line of fixSteps(slug, batch, release, checks, r, true)) io.out(line);
+      return 0;
+    }
+    io.out(`= the release PR ${link(release.number)} of ${batch} is open`);
+    io.out(steps(release.number, tasks));
     return 0;
   }
   const merged = batchTasks(prs, batch);
   if (!merged.length) throw new GhError(`nothing is merged into ${batch} — nothing to release`);
   const tasks = [...new Set(merged.flatMap((m) => m.tasks))].sort((a, b) => a - b);
   for (const p of openInto(prs, batch)) {
-    const branch = taskBranch(p.headRefName ?? "");
-    const of = [...new Set([...(branch ? [branch.issue] : []), ...closingInBody(p.body ?? "")])];
+    const of = prTasks(p);
     io.out(`○ PR #${p.number}${of.length ? ` (${of.map((n) => `#${n}`).join(", ")})` : ""} into ${batch} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or ${base}`);
   }
 
@@ -3365,7 +3704,10 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * removed under the refresh subagent; a task without a PR is closed as completed first — `task close` needs it closed.
  * `session` — the prompt of an app executor session (`start_session`: another project's task, #624), printed by the
  * dispatcher: a session, not a subagent — by the canon of its project and its mode, named by the task, waits in the
- * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it.
+ * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it. The batch's
+ * release red with the task in it (#650, `fixOf`) — the fix's lead: the release PR and its failed checks, a new task
+ * branch from the batch, not the task's earlier one (rebase-merged into the batch already) — no restart line; `cloud`
+ * refused before the hand-out: a cloud executor isn't in the batch.
  */
 export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
@@ -3380,6 +3722,14 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     io.out(locale.fill(N.queue.alive, { task: N.subagentPrompt.task, number, repo: slug }));
     return 1;
   }
+  // the dispatcher's batch of the repository (#648): the task branch from it, the PR into it, the task open till the
+  // release; the session's own task isn't the batch's — it goes into the default branch, as a session outside a dispatcher
+  const batch = own?.slug === slug && own.number === number ? null : batchOf(io, slug);
+  // the batch's release is red and the task is in it (#650): its fix goes into the batch — a cloud executor isn't in it
+  const fix = batch === null ? null : fixOf(io, slug, batch, number);
+  if (fix && o.cloud) {
+    throw new GhError(`#${number} is in the red release PR #${fix.release.number} of ${batch}: its fix goes into the batch, and a cloud executor isn't in the batch — a subagent or an app executor session`);
+  }
   if (file && !(own?.slug === slug && own.number === number)) {
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — hand-outs aren't committed into it
@@ -3387,11 +3737,10 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     const where = o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree;
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
-  // the dispatcher's batch of the repository (#648): the task branch from it, the PR into it, the task open till the
-  // release; the session's own task isn't the batch's — it goes into the default branch, as a session outside a dispatcher
-  const batch = own?.slug === slug && own.number === number ? null : batchOf(io, slug);
   if (o.cloud) return cloudBrief(io, slug, issue, batch), 0;
-  const restart = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress ? taskBranchesHere(io, slug, number) : [];
+  // a fix starts a new branch from the batch: the task's earlier branch is in the batch already — no restart line
+  const inProgress = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress;
+  const restart = fix || inProgress ? taskBranchesHere(io, slug, number) : [];
   const vars = {
     task: N.subagentPrompt.task,
     number,
@@ -3407,14 +3756,19 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     doneQuestions: N.lastLine.questions,
     remaining: N.lastLine.remaining,
     batch: batch ?? "",
+    release: fix?.release.number ?? "",
+    checks: fix?.red.join(", ") ?? "",
+    previous: fix && restart.length ? locale.fill(N.queue.fixPrevious, { branches: restart.map((b) => `\`${b}\``).join(", ") }) : "",
   };
-  const resume = restart.length ? [N.queue.resume] : [];
+  const resume = restart.length && !fix ? [N.queue.resume] : [];
   // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's
-  // wait; in a batch — the lead, the wait and the refresh without the deploy and `task close`: they are the release's
+  // wait; in a batch — the lead, the wait and the refresh without the deploy and `task close`: they are the release's;
+  // the fix of a red release (#650) — its own lead, the rest as in the batch
+  const sessionLead = fix ? N.queue.sessionFixLead : batch ? N.queue.sessionBatchLead : N.queue.sessionLead;
   const lines = o.session
-    ? [batch ? N.queue.sessionBatchLead : N.queue.sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.sessionBatchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    ? [sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.sessionBatchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
     : [
-        batch ? N.queue.batchLead : N.queue.lead,
+        fix ? N.queue.fixLead : batch ? N.queue.batchLead : N.queue.lead,
         ...resume,
         N.queue.subagent,
         N.queue.session,
@@ -3957,7 +4311,7 @@ function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs:
     const into: string = p.baseRefName ?? "";
     if (into !== base && !isBatchBranch(into)) continue;
     const head: string = p.headRefName ?? "";
-    const why = isTaskBranch(head, number) ? `branch ${head}` : closingInBody(p.body ?? "").includes(number) ? `«Closes #${number}» in the body` : null;
+    const why = taskLinks(p).find((x) => x.number === number)?.why;
     if (why) (into === base ? prs : batched).push({ number: p.number, state: p.state ?? "", merged: Boolean(p.merged), head, base: into, why });
   }
   return { base, prs, batched };
@@ -4282,34 +4636,57 @@ function closingInBody(body: string): number[] {
   return out;
 }
 
-/** The PR and all its changed files (`PrChange`, page by page): `pr labels` and the epic refresh's assignment. */
-function loadPrChange(io: Io, slug: string, number: number): { head: Any; files: PrFile[] } {
+/** The PR and all its changed files (`PrChange`, page by page), the default branch (`base`): `pr labels` and the epic refresh's assignment. */
+function loadPrChange(io: Io, slug: string, number: number): { head: Any; files: PrFile[]; base: string } {
   const [owner, name] = slug.split("/") as [string, string];
   let head: Any = null;
+  let base = "main";
   const files = pages<PrFile>((after) => {
-    const pr = graphql(io, Q.PrChange, { owner, name, number, after })?.repository?.pullRequest;
+    const repo = graphql(io, Q.PrChange, { owner, name, number, after })?.repository;
+    const pr = repo?.pullRequest;
     if (!pr) throw new GhError(`no PR #${number} in ${slug}`);
     head ??= pr;
+    base = repo.defaultBranchRef?.name ?? base;
     return pr.files;
   });
-  return { head, files };
+  return { head, files, base };
 }
 
-export function cmdPrLabels(io: Io, slug: string, number: number): number {
+/**
+ * The model's modules at a revision (`Q.ModelAt`) — what a code file's decision is (`decisionsOfFiles`); no model — none,
+ * a model that doesn't load — none and a warning.
+ */
+function modulesAt(io: Io, slug: string, rev: string, what: string): Record<string, string[]> {
   const [owner, name] = slug.split("/") as [string, string];
-  const { head, files } = loadPrChange(io, slug, number);
-  let closes: number[] = (head.closingIssuesReferences?.nodes ?? []).map((x: Any) => x.number);
-  // right after the PR is created GitHub hasn't linked it to the task yet — the same keywords in the body
-  if (!closes.length) closes = closingInBody(head.body ?? "");
-  if (!closes.length) throw new GhError(`PR #${number} has no «Closes #N» — nowhere to put the labels`);
-  // modules come from the PR head: the PR may add a module or move its directory
-  const model = graphql(io, Q.ModelAt, { owner, name, expression: `${head.headRefOid}:${MODEL_PATH}` })?.repository?.object;
-  let modules: Record<string, string[]> = {};
-  if (model) {
-    const m = modelModules(model.text ?? "");
-    if (typeof m === "string") io.err(`warning: model ${MODEL_PATH} of the PR head doesn't load — modules not counted: ${m}`);
-    else modules = m;
+  const model = graphql(io, Q.ModelAt, { owner, name, expression: `${rev}:${MODEL_PATH}` })?.repository?.object;
+  if (!model) return {};
+  const m = modelModules(model.text ?? "");
+  if (typeof m !== "string") return m;
+  io.err(`warning: model ${MODEL_PATH} of ${what} doesn't load — modules not counted: ${m}`);
+  return {};
+}
+
+/**
+ * Decision labels from the PR's diff for its tasks and their epics. The tasks — GitHub's link; right after the PR is
+ * created there is none yet — the PR's tasks by the one rule (`taskLinks`: the task branch, «Closes #N» of the body):
+ * a fix PR into a batch branch has «Refs #N» (#650). A batch's release PR — no labels (#650): its tasks got theirs from
+ * their PRs into the batch, the release's diff would give each task the whole batch's — and a red release names its
+ * guilty task by them.
+ */
+export function cmdPrLabels(io: Io, slug: string, number: number): number {
+  const { head, files, base } = loadPrChange(io, slug, number);
+  if (isBatchBranch(head.headRefName ?? "") && releaseOf([head], head.headRefName, base)) {
+    io.out(
+      `○ PR #${number} is the release of the batch ${head.headRefName}: its tasks got their decision labels from their PRs into the batch — ` +
+        `the release's diff would give each task the whole batch's, and a red release names its guilty task by them: no labels`,
+    );
+    return 0;
   }
+  let closes: number[] = (head.closingIssuesReferences?.nodes ?? []).map((x: Any) => x.number);
+  if (!closes.length) closes = prTasks(head);
+  if (!closes.length) throw new GhError(`PR #${number} has no «Closes #N» and no task branch — nowhere to put the labels`);
+  // modules come from the PR head: the PR may add a module or move its directory
+  const modules = modulesAt(io, slug, head.headRefOid, "the PR head");
   const { changed: decided, mechanical: skipped } = decisionsOfFiles(files, modules);
   const all = decided.size ? loadLabels(io, slug) : [];
   // a slice label with a decision's name is a different slice of tasks: it isn't set as a decision label
@@ -4502,16 +4879,28 @@ function bugNames(base: string, title: string, check: string): boolean {
  * the release its CI checked. Merged — code 1, the PR moves: into the dispatcher's next batch (the marker's, another
  * one than the base: the dispatcher went on — its queue started it), without one — into the default branch with the
  * full CI, the task leaving the batch; then a rebase onto it — the batch's commits are there already, rebased, with
- * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null.
+ * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null. The
+ * open release red and the PR one of its task's (#650: the task branch or «Closes #N» — `prTasks`, the release's
+ * «Closes #N») — the guilty task's fix: null, the PR is checked as usual; a live executor's PR (its task isn't in the
+ * release) and any PR while the release is green or running — held.
  */
 function batchBase(io: Io, slug: string, number: number, pr: Any): number | null {
   const base: string = pr.base.ref;
   const main: string = pr.base.repo?.default_branch ?? "main";
   const owner = slug.split("/")[0]!;
   const rows: Any[] = restCall(io, ["api", `repos/${slug}/pulls?state=all&head=${encodeURIComponent(`${owner}:${base}`)}&per_page=10`]) ?? [];
-  const release = rows.find((p) => p.base?.ref === main && (p.state === "open" || p.merged_at));
+  const release = releaseOf(rows, base, main);
   if (!release) return null;
-  if (release.state === "open") {
+  if (release.state === "OPEN") {
+    const ofRelease = prTasks(pr).filter((n) => prOfTask(release, n));
+    const checks = ofRelease.length ? releaseChecks(io, slug, release) : null;
+    if (checks?.state === "red") {
+      io.out(
+        `○ ${base} is being released — PR #${release.number} into ${main} is red (${checks.red.join(", ")}), and PR #${number} is of its task ${ofRelease.map((n) => `#${n}`).join(", ")}: ` +
+          `the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #${release.number}`,
+      );
+      return null;
+    }
     io.out(
       `❌ don't merge: ${base} is being released — PR #${release.number} into ${main}: a merge into the batch now would change the release its CI checked. ` +
         `Wait for the release to close — bash ${waitCi()} issue ${release.number} (a subagent — a regular call with --timeout 540, again on TIMEOUT; a session — a background command), ` +
@@ -4521,7 +4910,7 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   }
   const next = batchOf(io, slug);
   const target = next && next !== base ? next : main;
-  const tasks = closingInBody(pr.body ?? "");
+  const tasks = prTasks(pr);
   const after =
     target === main
       ? `; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}) and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
@@ -4879,8 +5268,10 @@ dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+),
 kept in the marker; the assignment — the task branch from it and the PR into it, no deploy and no task close, the task
 closes with the batch's release; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
 cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task in work merged
-into the batch — Next: names batch release; its release PR open — ready tasks are held (○), no new executors; released
-— a new batch, a released batch branch without an open PR into it is deleted (+).
+into the batch — Next: names batch release; its release PR open — ready tasks are held (○), no new executors; red —
+Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
+assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N; --cloud
+refused); released — a new batch, a released batch branch without an open PR into it is deleted (+).
 
 Examples:
   github task queue --epic 40
@@ -4909,18 +5300,23 @@ The dispatcher's batch (epic #645) into the default branch by one PR — one ful
 the PR into the default branch — a conventional-commit title, the body: spec-diff of the batch and «Closes #N» of each
 task merged into it; Next: — ci-wait, pr premerge, the merge, the deploy wait, task close of each task. The live
 executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
-the next batch or the default branch. The release PR open — its steps again; merged — the closing steps. Nothing merged
-— a refusal; a rebase conflict — a ! line, code 1, the branch unchanged. From a checkout of the repository.
+the next batch or the default branch. The release PR open — its steps again; red — the guilty task (the release's only
+task, the labels of the decisions of the files the failed jobs' logs name, otherwise a bisect by the task boundaries on
+the machine: the head, the base, then log2 N runs of the project's test script on the failed test files) and its fix in
+the batch, then the full run again on the same PR; merged — the closing steps. Nothing merged — a refusal; a rebase
+conflict — a ! line, code 1, the branch unchanged. From a checkout of the repository.
 
 Examples:
   github batch release
   github batch release batch/2026-10-22-1`,
   "pr labels": `github pr labels <N> [--repo owner/repo]
 
-Decision labels from the PR diff for the tasks from «Closes #N» and their epics; doesn't remove earlier ones. A decision
-touched only mechanically (a deletion, a rename without changes, exceptions) and a decision with a slice label's name —
-an ○ line, no label. More than fit on an issue (GitHub allows ${ISSUE_LABEL_LIMIT}) — only decisions whose <folder>.md
-or test names (the PR body's spec section) the PR changes, as many as fit; the rest — ○ lines.
+Decision labels from the PR diff for the tasks from «Closes #N» (not linked yet — the task branch too) and their epics;
+doesn't remove earlier ones. A decision touched only mechanically (a deletion, a rename without changes, exceptions) and
+a decision with a slice label's name — an ○ line, no label. More than fit on an issue (GitHub allows
+${ISSUE_LABEL_LIMIT}) — only decisions whose <folder>.md or test names (the PR body's spec section) the PR changes, as
+many as fit; the rest — ○ lines. A batch's release PR — an ○ line, no labels: its tasks have theirs from their PRs into
+the batch.
 
 Examples:
   github pr labels 57`,
@@ -4930,7 +5326,8 @@ Before gh pr merge, after ci-wait PASS: the default branch moved after the PR's 
 temporary worktree and ${PREMERGE_SCRIPTS.join(", then ")} from package.json (those that exist, as in CI). Code 0 —
 merge, 1 — don't merge (red, conflict), 2 — couldn't check, 3 — main is red by itself (the same check on bare main, a
 red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch: the
-batch's release PR open — code 1 and the wait for its close; merged — code 1 and the move: into the dispatcher's next
+batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
+fix, checked as usual; merged — code 1 and the move: into the dispatcher's next
 batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the base by their
 changes (git cherry) — code 1 and a rebase.
 
