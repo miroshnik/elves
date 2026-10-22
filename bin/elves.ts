@@ -42,14 +42,15 @@
  * in a project — only `auto`: whether the agent runs a task entirely by itself — answers to questions by
  * recommendation, commit, push, fixing CI and merging its own PR on green checks (AGENTS.md, "What I do without asking
  * and what needs a yes"), `language` — the language the agent works in in the project: dialog, tasks, prompts,
- * documents (AGENTS.md, "Language"; the flow is written in English), and `env` — the task stack settings of the
- * task-env skill. `install` in a project sets auto and language — by a question in the terminal or by
+ * documents (AGENTS.md, "Language"; the flow is written in English), `env` — the task stack settings of the
+ * task-env skill, and `batch` — the dispatcher's batches (epic #645). `install` in a project sets auto and language — by a question in the terminal or by
  * the flags `--auto` / `--no-auto` and `--lang <code>`; by default auto is "no", the language is `en`, without a
  * terminal and a flag — the previous value, `update` keeps it. An install of a previous version has no `language`
  * field, and the flow before it worked only in Russian: its language is `ru` (`LEGACY_LANGUAGE` of the github skill's
  * language module), `update` writes it. With auto `install` suggests the Claude Code permission rule for the merge
  * (MERGE_HINT) — it doesn't change the machine's settings. The flow isn't installed into an Elves clone (the canon is
- * at its root): `install` writes a single manifest there, with `auto` and `language`.
+ * at its root): `install` writes a single manifest there, with `auto` and `language`, `env` and `batch` carried over as
+ * in a project; `check` there compares nothing but a batch clone's CI (`batchCi`).
  * The project's flow files are committed — the ones the project's git ignores (`.agents/`) the install un-ignores with
  * exceptions in an Elves block at the end of `.gitignore`, `check` reports them as a mismatch (`gitignoreFlow`). A
  * project's compose file `check` holds to the task isolation rules
@@ -221,8 +222,8 @@ fixing CI, merge on green checks (auto in .agents/elves.json, default — no); w
 merge — Bash(gh pr merge *) in ~/.claude/settings.json: the owner adds it, install doesn't change the machine's
 settings. --lang <code> — the project language the agent works in: dialog, tasks, prompts, documents (language in
 .agents/elves.json, a BCP 47 code: ru, en, pt-BR); in a terminal — a question, en by default, without the flag and a
-terminal — the previous one. In an Elves clone writes only auto and language, and its cloud hook — with zsh, the flow
-from the clone itself.
+terminal — the previous one. In an Elves clone writes only the manifest — auto and language, env and batch carried
+over as in a project — and its cloud hook — with zsh, the flow from the clone itself.
 -g — onto the machine: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md and the global
 rule files of Codex, Gemini CLI, Copilot, OpenCode and Amp linking to it (someone else's file stays), the skills
 (~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
@@ -240,8 +241,8 @@ Examples:
 elves check --hook
 
 Whether the install is behind, changes nothing: 0 — up to date, 1 — behind, the project's git ignores flow files, its
-compose file breaks task isolation, standards and architecture have no test:spec script or the CI of a project with
-"batch": true can't run the light set — on.pull_request filters out a batch branch or no job has the light set's if:
+compose file breaks task isolation, standards and architecture have no test:spec script or the CI of a project (an
+Elves clone too) with "batch": true can't run the light set — on.pull_request filters out a batch branch or no job has the light set's if:
 (ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
 mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
@@ -1373,15 +1374,15 @@ const modeLines = (root: string) => [`  tasks: ${autoOf(root) ? "entirely by its
 const CLONE_NOTE = "an Elves clone: the flow isn't installed into it — the canon is at its root";
 
 /**
- * An Elves clone: of the install it gets only the mode and the language, a manifest of two fields, and its cloud hook
- * (`cloudHook`) — the clone carries it in its commit, the install writes the same; the task stack settings (`env`), if
- * the clone has them, are carried over as in a project; the manifest under the former name goes.
+ * An Elves clone: of the install it gets only the manifest — the mode, the language and the fields the project writes
+ * (`env`, `batch`), carried over by the same rule as in a project (`manifestText`) — and its cloud hook (`cloudHook`) —
+ * the clone carries it in its commit, the install writes the same; the manifest under the former name goes.
  */
 function installClone(root: string, auto: boolean, language: string) {
   const file = path.join(root, MANIFEST);
-  const env = readManifest(root).env;
+  const text = manifestText(root, auto, language);
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ auto, language, ...(env === undefined ? {} : { env }) }, null, 2) + "\n");
+  writeFileSync(file, text);
   removeFormer(root, FORMER.manifest);
   note(`${MANIFEST} — auto: ${auto}, language: ${language}; ${CLONE_NOTE}`);
   projectHook(root, true);
@@ -1457,23 +1458,35 @@ function removeCopy(root: string) {
   if (gone.length) note(`${gone.join(", ")} — removed: ${COPY_NOTE}`);
 }
 
-/** The fields of a project's manifest; the rest are a copy's (`isCopy`). */
-const PROJECT_FIELDS = ["auto", "language", "env", "batch"];
+/**
+ * The fields of a project's manifest the project writes itself — the task stack settings (`env`, the task-env skill)
+ * and the dispatcher's batches (`batch`, the github skill's `task queue`, epic #645): the install carries them over.
+ */
+const CARRIED_FIELDS = ["env", "batch"] as const;
+
+/** The fields of a project's manifest: the install's auto and language and the project's own; the rest are a copy's (`isCopy`). */
+const PROJECT_FIELDS: string[] = ["auto", "language", ...CARRIED_FIELDS];
 
 /**
- * The project's manifest: the mode, the language, the task stack settings (`env`, the task-env skill) and the
- * dispatcher's batches (`batch`, the github skill's `task queue`, epic #645) — the project writes those two, the install
- * carries them over; the fields of a copy go, the manifest under the former name moves into it. A dry run doesn't
- * compare the values: auto and language edited by hand don't make the install behind.
+ * The manifest the install writes — of a thin project and an Elves clone alike (#672): auto and language, the
+ * CARRIED_FIELDS of the current manifest as they are; the fields of a copy go.
+ */
+function manifestText(root: string, auto: boolean, language: string) {
+  const m = readManifest(root);
+  const carried = CARRIED_FIELDS.filter((k) => m[k] !== undefined).map((k) => [k, m[k]]);
+  return JSON.stringify({ auto, language, ...Object.fromEntries(carried) }, null, 2) + "\n";
+}
+
+/**
+ * The project's manifest (`manifestText`); the manifest under the former name moves into it. A dry run doesn't compare
+ * the values: auto and language edited by hand don't make the install behind.
  */
 function projectManifest(root: string, auto: boolean, language: string) {
   const file = path.join(root, MANIFEST);
-  const m = readManifest(root);
   if (dry) {
-    if (!existsSync(file) || Object.keys(m).some((k) => !PROJECT_FIELDS.includes(k))) change(existsSync(file) ? "~" : "+", file);
+    if (!existsSync(file) || Object.keys(readManifest(root)).some((k) => !PROJECT_FIELDS.includes(k))) change(existsSync(file) ? "~" : "+", file);
   } else {
-    const carried = { ...(m.env === undefined ? {} : { env: m.env }), ...(m.batch === undefined ? {} : { batch: m.batch }) };
-    const text = JSON.stringify({ auto, language, ...carried }, null, 2) + "\n";
+    const text = manifestText(root, auto, language);
     if (!existsSync(file) || readFileSync(file, "utf8") !== text) {
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, text);
@@ -2394,8 +2407,12 @@ function cloudLines(root: string): string[] {
 function check(global: boolean): Result {
   const { home, root, installed } = target(global);
   const where = global ? "on the machine" : "in the project";
-  // an Elves clone has nothing to compare against, but the session mode is needed in it — as in a project
-  if (!installed && !global && isElvesClone(root)) return { code: 0, text: [`Elves ${where}: not installed — an Elves clone, the canon is at its root`, ...cloudLines(root), ...modeLines(root)].join("\n") };
+  // an Elves clone has nothing to compare against, but the session mode is needed in it — as in a project, and so is
+  // the CI of its batches (#672)
+  if (!installed && !global && isElvesClone(root)) {
+    const batch = batchCi(root);
+    return { code: batch.missing ? 1 : 0, text: [`Elves ${where}: not installed — an Elves clone, the canon is at its root`, ...batch.lines, ...cloudLines(root), ...modeLines(root)].join("\n") };
+  }
   if (!installed) return { code: 0, text: `Elves ${where}: not installed`, absent: true };
   const clone = global ? linkedClone(home) : null;
   if (clone) return checkLink(home, clone);
