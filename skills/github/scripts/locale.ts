@@ -106,6 +106,15 @@ export interface Names {
   queue: {
     prompt: string;
     epic: string;
+    /**
+     * The project's mode in the lead (`{mode}` of `lead`, `batchLead`, `fixLead`; `cloud` — `{cloudMode}`, #667): an auto
+     * project — like a session in auto mode; outside auto — the merge on the owner's «yes» (`modeAsk`, `merge`; a cloud
+     * executor asks in its session — `cloudModeAsk`): the dispatcher's request is the work's scope, not a «yes» to each merge.
+     */
+    modeAuto: string;
+    modeAsk: string;
+    merge: string;
+    cloudModeAsk: string;
     lead: string;
     resume: string;
     subagent: string;
@@ -519,6 +528,15 @@ function batchProject(dir: string = process.cwd()): boolean {
   return manifestOf(projectRoot(dir)).fields["batch"] === true;
 }
 
+/**
+ * Whether the project of `dir` runs a task entirely without asking — `"auto": true` in its manifest (`manifestOf`), as
+ * the installer reads it: `true` itself, no field — "no". `task queue` and `batch release` (#667): outside auto a
+ * dispatcher's merges — its executors' and the release's — wait for the owner's «yes».
+ */
+function autoProject(dir: string = process.cwd()): boolean {
+  return manifestOf(projectRoot(dir)).fields["auto"] === true;
+}
+
 /** The names of a language: `locales/<language>.json`, no dictionary for the language — `en`. */
 function names(language: string): Names {
   return Object.hasOwn(LOCALES, language) ? LOCALES[language]! : en;
@@ -560,4 +578,4 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, batchProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
