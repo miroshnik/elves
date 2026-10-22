@@ -1894,20 +1894,6 @@ const BATCH_BRANCH = /^batch\/(\d{4}-\d{2}-\d{2})-(\d+)$/;
 const isBatchBranch = (branch: string) => BATCH_BRANCH.test(branch);
 
 /**
- * Whether the project releases its dispatcher's tasks in batches — `"batch": true` in `.agents/elves.json` of the
- * checkout's root (question 6 of the epic): a project setting, not the owner's word on a run — without the light set in
- * the project's CI a batch saves nothing. No manifest, a broken one, no field — no batches.
- */
-function batchProject(io: Io): boolean {
-  const file = path.join(locale.projectRoot(io.cwd ?? process.cwd()), ".agents", "elves.json");
-  try {
-    return JSON.parse(readFileSync(file, "utf8"))?.batch === true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * The dispatcher's batch branches — the marker's lines `batch <owner/repo> <branch>` after the queue command
  * (`dispatcherFile`): the queue writes them, the executors' assignments read them — a subagent shares the session's id.
  * No marker — none.
@@ -1937,7 +1923,9 @@ function localDay(): string {
 }
 
 /**
- * The dispatcher's batch branch of the repository (epic #645). The first queue of a batch project (`batchProject`)
+ * The dispatcher's batch branch of the repository (epic #645). The first queue of a batch project (`batchProject` of
+ * the locale module — `"batch": true` in `.agents/elves.json` of the checkout's root: a project setting, not the owner's
+ * word on a run — without the light set in the project's CI a batch saves nothing)
  * creates it from a fresh origin/<base> and pushes it without a local branch — the dispatcher's checkout stays where it
  * is; `k` — the first free number of the day on origin and in the marker. The next queues take the same one: the marker
  * keeps it (`batchesIn`). Gone from origin — released (#649) or deleted: a new one, the `+` line names the previous one.
@@ -1946,7 +1934,7 @@ function localDay(): string {
  * stays (a `!` line): a new batch next to it would split the dispatcher's tasks; a new one not created — null.
  */
 function dispatcherBatch(io: Io, slug: string, base: string, file: string | null): string | null {
-  if (!batchProject(io)) return null;
+  if (!locale.batchProject(io.cwd ?? process.cwd())) return null;
   const off = `executors go into ${base}, as without batches`;
   if (!file) return io.out(`○ batch: true, but the session isn't recognized (no CLAUDE_CODE_SESSION_ID) — no batch branch: ${off}`), null;
   if (!checkoutOfRepo(io, originUrl(io), slug)) {

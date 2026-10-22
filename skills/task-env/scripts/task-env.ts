@@ -609,26 +609,33 @@ export function stackOf(project: string, task: number | undefined, e2e = false):
 const varOf = (service: string, suffix: string | number) => `TASK_ENV_${service.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_${suffix}`;
 
 /**
- * The project's settings file: `.agents/elves.json`; an install from before the rename has `.agents/ai-dev.json` until
- * `update` moves it — read then (#545).
+ * The project's settings file at `root`: `.agents/elves.json`; an install from before the rename has
+ * `.agents/ai-dev.json` until `update` moves it — read then (#545). Not JSON or not an object — no fields, `error` says
+ * why. A copy of `manifestOf` of the github skill: task-env imports no other skill (tests/standards/skill-imports), the
+ * copy answers by the same table (tests/standards/project-manifest).
  */
-const MANIFESTS = [".agents/elves.json", ".agents/ai-dev.json"];
+export function manifestOf(root: string): { file: string | null; fields: Record<string, unknown>; error?: string } {
+  const file = [".agents/elves.json", ".agents/ai-dev.json"].find((f) => existsSync(path.join(root, f)));
+  if (!file) return { file: null, fields: {} };
+  try {
+    const value: unknown = JSON.parse(readFileSync(path.join(root, file), "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? { file, fields: value as Record<string, unknown> } : { file, fields: {}, error: "not a JSON object" };
+  } catch (e) {
+    return { file, fields: {}, error: (e as Error).message };
+  }
+}
 
 /**
  * HTTP services of the project's stack and their ports inside the container — `env.http` of the project's settings
- * (`MANIFESTS`, #393, question 4): in a compose file a database's port doesn't differ from an app's. No file or no
+ * (`manifestOf`, #393, question 4): in a compose file a database's port doesn't differ from an app's. No file or no
  * field — none; a broken one — the reason, with the file read.
  */
 export function httpServices(root: string): Record<string, number> | string {
-  const name = MANIFESTS.find((f) => existsSync(path.join(root, f)));
-  if (!name) return {};
-  let http: unknown;
-  try {
-    http = (JSON.parse(readFileSync(path.join(root, name), "utf8")) as { env?: { http?: unknown } }).env?.http ?? {};
-  } catch (e) {
-    return `${name}: ${(e as Error).message}`;
-  }
-  const bad = `env.http of ${name}: a service → its HTTP port in the container expected, like {"web": 3000}`;
+  const { file, fields, error } = manifestOf(root);
+  if (!file) return {};
+  if (error) return `${file}: ${error}`;
+  const http = (fields.env as { http?: unknown } | null | undefined)?.http ?? {};
+  const bad = `env.http of ${file}: a service → its HTTP port in the container expected, like {"web": 3000}`;
   if (typeof http !== "object" || !http || Array.isArray(http)) return bad;
   const ports = http as Record<string, unknown>;
   return Object.values(ports).every((p) => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536) ? (ports as Record<string, number>) : bad;
