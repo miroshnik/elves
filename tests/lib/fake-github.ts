@@ -25,6 +25,11 @@ export function opOf(query: string): { kind: string; op: string } {
 /** Блокер из другого репозитория: GitHub отдаёт его в blocked by с этим репозиторием. */
 export interface FakeBlocker { repo: string; number: number; state: string; title: string; id: string }
 
+/** Комментарий задачи: текст, ссылка; автор (логин) и время создания (ISO) — по умолчанию владелец и `COMMENT_AT`. */
+export interface FakeComment { body: string; url: string; author?: string; createdAt?: string }
+/** Время комментария без своего — полдень дня записи. */
+export const COMMENT_AT = "2026-10-20T12:00:00Z";
+
 export class FakeGitHub {
   rec: Recording;
   mutations: { op: string; input: Any }[] = [];
@@ -55,8 +60,11 @@ export class FakeGitHub {
    * их; меняют AddBlockedBy и RemoveBlockedBy.
    */
   blockedBy: Record<number, (number | FakeBlocker)[]> = {};
-  /** Задача → её комментарии (TaskText), старые первыми. */
-  comments: Record<number, { body: string; url: string }[]> = {};
+  /**
+   * Задача → её комментарии (TaskText, IssueShow, REST `issues/<N>/comments`), старые первыми: автор и время — для
+   * `task show`, без них — владелец репозитория и полдень дня записи.
+   */
+  comments: Record<number, FakeComment[]> = {};
   /**
    * Основная ветка `main` (MergeRules) — как у Elves после fix: ruleset «elves» без strict, с обязательным `tests`;
    * у влитых PR `tests` зелёный, `spec-publish` пропущен. Правила держит фейк, а не запись: она их не задаёт. Чеки
@@ -246,7 +254,7 @@ export class FakeGitHub {
   }
   /**
    * Задача для `task show` и `task answer`: описание, метки с id, эпик с его описанием и подзадачами, blocked by, PR с
-   * чеками головы, Status и числовые поля проекта.
+   * чеками головы, Status и числовые поля проекта, комментарии задачи и эпика.
    */
   private issueShow(number: number): Any {
     const i = this.issue(number);
@@ -257,6 +265,11 @@ export class FakeGitHub {
     const parent = i.parent ? this.issue(i.parent.number) : null;
     const m = this.milestoneOf(number);
     const items = this.allProjects().flatMap((p) => this.items(p.id).filter((it: Any) => it.content?.id === i.id).map((it: Any) => ({ p, it })));
+    // comments(last: 100): последние сто, старые первыми, и сколько их всего
+    const comments = (n: number) => {
+      const all = this.comments[n] ?? [];
+      return { totalCount: all.length, nodes: all.slice(-100).map((c) => ({ author: { login: c.author ?? this.repo.owner.login }, createdAt: c.createdAt ?? COMMENT_AT, body: c.body })) };
+    };
     const issue = {
       id: i.id,
       number,
@@ -268,7 +281,8 @@ export class FakeGitHub {
       issueType: i.issueType ?? null,
       labels: { nodes: i.labels.nodes.map((l: Any) => ({ id: this.labelId(l.name), name: l.name })) },
       milestone: m && { title: m.title },
-      parent: parent ? { number: parent.number, title: parent.title, body: parent.body ?? "", subIssues: subs(parent) } : null,
+      comments: comments(number),
+      parent: parent ? { number: parent.number, title: parent.title, body: parent.body ?? "", subIssues: subs(parent), comments: comments(parent.number) } : null,
       subIssues: subs(i),
       blockedBy: { nodes: (this.blockedBy[number] ?? []).map((b) => this.blocker(b)).map(({ number, state, title, repository }) => ({ number, state, title, repository })) },
       closedByPullRequestsReferences: { nodes: Object.keys(this.prs).map(Number).filter((n) => this.prs[n]!.closes.includes(number)).map((n) => this.prShow(n)) },
@@ -438,6 +452,10 @@ export class FakeGitHub {
         return this.restIssue(i);
       }
       return page(i.subIssues.nodes.map((s: Any) => this.restIssue(this.issue(s.number) ?? { id: `I_${s.number}`, number: s.number, title: s.title ?? "", state: s.state, url: "", labels: { nodes: [] } })));
+    }
+    if ((m = /^\/issues\/(\d+)\/comments$/.exec(path)) && method === "GET") {
+      const n = Number(m[1]);
+      return page((this.comments[n] ?? []).map((c, k) => ({ id: 7000 + k, user: { login: c.author ?? this.repo.owner.login }, created_at: c.createdAt ?? COMMENT_AT, body: c.body, html_url: c.url })));
     }
     if ((m = /^\/issues\/(\d+)\/dependencies\/blocked_by$/.exec(path))) {
       const n = Number(m[1]);

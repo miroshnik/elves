@@ -10,7 +10,7 @@
  *                          milestone, decision labels (the decision's name, the kind by color), the questions label
  *                          (an open question in the description) and the estimate (est)
  *   github task show     — the task in one output: the description, Status, estimate, the epic, blockers, PRs and
- *                          their checks, open questions
+ *                          their checks, open questions, the comments of the task and its epic
  *   github task answer   — ✅ and the answer at a question of the questions section; none open — the label goes
  *   github task status   — Status in the project (and the epic's "In progress" once its first subtask is taken);
  *                          "In progress" pins the task to the session — another task in the same session is refused
@@ -375,6 +375,10 @@ export const HEAD_CHECKS = `commits(last: 1) { nodes { commit { statusCheckRollu
 /** A PR for task show: its state and the checks of its head. */
 const PR_SHOW = `number state merged isDraft headRefName
         ${HEAD_CHECKS}`;
+/** How many of an issue's latest comments task show prints (#651): GraphQL gives at most 100 per page. */
+const COMMENTS_SHOWN = 100;
+/** An issue's comments for task show: the author, the time, the text; how many there are. */
+const COMMENTS_SHOW = `comments(last: ${COMMENTS_SHOWN}) { totalCount nodes { author { login } createdAt body } }`;
 export const Q = {
   /** The repository's current name: GitHub answers a renamed repository's former name with it (`canonicalRepo`). */
   RepoName: `query RepoName($owner: String!, $name: String!) {
@@ -530,7 +534,7 @@ fragment Head on PullRequest {
   }
 }`,
   // task show and task answer: the description, the epic with its description and subtasks, blocked by, the PRs with
-  // their head's checks, Status and number fields of the project
+  // their head's checks, Status and number fields of the project; the comments of the task and its epic (#651)
   IssueShow: `query IssueShow($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
@@ -538,7 +542,8 @@ fragment Head on PullRequest {
       issueType { name }
       labels(first: 20) { nodes { id name } }
       milestone { title }
-      parent { number title body subIssues(first: 100) { nodes { number state title } } }
+      ${COMMENTS_SHOW}
+      parent { number title body subIssues(first: 100) { nodes { number state title } } ${COMMENTS_SHOW} }
       subIssues(first: 100) { nodes { number state title } }
       blockedBy(first: 20) { nodes { number state title repository { nameWithOwner } } }
       closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${PR_SHOW} } }
@@ -2204,15 +2209,23 @@ function prLine(p: ShownPr): string {
   return `PR #${p.number} ${state}${checks}${p.why ? ` (not linked: ${p.why})` : ""}`;
 }
 
+/** An issue's comments over REST (#651) in the shape of `COMMENTS_SHOW`: the latest `COMMENTS_SHOWN`, oldest first. */
+function restComments(io: Io, slug: string, number: number): Any {
+  const all = restList(io, `repos/${slug}/issues/${number}/comments`);
+  return { totalCount: all.length, nodes: all.slice(-COMMENTS_SHOWN).map((c) => ({ author: c.user ? { login: c.user.login } : null, createdAt: c.created_at, body: c.body ?? "" })) };
+}
+
 /**
  * IssueShow in the cloud (#603) — the repository's REST in the shape of the GraphQL answer: the issue, its epic with the
- * epic's tasks, sub-issues, blocked by; no project (Projects v2 — 403) and no Priority (an issue field, GraphQL only).
+ * epic's tasks, sub-issues, blocked by, the comments of both (#651); no project (Projects v2 — 403) and no Priority (an
+ * issue field, GraphQL only).
  */
 function restIssueShow(io: Io, slug: string, number: number): Any {
   const i = restIssue(io, slug, number);
   if (!i) return null;
   const l = restLinks(io, slug, number);
-  return { ...i, ...l, parent: l.parent && { ...l.parent, subIssues: restSubIssues(io, slug, l.parent.number) } };
+  const parent = l.parent && { ...l.parent, subIssues: restSubIssues(io, slug, l.parent.number), comments: restComments(io, slug, l.parent.number) };
+  return { ...i, ...l, comments: restComments(io, slug, number), parent };
 }
 
 /**
@@ -2236,11 +2249,108 @@ function restPrs(io: Io, slug: string, number: number): Any[] {
   });
 }
 
+/** A comment as task show prints it (#651): the author's login, the time in UTC, the text. */
+interface ShownComment {
+  author: string;
+  at: string;
+  body: string;
+}
+
+/** An issue's comments of the `COMMENTS_SHOW` answer: the printed ones, oldest first, and how many there are. */
+function shownComments(c: Any): { total: number; nodes: ShownComment[] } {
+  const nodes: ShownComment[] = (c?.nodes ?? []).filter(Boolean).map((x: Any) => ({
+    author: x.author?.login ?? "ghost",
+    at: x.createdAt ? `${String(x.createdAt).slice(0, 16).replace("T", " ")} UTC` : "",
+    body: String(x.body ?? "").replace(/\r\n/g, "\n").trim(),
+  }));
+  return { total: c?.totalCount ?? nodes.length, nodes };
+}
+
+/**
+ * The start of a comment the flow writes by a dictionary template, in any language of the dictionary: the template up
+ * to its first colon, a placeholder — any text of the line; markup before it and case aside.
+ */
+function templateStart(pick: (n: Names) => string): RegExp {
+  const heads = locale.every(pick).map((t) => {
+    const end = t.indexOf(":");
+    return (end < 0 ? t : t.slice(0, end + 1)).split(/\{\w+\}/).map(locale.escapeRe).join("[^\\n]*?");
+  });
+  return new RegExp(`^[\\s*_>#]*(?:${heads.join("|")})`, "iu");
+}
+
+/**
+ * The flow's own comments — task show prints them in one line without the text (#651), by the kind: est's estimate and
+ * actual (its `<!-- est {…} -->` and `<!-- fact {…} -->` markers: a human's «Estimate: …» isn't one), the epic
+ * refresh's report and the script's fixes, task close's «closed by PR».
+ */
+const FLOW_COMMENTS: [kind: string, re: RegExp][] = [
+  ["estimate", /<!--\s*est\s+\{/],
+  ["actual", /<!--\s*fact\s+\{/],
+  ["epic refresh report", templateStart((n) => n.actualize.report)],
+  ["epic refresh, the script's fixes", templateStart((n) => n.actualize.mechanics)],
+  ["closed by PR", templateStart((n) => n.comments.closedByPr)],
+];
+/** The State comment — a handoff of the work (AGENTS.md, "Project knowledge and handoff"): printed in full, not an answer. */
+const STATE_RE = new RegExp(`^[\\s*_>#]*(?:${locale.every((n) => n.comments.state).map(locale.escapeRe).join("|")})(?![\\p{L}\\p{N}_])`, "iu");
+/** An external blocker's reason (`task queue` reads it): printed in full, not an answer. */
+const EXTERNAL_BLOCKER_RE = templateStart((n) => n.comments.externalBlocker);
+
+/** A comment's kind: the flow's own (`FLOW_COMMENTS`), State, an external blocker's reason, or a human's — null. */
+function commentKind(c: ShownComment): string | null {
+  const flow = FLOW_COMMENTS.find(([, re]) => re.test(c.body));
+  return flow ? flow[0] : STATE_RE.test(c.body) ? "State" : EXTERNAL_BLOCKER_RE.test(c.body) ? "external blocker" : null;
+}
+const isFlowComment = (kind: string | null) => kind !== null && FLOW_COMMENTS.some(([k]) => k === kind);
+
+/**
+ * Comments that look like answers to the open questions (#651) — the canon checks the questions against the comments
+ * before asking: an item `k.` of a comment (`k. ✅ …`, as the epic refresh reads it, or without ✅) — to the open
+ * question k; free text without numbered items — to each open one, which one it answers is the agent's check. The
+ * flow's own comments, State and an external blocker's reason don't answer. Broader than the epic refresh's
+ * `commentAnswers` (`k. ✅` only) on purpose: here a flag is a check before asking, there an answer to move.
+ */
+function answerCandidates(open: number[], comments: ShownComment[]): Map<number, ShownComment[]> {
+  const out = new Map<number, ShownComment[]>();
+  for (const c of comments) {
+    if (!c.body || commentKind(c) !== null) continue;
+    const items = [...c.body.matchAll(/^\s*(\d+)[.)]\s+\S/gm)].map((m) => Number(m[1]));
+    for (const k of items.length ? open.filter((k) => items.includes(k)) : open) out.set(k, [...(out.get(k) ?? []), c]);
+  }
+  return out;
+}
+
+/** The `?` line of a question with answer candidates in comments: who and when, and the command after the check. */
+function answerLine(number: number, k: number, found: ShownComment[]): string {
+  const who = found.map((c) => `@${c.author}${c.at ? ` ${c.at}` : ""}`).join(", ");
+  return `? ${k}: answer in ${found.length > 1 ? "comments" : "a comment"} of ${who} — check it and task answer ${number} ${k} "<answer>"`;
+}
+
+/**
+ * An issue's comments block: the count, then each comment — the flow's own in one line with the kind, State and the
+ * rest with the whole text, indented.
+ */
+function commentLines(title: string, c: { total: number; nodes: ShownComment[] }): string[] {
+  if (!c.nodes.length) return [`${title}: none`];
+  const out = [`${title}: ${c.total}${c.total > c.nodes.length ? `, the last ${c.nodes.length} shown` : ""}`];
+  for (const x of c.nodes) {
+    const head = `- @${x.author}${x.at ? ` ${x.at}` : ""}`;
+    const kind = commentKind(x);
+    if (isFlowComment(kind)) {
+      out.push(`${head} — flow: ${kind}`);
+      continue;
+    }
+    out.push(`${head}${kind === "State" ? " — State" : ""}:`, ...(x.body ? x.body.split("\n").map((l) => (l.trim() ? `  ${l.trimEnd()}` : "")) : []));
+  }
+  return out;
+}
+
 /**
  * Everything needed to take a task into work in one output, instead of `gh issue view` per piece: the title, type,
  * state, Status and estimate, the epic with its open questions and other open tasks, subtasks, open blockers, the PRs
  * with their checks (GitHub didn't link one yet — found by the branch or «Closes #N», as task close does), the
- * questions — open and answered, and the description as is. Read-only.
+ * questions — open and answered, a comment that looks like an answer to an open one — a `?` line at the question, the
+ * comments of the task and its epic (#651: an answer in a comment was lost — the executor asked again or answered
+ * auto over it), and the description as is. Read-only.
  */
 export function cmdTaskShow(io: Io, slug: string, number: number): number {
   const [owner, name] = slug.split("/");
@@ -2271,12 +2381,14 @@ export function cmdTaskShow(io: Io, slug: string, number: number): number {
     shownLabels.length ? `labels: ${shownLabels.join(", ")}` : null,
   ];
   const out = [`#${i.number} ${i.title} — ${i.url}`, facts.filter(Boolean).join(" · ")];
+  const epicComments = i.parent ? shownComments(i.parent.comments) : null;
   if (i.parent) {
     const p = i.parent;
     const open = questionItems(p.body ?? "").filter((x) => !x.answered);
     const tasks: Any[] = (p.subIssues?.nodes ?? []).filter((x: Any) => x.state === "OPEN" && x.number !== number);
+    const answers = answerCandidates(open.map((x) => x.k), epicComments!.nodes);
     out.push(`Epic #${p.number} ${q(p.title)} — open questions: ${open.length}, other open tasks: ${tasks.length}`);
-    out.push(...open.map((x) => `- question ${x.text}`), ...tasks.map((x) => `- task #${x.number} ${q(x.title)}`));
+    out.push(...open.flatMap((x) => [`- question ${x.text}`, ...(answers.has(x.k) ? [`  ${answerLine(p.number, x.k, answers.get(x.k)!)}`] : [])]), ...tasks.map((x) => `- task #${x.number} ${q(x.title)}`));
   }
   const subs: Any[] = i.subIssues?.nodes ?? [];
   if (subs.length) {
@@ -2307,6 +2419,11 @@ export function cmdTaskShow(io: Io, slug: string, number: number): number {
         ? `Questions: all answered (${answered.join(", ")})`
         : `Questions: open ${open.join(", ")}${answered.length ? `; answered ${answered.join(", ")}` : ""} — task answer ${number} <k> "<answer>" [--auto]`,
   );
+  const comments = shownComments(i.comments);
+  const answers = answerCandidates(open, comments.nodes);
+  out.push(...open.filter((k) => answers.has(k)).map((k) => answerLine(number, k, answers.get(k)!)));
+  out.push(...commentLines("Comments", comments));
+  if (epicComments) out.push(...commentLines(`Epic #${i.parent.number} comments`, epicComments));
   if (lines.join("").trim()) out.push("", ...lines);
   for (const line of out) io.out(line);
   return 0;
@@ -3105,7 +3222,9 @@ function linkCopies(epic: TaskText, open: TaskText[]): { number: number; line: s
 
 /**
  * Answers to open questions in comments (check 2): an item `k. ✅ …` of a comment for the open question k, the latest
- * wins. Named, not moved: a comment's numbering may be its own (answers to a concept, not to the section).
+ * wins. Named, not moved: a comment's numbering may be its own (answers to a concept, not to the section). Narrower than
+ * task show's `answerCandidates` (an item `k.` without ✅, free text) on purpose: the refresh subagent moves what it's
+ * given into the description, the executor taking the task only checks what task show flags.
  */
 function commentAnswers(tasks: TaskText[]): { number: number; k: number; text: string; url: string }[] {
   const out: { number: number; k: number; text: string; url: string }[] = [];
@@ -4213,8 +4332,10 @@ Examples:
   "task show": `github task show <N> [--repo owner/repo]
 
 The task in one output: title, type, Status, estimate, the epic with its open questions and tasks, subtasks, open
-blockers, the PRs with their checks, open and answered questions, the description; read-only. A cloud session — over the
-repository's REST, without the project's fields; the PRs — by the task branch or «Closes #N».
+blockers, the PRs with their checks, open and answered questions (a comment that looks like an answer — a «?» line at
+the question), the comments of the task and its epic (the flow's own — one line with the kind), the description;
+read-only. A cloud session — over the repository's REST, without the project's fields; the PRs — by the task branch or
+«Closes #N».
 
 Examples:
   github task show 42`,

@@ -561,8 +561,20 @@ cancelled — ❌, of a check's reruns — the latest, as `ci-wait` reads it:
 standard `check-run-state`; GitHub hasn't linked the PR yet
 — found by the branch or «Closes #N», as `task close` does; an epic has no PR
 line); the questions — open and answered numbers with the `task answer`
-command; then the description as is. Read-only, one GraphQL query (plus the
-recent PRs when none is linked).
+command; a comment that looks like an answer to an open question — a `?`
+line at it (`? k: answer in a comment of @login <time> — check it and task
+answer N k "<answer>"`; the epic's — under its `- question k. …`): an item
+`k.` of a comment (`k. ✅ …` or without ✅) — to the open question k, free
+text without numbered items — to each open one; the comments of the task,
+then of its epic (`Comments: n`, `Epic #M comments: n`, the latest 100):
+the author, the time in UTC and the whole text, indented; the flow's own —
+est's estimate and actual (by their markers: a human's «Estimate: …» isn't
+one), the epic refresh's report and the script's fixes, «closed by PR» — one
+line with the kind (`— flow: estimate`), without the text; State — whole
+(`— State:`), a handoff; State and an external blocker's reason aren't
+answers (#651: an answer in a comment was lost — the executor asked again or
+answered auto over it); then the description as is. Read-only, one GraphQL
+query (plus the recent PRs when none is linked).
 
 ### task answer
 
