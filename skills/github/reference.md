@@ -898,6 +898,37 @@ session in an auto project (above); TIMEOUT — the task's questions and State
 comment, the wait again;
 after the app restarts the queue's `=` line names the wait.
 
+A batch project (epic #645) — `"batch": true` in `.agents/elves.json` of the
+dispatcher's checkout (`install` and `update` carry it over): the dispatcher's
+tasks go into the default branch with one release — one full CI run and one
+deploy — instead of each its own, and a task PR runs the light set
+(`skills/spec/ci.md`, "Batches — the light set on a PR into a batch branch").
+The first `task queue` creates the batch branch
+`batch/<YYYY-MM-DD>-<k>` (not `release/*`: git-flow projects have it) from a
+fresh `origin/<base>`, `k` — the first free number of the day, and pushes it
+without a local branch — a `+` line; the next ones take the same — an `○`
+line: the marker keeps it as `batch <owner/repo> <branch>` after the queue
+command (`task resume` reads only the command). Gone from origin — released or
+deleted — a new one. No session id, not a checkout of the repository, git
+failed — an `○`/`!` line, no batch: executors go into the default branch.
+GitHub links a PR to a task and closes it only by a merge into the default
+branch, so the script finds a batch PR itself, by the task branch or `Closes
+#N` among the recent PRs. A task merged into the batch branch is `=` with the
+PR till the release — open and In progress (question 1 of the epic); a blocker
+merged into it doesn't hold a task of the same batch, one outside it — merged
+into another batch or not merged — holds. The assignment (`--assignment`,
+`--session`) reads the batch from the marker — a subagent shares the session's
+id: the task branch from `origin/<batch>`, the PR `--base <batch>`, green CI,
+`pr premerge` (it checks against the PR's base), the merge, the epic refresh;
+no deploy wait and no `task close` — it refuses a task merged only into a
+batch branch, before any change. `task actualize` names the batch PR as what
+shipped and leaves the blocked-by links on the task till the release. A cloud
+executor (`--cloud`) isn't in the batch: its PR goes into the default branch
+with the full CI — the dispatcher learns of its end only by the task's
+closing, and a merge into the batch doesn't close it (#648); its brief and
+`Next:` say so. A session outside the dispatcher (one task, a hotfix) — into
+the default branch, as before.
+
 ### task drop
 
 Closes as not planned (with `--duplicate-of` — as a

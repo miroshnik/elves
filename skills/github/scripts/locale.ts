@@ -117,11 +117,20 @@ export interface Names {
     found: string;
     question: string;
     answer: string;
+    /**
+     * The executor of a dispatcher's batch (#648) in place of `lead`, `wait` and `refresh`: the task branch from the batch
+     * branch, the PR into it, no deploy and no `task close` — the task stays In progress till the release.
+     */
+    batchLead: string;
+    batchWait: string;
+    batchRefresh: string;
     /** The assignment refused: the task's previous executor or its subagent is alive (#565). */
     alive: string;
     /** A cloud executor's brief (`--assignment N --cloud`, #609): whole, `#` only at its task — the epic without it. */
     cloudEpic: string;
     cloud: string;
+    /** A batch project's cloud executor (#648): its PR goes into the default branch, not into the batch — no `#` in it. */
+    cloudBatch: string;
     cloudDoc: string;
     cloudClose: string;
     cloudDispatcher: string;
@@ -131,6 +140,9 @@ export interface Names {
      * by its canon and mode, named by the task, waits in the background, the canon's last line.
      */
     sessionLead: string;
+    /** An app executor session of a dispatcher's batch (#648) in place of `sessionLead` and `sessionWait`. */
+    sessionBatchLead: string;
+    sessionBatchWait: string;
     sessionIs: string;
     sessionName: string;
     sessionWait: string;

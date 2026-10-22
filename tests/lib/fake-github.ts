@@ -294,7 +294,7 @@ export class FakeGitHub {
    */
   private prShow(number: number): Any {
     const p = this.prs[number]!;
-    return { number, state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), isDraft: Boolean(p.draft), headRefName: p.head, commits: { nodes: [{ commit: { statusCheckRollup: this.rollup(p.checks ?? {}) } }] } };
+    return { number, state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), isDraft: Boolean(p.draft), headRefName: p.head, baseRefName: p.base ?? "main", commits: { nodes: [{ commit: { statusCheckRollup: this.rollup(p.checks ?? {}) } }] } };
   }
   private rollup(checks: Record<string, string | string[]>): Any {
     let id = 0;
