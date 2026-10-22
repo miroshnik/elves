@@ -127,9 +127,9 @@ function waitCommit(polls: Poll[], args: string[] = []) {
   return ciWait(["status", SHA, ...args]);
 }
 
-/** PR: на каждый опрос — `mergeable` (по умолчанию true), SHA головы (по умолчанию HEAD) и чеки его головы. */
-function waitPr(polls: (Poll & { mergeable?: boolean | null; head?: string })[], args: string[] = []) {
-  write("pull", polls.map((p) => ({ head: { sha: p.head ?? HEAD }, base: { ref: "main" }, mergeable: p.mergeable === undefined ? true : p.mergeable })));
+/** PR: на каждый опрос — `mergeable` (по умолчанию true), SHA головы (по умолчанию HEAD), база (по умолчанию main) и чеки его головы. */
+function waitPr(polls: (Poll & { mergeable?: boolean | null; head?: string; base?: string })[], args: string[] = []) {
+  write("pull", polls.map((p) => ({ head: { sha: p.head ?? HEAD }, base: { ref: p.base ?? "main" }, mergeable: p.mergeable === undefined ? true : p.mergeable })));
   writeChecks(polls);
   return ciWait(["pr", "1", ...args]);
 }
@@ -577,6 +577,26 @@ describe("Прогон Actions, не ставший чеком, — не PASS: w
       expect([r.code, r.result]).toEqual([0, "PASS (1 checks)"]);
     });
   }
+
+  // #676: PR задачи в ветку пачки CI не запускает — `on:` шаблона (skills/spec/ci.md, «Batches») её не пускает; ждать
+  // его прогона — ложный TIMEOUT на каждом PR задачи пачки
+  const BATCH_CI = "on:\n  pull_request:\n    branches-ignore: ['batch/**']\n  push:\n    branches: [main]\n";
+
+  it("ci-wait pr не ждёт прогона на PR в ветку пачки: prRun отвечает «нет»", () => {
+    workflow(BATCH_CI);
+    const r = waitPr([{ statuses: [preview], base: "batch/2026-01-01-1" }]);
+    expect([r.code, r.result]).toEqual([0, "PASS (1 checks)"]);
+    expect(r.stderr).not.toContain("workflows due on PR");
+  });
+
+  // сторож от перекоррекции: тот же workflow на PR в main идёт — без его прогона не PASS
+  it("workflow шаблона пачек на PR в main ждут: без его прогона — TIMEOUT с путём workflow", () => {
+    workflow(BATCH_CI);
+    const r = waitPr([{ statuses: [preview] }], ["--timeout", "2"]);
+    expect(r.code).toBe(2);
+    expect(r.result).toEndWith(`no run of workflow: ${CI})`);
+    expect(r.stderr).toContain(`workflows due on PR: ${CI}`);
+  });
 });
 
 /**
