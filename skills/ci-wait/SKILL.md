@@ -160,10 +160,11 @@ What to do next:
 - `pr` waits for a run of every active workflow that, by its `on:` on the
   head SHA, fires on the PR (`bun` parses the YAML; without it the check is
   skipped with a note in stderr): `pull_request` without filters or with
-  branches that let the base through. A paths filter, `types` without
-  `synchronize`, a negation in branches can't be decided without the diff —
-  such a workflow isn't awaited; a file that doesn't parse is awaited: a PR
-  from a fork doesn't even get the "dummy".
+  branches that let the base through — GitHub's patterns, a negation by the
+  order of the patterns (#657). A paths filter and `types` without
+  `synchronize` can't be decided without the diff — such a workflow isn't
+  awaited; a file that doesn't parse is awaited: a PR from a fork doesn't
+  even get the "dummy".
 - The spec publish job (`spec-publish`, also `<job> / spec-publish` from a
   reusable workflow — the `spec` skill, `ci.md`) isn't a check: it publishes
   the documentation, so it is neither awaited nor a FAIL — after a merge the
