@@ -686,7 +686,7 @@ function restCall(io: Io, args: string[]): Any {
  * A Claude Code cloud session (docs/cloud-sessions.md): its proxy closes GraphQL, `search/…` and Projects v2 — only the
  * REST of `repos/{owner}/{repo}/…` of the session's repositories.
  */
-const inCloud = (io: Io) => io.env.CLAUDE_CODE_REMOTE === "true";
+const inCloud = (io: Io) => io.env["CLAUDE_CODE_REMOTE"] === "true";
 /** The commands with a REST path in the cloud (#603): the rest need GraphQL or the project and refuse there. */
 const CLOUD_COMMANDS = ["task show", "task answer", "task new"];
 
@@ -1730,8 +1730,8 @@ function ensureItem(io: Io, ctx: TaskCtx, i: Pick<Issue, "id" | "number" | "item
  * old directory: the pins move along with it.
  */
 function configDir(env: Io["env"]): string {
-  const home = env.HOME || os.homedir();
-  const dir = env.ELVES_CONFIG_DIR || env.AI_DEV_CONFIG_DIR || [path.join(home, ".config", "elves"), path.join(home, ".config", "ai-dev")].find((d) => existsSync(d)) || path.join(home, ".config", "elves");
+  const home = env["HOME"] || os.homedir();
+  const dir = env["ELVES_CONFIG_DIR"] || env["AI_DEV_CONFIG_DIR"] || [path.join(home, ".config", "elves"), path.join(home, ".config", "ai-dev")].find((d) => existsSync(d)) || path.join(home, ".config", "elves");
   if (existsSync(dir)) return dir;
   const legacy = path.join(home, ".claude", "est");
   // lstat: a symlink in place of the old directory — the move has already happened
@@ -1740,7 +1740,7 @@ function configDir(env: Io["env"]): string {
 
 /** The session pin file — `<config directory>/sessions/<session id>`; the session isn't identified — null. */
 function pinFile(io: Io): string | null {
-  const id = io.env.CLAUDE_CODE_SESSION_ID;
+  const id = io.env["CLAUDE_CODE_SESSION_ID"];
   return id ? path.join(configDir(io.env), "sessions", id) : null;
 }
 
@@ -1834,7 +1834,7 @@ function pinTask(io: Io, slug: string, number: number, epic: number | null): voi
  * give est the whole session as one task. The session isn't identified — null.
  */
 function dispatcherFile(io: Io): string | null {
-  const id = io.env.CLAUDE_CODE_SESSION_ID;
+  const id = io.env["CLAUDE_CODE_SESSION_ID"];
   return id ? path.join(configDir(io.env), "dispatchers", id) : null;
 }
 
@@ -2079,21 +2079,25 @@ export function epicPrefix(title: string): string | null {
   return i > 0 ? title.slice(0, i) : null;
 }
 
+/**
+ * A new task; an optional field takes `undefined` — the command line passes an option not given as is, under a
+ * project's `exactOptionalPropertyTypes` too (tests/standards/consumer-typecheck).
+ */
 export interface NewTask {
   title: string;
   body: string;
   type: string;
-  epic?: number;
-  milestone?: string;
+  epic?: number | undefined;
+  milestone?: string | undefined;
   blockedBy: number[];
-  priority?: string;
+  priority?: string | undefined;
   /**
    * Labels: a decision by name or a new decision `kind:name` (no label — it's created with the kind's color), regular
    * ones — existing.
    */
-  labels?: string[];
+  labels?: string[] | undefined;
   /** The branch type (feat, fix, …) — also the estimate's type; a bug without it is fix, an epic has none. */
-  branchType?: string;
+  branchType?: string | undefined;
 }
 
 /**
@@ -2228,11 +2232,11 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   let created: { id: string; databaseId?: number; number: number; title: string; url: string; projectItems?: Any };
   if (ctx) {
     const input: Record<string, unknown> = { repositoryId: ctx.repo.id, title, body: o.body, projectV2Ids: [ctx.project.id] };
-    if (issueType) input.issueTypeId = issueType.id;
-    if (labels.length) input.labelIds = labels.map((l) => l.id);
-    if (milestone) input.milestoneId = milestone.id;
-    if (epic) input.parentIssueId = epic.id;
-    if (priority) input.issueFields = [{ fieldId: priority.fieldId, singleSelectOptionId: priority.optionId }];
+    if (issueType) input["issueTypeId"] = issueType.id;
+    if (labels.length) input["labelIds"] = labels.map((l) => l.id);
+    if (milestone) input["milestoneId"] = milestone.id;
+    if (epic) input["parentIssueId"] = epic.id;
+    if (priority) input["issueFields"] = [{ fieldId: priority.fieldId, singleSelectOptionId: priority.optionId }];
     created = mutate(io, { op: "CreateIssue", input }).createIssue.issue;
     // We set Status ourselves, without waiting for the "Item added to project" workflow.
     const listed = (created.projectItems?.nodes ?? []).map((it: Any) => ({ id: it.id, projectId: it.project.id, status: null }));
@@ -2241,9 +2245,9 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
     done.push(`project ${q(ctx.project.title)}: ${STATUS} ${q(N.status.backlog)}`);
   } else {
     const payload: Record<string, unknown> = { title, body: o.body };
-    if (org) payload.type = o.type;
-    if (labels.length) payload.labels = labels.map((l) => l.name);
-    if (milestone) payload.milestone = milestone.number;
+    if (org) payload["type"] = o.type;
+    if (labels.length) payload["labels"] = labels.map((l) => l.name);
+    if (milestone) payload["milestone"] = milestone.number;
     const i = rest(io, `repos/${slug}/issues`, { method: "POST", payload });
     created = { id: i.node_id, databaseId: i.id, number: i.number, title: i.title, url: i.html_url };
     // REST has no parent in the issue's creation — the epic takes it as its sub-issue by the REST id
@@ -2366,7 +2370,7 @@ interface ShownPr {
   merged: boolean;
   draft: boolean;
   checks: { green: number; pending: string[]; red: string[] } | null;
-  why?: string;
+  why?: string | undefined;
 }
 
 /** The head's checks by name (`checkStates`): green (pass, skipping), still running, red (cancel, fail). */
@@ -2666,11 +2670,14 @@ export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, a
  * The five epic-refresh checks — from the skill's reference.md, the one place of the canon: the list between
  * "Five checks:" and "What was fixed", an item per check.
  */
-/** The dispatcher's selection: the epic's tasks or the repository's open ones, narrowed by type and Priority. */
+/**
+ * The dispatcher's selection: the epic's tasks or the repository's open ones, narrowed by type and Priority; an option
+ * not given is `undefined`, as in `NewTask`.
+ */
 export interface QueueFilter {
-  epic?: number;
-  type?: string;
-  priority?: string[];
+  epic?: number | undefined;
+  type?: string | undefined;
+  priority?: string[] | undefined;
 }
 
 /** How many executors run at once by default: `slot` lets two heavy runs through, a third executor writes code meanwhile. */
@@ -2965,7 +2972,7 @@ function batchPrs(io: Io, slug: string, batch: string): Recent {
 const RELEASE_TYPES = ["feat", "fix", "perf", "refactor", "docs", "test", "build", "ci", "chore"];
 
 /** The spec-diff script next to the skill — laid out like est (`../spec/scripts/spec-diff.ts`). */
-const specDiffScript = (io: Io) => io.env.ELVES_SPEC_DIFF ?? path.resolve(import.meta.dir, "../../spec/scripts/spec-diff.ts");
+const specDiffScript = (io: Io) => io.env["ELVES_SPEC_DIFF"] ?? path.resolve(import.meta.dir, "../../spec/scripts/spec-diff.ts");
 
 /**
  * The batch's spec section for the release PR body: the spec skill's spec-diff next to this script, by the sources at
@@ -3138,7 +3145,7 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
     const pkg = path.join(dir, "package.json");
     const scripts: Record<string, unknown> = existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")).scripts ?? {}) : {};
     const tests = files.filter(isTestFile);
-    const plan = [...(files.some((f) => !isTestFile(f)) && scripts.typecheck ? [{ script: "typecheck", tests: false }] : []), ...(tests.length && scripts.test ? [{ script: "test", tests: true }] : [])];
+    const plan = [...(files.some((f) => !isTestFile(f)) && scripts["typecheck"] ? [{ script: "typecheck", tests: false }] : []), ...(tests.length && scripts["test"] ? [{ script: "test", tests: true }] : [])];
     if (!plan.length) plan.push(...red.filter((n) => scripts[n]).map((n) => ({ script: n, tests: false })));
     if (!plan.length) return stop(`the failed checks ${red.join(", ")} name no test file or compiler error, and no package.json script is named like them — ${byLogs}`);
     const shown = plan.map((s) => [...projectCommands(dir).run(s.script), ...(s.tests ? tests : [])].join(" ")).join(", then ");
@@ -3472,7 +3479,7 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
     .filter((w) => (w.locked === null || !lockHolds(w.locked)) && !kept(w.path))
     .sort((a, b) => a.path.localeCompare(b.path));
   // the subagents of this session and of the machine's other sessions with hand-outs: their executors' worktrees are here too
-  const agents = candidates.length ? subagentsOf(io, [io.env.CLAUDE_CODE_SESSION_ID ?? "", ...handOutFiles(io).map((h) => h.session)].filter(Boolean)) : new Map<string, Subagent>();
+  const agents = candidates.length ? subagentsOf(io, [io.env["CLAUDE_CODE_SESSION_ID"] ?? "", ...handOutFiles(io).map((h) => h.session)].filter(Boolean)) : new Map<string, Subagent>();
   for (const w of candidates) {
     const guest = guestWhy(agents, agentIdOf(w.path)!);
     if (guest) {
@@ -3542,7 +3549,7 @@ interface Subagent {
  */
 function subagentsOf(io: Io, sessions: string[]): Map<string, Subagent> {
   const agents = new Map<string, Subagent>();
-  const projects = path.join(io.env.CLAUDE_CONFIG_DIR || path.join(io.env.HOME || os.homedir(), ".claude"), "projects");
+  const projects = path.join(io.env["CLAUDE_CONFIG_DIR"] || path.join(io.env["HOME"] || os.homedir(), ".claude"), "projects");
   let dirs: string[];
   try {
     dirs = readdirSync(projects);
@@ -3651,7 +3658,7 @@ function livePredecessors(io: Io, slug: string, number: number, own: string): st
   );
   const executors = all.filter((w) => handOuts.some((h) => h.worktree === realPath(w.path)) || (w.branch !== null && isTaskBranch(w.branch, number)));
   if (!executors.length) return [];
-  const agents = subagentsOf(io, [...handOuts.map((h) => h.session), io.env.CLAUDE_CODE_SESSION_ID ?? ""].filter(Boolean));
+  const agents = subagentsOf(io, [...handOuts.map((h) => h.session), io.env["CLAUDE_CODE_SESSION_ID"] ?? ""].filter(Boolean));
   // the executors' agents and everything they launched
   const family = new Set(executors.map((w) => agentIdOf(w.path)).filter((id): id is string => id !== null));
   for (let grew = true; grew; ) {
@@ -4323,7 +4330,7 @@ type UnlinkedPr = Issue["prs"][number] & { why: string };
  * The est script next to the skill (`../est/scripts/est.ts`: the project copy, `~/.agents/skills` and the clone are
  * laid out this way).
  */
-const estScript = (io: Io) => io.env.ELVES_EST ?? path.resolve(import.meta.dir, "../../est/scripts/est.ts");
+const estScript = (io: Io) => io.env["ELVES_EST"] ?? path.resolve(import.meta.dir, "../../est/scripts/est.ts");
 
 /** The origin URL of the current directory's checkout; not a checkout or no origin — "". */
 function originUrl(io: Io): string {
@@ -4332,7 +4339,7 @@ function originUrl(io: Io): string {
 }
 
 /** The task-env script next to the skill — laid out like est (`../task-env/scripts/task-env.ts`). */
-const taskEnvScript = (io: Io) => io.env.ELVES_TASK_ENV ?? path.resolve(import.meta.dir, "../../task-env/scripts/task-env.ts");
+const taskEnvScript = (io: Io) => io.env["ELVES_TASK_ENV"] ?? path.resolve(import.meta.dir, "../../task-env/scripts/task-env.ts");
 
 /**
  * The task's stacks (task-env, epic #392) live until someone takes them down — `task close` does: `task-env down <N>`

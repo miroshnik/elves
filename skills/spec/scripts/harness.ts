@@ -70,11 +70,12 @@ export interface Invariant<T> {
   rule?: string;
   /**
    * Exceptions — the decision folder's `exceptions/` directory (`exceptionsIn()`): the element, the task that lifts it,
-   * and the reason.
+   * and the reason. `undefined` — none, as without the field: a wrapper passes on its own optional `exceptions`
+   * as is, under `exactOptionalPropertyTypes` too (tests/standards/consumer-typecheck).
    */
-  exceptions?: readonly Exception[];
+  exceptions?: readonly Exception[] | undefined;
   /** Outside scope — elements the convention deliberately doesn't cover, with a reason: it is shown on the page. */
-  outside?: readonly { item: string; reason: string }[];
+  outside?: readonly { item: string; reason: string }[] | undefined;
   /** Keys that must be in the registry: "not empty" won't notice that the selection lost half of the elements. */
   includes?: readonly string[];
 }
@@ -208,7 +209,7 @@ export function marksIn(file: string, text: string): Mark[] {
  * `packageManager` (tests/standards/skill-imports); on Yarn 2+ with `node_modules` the agent's shell finds the bin by
  * `PACKAGE_RUN` — `bun` reads it itself.
  */
-const MIGRATE = `migrate with spec-exceptions: ${process.versions.pnp ? PACKAGE_BUNX : PACKAGE_RUN} spec-exceptions`;
+const MIGRATE = `migrate with spec-exceptions: ${process.versions["pnp"] ? PACKAGE_BUNX : PACKAGE_RUN} spec-exceptions`;
 
 /**
  * Exceptions of a decision folder — the `exceptions/` directory, a file per exception (`<element>.json`:
@@ -575,7 +576,8 @@ const byName = (a: { name: string }, b: { name: string }): number => (a.name < b
 export interface LintMessage {
   ruleId: string | null;
   message: string;
-  fatal?: boolean;
+  // ESLint's message has `fatal` only on a parse error: its value is passed on as is, `undefined` too
+  fatal?: boolean | undefined;
 }
 
 /** The project's linter: code and file path (from the project root — by it the config decides if the rule applies). */
@@ -863,7 +865,7 @@ function meta(test: string, data: object, file: string | null = callerTest(proce
   if (seen.has(key)) return;
   seen.add(key);
   if (!metaFile) {
-    const dir = path.resolve(root, process.env.SPEC_META ?? ".spec-meta");
+    const dir = path.resolve(root, process.env["SPEC_META"] ?? ".spec-meta");
     mkdirSync(dir, { recursive: true });
     metaFile = path.join(dir, `${process.pid}-${Math.random().toString(36).slice(2, 10)}.jsonl`);
   }
@@ -891,7 +893,7 @@ export function journal(id: string, opts: { test?: string; root?: string } = {})
   appendFileSync(journalFile, JSON.stringify({ id, test }) + "\n");
 }
 
-const journalDir = (root: string): string => path.resolve(root, process.env.SPEC_JOURNAL ?? ".spec-journal");
+const journalDir = (root: string): string => path.resolve(root, process.env["SPEC_JOURNAL"] ?? ".spec-journal");
 
 /**
  * Run start — logs of previous runs go away: otherwise a deleted test keeps "calling" an entry point. Called once per
@@ -1031,7 +1033,7 @@ function knipFindings(report: KnipReport): KnipFindings {
   const kinds = new Map(KNIP.map(([, kind]) => [kind, new Map<string, string>()]));
   const unknown = new Set<string>();
   for (const issue of report.issues ?? []) {
-    const file = String(issue.file ?? "");
+    const file = String(issue["file"] ?? "");
     for (const [, kind, keys] of KNIP) {
       for (const k of keys) {
         for (const item of (issue[k] as (KnipItem | KnipItem[])[] | undefined) ?? []) {
@@ -1225,7 +1227,7 @@ export function envNamesIn(source: string): string[] {
  * The same on comment-free code — `codeOnly(text, file)`: the set of parser plugins by file extension. `readers` — the
  * project's own ways of reading (`configGet`, a regexp, a function), `file` — the path for a function.
  */
-export function envNamesInCode(text: string, opts: { file?: string; readers?: readonly EnvReader[] } = {}): string[] {
+export function envNamesInCode(text: string, opts: { file?: string | undefined; readers?: readonly EnvReader[] | undefined } = {}): string[] {
   const out = new Set<string>();
   // a source under another name: a default parameter `(env = process.env)`, `const e = import.meta.env`,
   // `const env = loadEnv(mode, root)`
@@ -1247,7 +1249,7 @@ export function envNamesInCode(text: string, opts: { file?: string; readers?: re
       continue;
     }
     for (const m of text.matchAll(new RegExp(r.source, r.flags.includes("g") ? r.flags : r.flags + "g"))) {
-      const n = m.groups?.name ?? m.slice(1).find((x) => x !== undefined);
+      const n = m.groups?.["name"] ?? m.slice(1).find((x) => x !== undefined);
       if (n) out.add(n);
     }
   }
@@ -1284,7 +1286,7 @@ function envReads(root: string, files: readonly string[], readers?: readonly Env
 }
 
 /** A directory's package.json (from the root): name and `dependencies` packages; no file or not JSON — null. */
-function packageJson(root: string, dir: string): { name?: string; dependencies: string[]; workspaces?: unknown } | null {
+function packageJson(root: string, dir: string): { name: string | undefined; dependencies: string[]; workspaces: unknown } | null {
   try {
     const p = JSON.parse(readFileSync(path.join(root, dir, "package.json"), "utf8")) as { name?: string; dependencies?: Record<string, string>; workspaces?: unknown };
     return { name: p.name, dependencies: Object.keys(p.dependencies ?? {}), workspaces: p.workspaces };

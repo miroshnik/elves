@@ -8,11 +8,13 @@ const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 // правило — одно выражение: переменная, иначе каталог по умолчанию; `||`, а не `??` — пустая переменная тоже «иначе».
 // Прежнее имя флоу (`ai-dev`, #545) — в нём же: переменная из профиля владельца и каталог машины, который `update -g`
-// ещё не перенёс; на чистой машине — новый каталог
+// ещё не перенёс; на чистой машине — новый каталог. Переменная — через точку или в скобках: `env["X"]` — у модуля, что
+// проходит тайпчек проекта с noPropertyAccessFromIndexSignature (tests/standards/consumer-typecheck)
 const HOME = String.raw`[\w$.]+(?:\(\))?`;
 const DIR = (name: string) => String.raw`path\.join\(\s*${HOME}\s*,\s*"\.config"\s*,\s*"${name}"\s*\)`;
+const VAR = (name: string) => String.raw`[\w$.]+(?:\.${name}|\[\s*"${name}"\s*\])`;
 const RULE = new RegExp(
-  String.raw`[\w$.]+\.ELVES_CONFIG_DIR\s*\|\|\s*[\w$.]+\.AI_DEV_CONFIG_DIR\s*\|\|\s*\[\s*${DIR("elves")}\s*,\s*${DIR("ai-dev")}\s*,?\s*\]\.find\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*existsSync\(\s*\1\s*\)\s*\)\s*\|\|\s*${DIR("elves")}`,
+  String.raw`${VAR("ELVES_CONFIG_DIR")}\s*\|\|\s*${VAR("AI_DEV_CONFIG_DIR")}\s*\|\|\s*\[\s*${DIR("elves")}\s*,\s*${DIR("ai-dev")}\s*,?\s*\]\.find\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*existsSync\(\s*\1\s*\)\s*\)\s*\|\|\s*${DIR("elves")}`,
   "g",
 );
 // обращение к каталогу в коде: переменная или путь по умолчанию под любым из имён; `$ELVES_CONFIG_DIR` и
@@ -65,6 +67,11 @@ describe("Каждый скрипт, которому нужен каталог 
       expect(violations(source("x.ts", `const dir = ${rule};\n`))).toEqual([]);
       const other = rule.replaceAll("env.", "process.env.").replaceAll("home", "os.homedir()");
       expect(violations(source("y.ts", `export const DIR = ${other};\n`))).toEqual([]);
+    });
+
+    it("переменная в скобках (env[\"ELVES_CONFIG_DIR\"]) — то же правило, чисто", () => {
+      const brackets = rule.replace(/env\.(\w+)/g, 'env["$1"]');
+      expect(violations(source("x.ts", `const dir = ${brackets};\n`))).toEqual([]);
     });
 
     it("пустая переменная — тоже каталог по умолчанию: `??` вместо `||` — нарушение", () => {
