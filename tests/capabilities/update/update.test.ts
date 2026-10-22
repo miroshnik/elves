@@ -196,6 +196,21 @@ describe("Тонкий проект сверяется с версией пак�
     expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: false, language: "ru", env });
   });
 
+  /**
+   * `batch` — пачки диспетчера (эпик #645, вопрос 6): настройку пишет проект, `task queue` по ней собирает задачи в ветку
+   * пачки. Установщик, переписывая манифест, её не теряет — иначе первый `update` молча возвращал бы проект к PR каждой
+   * задачи в `main`.
+   */
+  it("`install` и `update` сохраняют `batch` в `.agents/elves.json`", () => {
+    elves(sb, ["install"]);
+    editManifest(sb.proj, { batch: true });
+    expect(elves(sb, ["check"]).stdout).toContain("in the project: up to date");
+    expect(elves(sb, ["update"], { bin: newer.bin }).code).toBe(0);
+    expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: false, language: "en", batch: true });
+    expect(elves(sb, ["install", "--lang", "ru"]).code).toBe(0);
+    expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: false, language: "ru", batch: true });
+  });
+
   /** Язык — последней строкой: в начале сессии агент видит, на каком языке работать, не читая манифест. */
   it("check называет язык проекта; установка прошлой версии без поля — ru, отставанием не считается", () => {
     elves(sb, ["install", "--lang", "ru"]);

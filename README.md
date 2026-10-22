@@ -186,7 +186,7 @@ An agent's sandbox (Claude Code's Bash) doesn't let bunx write its cache `~/.bun
 **Into a project** — thin: no copy of the flow, its agents get the canon and the skills from the machine. Committed with the project:
 
 - `@miroshnik/elves` in `devDependencies` of `package.json` — the exact version of the release, the project's package manager updates its lockfile: the harness and the skills' scripts at the project's version for its tests and CI, colleagues and the cloud session ("The package in a project" below); a project without `package.json` has nothing to pin.
-- `.agents/elves.json` — `auto` — whether the agent runs a task entirely by itself, without a "yes" for commit, push and merge, `language` — the project language, and `env` — the task stack settings of `task-env`.
+- `.agents/elves.json` — `auto` — whether the agent runs a task entirely by itself, without a "yes" for commit, push and merge, `language` — the project language, `env` — the task stack settings of `task-env`, and `batch` — whether a dispatcher merges its tasks into a batch branch instead of `main` (`github task queue`).
 - `.agents/slot.sh` — the machine queue's shim the `package.json` checks source (`slot` below).
 - A block at the top of the project's `AGENTS.md` linking to the canon on the machine, `~/.agents/elves/AGENTS.md` — for the agents that read the project's file.
 - The cloud session's `SessionStart` hook in `.claude/settings.json` (your own settings and hooks stay): in a Claude Code cloud session (`CLAUDE_CODE_REMOTE=true`) it installs a fresh Bun and the flow onto the session's machine and runs `check --hook`, outside the cloud it exits at once — no setup script in the environment is needed (`docs/cloud-sessions.md`).
