@@ -3260,7 +3260,7 @@ function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseCh
   if (g) {
     return [
       `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new background subagent in its own worktree with it as the prompt. ` +
-        `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the light set; ${again}`,
+        `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the checks before a commit, no CI; ${again}`,
       `  ${executorPrompt(slug, g.number, g.issue.parent?.number ?? null)}`,
     ];
   }
@@ -3294,8 +3294,12 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
   const base = prs.base;
   const link = (n: number) => `#${n} https://github.com/${slug}/pull/${n}`;
   const script = `bun --no-env-file ${import.meta.path}`;
+  // the epic refresh — the release's, not each executor's (#676): one per epic of the batch's tasks, in the same turn as
+  // the deploy wait; task close of each — after both, its refusal waits for its epic's report
   const closing = (pr: number, tasks: number[]) =>
-    `where the merge deploys — bash ${waitCi()} merged ${pr} as a background command; after it — task close of each task of the batch, GitHub closed them by the release's «Closes»: ` +
+    `where the merge deploys — bash ${waitCi()} merged ${pr} as a background command; in the same turn — the epic refresh, one per epic of the batch's tasks: ` +
+    `${script} task actualize ${tasks.join(" ")} — it groups them by epic and prints each epic's subagent prompt (a background subagent each, a fresh context); ` +
+    `after the deploy and the refreshes' reports — task close of each task of the batch, GitHub closed them by the release's «Closes»: ` +
     `${tasks.map((n) => `${script} task close ${n}`).join("; ")} — the batch branch ${batch} goes with them (while a live executor's PR is into it — kept, the dispatcher's task queue deletes it later)`;
   // outside auto the release's merge is the owner's «yes» too (#667): the dispatcher's request is the work's scope
   const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
@@ -3708,6 +3712,10 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * The epic refresh — in the same turn, not in the background, then `task close`, then the answer (#628): an executor of a
  * task without commits answered «waits for subagents» while its refresh ran, and its worktree without changes was
  * removed under the refresh subagent; a task without a PR is closed as completed first — `task close` needs it closed.
+ * A task of the dispatcher's batch (#676) — merged into the batch after the checks before a commit and `pr premerge`,
+ * without a CI wait (a PR into the batch runs no CI) and without the refresh: the executor's slot is free at the merge,
+ * the full run, one refresh per epic and `task close` are the release's; a task without a PR isn't in the batch — its
+ * refresh and close are the executor's, as outside a batch.
  * `session` — the prompt of an app executor session (`start_session`: another project's task, #624), printed by the
  * dispatcher: a session, not a subagent — by the canon of its project and its mode, named by the task, waits in the
  * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it. The batch's
@@ -3776,11 +3784,12 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   };
   const resume = restart.length && !fix ? [N.queue.resume] : [];
   // the epic refresh in the same turn (`refresh`, #628) — the subagent's: a session runs it by the canon, with the deploy's
-  // wait; in a batch — the lead, the wait and the refresh without the deploy and `task close`: they are the release's;
+  // wait; in a batch (#676) — no CI wait (a PR into the batch runs none: the checks before a commit and pr premerge are
+  // its gate), no deploy, no refresh and no `task close`: they are the release's, the subagent's and the session's alike;
   // the fix of a red release (#650) — its own lead, the rest as in the batch
   const sessionLead = fix ? N.queue.sessionFixLead : batch ? N.queue.sessionBatchLead : N.queue.sessionLead;
   const lines = o.session
-    ? [sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.sessionBatchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    ? [sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.batchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
     : [
         fix ? N.queue.fixLead : batch ? N.queue.batchLead : N.queue.lead,
         ...resume,
@@ -3900,13 +3909,15 @@ function loadTaskText(io: Io, slug: string, number: number): TaskText {
  * (closed ones and this task, whose PR is merged) is removed — check 4; the questions label without open questions in
  * the section — check 2; a milestone of the epic's tasks without open tasks is closed — check 1, except the task's and
  * the epic's own: `task close` closes them, the task may still be open. The fixes — one line in a comment on the epic.
+ * Several tasks shipped together (a batch's release, #676) — `numbers`, `merged` — those of them merged into the default
+ * branch; the comment names them all.
  */
-function refreshMechanics(io: Io, slug: string, r: { number: number; merged: boolean; epic: TaskText; open: TaskText[] }): void {
+function refreshMechanics(io: Io, slug: string, r: { numbers: number[]; merged: number[]; epic: TaskText; open: TaskText[] }): void {
   const fixes: string[] = [];
   const tasks = [r.epic, ...r.open];
   for (const t of tasks) {
     // an external blocker is done only when closed: the merged task is of this repository
-    const done = t.blockedBy.filter((b) => b.state === "CLOSED" || (r.merged && blockerRef(slug, b) === `#${r.number}`));
+    const done = t.blockedBy.filter((b) => b.state === "CLOSED" || r.merged.some((n) => blockerRef(slug, b) === `#${n}`));
     if (!done.length) continue;
     for (const b of done) mutate(io, { op: "RemoveBlockedBy", input: { issueId: t.id, blockingIssueId: b.id } });
     io.out(`+ #${t.number}: blocked by ${done.map((b) => `${blockerRef(slug, b)} (${b.state === "CLOSED" ? "closed" : "merged"})`).join(", ")} removed`);
@@ -3922,8 +3933,8 @@ function refreshMechanics(io: Io, slug: string, r: { number: number; merged: boo
       fixes.push(locale.fill(N.actualize.unlabeled, { task: t.number, label: l.name }));
     }
   }
-  const own = r.epic.subIssues.find((x) => x.number === r.number)?.milestone?.number;
-  const seen = new Set([own, r.epic.milestone?.number]);
+  const own = r.epic.subIssues.filter((x) => r.numbers.includes(x.number)).map((x) => x.milestone?.number);
+  const seen = new Set([...own, r.epic.milestone?.number]);
   for (const { milestone: m } of r.epic.subIssues) {
     if (!m || seen.has(m.number)) continue;
     seen.add(m.number);
@@ -3933,7 +3944,7 @@ function refreshMechanics(io: Io, slug: string, r: { number: number; merged: boo
     fixes.push(locale.fill(N.actualize.milestone, { title: m.title }));
   }
   if (!fixes.length) return;
-  mutate(io, { op: "AddComment", input: { subjectId: r.epic.id, body: locale.fill(N.actualize.mechanics, { number: r.number, fixes: fixes.join("; ") }) } });
+  mutate(io, { op: "AddComment", input: { subjectId: r.epic.id, body: locale.fill(N.actualize.mechanics, { number: r.numbers.join(", #"), fixes: fixes.join("; ") }) } });
   io.out(`+ epic #${r.epic.number}: a comment with the script's fixes`);
 }
 
@@ -3984,6 +3995,27 @@ const fileLine = (f: PrFile) => `- ${f.path} (${f.changeType === "MODIFIED" ? ""
 const textBlock = (body: string) => (body ? `~~~~markdown\n${body}\n~~~~` : N.actualize.noBody);
 
 /**
+ * What a task shipped: its merged PRs — the linked ones, otherwise found by the task branch or «Closes #N» (into a batch
+ * branch too). A batch's release among them (#676: its head is the batch branch) — in its place the task's own PRs
+ * merged into the batch: the release carries the whole batch's files, the refresh of one epic needs its tasks'.
+ * `released` — merged into the default branch, a release among them; merged only into a batch branch (#648) — not:
+ * the task closes with the batch's release.
+ */
+function shippedBy(io: Io, slug: string, issue: Issue): { prs: Issue["prs"]; released: boolean } {
+  const linked = issue.prs.filter((p) => p.merged);
+  const found = linked.length ? null : unlinkedPrs(io, slug, issue.number);
+  const merged = linked.length ? linked : [...found!.prs, ...found!.batched].filter((p) => p.merged);
+  const prs = merged.flatMap((p) => {
+    if (!isBatchBranch(p.head)) return [p];
+    const own = batchPrs(io, slug, p.head)
+      .nodes.filter((x) => x.merged && x.baseRefName === p.head && prOfTask(x, issue.number))
+      .map((x) => ({ number: x.number as number, state: x.state ?? "", merged: true, head: x.headRefName ?? "", base: p.head }));
+    return own.length ? own : [p];
+  });
+  return { prs, released: merged.some((p) => !isBatchBranch(p.base)) };
+}
+
+/**
  * The epic refresh — right after the merge, in parallel with the deploy: the refresh doesn't depend on the deploy. The
  * command does the mechanics itself (`refreshMechanics`) and prints the subagent's prompt — two lines: «Task #N (epic
  * #M)» (`subagentPrompt.task` and the number: est ties the subagent's work to the task by it) and the command of its
@@ -3993,40 +4025,60 @@ const textBlock = (body: string) => (body ? `~~~~markdown\n${body}\n~~~~` : N.ac
  * copies of links and the answers in comments the script found, the checks by meaning quoted from reference.md as is,
  * what may be changed and the answer form; under each open task — where a repeat finding of check 5 goes, by its Status
  * and open PR (#636); in the project language (the `actualize` keys). No epic, or no open tasks in it besides this one
- * — the checks by meaning have nothing to go through: a "not needed" line, no subagent.
+ * — the checks by meaning have nothing to go through: a "not needed" line, no subagent. Several tasks — shipped together
+ * (a batch's release, #676: `batch release` names them all) — grouped by their epics: one refresh per epic, its prompt
+ * and its report name the epic's tasks («Task #N, #M», «Refresh after #N, #M, result: …»), and `task close` of each
+ * accepts it; `--assignment` — the tasks of one epic, as its prompt names them.
  */
-export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assignment: boolean } = { assignment: false }): number {
-  const issue = loadIssue(io, slug, number);
-  const linked = issue.prs.filter((p) => p.merged);
-  const found = linked.length ? null : unlinkedPrs(io, slug, number);
-  const prs = linked.length ? linked : [...found!.prs, ...found!.batched].filter((p) => p.merged);
+export function cmdTaskActualize(io: Io, slug: string, numbers: number[], o: { assignment: boolean } = { assignment: false }): number {
+  const groups = new Map<number | null, Issue[]>();
+  for (const n of [...new Set(numbers)]) {
+    const issue = loadIssue(io, slug, n);
+    const epic = issue.parent?.number ?? null;
+    groups.set(epic, [...(groups.get(epic) ?? []), issue]);
+  }
+  if (o.assignment && groups.size > 1) {
+    const by = [...groups].map(([epic, g]) => `${g.map((i) => `#${i.number}`).join(", ")} — ${epic === null ? "no epic" : `epic #${epic}`}`).join("; ");
+    throw new GhError(`--assignment — the tasks of one epic, as its refresh prompt names them: ${by}`);
+  }
+  for (const [epic, group] of groups) refreshEpic(io, slug, epic, group, o);
+  return 0;
+}
+
+/** One epic's refresh after its tasks shipped (`cmdTaskActualize`): the tasks of `group` — of this epic, or of none. */
+function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Issue[], o: { assignment: boolean }): void {
+  const numbers = group.map((i) => i.number);
+  const tags = numbers.map((n) => `#${n}`).join(", ");
+  const shipped = group.map((issue) => ({ issue, ...shippedBy(io, slug, issue) }));
   // merged only into a batch branch (#648): what shipped is in the batch, the task closes with its release; its
   // blocked-by links stay till then — a task of the same batch isn't held by them (task queue), one outside it is
-  const released = prs.filter((p) => !isBatchBranch(p.base));
-  const later = prs.length && !released.length
-    ? `Next: no task close — #${number} is merged into ${prs[0]!.base}: it closes with the batch's release.`
-    : `Next: task close ${number} — after the deploy, where the merge deploys.`;
-  if (!issue.parent) return io.out(`○ refresh not needed: #${number} has no epic. ${later}`), 0;
-  const epic = loadTaskText(io, slug, issue.parent.number);
-  const open = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).map((x) => loadTaskText(io, slug, x.number));
-  if (!o.assignment) refreshMechanics(io, slug, { number, merged: released.length > 0, epic, open });
-  if (!open.length) return io.out(`○ refresh not needed: epic #${epic.number} has no open tasks besides #${number}. ${later}`), 0;
+  const held = shipped.every((s) => s.prs.length && !s.released);
+  const later = held
+    ? `Next: no task close — ${tags} ${numbers.length > 1 ? "are" : "is"} merged into ${shipped[0]!.prs[0]!.base}: ${numbers.length > 1 ? "they close" : "it closes"} with the batch's release.`
+    : `Next: ${numbers.map((n) => `task close ${n}`).join("; ")} — after the deploy, where the merge deploys.`;
+  if (epicNumber === null) return io.out(`○ refresh not needed: ${tags} ${numbers.length > 1 ? "have" : "has"} no epic. ${later}`);
+  const epic = loadTaskText(io, slug, epicNumber);
+  const open = epic.subIssues.filter((x) => x.state === "OPEN" && !numbers.includes(x.number)).map((x) => loadTaskText(io, slug, x.number));
+  if (!o.assignment) refreshMechanics(io, slug, { numbers, merged: shipped.filter((s) => s.released).map((s) => s.issue.number), epic, open });
+  if (!open.length) return io.out(`○ refresh not needed: epic #${epic.number} has no open tasks besides ${tags}. ${later}`);
   // the board with its Status (and its language) — the assignment names where a repeat finding goes (#636)
   const ctx = o.assignment ? taskContext(io, slug) : null;
-  const vars = { task: N.subagentPrompt.task, epicWord: N.subagentPrompt.epic, number, epic: epic.number, repo: slug };
+  const vars = { task: N.subagentPrompt.task, epicWord: N.subagentPrompt.epic, number: numbers.join(", #"), epic: epic.number, repo: slug };
   const lead = locale.fill(N.actualize.lead, vars);
   if (!o.assignment) {
     io.out("Next: a subagent in the background — the two lines below are its whole prompt, pass them as is.");
     io.out(lead);
-    io.out(locale.fill(N.actualize.fetch, { command: `bun --no-env-file ${import.meta.path} task actualize ${number} --assignment --repo ${slug}` }));
-    return 0;
+    io.out(locale.fill(N.actualize.fetch, { command: `bun --no-env-file ${import.meta.path} task actualize ${numbers.join(" ")} --assignment --repo ${slug}` }));
+    return;
   }
   const checks = actualizeChecks();
-  const shipped = prs.length
-    ? locale.fill(N.actualize.prs, { list: prs.map((p) => `#${p.number} (\`gh pr view ${p.number}\`, \`gh pr diff ${p.number}\`)`).join(", ") })
-    : locale.fill(N.actualize.noPr, { command: `\`git log origin/main --grep '#${number}'\`` });
-  const lines = [lead, locale.fill(N.actualize.shipped, { ...vars, title: issue.title, shipped })];
-  for (const p of prs) {
+  const what = (s: (typeof shipped)[number]) =>
+    s.prs.length
+      ? locale.fill(N.actualize.prs, { list: s.prs.map((p) => `#${p.number} (\`gh pr view ${p.number}\`, \`gh pr diff ${p.number}\`)`).join(", ") })
+      : locale.fill(N.actualize.noPr, { command: `\`git log origin/main --grep '#${s.issue.number}'\`` });
+  const tasks = shipped.map((s) => locale.fill(N.actualize.shippedTask, { number: s.issue.number, title: s.issue.title, shipped: what(s) })).join("; ");
+  const lines = [lead, locale.fill(N.actualize.shipped, { repo: slug, tasks })];
+  for (const p of shipped.flatMap((s) => s.prs)) {
     const files = loadPrChange(io, slug, p.number).files;
     if (files.length) lines.push(locale.fill(N.actualize.files, { pr: p.number }), ...files.map(fileLine));
   }
@@ -4053,21 +4105,41 @@ export function cmdTaskActualize(io: Io, slug: string, number: number, o: { assi
     MEANING_CHECKS.map((i) => checks[i]!).join("\n"),
     "",
     locale.fill(N.actualize.scope, { ...vars, questions: N.sections.questions, script: `bun --no-env-file ${import.meta.path}` }),
-    locale.fill(N.actualize.comment, { ...vars, report: locale.fill(N.actualize.report, { number, text: "…" }) }),
+    locale.fill(N.actualize.comment, { ...vars, report: locale.fill(N.actualize.report, { number: vars.number, text: "…" }), close: numbers.map((n) => `\`task close ${n}\``).join(", ") }),
     N.actualize.answer,
   );
   for (const line of lines) io.out(line);
-  return 0;
 }
 
 /**
  * The epic refresh's report (#571): the refresh subagent ends with a comment on the epic that starts with `report` —
  * «Refresh after #N, result: …» in any language of the dictionary, case and markup aside; the script's own comment
- * (`mechanics`) comes before the subagent and isn't it.
+ * (`mechanics`) comes before the subagent and isn't it. The tasks shipped together (a batch's release, #676) have one
+ * report on their epic — «Refresh after #N, #M, result: …»: it is each one's.
  */
 function refreshReported(epic: TaskText, number: number): boolean {
-  const heads = locale.every((n) => n.actualize.report).map((t) => locale.fill(t, { number, text: "" }).trim().toLowerCase());
-  return epic.comments.some((c) => heads.some((h) => c.body.toLowerCase().includes(h)));
+  const SLOT = "\u0001";
+  const heads = locale
+    .every((n) => n.actualize.report)
+    .map((t) => new RegExp(locale.escapeRe(locale.fill(t, { number: SLOT, text: "" }).trim().toLowerCase()).replace(SLOT, "(\\d+(?:,\\s*#\\d+)*)"), "gu"));
+  const named = (m: RegExpMatchArray) => m[1]!.split(/,\s*#/).map(Number).includes(number);
+  return epic.comments.some((c) => heads.some((h) => [...c.body.toLowerCase().matchAll(h)].some(named)));
+}
+
+/**
+ * The epic's tasks a batch's release shipped together with this one (#676): «Closes #N» of the release PR's body among
+ * the epic's sub-issues, this task among them, by number; the body not read — an `○` line and this task alone.
+ */
+function releasedWith(io: Io, slug: string, pr: number, number: number, epic: TaskText): number[] {
+  let body = "";
+  try {
+    body = restCall(io, ["api", `repos/${slug}/pulls/${pr}`])?.body ?? "";
+  } catch (e) {
+    if (!(e instanceof GhError)) throw e;
+    io.out(`○ the release PR #${pr} not read (${e.message}) — the epic refresh is looked for by #${number} alone`);
+  }
+  const subs = new Set(epic.subIssues.map((x) => x.number));
+  return [...new Set([number, ...closingInBody(body).filter((n) => subs.has(n))])].sort((a, b) => a - b);
 }
 
 /**
@@ -4082,7 +4154,9 @@ function refreshReported(epic: TaskText, number: number): boolean {
  * batch branch (#648, question 1 of epic #645) — refused before any change: it stays In progress till the release, and
  * the generic refusal would send its executor to close the issue by hand as a task without a PR. After the release
  * (#649) the release PR is the task's merged PR — `Closes #N` of its body links it: the branches are its head, the batch
- * branch, — kept while a live executor's PR is into it — and the task's own PR into the batch.
+ * branch, — kept while a live executor's PR is into it — and the task's own PR into the batch. Its refresh is the epic's
+ * (#676): one for the release's tasks of the epic (`releasedWith`), the report naming them is each one's; the refusal
+ * names that set and its `task actualize`.
  */
 export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boolean }): number {
   const ctx = taskContext(io, slug);
@@ -4117,12 +4191,17 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
   }
   if (issue.parent) {
     const epic = loadTaskText(io, slug, issue.parent.number);
-    const others = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).length;
+    // a batch's release (#676): its tasks of this epic are refreshed together — one refresh per epic, one report
+    const release = merged.find((p) => isBatchBranch(p.head));
+    const together = release ? releasedWith(io, slug, release.number, number, epic) : [number];
+    const others = epic.subIssues.filter((x) => x.state === "OPEN" && !together.includes(x.number)).length;
     if (others && !refreshReported(epic, number)) {
-      const head = locale.fill(N.actualize.report, { number, text: "…" });
+      const tags = together.map((n) => `#${n}`).join(", ");
+      const head = locale.fill(N.actualize.report, { number: together.join(", #"), text: "…" });
+      const shipped = release ? `The release PR #${release.number} shipped ${tags} of the epic — one refresh for them. ` : "";
       throw new GhError(
-        `#${number} is too early to close: the epic refresh hasn't reported — epic #${epic.number} has open tasks besides #${number} (${others}), and no comment «${head}» on it. ` +
-          `The refresh subagent is at work — wait for its answer, then task close ${number} again; it wasn't launched — task actualize ${number} and the subagent with its prompt; ` +
+        `#${number} is too early to close: the epic refresh hasn't reported — epic #${epic.number} has open tasks besides ${tags} (${others}), and no comment «${head}» on it. ` +
+          `${shipped}The refresh subagent is at work — wait for its answer, then task close ${number} again; it wasn't launched — task actualize ${together.join(" ")} and the subagent with its prompt; ` +
           `it answered without the comment — post its result: gh issue comment ${epic.number} --repo ${slug} --body "${head}"`,
       );
     }
@@ -4973,14 +5052,14 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   const next = batchOf(io, slug);
   const target = next && next !== base ? next : main;
   const tasks = prTasks(pr);
+  // a PR into a batch runs no CI (#676): into the next batch — no ci-wait, into the default branch — the full CI
   const after =
     target === main
-      ? `; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}) and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
-      : `; in the batch ${target} the task waits for its release, as before: no deploy wait and no task close`;
+      ? `ci-wait, pr premerge ${number} again; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}), the epic refresh and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
+      : `pr premerge ${number} again; in the batch ${target} the task waits for its release, as before: no CI wait, no deploy wait, no epic refresh and no task close`;
   io.out(
     `❌ don't merge: ${base} is released by PR #${release.number} — the PR moves to ${target}: gh pr edit ${number} --base ${target}, ` +
-      `then git fetch origin ${target}, git rebase origin/${target} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ` +
-      `ci-wait, pr premerge ${number} again${after}`,
+      `then git fetch origin ${target}, git rebase origin/${target} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ${after}`,
   );
   return 1;
 }
@@ -4991,7 +5070,10 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
  * doesn't keep what the CI checked (the merge-ref is rebuilt), so by time: the head's earliest check suite against the
  * last event of the default branch (REST: the GraphQL quota is shared by all sessions). The unknown is checked. A red
  * main isn't this PR: a red check on main's last commit or a merge red by the same thing as bare main. Code 0 —
- * merge, 1 — don't merge (the PR breaks it), 3 — main is red.
+ * merge, 1 — don't merge (the PR breaks it), 3 — main is red. A PR into a batch branch runs no CI (#676) and the batch
+ * branch none either: what was checked is the head itself — the executor's checks before a commit; so by git, not by
+ * time: the head on a fresh origin/<batch> — merge, the batch moved on past it — the fast checks on the merge, as for a
+ * moved main.
  */
 export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   const pr = restCall(io, ["api", `repos/${slug}/pulls/${number}`]);
@@ -4999,10 +5081,13 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   const head: string = pr.head.sha;
   const base: string = pr.base.ref;
   const closes = closingInBody(pr.body ?? "");
-  if (isBatchBranch(base)) {
+  const batch = isBatchBranch(base);
+  if (batch) {
     const code = batchBase(io, slug, number, pr);
     if (code !== null) return code;
   }
+  // what the PR's fix goes through again: a PR into a batch has no CI to wait for (#676)
+  const recheck = batch ? `pr premerge ${number} again` : "ci-wait again";
 
   /**
    * A red main: don't merge and don't fix it in your PR — one bug for everyone, the others wait for it to close.
@@ -5043,41 +5128,44 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     return 3;
   };
 
-  try {
-    const red = redChecksOf(io, slug, base);
-    if (red.publish.length) {
-      io.out(`○ ${red.publish.join(", ")} red on the last commit of ${base} (${red.sha.slice(0, 7)}) — publishing the documentation, not a check of ${base}: not counted`);
+  // a batch branch and a PR into it run no CI (#676): neither a red check of the base nor the PR's CI by time — git below
+  if (!batch) {
+    try {
+      const red = redChecksOf(io, slug, base);
+      if (red.publish.length) {
+        io.out(`○ ${red.publish.join(", ")} red on the last commit of ${base} (${red.sha.slice(0, 7)}) — publishing the documentation, not a check of ${base}: not counted`);
+      }
+      if (red.names.length) {
+        const checks = (names: string[]) => `${names.length > 1 ? "checks" : "check"} ${names.join(", ")}`;
+        // in the bug title — in the project language
+        const titled = (names: string[]) => locale.fill(names.length > 1 ? N.mainRed.checks : N.mainRed.check, { names: names.join(", ") });
+        const why = `${checks(red.names)} of the last commit of ${base} (${red.sha.slice(0, 7)})`;
+        const code = mainRed(`${base} is red: ${why}`, why, red.names, titled, checks);
+        if (code !== null) return code;
+      }
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      io.out(`○ checks of the last commit of ${base} not read (${e.message}) — whether ${base} is red is unknown from the checks`);
     }
-    if (red.names.length) {
-      const checks = (names: string[]) => `${names.length > 1 ? "checks" : "check"} ${names.join(", ")}`;
-      // in the bug title — in the project language
-      const titled = (names: string[]) => locale.fill(names.length > 1 ? N.mainRed.checks : N.mainRed.check, { names: names.join(", ") });
-      const why = `${checks(red.names)} of the last commit of ${base} (${red.sha.slice(0, 7)})`;
-      const code = mainRed(`${base} is red: ${why}`, why, red.names, titled, checks);
-      if (code !== null) return code;
-    }
-  } catch (e) {
-    if (!(e instanceof GhError)) throw e;
-    io.out(`○ checks of the last commit of ${base} not read (${e.message}) — whether ${base} is red is unknown from the checks`);
-  }
 
-  const suites: string[] = (restCall(io, ["api", `repos/${slug}/commits/${head}/check-suites?per_page=100`]).check_suites ?? []).map((s: Any) => s.created_at).filter(Boolean);
-  const ci = suites.sort()[0];
-  let moved: string | null = null;
-  let unread: string | null = null;
-  try {
-    moved = restCall(io, ["api", `repos/${slug}/activity?ref=${encodeURIComponent(`refs/heads/${base}`)}&per_page=1`])[0]?.timestamp ?? null;
-  } catch (e) {
-    if (!(e instanceof GhError)) throw e;
-    unread = e.message;
+    const suites: string[] = (restCall(io, ["api", `repos/${slug}/commits/${head}/check-suites?per_page=100`]).check_suites ?? []).map((s: Any) => s.created_at).filter(Boolean);
+    const ci = suites.sort()[0];
+    let moved: string | null = null;
+    let unread: string | null = null;
+    try {
+      moved = restCall(io, ["api", `repos/${slug}/activity?ref=${encodeURIComponent(`refs/heads/${base}`)}&per_page=1`])[0]?.timestamp ?? null;
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      unread = e.message;
+    }
+    const check = `checking the merge with origin/${base}`;
+    if (!ci) io.out(`the head of PR #${number} has no checks — what CI checked is unknown: ${check}`);
+    else if (unread) io.out(`○ movement of ${base} not read (${unread}) — ${check}`);
+    else if (!moved || Date.parse(moved) <= Date.parse(ci) - MERGE_REF_SLACK_MS) {
+      io.out(`✅ merge: ${base} hasn't moved since the CI of PR #${number} (CI since ${ci}, last movement of ${base} — ${moved ?? "none"}) — CI checked this merge`);
+      return 0;
+    } else io.out(`${base} moved after the CI of PR #${number} (CI since ${ci}, ${base} — ${moved}) — ${check}`);
   }
-  const check = `checking the merge with origin/${base}`;
-  if (!ci) io.out(`the head of PR #${number} has no checks — what CI checked is unknown: ${check}`);
-  else if (unread) io.out(`○ movement of ${base} not read (${unread}) — ${check}`);
-  else if (!moved || Date.parse(moved) <= Date.parse(ci) - MERGE_REF_SLACK_MS) {
-    io.out(`✅ merge: ${base} hasn't moved since the CI of PR #${number} (CI since ${ci}, last movement of ${base} — ${moved ?? "none"}) — CI checked this merge`);
-    return 0;
-  } else io.out(`${base} moved after the CI of PR #${number} (CI since ${ci}, ${base} — ${moved}) — ${check}`);
 
   if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`the merge check runs from a checkout of ${slug}: the current directory is not one`);
   const fetched = git(io, io.cwd, "fetch", "-q", "origin", base);
@@ -5085,7 +5173,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   // the head — by its SHA, not refs/pull/<N>/head: GitHub creates that ref up to minutes after the PR, when CI has
   // already passed (#505), while a reachable commit (the head branch, refs/pull/<N>/merge) it gives by SHA
   const got = git(io, io.cwd, "fetch", "-q", "origin", head);
-  if (got.status !== 0) throw new GhError(`PR head ${head} not fetched from origin (${why(got)}) — was the PR updated? ci-wait again`);
+  if (got.status !== 0) throw new GhError(`PR head ${head} not fetched from origin (${why(got)}) — was the PR updated? ${recheck}`);
   // commits of the PR already in the base by their changes (#649): a live executor's PR moved off a released batch —
   // by GitHub too, deleting the merged release's head in a repository that deletes head branches — carries the batch's
   // commits from before the release's rebase, and GitHub's rebase merge would replay them
@@ -5094,9 +5182,17 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   if (applied) {
     io.out(
       `❌ don't merge: ${applied} ${applied > 1 ? "commits" : "commit"} of the PR ${applied > 1 ? "are" : "is"} in origin/${base} already by the changes (a released batch's, a merged PR's) — ` +
-        `GitHub's rebase merge would replay them: git rebase origin/${base} (it drops them), push --force-with-lease, ci-wait, pr premerge ${number} again`,
+        `GitHub's rebase merge would replay them: git rebase origin/${base} (it drops them), push --force-with-lease, ${batch ? "" : "ci-wait, "}pr premerge ${number} again`,
     );
     return 1;
+  }
+  if (batch) {
+    const tip = git(io, io.cwd, "rev-parse", "--verify", `refs/remotes/origin/${base}^{commit}`).stdout.trim();
+    if (tip && git(io, io.cwd, "merge-base", "--is-ancestor", tip, head).status === 0) {
+      io.out(`✅ merge: PR #${number} is on the fresh origin/${base} (${tip.slice(0, 7)}) — a PR into the batch runs no CI: the checks before a commit checked this tree`);
+      return 0;
+    }
+    io.out(`${base} moved on past the head of PR #${number} (origin/${base} — ${tip.slice(0, 7) || "not read"}) — checking the merge with origin/${base}`);
   }
 
   const ON_MERGE = "on the merge";
@@ -5118,7 +5214,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     const failed = [...new Set(asTsc(`${red.result.stdout}\n${red.result.stderr}`).split("\n").filter((l) => FAILED_LINE.test(l)).map((l) => l.trim()))];
     return { ran, red: { ...red, failed } };
   };
-  const breaks = (script: string) => `❌ don't merge: ${script} is red on the merge with origin/${base} — fix the root cause in the PR: rebase onto origin/${base}, edit, push --force-with-lease, ci-wait again`;
+  const breaks = (script: string) => `❌ don't merge: ${script} is red on the merge with origin/${base} — fix the root cause in the PR: rebase onto origin/${base}, edit, push --force-with-lease, ${recheck}`;
   return inTempWorktree(io, "premerge", `origin/${base}`, (dir) => {
     const short = (ref: string) => git(io, dir, "rev-parse", "--short=7", ref).stdout.trim();
     // like GitHub's merge-ref; a rebase merge without conflicts gives the same tree. A temporary merge doesn't need the
@@ -5127,7 +5223,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     if (merge.status !== 0) {
       const files = git(io, dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
       if (!files.length) throw new GhError(`git merge: ${merge.stderr.trim()}`);
-      io.out(`❌ don't merge: a merge conflict with origin/${base} — ${files.join(", ")}; rebase onto origin/${base}, push --force-with-lease, ci-wait again`);
+      io.out(`❌ don't merge: a merge conflict with origin/${base} — ${files.join(", ")}; rebase onto origin/${base}, push --force-with-lease, ${recheck}`);
       return 1;
     }
     io.out(`+ merge of ${head.slice(0, 7)} with origin/${base} ${short("HEAD^1")} — no conflicts`);
@@ -5250,18 +5346,22 @@ Closes the task without doing it (not planned) and removes it from the project.
 Examples:
   github task drop 42
   github task drop 42 --duplicate-of 17`,
-  "task actualize": `github task actualize <N> [--assignment] [--repo owner/repo]
+  "task actualize": `github task actualize <N> [<M> …] [--assignment] [--repo owner/repo]
 
 Right after the merge, in parallel with the deploy: the epic refresh's mechanics (blocked by on done tasks, the questions
 label without open questions, milestones without open tasks; a comment on the epic) and the subagent's prompt;
 --assignment (read-only, the subagent's first call) — its whole assignment: the texts of the epic and its open tasks,
 the PR files, copies of links and answers in comments, the checks by meaning; no epic or no open tasks in it —
 "refresh not needed". A PR merged into a batch branch (batch/*) is what shipped too, but the blocked-by links on the
-task stay till the batch's release.
+task stay till the batch's release. Several tasks — shipped together, a batch's release (batch release names them):
+grouped by epic, one refresh per epic — its prompt and its report («Refresh after #N, #M, result: …») name the epic's
+tasks, task close of each takes it; a released task's PRs — its own into the batch, not the release's; --assignment —
+the tasks of one epic.
 
 Examples:
   github task actualize 42
-  github task actualize 42 --assignment`,
+  github task actualize 42 --assignment
+  github task actualize 42 43 47`,
   "task resume": `github task resume
 
 The SessionStart hook runs it: the wait to restart for the task pinned to the session — an open PR's checks, a merged PR
@@ -5299,8 +5399,9 @@ queue's = line names that wait. --session — printed by the dispatcher: the pro
 by the task, waiting in the background, ending with the canon's last line — and how to start it; the hand-out has no
 worktree, the task is = in the queue. A batch project ("batch": true in .agents/elves.json): the first queue pushes the
 dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), the next ones take the same (○), it is
-kept in the marker; the assignment — the task branch from it and the PR into it, no deploy and no task close, the task
-closes with the batch's release; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
+kept in the marker; the assignment — the task branch from it and the PR into it, merged after the checks before a
+commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
+release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
 cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task in work merged
 into the batch — Next: names batch release; its release PR open — ready tasks are held (○), no new executors; red —
 Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
@@ -5320,7 +5421,8 @@ epic and the milestone, the task's stacks taken down with their volumes (task-en
 (--no-git — without git). The epic has other open tasks and no report of the refresh subagent on it («Refresh after
 #N, result: …») — a refusal before any changes; so is a task merged only into a batch branch (batch/*): it closes with
 the batch's release — then the release PR is its merged PR, and the batch branch goes too, kept while a live executor's
-PR is into it. A task of the scripts' own repository: before the actual the scripts'
+PR is into it; its refresh — one for the release's tasks of the epic, the report naming them («Refresh after #N, #M,
+result: …»). A task of the scripts' own repository: before the actual the scripts'
 clone catches up with origin (pull --ff-only; only on the default branch, without uncommitted changes). Docker and gh
 don't work in an agent's sandbox — run it outside.
 
@@ -5332,8 +5434,8 @@ Examples:
 The dispatcher's batch (epic #645) into the default branch by one PR — one full CI run and one deploy: the batch branch
 (the session's, from its marker, or the one named) rebased onto a fresh origin/<base> and pushed (--force-with-lease),
 the PR into the default branch — a conventional-commit title, the body: spec-diff of the batch and «Closes #N» of each
-task merged into it; Next: — ci-wait, pr premerge, the merge (outside auto — on the owner's «yes»), the deploy wait,
-task close of each task. The live
+task merged into it; Next: — ci-wait, pr premerge, the merge (outside auto — on the owner's «yes»), the deploy wait and the
+epic refresh — one per epic of the batch's tasks (task actualize with all of them), then task close of each task. The live
 executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
 the next batch or the default branch. The release PR open — its steps again; red — the guilty task (the release's only
 task, the labels of the decisions of the files the failed jobs' logs name, otherwise a bisect by the task boundaries on
@@ -5360,7 +5462,9 @@ Examples:
 Before gh pr merge, after ci-wait PASS: the default branch moved after the PR's CI — the PR head merged with it in a
 temporary worktree and ${PREMERGE_SCRIPTS.join(", then ")} from package.json (those that exist, as in CI). Code 0 —
 merge, 1 — don't merge (red, conflict), 2 — couldn't check, 3 — main is red by itself (the same check on bare main, a
-red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch: the
+red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch runs no
+CI, so no ci-wait before it: the head on a fresh origin/<batch> — code 0 without checks (the checks before a commit
+checked this tree), the batch moved on — the fast checks on the merge with it. The
 batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
 fix, checked as usual; merged — code 1 and the move: into the dispatcher's next
 batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the base by their
@@ -5552,10 +5656,11 @@ export function main(argv: string[], io: Io): number {
         if (!k) throw new GhError(`task answer: expected a question number, not «${positionals[1] ?? ""}»`);
         return cmdTaskAnswer(io, slug, number, Number(k[0]), positionals.slice(2).join(" "), values.auto!);
       }
+      // several tasks — shipped together, a batch's release (#676): one refresh per epic of them
+      if (cmd === "actualize") return cmdTaskActualize(io, slug, positionals.map((p) => issueNumber(p, "task actualize")), { assignment: values.assignment! });
       if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
       if (cmd === "show") return cmdTaskShow(io, slug, number);
       if (cmd === "close") return cmdTaskClose(io, slug, number, { git: !values["no-git"] });
-      if (cmd === "actualize") return cmdTaskActualize(io, slug, number, { assignment: values.assignment! });
       return cmdTaskDrop(io, slug, number, values["duplicate-of"] === undefined ? undefined : issueNumber(values["duplicate-of"], "--duplicate-of"));
     }
     const { values } = parseArgs({ args: rest, options: { repo: { type: "string" }, confirm: { type: "boolean", default: false }, template: { type: "string", default: DEFAULT_TEMPLATE } } });
