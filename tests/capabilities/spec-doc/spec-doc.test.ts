@@ -146,6 +146,7 @@ describe("Счета", () => {
       vitestReport(dir, {
         "tests/capabilities/billing/b.test.ts": [[["Счета"], "второй"]],
         "tests/capabilities/billing/a.test.ts": [[["Счета"], "первый"]],
+        [MAIN]: [[[], "главный"]],
       }),
       "--stdout",
     );
@@ -637,7 +638,7 @@ describe("Страница стандарта показывает пример�
  * валит PR, а без него то же видно в stderr.
  */
 describe("Нарушение структуры спеки видно при сборке, --strict — код 1", () => {
-  it("папка без главного файла `<папка>.test.ts` — spec-doc называет, где его ждёт", () => {
+  it("раздел без `<раздел>.md` — spec-doc называет файл описания, --strict — код 1", () => {
     writeTree(dir, {
       "tests/capabilities/billing/billing.md": "Биллинг.\n",
       "tests/capabilities/billing/vat.test.ts": `import { it } from "bun:test";\nit("НДС считается", () => {});\n`,
@@ -645,31 +646,76 @@ describe("Нарушение структуры спеки видно при с�
     const report = vitestReport(dir, { "tests/capabilities/billing/vat.test.ts": [[[], "НДС считается"]] });
     const r = doc("r.json", report, "--stdout");
     expect(r.code).toBe(0);
-    expect(r.stderr).toContain("no main file tests/capabilities/billing/billing.test.ts — its describe blocks open the page");
+    expect(r.stderr).toContain("no description tests/capabilities/billing/vat.md — why, the reason, the rejected options");
     expect(doc("r.json", report, "--stdout", "--strict").code).toBe(1);
+    writeTree(dir, { "tests/capabilities/billing/vat.md": "НДС.\n" });
+    expect(doc("r.json", report, "--stdout", "--strict").code).toBe(0);
+  });
+});
+
+/**
+ * Решение — тема с разделами (эпик #685): папка `tests/<корень>/<тема>/` — тема, файлы в ней — разделы. Страница темы
+ * — её описание `<тема>.md`, затем разделы по имени: у каждого заголовок, своё описание `<раздел>.md` и утверждения его
+ * файлов. Неперегруппированное решение — тестовый файл с именем папки — тема из одного раздела, как прежде.
+ */
+describe("Тема с разделами — страница на тему, разделы по имени", () => {
+  const ROUTES = "tests/standards/routes";
+  const topic = () => {
+    writeTree(dir, {
+      [`${ROUTES}/routes.md`]: "Маршруты HTTP API.\n\nВторой абзац темы.\n",
+      [`${ROUTES}/permissions.md`]: "Права: каждый маршрут их проверяет.\n",
+      [`${ROUTES}/naming.md`]: "Имена маршрутов.\n",
+      [`${ROUTES}/permissions.test.ts`]: `import { describe, it } from "bun:test";\ndescribe("Права", () => { it("гость видит 403", () => {}); });\n`,
+      [`${ROUTES}/naming.test.ts`]: `import { it } from "bun:test";\nit("имя — существительное", () => {});\n`,
+    });
+    return vitestReport(dir, {
+      [`${ROUTES}/permissions.test.ts`]: [[["Права"], "гость видит 403"]],
+      [`${ROUTES}/naming.test.ts`]: [[[], "имя — существительное"]],
+    });
+  };
+
+  it("страница темы начинается с её описания, затем разделы по имени — у каждого своё описание и утверждения", () => {
+    const r = doc("r.json", topic(), "--strict");
+    expect(r.code).toBe(0);
+    expect(read("docs/spec/standards/routes.md")).toContain(
+      "# routes\n\nМаршруты HTTP API.\n\nВторой абзац темы.\n\n## naming\n\nИмена маршрутов.\n\n<details><summary>✅ 1 тест</summary>\n\n- ✅ имя — существительное\n\n</details>\n\n## permissions\n\nПрава: каждый маршрут их проверяет.\n\n### Права\n\n<details><summary>✅ 1 тест</summary>\n\n- ✅ гость видит 403\n",
+    );
   });
 
-  // главный файл — `<имя>.*` в корне папки или в подпапке пакета; файл по имени пакета и вложенная глубже — не главные
-  it("папка без главного файла ни в корне, ни в подпапках — «нет главного файла»", () => {
+  it("оглавление — темы с первым абзацем описания, разделы под каждой", () => {
+    doc("r.json", topic());
+    expect(read("docs/spec/README.md")).toContain(
+      "- [routes](standards/routes.md) — Маршруты HTTP API.\n  - [naming](standards/routes.md#naming) — Имена маршрутов.\n  - [permissions](standards/routes.md#permissions) — Права: каждый маршрут их проверяет.\n",
+    );
+  });
+
+  it("решение с тестовым файлом по имени папки — тема из одного раздела", () => {
+    writeTree(dir, {
+      "tests/capabilities/billing/billing.md": "Биллинг.\n",
+      [MAIN]: `import { it } from "bun:test";\nit("выставляется", () => {});\n`,
+      "tests/capabilities/billing/vat.test.ts": `import { it } from "bun:test";\nit("НДС считается", () => {});\n`,
+    });
+    const report = vitestReport(dir, { [MAIN]: [[[], "выставляется"]], "tests/capabilities/billing/vat.test.ts": [[[], "НДС считается"]] });
+    const r = doc("r.json", report, "--strict");
+    expect(r.code).toBe(0);
+    expect(read("docs/spec/capabilities/billing.md")).toContain("# billing\n\nБиллинг.\n\n<details><summary>✅ 2 теста</summary>\n\n- ✅ выставляется\n- ✅ НДС считается\n");
+    expect(read("docs/spec/README.md")).toContain("- [billing](capabilities/billing.md) — Биллинг.\n\n");
+  });
+
+  // файл по имени папки — в корне или в подпапке пакета, и на диске тоже: отчёт одного пакета не делает папку темой
+  // разделов
+  it("файл по имени папки в другом пакете на диске, без тестов в отчёте, — тоже тема из одного раздела", () => {
     const EXPORT = "tests/capabilities/export";
     writeTree(dir, {
       [`${EXPORT}/export.md`]: "Экспорт.\n",
       [`${EXPORT}/web/web.test.ts`]: `import { it } from "bun:test";\nit("кнопка скачивает файл", () => {});\n`,
-      [`${EXPORT}/web/e2e/export.e2e.ts`]: `import { it } from "bun:test";\nit("файл открывается", () => {});\n`,
     });
-    const report = vitestReport(dir, {
-      [`${EXPORT}/web/web.test.ts`]: [[[], "кнопка скачивает файл"]],
-      [`${EXPORT}/web/e2e/export.e2e.ts`]: [[[], "файл открывается"]],
-    });
-    const r = doc("r.json", report, "--stdout");
-    expect(r.code).toBe(0);
-    expect(r.stderr).toContain(
-      `no main file ${EXPORT}/export.test.ts or ${EXPORT}/<package>/export.test.ts — its describe blocks open the page`,
-    );
-    expect(doc("r.json", report, "--stdout", "--strict").code).toBe(1);
-    // главный файл другого пакета — на диске, его тестов в этом отчёте нет: главный файл у папки есть
+    const report = vitestReport(dir, { [`${EXPORT}/web/web.test.ts`]: [[[], "кнопка скачивает файл"]] });
+    expect(doc("r.json", report, "--stdout").stdout).toContain("#### web\n");
     writeTree(dir, { [`${EXPORT}/api/export.test.ts`]: `import { it } from "bun:test";\nit("отдаёт файл", () => {});\n` });
-    expect(doc("r.json", report, "--stdout", "--strict").code).toBe(0);
+    const r = doc("r.json", report, "--stdout", "--strict");
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toContain("#### web\n");
   });
 });
 
@@ -691,7 +737,7 @@ describe("Оглавление: что делает система, из чег�
     doc(
       "r.json",
       vitestReport(dir, {
-        "tests/capabilities/billing/a.test.ts": [[[], "x"]],
+        [MAIN]: [[[], "x"]],
         "tests/architecture/layers/layers.test.ts": [[[], "z"]],
         "tests/standards/audit/audit.test.ts": [[[], "y"]],
       }),
@@ -732,7 +778,7 @@ describe("docs/spec обновляется сам и не трогает рук�
     const r = doc(
       "r.json",
       vitestReport(dir, {
-        "tests/capabilities/billing/a.test.ts": [[["Счета"], "выставляется"]],
+        [MAIN]: [[["Счета"], "выставляется"]],
         "tests/architecture/layers/layers.test.ts": [[[], "домен не импортирует инфраструктуру"]],
         "tests/standards/audit/audit.test.ts": [[[], "каждая мутация пишет аудит"]],
         "src/x.test.ts": [[[], "вне"]],

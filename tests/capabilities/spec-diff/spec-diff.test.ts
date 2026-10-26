@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 const ts = (body: string) => `import { describe, it } from "bun:test";\n${body}\n`;
-const BILLING = "tests/capabilities/billing/invoice.test.ts";
+const BILLING = "tests/capabilities/billing/billing.test.ts";
 const DEAD = "tests/standards/dead-code/dead-code.test.ts";
 const ARCH = "tests/architecture/modules/modules.test.ts";
 
@@ -105,7 +105,7 @@ describe("Изменён — только очевидное переимено�
   // Так выглядит перекладка теста в раздел-возможность главного файла: юнит и e2e одной возможности — под одним describe (#63)
   it("тот же тест под другим describe в другом файле папки — изменён: переехал в другой раздел", () => {
     const base = repo.commit({ [BILLING]: ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
-    repo.commit({ [BILLING]: null, "tests/capabilities/billing/billing.test.ts": ts(`describe("Счёт выставляется сам", () => { it("выставляется", () => {}); });`) });
+    repo.commit({ [BILLING]: null, "tests/capabilities/billing/billing.e2e.ts": ts(`describe("Счёт выставляется сам", () => { it("выставляется", () => {}); });`) });
     const out = diffFrom(base).stdout;
     expect(out).toContain("**Изменены (1):**\n\n- `tests/capabilities/billing` · ~~Счета~~ → Счёт выставляется сам › выставляется");
     expect(out).toContain("**Удалены:** нет.");
@@ -165,6 +165,37 @@ describe("Изменён — только очевидное переимено�
 });
 
 /**
+ * Тема с разделами (#685): папка решения — тема, файлы `<раздел>.test.ts` — её разделы. Списки идут по теме и разделу,
+ * место теста — папка и раздел после `#`, как якорь раздела на странице spec-doc; неперегруппированное решение
+ * (тестовый файл с именем папки) — по-прежнему одна папка.
+ */
+describe("Списки PR — по теме и разделу", () => {
+  it("снятые, изменённые и добавленные тесты сгруппированы по теме и разделу", () => {
+    const ROUTES = "tests/standards/routes";
+    const base = repo.commit({
+      [`${ROUTES}/permissions.test.ts`]: ts(`it("маршрут проверяет права", () => {}); it("снято", () => {});`),
+      [`${ROUTES}/naming.test.ts`]: ts(`it("имя маршрута — существительное", () => {});`),
+    });
+    repo.commit({
+      [`${ROUTES}/permissions.test.ts`]: ts(`it("маршрут проверяет права", () => {}); it("гость видит 403", () => {});`),
+      [`${ROUTES}/naming.test.ts`]: ts(`it("имя маршрута — существительное", () => {}); it("имя во множественном числе", () => {});`),
+      [`${ROUTES}/errors.test.ts`]: ts(`it("ошибка — JSON", () => {});`),
+    });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Удалены (1):**\n\n- `tests/standards/routes#permissions` · снято\n");
+    expect(out).toContain(
+      "**Добавлены (3):**\n\n- `tests/standards/routes#errors` · ошибка — JSON\n- `tests/standards/routes#naming` · имя во множественном числе\n- `tests/standards/routes#permissions` · гость видит 403\n",
+    );
+  });
+
+  it("решение с тестовым файлом по имени папки — одна папка без раздела, и другие его файлы тоже", () => {
+    const base = repo.commit({ [BILLING]: ts(`it("выставляется", () => {});`) });
+    repo.commit({ "tests/capabilities/billing/vat.test.ts": ts(`it("НДС считается", () => {});`) });
+    expect(diffFrom(base).stdout).toContain("**Добавлены (1):**\n\n- `tests/capabilities/billing` · НДС считается\n");
+  });
+});
+
+/**
  * Файл в идентичность не входит: единица спеки — папка capability, тесты внутри неё можно перекладывать между
  * файлами.
  */
@@ -177,7 +208,7 @@ describe("Тест — это папка, цепочка describe и имя: п�
 
   it("перенос в другую capability — удалён и добавлен", () => {
     const base = repo.commit({ [BILLING]: ts(`it("выставляется", () => {});`) });
-    repo.commit({ [BILLING]: null, "tests/capabilities/invoicing/a.test.ts": ts(`it("выставляется", () => {});`) });
+    repo.commit({ [BILLING]: null, "tests/capabilities/invoicing/invoicing.test.ts": ts(`it("выставляется", () => {});`) });
     const out = diffFrom(base).stdout;
     expect(out).toContain("- `tests/capabilities/billing` · выставляется");
     expect(out).toContain("- `tests/capabilities/invoicing` · выставляется");
@@ -205,7 +236,7 @@ describe("Сравнение — с тем, что меняет PR, как ди�
     repo.git("switch", "-q", "-c", "feature");
     repo.commit({ [BILLING]: ts(`it("общий", () => {}); it("из ветки", () => {});`) });
     repo.git("switch", "-q", "main");
-    repo.commit({ "tests/capabilities/other/b.test.ts": ts(`it("из main", () => {});`) });
+    repo.commit({ "tests/capabilities/other/other.test.ts": ts(`it("из main", () => {});`) });
     repo.git("switch", "-q", "feature");
     const out = diffFrom("main").stdout;
     expect(out).toContain("**Добавлены (1):**\n\n- `tests/capabilities/billing` · из ветки");
@@ -218,7 +249,7 @@ describe("Сравнение — с тем, что меняет PR, как ди�
     repo.git("switch", "-q", "-c", "feature");
     repo.commit({ "src/a.ts": "" });
     repo.git("switch", "-q", "main");
-    repo.commit({ "tests/capabilities/other/b.test.ts": ts(`it("из main", () => {});`) });
+    repo.commit({ "tests/capabilities/other/other.test.ts": ts(`it("из main", () => {});`) });
     repo.git("switch", "-q", "feature");
     expect(diffFrom("main", "--no-merge-base").stdout).toContain("**Удалены (1):**\n\n- `tests/capabilities/other` · из main");
   });
@@ -303,8 +334,8 @@ describe("Переезд тестов в дерево — сводкой по п
     repo.commit({
       "src/sum.test.ts": null,
       "e2e/login.spec.ts": null,
-      "tests/capabilities/math/sum.test.ts": SUM,
-      "tests/capabilities/auth/login.e2e.ts": ts(`it("входит", () => {});`),
+      "tests/capabilities/math/math.test.ts": SUM,
+      "tests/capabilities/auth/auth.e2e.ts": ts(`it("входит", () => {});`),
     });
     const out = diffFrom(base).stdout;
     expect(out).toContain("**Добавлены:** нет.");
@@ -321,7 +352,7 @@ describe("Переезд тестов в дерево — сводкой по п
     const base = repo.commit({ "src/sum.test.ts": SUM });
     repo.commit({
       "src/sum.test.ts": null,
-      "tests/capabilities/math/sum.test.ts": ts(`describe("Сумма", () => { it("складывает", () => {}); it("вычитает числа", () => {}); });`),
+      "tests/capabilities/math/math.test.ts": ts(`describe("Сумма", () => { it("складывает", () => {}); it("вычитает числа", () => {}); });`),
     });
     const out = diffFrom(base).stdout;
     expect(out).toContain("**Перенесены в дерево (1):**");
@@ -332,7 +363,7 @@ describe("Переезд тестов в дерево — сводкой по п
   it("одинаковые тесты двух файлов, перенесённые в одну папку, — оба перенесены, файлы не по имени", () => {
     const same = ts(`describe("Расстояние", () => { it("пустое остаётся пустым", () => {}); });`);
     const base = repo.commit({ "src/a.test.ts": same, "src/b.test.ts": same });
-    repo.commit({ "src/a.test.ts": null, "src/b.test.ts": null, "tests/capabilities/api/a.test.ts": same, "tests/capabilities/api/b.test.ts": same });
+    repo.commit({ "src/a.test.ts": null, "src/b.test.ts": null, "tests/capabilities/api/api.test.ts": same, "tests/capabilities/api/api.e2e.ts": same });
     const out = diffFrom(base).stdout;
     expect(out).toContain("- `tests/capabilities/api` — 2 теста из 2 файлов");
     expect(out).toContain("**Добавлены:** нет.");
@@ -343,7 +374,7 @@ describe("Переезд тестов в дерево — сводкой по п
   // спряталась бы под видом переноса.
   it("тест, оставшийся и вне дерева, — копия: в дереве он добавлен", () => {
     const base = repo.commit({ "src/sum.test.ts": SUM });
-    repo.commit({ "src/sum.test.ts": SUM + "// тронут\n", "tests/capabilities/math/sum.test.ts": SUM });
+    repo.commit({ "src/sum.test.ts": SUM + "// тронут\n", "tests/capabilities/math/math.test.ts": SUM });
     const out = diffFrom(base).stdout;
     expect(out).toContain("**Добавлены (2):**");
     expect(out).not.toContain("Перенесены");
@@ -353,7 +384,7 @@ describe("Переезд тестов в дерево — сводкой по п
   it("--worktree: перенос до коммита тоже сворачивается", () => {
     const base = repo.commit({ "src/sum.test.ts": SUM });
     repo.git("rm", "-q", "src/sum.test.ts");
-    writeTree(dir, { "tests/capabilities/math/sum.test.ts": SUM });
+    writeTree(dir, { "tests/capabilities/math/math.test.ts": SUM });
     const out = diffFrom(base, "--worktree").stdout;
     expect(out).toContain("**Перенесены в дерево (2):**");
     expect(out).toContain("**Добавлены:** нет.");
@@ -418,7 +449,7 @@ describe("Сценарии задачи сверяются с тестами PR"
   // один сценарий проверяют на двух уровнях (сервер и интерфейс) — второй тест не лишний, он того же сценария
   it("тест с названием сценария в нескольких папках — тесты этого сценария, а не сверх сценариев", () => {
     const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
-    const UI = "tests/capabilities/cabinet/invoice.test.ts";
+    const UI = "tests/capabilities/cabinet/cabinet.test.ts";
     repo.commit({ [BILLING]: ts(`it("x", () => {}); it("выставляется за месяц", () => {});`), [UI]: ts(`it("выставляется за месяц", () => {});`), "issue.md": "## Сценарии\n\n- выставляется за месяц\n" });
     const out = diffFrom(base, "--scenarios", "issue.md").stdout;
     expect(out).toContain("**Стали тестами (1):** в списках выше.");
@@ -650,6 +681,16 @@ describe("Решения вне названий тестов — модель, 
     const out = diffFrom(base).stdout;
     expect(out).toContain("**Исключения — снято (1):**\n\n- `tests/standards/audit` · a (#1) — r1\n");
     expect(out).toContain("**Исключения — добавлено (1):**\n\n- `tests/standards/audit` · b (audit, #2) — r2\n");
+  });
+
+  // тема с разделами (#685): исключение раздела — в его каталоге, место в строке — как у тестов раздела
+  it("строка исключения раздела называет тему и раздел, как у тестов раздела", () => {
+    const one = (item: string, issue: number, reason: string) => JSON.stringify({ item, issue, reason }) + "\n";
+    const base = repo.commit({ "tests/standards/routes/exceptions/permissions/a.json": one("a", 1, "r1") });
+    repo.commit({ "tests/standards/routes/exceptions/permissions/a.json": null, "tests/standards/routes/exceptions/naming/b.json": one("b", 2, "r2") });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Исключения — снято (1):**\n\n- `tests/standards/routes#permissions` · a (#1) — r1\n");
+    expect(out).toContain("**Исключения — добавлено (1):**\n\n- `tests/standards/routes#naming` · b (#2) — r2\n");
   });
 
   // перенос spec-exceptions — не снятие и не добавление: то же исключение в другом файле
@@ -950,7 +991,7 @@ describe("Тесты харнесса — в диффе спеки: назван
  * на папку или файл.
  */
 describe("Большой PR — сводка по папкам, полный список — в summary джоба", () => {
-  const MATH = "tests/capabilities/math/sum.test.ts";
+  const MATH = "tests/capabilities/math/math.test.ts";
 
   it("дифф выше порога — сводка по папкам, а не список названий", () => {
     const base = repo.commit({ [MATH]: ts(`describe("Сумма", () => { it("складывает", () => {}); });`) });
@@ -1053,10 +1094,10 @@ describe("Названия, которые не утверждения, — чи
 describe("--json — то же для машины", () => {
   it("перенесённые — с исходным и новым путём", () => {
     const base = repo.commit({ "src/sum.test.ts": ts(`describe("Сумма", () => { it("складывает", () => {}); });`) });
-    repo.commit({ "src/sum.test.ts": null, "tests/capabilities/math/sum.test.ts": ts(`describe("Сумма", () => { it("складывает", () => {}); });`) });
+    repo.commit({ "src/sum.test.ts": null, "tests/capabilities/math/math.test.ts": ts(`describe("Сумма", () => { it("складывает", () => {}); });`) });
     const j = JSON.parse(diffFrom(base, "--json").stdout);
     expect(j.moved).toEqual([
-      { from: "src/sum.test.ts", file: "tests/capabilities/math/sum.test.ts", folder: "tests/capabilities/math", describes: ["Сумма"], name: "складывает" },
+      { from: "src/sum.test.ts", file: "tests/capabilities/math/math.test.ts", folder: "tests/capabilities/math", describes: ["Сумма"], name: "складывает" },
     ]);
     expect(j.added).toEqual([]);
     expect(j.out_of_tree_files).toEqual([]);
@@ -1128,7 +1169,7 @@ describe("Раздел PR — на языке проекта", () => {
     repo.commit({
       "src/sum.test.ts": null,
       "src/other.test.ts": ts(`it("works", () => {}); it("works twice", () => {});`),
-      "tests/capabilities/math/sum.test.ts": SUM,
+      "tests/capabilities/math/math.test.ts": SUM,
       [BILLING]: ts(`it("an invoice is issued", () => {}); it("a draft is deleted", () => {});`),
       "tests/architecture/model.ts": `export default { modules: { domain: { path: "src/domain", purpose: "rules", dependsOn: ["db"], packages: ["zod"] } } };\n`,
       "tests/standards/audit/exceptions/importLegacy.json": JSON.stringify({ item: "importLegacy", issue: 12, reason: "audit in #12" }),
