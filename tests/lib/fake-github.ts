@@ -113,6 +113,16 @@ export class FakeGitHub {
       return JSON.stringify({ number: Number(patch[1]), state: "closed" });
     }
     if (args[0] === "api" && args[1] === "-X" && args[2] === "POST" && args[3] === `repos/${this.repo.nameWithOwner}/pulls`) return JSON.stringify(this.createPr(JSON.parse(stdin ?? "{}")));
+    // REST «Update a pull request»: тело — в PR, запрос — в журнал `rest`
+    const edit = args[0] === "api" && args[1] === "-X" && args[2] === "PATCH" ? new RegExp(`^repos/${this.repo.nameWithOwner}/pulls/(\\d+)$`).exec(args[3] ?? "") : null;
+    if (edit) {
+      const payload = JSON.parse(stdin ?? "{}");
+      this.rest.push({ method: "PATCH", route: args[3]!, payload });
+      if (payload.body !== undefined) this.prs[Number(edit[1])]!.body = payload.body;
+      return JSON.stringify(this.restPulls(args[3]!));
+    }
+    const main = args[0] === "api" ? this.restMain(args[1] ?? "") : undefined;
+    if (main !== undefined) return JSON.stringify(main);
     const pulls = args[0] === "api" && args[1]?.startsWith(`repos/${this.repo.nameWithOwner}/pulls`) ? this.restPulls(args[1]) : null;
     if (pulls) return JSON.stringify(pulls);
     // чеки головы PR (`sha<номер>`) и лог джобы Actions по id её check-run — что читает красный выпуск пачки
@@ -450,6 +460,36 @@ export class FakeGitHub {
     if (tail !== "" || !head) return null;
     const ref = head.slice(head.indexOf(":") + 1);
     return Object.keys(this.prs).map(Number).filter((n) => this.prs[n]!.head === ref).sort((a, b) => b - a).map(shown);
+  }
+  /**
+   * Чеки последнего коммита `main` (что читает `pr premerge`): имя → вывод чека; пусто — main зелёный. Открытый баг о
+   * красном main — задача с заголовком «main красный: …» в записи.
+   */
+  mainChecks: Record<string, string> = {};
+  /** Время CI головы PR (check suites) и последнего движения `main` (activity): по умолчанию main не двигался после CI. */
+  ciAt = "2026-10-20T10:00:00Z";
+  mainMovedAt = "2026-10-20T09:00:00Z";
+  /**
+   * REST вне облака, что `pr premerge` читает у PR в main: чеки и статусы последнего коммита main, check suites головы PR
+   * (`sha<номер>`), последнее движение main и поиск открытых задач по заголовку; другой путь — undefined.
+   */
+  private restMain(route: string): Any {
+    const repo = this.repo.nameWithOwner;
+    const main = new RegExp(`^repos/${repo}/commits/main/(check-runs|status)\\b`).exec(route);
+    if (main) {
+      let k = 0;
+      const runs = Object.entries(this.mainChecks).map(([name, v]) => ({ id: ++k, name, status: "completed", conclusion: v.toLowerCase(), app: { id: 15368 } }));
+      return main[1] === "status" ? { sha: "c0ffee1", state: "success", statuses: [] } : { total_count: runs.length, check_runs: runs };
+    }
+    const suites = new RegExp(`^repos/${repo}/commits/sha(\\d+)/check-suites\\b`).exec(route);
+    if (suites) return { check_suites: [{ created_at: this.ciAt }] };
+    if (route.startsWith(`repos/${repo}/activity`)) return [{ timestamp: this.mainMovedAt }];
+    if (route.startsWith("search/issues?")) {
+      const q = new URLSearchParams(route.slice("search/issues?".length)).get("q") ?? "";
+      const phrase = /"([^"]*)"/.exec(q)?.[1] ?? "";
+      return { items: this.allIssues().filter((i) => i.state === "OPEN" && i.title.includes(phrase)).map((i) => ({ number: i.number, title: i.title, state: "open" })) };
+    }
+    return undefined;
   }
   /**
    * REST «Create a pull request»: PR — следующим номером, открытый; задачи из «Closes #N» тела GitHub связывает с ним,

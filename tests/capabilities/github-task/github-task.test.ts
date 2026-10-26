@@ -4835,3 +4835,187 @@ describe("Исполнитель диспетчера в проекте без a
     expect(before(release(f, work, config))).toBe("");
   });
 });
+
+/**
+ * #668: хвост задачи от `gh pr create` до конца — медиана 18 ходов на пиковом контексте, ≈19 из них — механика флоу:
+ * push, PR со spec-diff и `pr labels`, ожидание CI, `pr premerge`, мерж, ожидание деплоя, `task actualize`, субагент,
+ * `task close`. `task finish` делает её одной возобновляемой командой: каждый вызов — что готово, затем состояние и
+ * следующий шаг; мерж остаётся отдельным вызовом `gh pr merge` — на него опирается правило разрешений владельца.
+ */
+describe("task finish доводит задачу от ветки до закрытия одной возобновляемой командой", () => {
+  const SPEC = "## Спецификация\n\n+ экспорт счёта в PDF";
+  const RESULT = ["RESULT: PASS", "RESULT: FAIL tests", "RESULT: TIMEOUT 3/5 done", "RESULT: ERROR conflict with main"];
+  /** Чекаут на ветке задачи с одним коммитом, как после проверок перед коммитом. */
+  function onBranch(branch = "feat/49-invoice-export", subject = "feat(github): экспорт счёта в PDF") {
+    const { work, main } = worktree();
+    git(work, "switch", "-q", "-c", branch, "--no-track", "origin/main");
+    gitRepo(work, { init: false }).commit({ "export.txt": "pdf\n" }, subject);
+    return { work, main };
+  }
+  /**
+   * Вызов `task finish`: ci-wait — подпроцесс bash, его коды по очереди (`ci` — PR, `deploy` — мерж; кончились — PASS),
+   * spec-diff и est — подпроцессы bun, git — настоящий.
+   */
+  function finish(f: FakeGitHub, args: string[], o: { cwd: string; ci?: number[]; deploy?: number[]; config?: string }) {
+    const waits: string[][] = [];
+    const est: string[][] = [];
+    const run = githubOrigin((cmd: string, a: string[], cwd?: string) => {
+      if (cmd === "bash") {
+        waits.push(a.slice(1));
+        const code = (a[1] === "pr" ? o.ci : o.deploy)?.shift() ?? 0;
+        return { status: code, stdout: `12:00:00 +1m checks: 3/5 done\n${RESULT[code]}\n`, stderr: "" };
+      }
+      if (cmd === "bun") return a.some((x) => x.endsWith("spec-diff.ts")) ? { status: 0, stdout: `${SPEC}\n`, stderr: "" } : (isTaskEnv(a) || est.push(a), { status: 0, stdout: "", stderr: "" });
+      return realRun(cmd, a, cwd);
+    });
+    const config = o.config ?? scratch();
+    const r = task(f, ["finish", ...args], REPO, { run, cwd: o.cwd, env: { ELVES_CONFIG_DIR: config, ELVES_SPEC_DIFF: OUTSIDE_SPEC } });
+    return { ...r, waits, est, config, last: r.out.split("\n").at(-1)! };
+  }
+  const created = (f: FakeGitHub) => f.rest.filter((x) => x.method === "POST" && x.route.endsWith("/pulls")).map((x) => x.payload);
+  const merge = (f: FakeGitHub, pr: number) => Object.assign(f.prs[pr]!, { merged: true, state: "MERGED" });
+
+  it("task finish от готовой ветки доводит задачу до команды мержа за один вызов при зелёном CI", () => {
+    const f = new FakeGitHub(REC);
+    const { work } = onBranch();
+    const r = finish(f, ["49"], { cwd: work });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(4);
+    expect(created(f)).toEqual([{ title: "feat(github): экспорт счёта в PDF", head: "feat/49-invoice-export", base: "main", body: `${SPEC}\n\nCloses #49\n` }]);
+    expect(git(work, "ls-remote", "--heads", "origin", "feat/49-invoice-export")).toStartWith(git(work, "rev-parse", "HEAD"));
+    expect(r.out).toContain("PR #1 → #49: no decisions in the diff");
+    expect(r.waits).toHaveLength(1);
+    expect(r.waits[0]!.slice(0, 4)).toEqual(["pr", "1", "--repo", REPO]);
+    expect(r.out).toContain("✅ merge: main hasn't moved since the CI of PR #1");
+    expect(r.last).toStartWith("Next: the owner's «yes» (the project is without auto) — then gh pr merge 1 --rebase — a separate call");
+  });
+
+  it("повторный task finish продолжает с шага, на котором остановился", () => {
+    const f = new FakeGitHub(REC);
+    const { work } = onBranch();
+    const first = finish(f, ["49"], { cwd: work, ci: [2] });
+    expect(first.code).toBe(5);
+    expect(first.out).toContain("○ out of time (--timeout 3600) — the CI of PR #1 is still running (RESULT: TIMEOUT 3/5 done)");
+    const again = finish(f, ["49"], { cwd: work });
+    expect(again.code).toBe(4);
+    expect(created(f)).toHaveLength(1);
+    expect(again.out).toContain("= branch feat/49-invoice-export is on origin");
+    expect(again.out).toContain("= PR #1 into main: the body is current");
+    // после мержа — деплой, и задача без эпика закрывается
+    merge(f, 1);
+    const after = finish(f, ["49"], { cwd: work });
+    expect(after.code).toBe(0);
+    expect(after.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "1"]]);
+    expect(statusSet(f)).toEqual([[49, "Готово"]]);
+    expect(after.out).not.toContain("Next: task close");
+  });
+
+  it("task finish при красном CI останавливается с проверкой, которая упала", () => {
+    const f = new FakeGitHub(REC);
+    const { work } = onBranch();
+    const r = finish(f, ["49"], { cwd: work, ci: [1] });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("❌ the CI of PR #1 is red — RESULT: FAIL tests");
+    expect(r.last).toContain("the root cause fixed, the checks before a commit, git commit, then ");
+    expect(r.out).not.toContain("gh pr merge");
+    const conflict = finish(f, ["49"], { cwd: work, ci: [3] });
+    expect(conflict.code).toBe(1);
+    expect(conflict.last).toContain("a conflict with main — git fetch origin main, git rebase origin/main, resolve");
+  });
+
+  it("task finish при красном main останавливается без мержа и называет баг main", () => {
+    const f = new FakeGitHub(REC);
+    f.mainChecks = { tests: "FAILURE" };
+    f.issue(42).title = "main красный: чек tests";
+    const { work } = onBranch();
+    const r = finish(f, ["49"], { cwd: work });
+    expect(r.code).toBe(3);
+    expect(r.out).toContain("bug on red main — #42 «main красный: чек tests»");
+    expect(r.out).toContain("⛔ PR #1 isn't merged: main is red by itself");
+    expect(r.out).not.toContain("gh pr merge");
+  });
+
+  /** #47 влит, в эпике #45 открыта и #46 — актуализация нужна. */
+  function mergedInEpic(): FakeGitHub {
+    const f = new FakeGitHub(REC);
+    Object.assign(f.issue(46), { state: "OPEN", stateReason: null });
+    f.issue(45).subIssues.nodes.find((x: { number: number }) => x.number === 46).state = "OPEN";
+    f.prs[77] = { files: [], closes: [47], head: "feat/47-x", base: "main", model: null, merged: true };
+    return f;
+  }
+  /** Итог актуализации эпика #45 после задачи — комментарий субагента к эпику. */
+  const reported = (f: FakeGitHub, number: number) => (f.comments[45] = [...(f.comments[45] ?? []), { body: `Актуализация после #${number}, итог: блок актуален`, url: `https://github.com/miroshnik/elves/issues/45#issuecomment-${number}` }]);
+
+  it("task finish после мержа ждёт деплой на SHA мержа и печатает промпт обновления эпика", () => {
+    const f = mergedInEpic();
+    const { work } = worktree();
+    const config = scratch();
+    const r = finish(f, ["47"], { cwd: work, config });
+    expect(r.code).toBe(4);
+    expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "77"]]);
+    expect(r.out).toContain("✅ the checks and the deploy of the merge of PR #77 passed");
+    expect(r.out).toContain("The epic refresh's subagent — the two lines below are its whole prompt, pass them as is:");
+    expect(r.last).toStartWith("Next: the subagent in the background with that prompt; after its answer — ");
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+    // повтор до итога: деплой не ждёт снова, второго промпта нет
+    const again = finish(f, ["47"], { cwd: work, config });
+    expect(again.code).toBe(4);
+    expect(again.waits).toEqual([]);
+    expect(again.out).not.toContain("The epic refresh's subagent");
+    expect(again.out).toContain("○ the epic refresh hasn't reported — no comment «Актуализация после #47, итог: …» on epic #45");
+  });
+
+  it("task finish закрывает задачу, когда комментарий обновления эпика на месте", () => {
+    const f = mergedInEpic();
+    const { work } = worktree();
+    const config = scratch();
+    expect(finish(f, ["47"], { cwd: work, config }).code).toBe(4);
+    reported(f, 47);
+    const r = finish(f, ["47"], { cwd: work, config });
+    expect(r.code).toBe(0);
+    expect(byOp(f, "CloseIssue")).toEqual([{ issueId: f.issue(47).id, stateReason: "COMPLETED" }]);
+    expect(statusSet(f)).toEqual([[47, "Готово"]]);
+    expect(r.est.map((a) => a.slice(2, 4))).toEqual([["fact", "47"]]);
+    expect(r.last).toStartWith("Next: the last line of the answer is one of three");
+    expect(existsSync(path.join(config, "finishes", "miroshnik__elves__47.json"))).toBe(false);
+  });
+
+  it("task finish с таймаутом возвращается до таймаута с состоянием и следующим шагом", () => {
+    const f = new FakeGitHub(REC);
+    const { work } = onBranch();
+    const short = finish(f, ["49", "--timeout", "240"], { cwd: work, ci: [2] });
+    expect(short.code).toBe(5);
+    // ожидание CI — не дольше остатка вызова
+    const waited = Number(short.waits[0]![short.waits[0]!.indexOf("--timeout") + 1]);
+    expect(waited).toBeLessThanOrEqual(240);
+    expect(waited).toBeGreaterThan(200);
+    expect(short.last).toMatch(/^Next: bun --no-env-file \S+github\.ts task finish 49 --timeout 240 — it goes on from here$/);
+    const none = finish(f, ["49", "--timeout", "0"], { cwd: work });
+    expect(none.code).toBe(5);
+    expect(none.waits).toEqual([]);
+    expect(none.out).toContain("○ out of time (--timeout 0) — PR #1 is up, its CI isn't awaited yet");
+  });
+
+  it("task finish после мержа в ветку пачки — ничего не ждёт: остальное делает выпуск", () => {
+    const f = new FakeGitHub(REC);
+    f.prs[80] = { files: [], closes: [], body: "Closes #49", head: "feat/49-invoice-export", base: "batch/2026-10-26-1", model: null, merged: true };
+    const r = finish(f, ["49"], { cwd: worktree().work });
+    expect(r.code).toBe(0);
+    expect(r.waits).toEqual([]);
+    expect(r.out).toContain("✅ PR #80 is merged into batch/2026-10-26-1 — #49 stays «В работе» till the batch's release");
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("task finish не на ветке задачи и с незакоммиченной правкой — отказ до изменений", () => {
+    const f = new FakeGitHub(REC);
+    const other = finish(f, ["49"], { cwd: worktree().work });
+    expect(other.code).toBe(2);
+    expect(other.err).toContain("the checkout is on «claude/x-1», not on a branch of #49");
+    const { work } = onBranch();
+    writeFileSync(path.join(work, "README.md"), "changed\n");
+    const dirty = finish(f, ["49"], { cwd: work });
+    expect(dirty.code).toBe(1);
+    expect(dirty.out).toContain("! uncommitted changes in the checkout");
+    expect(created(f)).toEqual([]);
+  });
+});
