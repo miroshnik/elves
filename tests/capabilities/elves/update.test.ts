@@ -806,7 +806,7 @@ describe("check проекта держит compose-файл правил изо
   });
 });
 
-// решение в корне спеки — папка темы с тестом раздела, как у проекта; уже по темам — строки перегруппировки нет (#690)
+// решение в корне спеки — папка темы с тестом раздела, как у проекта
 function decision(rel: string) {
   mkdirSync(path.join(sb.proj, rel), { recursive: true });
   writeFileSync(path.join(sb.proj, rel, "rules.test.ts"), "");
@@ -904,57 +904,6 @@ describe("check проекта со стандартами или архитек
     const r = elves(sb, ["check"]);
     expect(r.code).toBe(0);
     expect(r.stdout).not.toContain("test:spec");
-  });
-});
-
-// строка ○ перегруппировки: число решений, первые папки и задача перегруппировки на языке проекта (#690)
-const REGROUP = (n: string, folders: string) => `  ○ tests: ${n} not regrouped into topics — a test file named after its folder (${folders}); regrouping — a task of its own, its order: ~/.agents/skills/spec/migration.md, «Regrouping decisions into topics»\n`;
-const REGROUP_TASK = /\n {2}The task — one per project, an open one is named by the refusal: bun --no-env-file \S+\/skills\/github\/scripts\/github\.ts task new --title "Перегруппировать решения спеки в темы" --branch-type refactor\n/;
-
-/**
- * Решение — тема с разделами (эпик #685): проект узнаёт о перегруппировке сам, как о переезде копии флоу (вопрос 4).
- * Неперегруппированное решение — тестовый файл с именем своей папки, в подпапке пакета тоже. Перегруппировка — одна
- * задача проекта, не несоответствие: CI зелёный, spec-doc показывает такое решение темой из одного раздела, — строка
- * `○`, код выхода прежний.
- */
-describe("check проекта называет решения, не перегруппированные в темы, и задачу перегруппировки", () => {
-  it("check: неперегруппированные решения — строка с их числом и командой task new для перегруппировки", () => {
-    elves(sb, ["install", "--lang", "ru"]);
-    writeTree(sb.proj, {
-      "tests/standards/naming/naming.test.ts": "",
-      "tests/capabilities/billing/billing.e2e.ts": "",
-      "tests/capabilities/orders/web/orders.test.ts": "",
-      "tests/capabilities/orders/orders.md": "",
-      "tests/architecture/layers/layers.test.ts": "",
-      "tests/capabilities/users/node_modules/users/users.test.ts": "",
-    });
-    const before = snapshot(sb.proj);
-    const r = elves(sb, ["check"]);
-    expect(r.stdout).toContain(REGROUP("4 decisions", "tests/architecture/layers, tests/capabilities/billing, tests/capabilities/orders, …"));
-    expect(r.stdout).toMatch(REGROUP_TASK);
-    expect(r.stdout).toEndWith("  tasks: with permission\n  language: ru\n");
-    expect(snapshot(sb.proj)).toEqual(before);
-    rmSync(path.join(sb.proj, "tests/standards"), { recursive: true });
-    rmSync(path.join(sb.proj, "tests/architecture"), { recursive: true });
-    rmSync(path.join(sb.proj, "tests/capabilities/orders"), { recursive: true });
-    expect(elves(sb, ["check"]).stdout).toContain(REGROUP("1 decision", "tests/capabilities/billing"));
-  });
-
-  // страховка от перегиба: тема с разделами — файлы с именами разделов, не папки
-  it("check: все решения по темам — строки нет", () => {
-    elves(sb, ["install", "--lang", "ru"]);
-    writeTree(sb.proj, {
-      "tests/capabilities/billing/invoices.test.ts": "",
-      "tests/capabilities/billing/invoices.e2e.ts": "",
-      "tests/capabilities/billing/billing.md": "",
-      "tests/capabilities/billing/web/refunds.test.ts": "",
-      "tests/capabilities/billing/exceptions/invoices/x.json": "{}",
-      "tests/lib/lib.test.ts": "",
-    });
-    const r = elves(sb, ["check"]);
-    expect(r.code).toBe(0);
-    expect(r.stdout).not.toContain("regroup");
-    expect(r.stdout).not.toContain("task new");
   });
 });
 
@@ -2111,22 +2060,6 @@ describe("В начале сессии Claude Code проверка идёт с�
     expect(r.stdout).not.toContain(MACHINE_BEHIND);
     composeFile("services:\n  db:\n    image: postgres\n");
     expect(runHook().stdout).not.toContain("compose");
-  });
-
-  /** Скрипт в package.json — тоже не текущая задача сессии: на старте её ещё нет, а «одна сессия — одна задача». */
-  it("check --hook: строка перегруппировки — в начале контекста сессии", () => {
-    elves(sb, ["install", "-g"]);
-    elves(sb, ["install", "--lang", "ru"]);
-    bunxServes(base.bin);
-    writeTree(sb.proj, { "tests/capabilities/billing/billing.test.ts": "" });
-    const r = runHook();
-    expect(r.code).toBe(0);
-    expect(r.stdout).toStartWith("Elves flow (AGENTS.md, «First step of a session»):\n");
-    expect(r.stdout).toContain(REGROUP("1 decision", "tests/capabilities/billing"));
-    expect(r.stdout).toMatch(REGROUP_TASK);
-    expect(r.stdout).toContain("The project's decisions aren't regrouped into topics — regrouping is a task of its own, not in a task session: recommend it to the user and ask whether to queue its task (task new above); work by the current flow.");
-    rmSync(path.join(sb.proj, "tests"), { recursive: true });
-    expect(runHook().stdout).not.toContain("regroup");
   });
 
   it("вывод хука называет нехватку test:spec и что её добавление — отдельная задача проекта; со скриптом подсказки нет", () => {

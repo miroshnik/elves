@@ -6,10 +6,9 @@
  * the topic's description <topic>.md (the first paragraph goes to the index, the md headings — under the topic
  * heading), then the sections by name — the files <section>.test.ts, <section>.<part>.test.ts, <section>.e2e.ts,
  * <package>/<section>.test.ts — each with its <section>.md and its statements; the index lists the topics, their
- * sections under them. A folder with a test file named after it isn't regrouped yet — a topic of one section, as
- * before: the main file <name>.test.ts for all kinds (<name>.e2e.ts next to it — right after it; in a monorepo — also
- * <name>/<package>/<name>.test.ts; rule.test.ts — a hint to rename), the other files of the folder in the same
- * section. A describe → a heading with prose from its own JSDoc, its tests collapsed into <details> with a counter;
+ * sections under them. A test file named after the folder (<name>.test.ts, <name>.e2e.ts right after it, in a monorepo
+ * also <name>/<package>/<name>.test.ts; rule.test.ts — a hint to rename) isn't a section: its statements are the
+ * topic's own, right under its description. A describe → a heading with prose from its own JSDoc, its tests collapsed into <details> with a counter;
  * describes go in the order of the section's main file, then of the packages' main files by package name, the other
  * files follow by path. A test file's header doesn't go into the documentation — the script names the file, --strict
  * gives code 1. No source — no prose.
@@ -67,10 +66,10 @@ type Node = { tests: Test[]; children: Map<string, Node>; doc: string[] };
 /** A topic's section — its files' tests (`<section>.test.ts`…), the description `<section>.md` and the describe tree. */
 type Section = { name: string; tests: Test[]; tree: Node; doc: string[]; testDocs: Map<string, string[]> };
 /**
- * A topic — a decision folder: the description `<topic>.md` and sections by name (#685). A folder with a test file
- * named after it isn't regrouped yet (`regrouped: false`) — a topic of one section, the folder's own, as before.
+ * A topic — a decision folder: the description `<topic>.md` and sections by name (#685); the topic's own statements
+ * (a test file named after the folder) — the section `""`, without a heading of its own.
  */
-type Group = { kind: Kind; name: string; tests: Test[]; doc: string[]; regrouped: boolean; sections: Map<string, Section> };
+type Group = { kind: Kind; name: string; tests: Test[]; doc: string[]; sections: Map<string, Section> };
 
 /** A number and the word form in the project language: "2 tests". */
 const count = (forms: Plural, n: number): string => locale.count(LANG, forms, n);
@@ -116,8 +115,8 @@ const testKey = (t: Test): string => JSON.stringify([...t.describes, t.name]);
 
 /**
  * The section's main file (`<section>.test.ts`, `<section>.e2e.ts`…) — it holds the story, the section starts with it.
- * In a folder not regrouped yet the section is the folder's own, its main file is named after the folder: one rule
- * for all kinds instead of a special `rule.test.ts` for a standard. It lies in the folder root or in a monorepo
+ * The topic's own statements have the main file named after the folder: one rule for all kinds instead of a special
+ * `rule.test.ts` for a standard. It lies in the folder root or in a monorepo
  * package subfolder (`<topic>/<package>/<section>.test.ts`: a package has its own runner, but the decision is one);
  * not deeper.
  * → the package ("" — the folder root) and whether these are unit statements (`.test.*`); not the main one — null.
@@ -140,23 +139,6 @@ function mainRank(file: string, section: string): string {
   return (m ? "0" + m.pkg + "\0" + (m.unit ? "0" : "1") : "1") + "\0" + file;
 }
 
-/**
- * Test files named after their folder on disk — in the folder root and package subfolders: a report without the
- * folder-named file (another package's run) doesn't turn a not-yet-regrouped folder into a topic of sections.
- */
-function folderNamedOnDisk(root: string, folder: string): boolean {
-  const files = (rel: string) => {
-    try {
-      return readdirSync(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      return [];
-    }
-  };
-  return files(folder).some((e) =>
-    e.isDirectory() ? files(`${folder}/${e.name}`).some((f) => L.isFolderNamed(`${folder}/${e.name}/${f.name}`)) : L.isFolderNamed(`${folder}/${e.name}`),
-  );
-}
-
 /** The former main file of a standard, `rule.*` right in the folder: no longer the main one — it must be renamed. */
 function isLegacyMain(file: string): boolean {
   const [kind, name] = L.classify(file);
@@ -165,24 +147,16 @@ function isLegacyMain(file: string): boolean {
 }
 
 /**
- * → groups by (kind, name) with sections, tests outside the tree by file, tests/lib files. `root` — the project on
- * disk: a folder-named test file there, not in the report, also keeps the folder not regrouped.
+ * → groups by (kind, name) with sections, tests outside the tree by file, tests/lib files.
  */
-export function build(tests: Test[], root?: string): { groups: Map<string, Group>; out: Map<string, Test[]>; libFiles: Set<string> } {
+export function build(tests: Test[]): { groups: Map<string, Group>; out: Map<string, Test[]>; libFiles: Set<string> } {
   const groups = new Map<string, Group>();
   const out = new Map<string, Test[]>();
   const libFiles = new Set<string>();
-  const unregrouped = L.unregroupedFolders(tests.map((t) => t.path));
-  if (root !== undefined) {
-    for (const t of tests) {
-      const folder = L.decisionFolder(t.path);
-      if (folder !== null && !unregrouped.has(folder) && folderNamedOnDisk(root, folder)) unregrouped.add(folder);
-    }
-  }
-  const sectionOf = (file: string): string => L.sectionOf(file, unregrouped) ?? "";
+  const sectionOf = (file: string): string => L.sectionOf(file) ?? "";
   // the section's main file first — the order of its describes is the order of the story; then the packages' main
   // files, then files by path; within a file — the report order (declaration order)
-  const rank = (t: Test): string => mainRank(t.path, sectionOf(t.path));
+  const rank = (t: Test): string => mainRank(t.path, sectionOf(t.path) || (L.classify(t.path)[1] ?? ""));
   const sorted = [...tests].sort((a, b) => (rank(a) < rank(b) ? -1 : rank(a) > rank(b) ? 1 : 0));
   for (const t of sorted) {
     const [kind, name] = L.classify(t.path);
@@ -196,8 +170,7 @@ export function build(tests: Test[], root?: string): { groups: Map<string, Group
       continue;
     }
     const gk = kind + "/" + name;
-    const regrouped = !unregrouped.has(L.decisionFolder(t.path)!);
-    if (!groups.has(gk)) groups.set(gk, { kind, name, tests: [], doc: [], regrouped, sections: new Map() });
+    if (!groups.has(gk)) groups.set(gk, { kind, name, tests: [], doc: [], sections: new Map() });
     const g = groups.get(gk)!;
     g.tests.push(t);
     const sn = sectionOf(t.path);
@@ -242,8 +215,8 @@ function badNames(groups: Map<string, Group>): [string, string][] {
 export const descriptionPath = (g: { kind: Kind; name: string }, section?: string): string =>
   `${L.TESTS}/${SUBDIR[g.kind]}/${g.name}/${section ?? g.name}.md`;
 
-/** The sections of a topic with their own heading and description: of a regrouped one — all, by name. */
-const ownSections = (g: Group): Section[] => (g.regrouped ? [...g.sections.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) : []);
+/** The sections of a topic with their own heading and description — all but the topic's own statements, by name. */
+const ownSections = (g: Group): Section[] => [...g.sections.values()].filter((s) => s.name).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
 /** The description file's text into `doc`; no file — false. */
 function readDescription(root: string, rel: string, doc: string[]): boolean {
@@ -295,7 +268,7 @@ export function attachDocs(
       }
       const { docs } = scan;
       for (const u of scan.unnamed) if (u.doc) unread.push(`${file}:${u.line}: the ${u.kind} name can't be computed statically (${u.name}) — JSDoc prose not taken`);
-      if (docs.file) headers.push([file, descriptionPath(g, g.regrouped ? s.name : undefined)]);
+      if (docs.file) headers.push([file, descriptionPath(g, s.name || undefined)]);
       for (const [key, text] of docs.describes) {
         let node: Node | undefined = s.tree;
         for (const d of JSON.parse(key) as string[]) node = node?.children.get(d);
@@ -445,15 +418,15 @@ function shiftHeadings(text: string, level: number): string {
 }
 
 /**
- * The topic heading at level `level`, its description under it, then the sections by name — each with its heading,
- * its description and its describes deeper; a topic not regrouped yet — its one section's describes right under the
- * description, as before. There's no "section · path · counter" line: the section and the path follow from the
+ * The topic heading at level `level`, its description under it, the topic's own describes (a file named after the
+ * folder), then the sections by name — each with its heading, its description and its describes deeper. There's no "section · path · counter" line: the section and the path follow from the
  * convention, the status is visible at each test.
  */
 function renderGroup(g: Group, level: number): string {
   const lines = [heading(level, g.name), ""];
   pushDoc(lines, g.doc.map((d) => shiftHeadings(d, level)));
-  if (!g.regrouped) for (const s of g.sections.values()) renderNode(s, s.tree, level + 1, lines);
+  const own = g.sections.get("");
+  if (own) renderNode(own, own.tree, level + 1, lines);
   for (const s of ownSections(g)) {
     lines.push(heading(level + 1, s.name), "");
     pushDoc(lines, s.doc.map((d) => shiftHeadings(d, level + 1)));
@@ -751,7 +724,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   META = loadMeta(path.resolve(root, values.meta ?? ".spec-meta"));
-  const { groups, out, libFiles } = build(tests, root);
+  const { groups, out, libFiles } = build(tests);
   const { missing, headers, legacy, undescribed, unread } = attachDocs(groups, root);
   // a name that isn't a statement — a warning: the rule stays, the PR isn't red because of it (#447)
   const names = badNames(groups);

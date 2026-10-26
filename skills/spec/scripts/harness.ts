@@ -109,8 +109,7 @@ interface Outside {
  * A mark in the element's file — a comment, like `eslint-disable` for lint: `spec-outside(<decision>[/<rule>]): reason`
  * or `spec-exception(<decision>[/<rule>]) #N: reason`. The decision is a topic or one of its sections (#745): the topic
  * folder's name (`pages` — `tests/standards/pages`) covers all its sections, a section's name (`routes` —
- * `pages/routes.test.ts`) only the invariants of that section — the former decision's mark keeps working after the
- * regrouping. A file can be an element of registries of different folders, the mark names its own; `rule` is the
+ * `pages/routes.test.ts`) only the invariants of that section. A file can be an element of registries of different folders, the mark names its own; `rule` is the
  * invariant's, without it — all of them.
  */
 export interface Mark {

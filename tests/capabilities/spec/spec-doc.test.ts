@@ -109,7 +109,7 @@ describe("Счета", () => {
     const r = doc(
       "r.json",
       vitestReport(dir, {
-        "tests/capabilities/billing/a.test.ts": [[["Возврат"], "деньги возвращаются"], [["Оплата"], "частичная"]],
+        "tests/capabilities/billing/billing.a.test.ts": [[["Возврат"], "деньги возвращаются"], [["Оплата"], "частичная"]],
         [MAIN]: [[["Счета"], "выставляется"], [["Оплата"], "полная"]],
       }),
       "--stdout",
@@ -144,8 +144,8 @@ describe("Счета", () => {
     const r = doc(
       "r.json",
       vitestReport(dir, {
-        "tests/capabilities/billing/b.test.ts": [[["Счета"], "второй"]],
-        "tests/capabilities/billing/a.test.ts": [[["Счета"], "первый"]],
+        "tests/capabilities/billing/billing.b.test.ts": [[["Счета"], "второй"]],
+        "tests/capabilities/billing/billing.a.test.ts": [[["Счета"], "первый"]],
         [MAIN]: [[[], "главный"]],
       }),
       "--stdout",
@@ -158,18 +158,18 @@ describe("Счета", () => {
   it("у правила архитектуры и стандарта — так же: описание из `<папка>.md`, тесты главного файла `<name>.test.ts` первыми", () => {
     writeTree(dir, {
       "tests/standards/audit/audit.md": "Каждая мутация пишет аудит.\n",
-      "tests/standards/audit/examples.test.ts": `import { it } from "bun:test";\nit("пример", () => {});\n`,
+      "tests/standards/audit/audit.examples.test.ts": `import { it } from "bun:test";\nit("пример", () => {});\n`,
       "tests/standards/audit/audit.test.ts": `import { it } from "bun:test";\nit("правило", () => {});\n`,
       "tests/architecture/layers/layers.md": "Домен не знает об инфраструктуре.\n",
-      "tests/architecture/layers/cases.test.ts": `import { it } from "bun:test";\nit("инфраструктура импортирует домен", () => {});\n`,
+      "tests/architecture/layers/layers.cases.test.ts": `import { it } from "bun:test";\nit("инфраструктура импортирует домен", () => {});\n`,
       "tests/architecture/layers/layers.test.ts": `import { it } from "bun:test";\nit("домен не импортирует инфраструктуру", () => {});\n`,
     });
     const r = doc(
       "r.json",
       vitestReport(dir, {
-        "tests/standards/audit/examples.test.ts": [[[], "пример"]],
+        "tests/standards/audit/audit.examples.test.ts": [[[], "пример"]],
         "tests/standards/audit/audit.test.ts": [[[], "правило"]],
-        "tests/architecture/layers/cases.test.ts": [[[], "инфраструктура импортирует домен"]],
+        "tests/architecture/layers/layers.cases.test.ts": [[[], "инфраструктура импортирует домен"]],
         "tests/architecture/layers/layers.test.ts": [[[], "домен не импортирует инфраструктуру"]],
       }),
       "--stdout",
@@ -205,13 +205,13 @@ describe("В монорепо подпапка пакета — часть па�
   it("главный файл в подпапке пакета открывает страницу решения", () => {
     writeTree(dir, {
       [`${EXPORT}/export.md`]: "Экспорт отчётов.\n",
-      [`${EXPORT}/web/a.test.ts`]: `import { describe, it } from "bun:test";\ndescribe("Формат", () => { it("CSV по умолчанию", () => {}); });\n`,
+      [`${EXPORT}/web/export.a.test.ts`]: `import { describe, it } from "bun:test";\ndescribe("Формат", () => { it("CSV по умолчанию", () => {}); });\n`,
       [`${EXPORT}/web/export.test.ts`]: `import { describe, it } from "bun:test";\ndescribe("Кнопка", () => { it("скачивает файл", () => {}); });\n`,
     });
     const r = doc(
       "r.json",
       vitestReport(dir, {
-        [`${EXPORT}/web/a.test.ts`]: [[["Формат"], "CSV по умолчанию"]],
+        [`${EXPORT}/web/export.a.test.ts`]: [[["Формат"], "CSV по умолчанию"]],
         [`${EXPORT}/web/export.test.ts`]: [[["Кнопка"], "скачивает файл"]],
       }),
       "--stdout",
@@ -269,16 +269,16 @@ describe("В документацию идёт только проза для ч
   it("шапка файла теста в документацию не идёт — spec-doc просит перенести её в `<папка>.md`, --strict — код 1", () => {
     writeTree(dir, {
       "tests/capabilities/billing/billing.md": "Биллинг: счета клиентам.\n",
-      "tests/capabilities/billing/a.test.ts": `/** Заметка разработчику: здесь чистая функция. */\nimport { it } from "bun:test";\nit("a", () => {});\n`,
+      "tests/capabilities/billing/billing.a.test.ts": `/** Заметка разработчику: здесь чистая функция. */\nimport { it } from "bun:test";\nit("a", () => {});\n`,
       [MAIN]: `/** Старая шапка. */\nimport { it } from "bun:test";\nit("b", () => {});\n`,
     });
-    const report = vitestReport(dir, { "tests/capabilities/billing/a.test.ts": [[[], "a"]], [MAIN]: [[[], "b"]] });
+    const report = vitestReport(dir, { "tests/capabilities/billing/billing.a.test.ts": [[[], "a"]], [MAIN]: [[[], "b"]] });
     const r = doc("r.json", report, "--stdout");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("### billing\n\nБиллинг: счета клиентам.\n\n<details>");
     expect(r.stdout).not.toContain("Заметка разработчику");
     expect(r.stdout).not.toContain("Старая шапка");
-    expect(r.stderr).toContain("a file header doesn't go into the documentation — move it to tests/capabilities/billing/billing.md: tests/capabilities/billing/a.test.ts");
+    expect(r.stderr).toContain("a file header doesn't go into the documentation — move it to tests/capabilities/billing/billing.md: tests/capabilities/billing/billing.a.test.ts");
     expect(r.stderr).toContain(`move it to tests/capabilities/billing/billing.md: ${MAIN}`);
     expect(doc("r.json", report, "--stdout", "--strict").code).toBe(1);
   });
@@ -656,7 +656,7 @@ describe("Нарушение структуры спеки видно при с�
 /**
  * Решение — тема с разделами (эпик #685): папка `tests/<корень>/<тема>/` — тема, файлы в ней — разделы. Страница темы
  * — её описание `<тема>.md`, затем разделы по имени: у каждого заголовок, своё описание `<раздел>.md` и утверждения его
- * файлов. Неперегруппированное решение — тестовый файл с именем папки — тема из одного раздела, как прежде.
+ * файлов.
  */
 describe("Тема с разделами — страница на тему, разделы по имени", () => {
   const ROUTES = "tests/standards/routes";
@@ -687,35 +687,6 @@ describe("Тема с разделами — страница на тему, р�
     expect(read("docs/spec/README.md")).toContain(
       "- [routes](standards/routes.md) — Маршруты HTTP API.\n  - [naming](standards/routes.md#naming) — Имена маршрутов.\n  - [permissions](standards/routes.md#permissions) — Права: каждый маршрут их проверяет.\n",
     );
-  });
-
-  it("решение с тестовым файлом по имени папки — тема из одного раздела", () => {
-    writeTree(dir, {
-      "tests/capabilities/billing/billing.md": "Биллинг.\n",
-      [MAIN]: `import { it } from "bun:test";\nit("выставляется", () => {});\n`,
-      "tests/capabilities/billing/vat.test.ts": `import { it } from "bun:test";\nit("НДС считается", () => {});\n`,
-    });
-    const report = vitestReport(dir, { [MAIN]: [[[], "выставляется"]], "tests/capabilities/billing/vat.test.ts": [[[], "НДС считается"]] });
-    const r = doc("r.json", report, "--strict");
-    expect(r.code).toBe(0);
-    expect(read("docs/spec/capabilities/billing.md")).toContain("# billing\n\nБиллинг.\n\n<details><summary>✅ 2 теста</summary>\n\n- ✅ выставляется\n- ✅ НДС считается\n");
-    expect(read("docs/spec/README.md")).toContain("- [billing](capabilities/billing.md) — Биллинг.\n\n");
-  });
-
-  // файл по имени папки — в корне или в подпапке пакета, и на диске тоже: отчёт одного пакета не делает папку темой
-  // разделов
-  it("файл по имени папки в другом пакете на диске, без тестов в отчёте, — тоже тема из одного раздела", () => {
-    const EXPORT = "tests/capabilities/export";
-    writeTree(dir, {
-      [`${EXPORT}/export.md`]: "Экспорт.\n",
-      [`${EXPORT}/web/web.test.ts`]: `import { it } from "bun:test";\nit("кнопка скачивает файл", () => {});\n`,
-    });
-    const report = vitestReport(dir, { [`${EXPORT}/web/web.test.ts`]: [[[], "кнопка скачивает файл"]] });
-    expect(doc("r.json", report, "--stdout").stdout).toContain("#### web\n");
-    writeTree(dir, { [`${EXPORT}/api/export.test.ts`]: `import { it } from "bun:test";\nit("отдаёт файл", () => {});\n` });
-    const r = doc("r.json", report, "--stdout", "--strict");
-    expect(r.code).toBe(0);
-    expect(r.stdout).not.toContain("#### web\n");
   });
 });
 

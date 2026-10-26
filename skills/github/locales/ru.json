@@ -237,7 +237,6 @@
   },
   "updateCommit": "флоу Elves {version}",
   "updateTask": "Обновить флоу Elves",
-  "regroupTask": "Перегруппировать решения спеки в темы",
   "formerly": {
     "updateTask": "Обновить флоу ai-dev"
   },
@@ -338,7 +337,6 @@
       "outsideMark": "вне дерева",
       "moved": "**Перенесены в дерево ({n}):** названия те же, что вне `{tests}/` на базе; из {files}.",
       "movedFolder": "{tests} из {files}",
-      "regrouped": "**Перегруппированы в темы ({n}):** названия те же, раздел темы — прежнее решение.",
       "files": {
         "one": "файла",
         "few": "файлов",

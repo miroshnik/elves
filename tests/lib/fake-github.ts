@@ -675,7 +675,7 @@ export class FakeGitHub {
   // папка без решений в GitHub — не пустое дерево, а null
   private specTree(): Any {
     const t = this.tree;
-    // папка темы без файлов в записи — один файл, названный по ней: решение, ещё не перегруппированное в разделы
+    // папка темы без файлов в записи — один файл, названный по ней: тема без разделов
     const topic = (root: string, name: string) => ({ entries: (t.files?.[`${root}/${name}`] ?? [`${name}.test.ts`]).map((f) => ({ name: f, type: "blob" })) });
     const dir = (root: string, names: string[], files: string[] = []) =>
       names.length || files.length ? { entries: [...names.map((name) => ({ name, type: "tree", object: topic(root, name) })), ...files.map((name) => ({ name, type: "blob" }))] } : null;

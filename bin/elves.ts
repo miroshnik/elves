@@ -91,7 +91,6 @@ import { fileURLToPath } from "node:url";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
 import { PACKAGE_BUNX, PACKAGE_RUN, packageRun } from "../skills/spec/scripts/package-run.ts";
-import { TESTS, unregroupedFolders } from "../skills/spec/scripts/speclib.ts";
 import { COMPOSE_FILES, formerProxyName, proxyName } from "../skills/task-env/scripts/task-env.ts";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
@@ -255,8 +254,7 @@ its gate is the checks before a commit and pr premerge (ci.md of the spec skill,
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
 mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
-ready test without them), names decisions not regrouped into topics — a test file named after its folder (○, their
-count and the task new command of the regrouping task, its order in migration.md of the spec skill) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
+ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
 to tasks or a line leads into a file of the flow copy that update doesn't rewrite — the file, the line number and its
 text (the exit code stays the same); for the machine the elves command missing or of another release is falling
 behind, someone else's elves in its place or one earlier on PATH — !, no directory for it — ! with the command that
@@ -2162,8 +2160,6 @@ interface Result {
   manifest?: boolean;
   /** The project manifest isn't in git (#681). */
   untracked?: boolean;
-  /** Decisions not regrouped into topics are left in tests/ (#690). */
-  regroup?: boolean;
   run?: boolean;
   ttl?: boolean;
 }
@@ -2196,49 +2192,6 @@ function composeCheck(root: string): { lines: string[]; violations: boolean } {
  */
 const updateTaskLine = (root: string) =>
   `The task — one per project, an open one is named by the refusal: bun --no-env-file ${githubScript(false)} task new --title "${locale.names(languageOf(root)).updateTask}" --branch-type chore`;
-
-/** Where the regrouping order is described: the spec skill on the machine (`install -g`). */
-const REGROUP_DOC = "~/.agents/skills/spec/migration.md, «Regrouping decisions into topics»";
-
-/** Test files under the decision roots of tests/ (paths from the root, `/`), without node_modules and dot directories. */
-function decisionFiles(root: string): string[] {
-  const out: string[] = [];
-  const walk = (rel: string) => {
-    let entries;
-    try {
-      entries = readdirSync(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.name.startsWith(".") || e.name === "node_modules") continue;
-      if (e.isDirectory()) walk(`${rel}/${e.name}`);
-      else if (e.isFile()) out.push(`${rel}/${e.name}`);
-    }
-  };
-  for (const kind of ["capabilities", "architecture", "standards"]) walk(`${TESTS}/${kind}`);
-  return out;
-}
-
-/**
- * Decisions not regrouped into topics (#690): a decision folder with a test file named after it (`isFolderNamed` of
- * the spec skill — `tests/<root>/<name>/<name>.test.ts`, `.e2e.ts`, in a package subfolder too). The regrouping is one
- * task of its own, like a copy's move: an `○` line with the count, the first folders and the `task new` command — the
- * title is constant (the `regroupTask` key), `task new` names an open one. Not a mismatch: CI stays green and spec-doc
- * shows a flat decision as a topic of one section, so the exit code doesn't change.
- */
-function regroupLines(root: string): { lines: string[]; regroup: boolean } {
-  const folders = [...unregroupedFolders(decisionFiles(root))].sort();
-  if (!folders.length) return { lines: [], regroup: false };
-  const shown = folders.slice(0, 3).join(", ") + (folders.length > 3 ? ", …" : "");
-  return {
-    lines: [
-      `  ○ tests: ${folders.length} ${folders.length === 1 ? "decision" : "decisions"} not regrouped into topics — a test file named after its folder (${shown}); regrouping — a task of its own, its order: ${REGROUP_DOC}`,
-      `  The task — one per project, an open one is named by the refusal: bun --no-env-file ${githubScript(false)} task new --title "${locale.names(languageOf(root)).regroupTask}" --branch-type refactor`,
-    ],
-    regroup: true,
-  };
-}
 
 /**
  * Test runners of a package.json command — called directly or by the package manager: the `test:spec` command over the
@@ -2529,14 +2482,12 @@ function check(global: boolean): Result {
   const batch = global ? { lines: [], missing: false } : batchCi(root);
   // the manifest outside git — a mismatch update's commit line fixes
   const untracked = global ? { lines: [], missing: false } : manifestGit(root);
-  // decisions not regrouped into topics — a task of its own, not a mismatch
-  const regroup = global ? { lines: [], regroup: false } : regroupLines(root);
-  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...regroup.lines, ...(global ? [] : cloudLines(root)), ...mode];
+  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...(global ? [] : cloudLines(root)), ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
   const ignored = changes.filter((c) => c.op === "❌");
   if (!stale.length && !ignored.length) {
     const code = compose.violations || spec.missing || batch.missing || untracked.missing ? 1 : 0;
-    return { code, compose: compose.violations, spec: spec.missing, untracked: untracked.missing, regroup: regroup.regroup, run: untracked.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
+    return { code, compose: compose.violations, spec: spec.missing, untracked: untracked.missing, run: untracked.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
   }
   const m = readManifest(root);
   const fixable = ignored.some((c) => !c.manual);
@@ -2563,7 +2514,6 @@ function check(global: boolean): Result {
     compose: compose.violations,
     spec: spec.missing,
     untracked: untracked.missing,
-    regroup: regroup.regroup,
     run: stale.length > 0 || fixable || untracked.missing,
     text: [
       head,
@@ -2934,7 +2884,6 @@ function hook(failed?: unknown) {
   if (shown.some((r) => r.untracked)) tail.push("The project manifest isn't in git — update names it in its commit line, committed with the session's task.");
   // the session has no task yet at its start, and one session is one task: the fix goes into a task of its own
   if (shown.some((r) => r.compose)) tail.push("The compose file breaks task isolation — each ❌ line names the rule and the service (the task-env skill); fixing it is a task of its own in the project.");
-  if (shown.some((r) => r.regroup)) tail.push("The project's decisions aren't regrouped into topics — regrouping is a task of its own, not in a task session: recommend it to the user and ask whether to queue its task (task new above); work by the current flow.");
   if (shown.some((r) => r.spec)) tail.push("No test:spec script — pr premerge doesn't run standards and architecture on the merge; the ❌ line names the package.json scripts; adding them is a task of its own in the project.");
   // the machine's settings are the owner's: the agent names the command, as with the merge rule (MERGE_HINT)
   if (machine?.ttl) tail.push("The prompt cache TTL line is the owner's choice and price — name its command to the user, don't run it yourself.");

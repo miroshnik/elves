@@ -237,7 +237,6 @@
   },
   "updateCommit": "Elves flow {version}",
   "updateTask": "Update the Elves flow",
-  "regroupTask": "Regroup the spec decisions into topics",
   "formerly": {
     "updateTask": "Update the ai-dev flow"
   },
@@ -338,7 +337,6 @@
       "outsideMark": "outside the tree",
       "moved": "**Moved into the tree ({n}):** the same names as outside `{tests}/` on the base; from {files}.",
       "movedFolder": "{tests} from {files}",
-      "regrouped": "**Regrouped into topics ({n}):** the same names, the topic's section is the former decision.",
       "files": {
         "one": "file",
         "few": "files",
