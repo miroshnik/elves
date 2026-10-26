@@ -616,7 +616,23 @@ numbering and the rest of the description don't change; the answer's line
 breaks become spaces. Open questions left — an `○` line with their numbers;
 none — the questions label is removed. Refused before any change (code 2): no
 questions section, no question `k`, the question already has ✅ (a changed
-answer is edited by hand), an empty answer.
+answer — `task edit --replace`), an empty answer.
+
+### task edit
+
+An edit of the description in one call (#670), not `gh issue view --json
+body`, a file and `gh issue edit --body-file`: `--replace <old> <new>` — the
+text must occur exactly once; `--add "## <section>" "<item>"` — at the end of
+the section (it ends at a heading of its level or higher, or `---`: the cloud
+proxy's signature isn't in it); an item without a list marker gets the one of
+the section's last top-level item — `- [ ]` after a checklist, the next
+number after a numbered list, its bullet, otherwise `- `; `--check "<text>"`
+— `- [ ]` → `- [x]` of the one unchecked item containing the text. Several
+edits — in order, each sees the previous one's result, one write. Refused
+before any change (code 2), none of the call's edits written: a text not
+found or found twice, no such section or two of them, no or two unchecked
+items, an edit missing a value. Questions — `task answer`. A cloud session —
+over the repository's REST.
 
 ### task start
 

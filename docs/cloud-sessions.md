@@ -118,8 +118,8 @@ hook prints the canon (#610, question 2).
 - **GitHub search** (`search/issues`) — 403 ("sessions are bound to their
   configured repositories"): the duplicate check before a new task — by
   listing `repos/{owner}/{repo}/issues`.
-- **The `github` skill's scripts** — `task show`, `task answer`, `task new`
-  over the repository's REST (#603): without the project — `task new` names
+- **The `github` skill's scripts** — `task show`, `task answer`, `task edit`
+  (#670), `task new` over the repository's REST (#603): without the project — `task new` names
   Status and the estimate in a line for a local session; `task show` prints
   the comments of the task and its epic and the `?` lines at the questions,
   as in a local session (#651); the rest refuse
