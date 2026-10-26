@@ -3,8 +3,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "bun:test";
 
-import { decisionsOfFiles } from "../../../skills/github/scripts/github.ts";
+import { decisionsOfFiles, exceptionFile as githubExceptionFile } from "../../../skills/github/scripts/github.ts";
 import { invariant } from "../../../skills/spec/scripts/harness.ts";
+import { exceptionFile as specExceptionFile } from "../../../skills/spec/scripts/speclib.ts";
 
 const SKILLS = fileURLToPath(new URL("../../../skills/", import.meta.url));
 
@@ -118,6 +119,15 @@ describe("Файл исключений папки решения распозн
         item: { key: "spec-diff до #264", code: "const EXCEPTION_FILE = /(^|\\/)(names\\.)?exceptions\\/[^/]+\\.json$/;\nL.exceptionFile;" },
       },
     ],
+  });
+
+  // тема с разделами (#685): правило одно — у spec (харнесс, spec-diff, spec-exceptions) и у копии github (pr labels)
+  it("файл исключений раздела харнесс, spec-diff, spec-exceptions и pr labels узнают одинаково", () => {
+    const p = `${A}/exceptions/routes/importLegacy.json`;
+    const want = { folder: A, dir: "exceptions/routes", section: "routes", legacy: false };
+    expect(specExceptionFile(p)).toEqual(want);
+    expect(githubExceptionFile(p)).toEqual(want);
+    expect(decisionsOfFiles([{ path: p, changeType: "MODIFIED", additions: 1, deletions: 1 }], {}).mechanical).toHaveLength(1);
   });
 
   it("pr labels: механическая правка — файл, который spec читает исключением", () => {
