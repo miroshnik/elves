@@ -653,7 +653,14 @@ scenarios (none — an `○` line: a code task gets them before code) and, in
 Claude Code (`CLAUDECODE=1`), `ToolSearch select:…` with the app tools the
 flow calls in a task (session title, PR monitor, `TaskStop`, archive) — one
 load, not one per call. An epic, a closed task, a `--branch` not of this task
-— code 2. `task status` stays for other status changes.
+— code 2. `task status` stays for other status changes. `--resume` — an
+executor's restart (#709; the assignment's restart line names it): the task's
+branch and open PR are the previous executor's work to continue, not a stop;
+the current branch isn't renamed, `Branch: continue …` names what to continue
+(in its worktree, or switched to here); nothing to continue, or with
+`--branch` — code 2. The assignment's lead takes the task with `task start
+--branch`; the fix of a red release keeps `task status --branch`: its new
+branch is cut beside the task's merged one, which `task start` would stop on.
 
 ### task finish
 
