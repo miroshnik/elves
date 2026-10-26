@@ -167,12 +167,13 @@ const BRANCH_CONV_RE = new RegExp("^(?:[\\p{L}\\p{N}_.-]+/)?(" + EST_TYPES.join(
 const PR_PAGE = 50;
 const PR_MAX = 500;
 const ISSUES_MAX = 500; // how many closed issues the index of closing commits keeps
-const SESSION_CACHE_V = 22; // transcript cache format version (changed — reparse); 11 = session name history
+const SESSION_CACHE_V = 23; // transcript cache format version (changed — reparse); 11 = session name history
 // (title_hist), 12 = cloud sessions, 13 = all session directories (cwds), 14 = PR repository on pr-link, 16 = git and
 // gh listing hashes — only own ones, 17 = shell keywords in a listing, 18 = agent number on a record (task fan-out),
 // 19 = a subagent's branch in its own worktree — from that checkout, not gitBranch, 20 = a record in the session's
 // folder on the branch of its subagent's worktree — neutral, 21 = the scope of a record and a hash — a subagent's own
-// worktree, 22 = waits for input on records and wait calls (calls, perm)
+// worktree, 22 = waits for input on records and wait calls (calls, perm), 23 = a response's output — by its final
+// record, not the first partial one
 const PROJECT_META_TTL = 86400; // a day: reread the cache of project/field ids
 const OPEN_PRS_TTL = 3600; // an hour: the list of open PRs (their branches are someone else's)
 // Long-lived branches: "neutral" — by themselves they don't link a task, but inside an anchor window they count.
@@ -1147,7 +1148,7 @@ interface Acc {
   first_urls: string[];
   usage: Any[][];
   models: string[];
-  mids: Set<string>;
+  mids: Map<string, number>; // a response's id → its row in usage
   title: string;
   titles: [number, string][];
   topCwds: Set<string>; // directories of the session's own (top-level) records
@@ -1163,7 +1164,7 @@ interface Acc {
 /** A commit hash from a tool's output: [ts, hash, scope?] — scope as on a record (Session.ev), absent — the session's. */
 type Hash = [number, string, number?];
 
-const newAcc = (): Acc => ({ cwd: null, cwds: [], n_human: 0, ev: [], prlinks: [], commits: [], listed: [], first_refs: null, first_urls: [], usage: [], models: [], mids: new Set(), title: "", titles: [], topCwds: new Set(), checkouts: new Map(), switched: new Map(), written: [], wtDirs: [], wtBranches: [], calls: [], perm: null });
+const newAcc = (): Acc => ({ cwd: null, cwds: [], n_human: 0, ev: [], prlinks: [], commits: [], listed: [], first_refs: null, first_urls: [], usage: [], models: [], mids: new Map(), title: "", titles: [], topCwds: new Set(), checkouts: new Map(), switched: new Map(), written: [], wtDirs: [], wtBranches: [], calls: [], perm: null });
 
 interface Checkout {
   root: string;
@@ -1554,14 +1555,19 @@ function scanRecords(records: Iterable<Any>, acc: Acc, agent: number): void {
       }
     }
     // Tokens: usage is duplicated on every record of one response (per content block) —
-    // count it once per message.id.
+    // count it once per message.id. Input and cache are the same on every record, output_tokens is not: a subagent's
+    // response is written while it streams, the first record has a partial count, the final one is the largest (#660).
     let uidx = -1;
     if (t === "assistant") {
       const u = msg.usage;
       const mid = msg.id;
       const model = msg.model;
-      if (u && typeof u === "object" && mid && model && model !== "<synthetic>" && !acc.mids.has(mid)) {
-        acc.mids.add(mid);
+      const seen = mid ? acc.mids.get(mid) : undefined;
+      if (seen !== undefined && u && typeof u === "object") {
+        const row = acc.usage[seen]!;
+        row[3] = Math.max(row[3], Math.trunc(u.output_tokens || 0));
+      } else if (u && typeof u === "object" && mid && model && model !== "<synthetic>") {
+        acc.mids.set(mid, acc.usage.length);
         const cc = u.cache_creation ?? {};
         const cw = Math.trunc(u.cache_creation_input_tokens || 0);
         const cw1 = Math.trunc(cc.ephemeral_1h_input_tokens || 0);
@@ -1749,11 +1755,11 @@ export function parseCodexFile(file: string): Session {
       const u = p.usage ?? {};
       const rid: string | undefined = p.response_id || p.turn_id;
       if (rid && !acc.mids.has(rid)) {
-        acc.mids.add(rid);
         const m = model || "codex";
         if (!acc.models.includes(m)) acc.models.push(m);
         const cached = Math.trunc(u.cached_input_tokens || 0);
         const uidx = acc.usage.length;
+        acc.mids.set(rid, uidx);
         acc.usage.push([rid.slice(-12), acc.models.indexOf(m), Math.max(0, Math.trunc(u.input_tokens || 0) - cached), Math.trunc(u.output_tokens || 0), Math.trunc(u.cache_write_input_tokens || 0), 0, cached, 0]);
         acc.ev.push([ts, "", 0, "", uidx]);
       }
