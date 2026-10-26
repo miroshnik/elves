@@ -684,6 +684,69 @@ describe("Файл флоу, который игнорирует git проек�
 });
 
 /**
+ * Манифест — язык и режим проекта (#681): без него скилл github языка не знает и не пишет имена в GitHub. Так поймано: в
+ * проекте на ru `.agents/` не в git, свежий worktree остался без манифеста, а check говорил «not installed — install
+ * it», хотя пакет Elves стоял в devDependencies, и молчал, что манифест в основном чекауте не закоммичен.
+ */
+describe("Манифест проекта — на месте и в git: без него язык проекта неизвестен", () => {
+  /** Коммит всего проекта, кроме `keep`: файлы остаются в каталоге, но не в git. */
+  function commitAll(message: string, ...keep: string[]) {
+    git(sb.proj, "add", "-A");
+    for (const rel of keep) git(sb.proj, "rm", "--cached", "-q", "--", rel);
+    git(sb.proj, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message);
+  }
+  const MISSING = (root: string) =>
+    `Elves in the project: ❌ no .agents/elves.json in ${root} — the project language is unknown: copy the manifest from the main checkout (the first line of git worktree list) or commit it there — @miroshnik/elves is in package.json, the github skill refuses to write names without it\n`;
+  const UNTRACKED =
+    "  ❌ .agents/elves.json — not in git: another checkout, a fresh worktree and a cloud session don't see it, the github skill refuses to write names there; bunx @miroshnik/elves update puts it into the commit\n";
+
+  it("check проекта с пакетом Elves в devDependencies и без манифеста — ❌ манифест отсутствует, а не not installed", () => {
+    writePkg({ devDependencies: { "@miroshnik/elves": V1 } });
+    expect(elves(sb, ["check"])).toMatchObject({ code: 1, stdout: MISSING(realpathSync(sb.proj)) });
+    const hook = elves(sb, ["check", "--hook"]);
+    expect(hook.code).toBe(0);
+    expect(hook.stdout).toContain(MISSING(realpathSync(sb.proj)));
+    expect(hook.stdout).toContain("No project manifest in this checkout — copy it from the main checkout before the task");
+    expect(hook.stdout).not.toContain("install it");
+  });
+
+  /** update записал бы манифест с языком по умолчанию — en в проекте на ru: то же, от чего отказывает скилл github. */
+  it("update проекта с пакетом Elves и без манифеста — отказ, код 2: манифест с языком по умолчанию не пишется", () => {
+    writePkg({ devDependencies: { "@miroshnik/elves": V1 } });
+    const before = snapshot(sb.proj);
+    const u = elves(sb, ["update"]);
+    expect(u.code).toBe(2);
+    expect(u.stderr).toContain(`update: no .agents/elves.json in ${realpathSync(sb.proj)} — the project language is unknown`);
+    expect(u.stderr).toContain("a project the flow never installed — bunx @miroshnik/elves install --lang <project language>");
+    expect(snapshot(sb.proj)).toEqual(before);
+  });
+
+  it("check проекта с манифестом не в git — ❌ с причиной: другой чекаут и облачная сессия его не увидят", () => {
+    writePkg({});
+    expect(elves(sb, ["install", "--lang", "ru"]).code).toBe(0);
+    commitAll("chore: флоу Elves", ".agents/elves.json");
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toStartWith("Elves in the project: up to date");
+    expect(r.stdout).toContain(UNTRACKED);
+    expect(r.stdout).toEndWith("  tasks: with permission\n  language: ru\n");
+    expect(elves(sb, ["check", "--hook"]).stdout).toContain("The project manifest isn't in git — update names it in its commit line");
+    // update называет манифест в строке коммита; закоммичен — check актуален
+    const add = /git add -A -- [^&\n]+/.exec(elves(sb, ["update"]).stdout)?.[0] ?? "";
+    expect(add).toContain(".agents/elves.json");
+    execFileSync("sh", ["-c", add], { cwd: sb.proj, env: sb.env });
+    commitAll("chore: манифест Elves");
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.not.stringContaining("not in git") });
+  });
+
+  /** Сторож от перекоррекции: в репозитории без коммитов другого чекаута ещё нет — сразу после install строки нет. */
+  it("репозиторий без коммитов — манифест вне git check не называет: другого чекаута ещё нет", () => {
+    expect(elves(sb, ["install"]).code).toBe(0);
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.not.stringContaining("not in git") });
+  });
+});
+
+/**
  * check проекта с compose-файлом зовёт скрипт task-env под тем же bun, тот — `docker compose config`: в PATH песочницы
  * — docker прогона. Плагин compose docker ищет в каталоге своей конфигурации, а HOME у песочницы свой — DOCKER_CONFIG
  * ведёт в настоящий.

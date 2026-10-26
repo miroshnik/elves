@@ -52,9 +52,10 @@
  * at its root): `install` writes a single manifest there, with `auto` and `language`, `env` and `batch` carried over as
  * in a project; `check` there compares nothing but a batch clone's CI (`batchCi`).
  * The project's flow files are committed — the ones the project's git ignores (`.agents/`) the install un-ignores with
- * exceptions in an Elves block at the end of `.gitignore`, `check` reports them as a mismatch (`gitignoreFlow`). A
- * project's compose file `check` holds to the task isolation rules
- * with the task-env skill's command (`composeCheck`): a violation is a mismatch too, `update` doesn't fix it; so is a
+ * exceptions in an Elves block at the end of `.gitignore`, `check` reports them as a mismatch (`gitignoreFlow`); the
+ * manifest outside git (`manifestGit`) and missing next to the package — `❌` too, `update` refuses then (#681): the
+ * project language is unknown, the github skill refuses to write names. A project's compose file `check` holds to the
+ * task isolation rules with the task-env skill's command (`composeCheck`): a violation is a mismatch too, `update` doesn't fix it; so is a
  * project with standards or architecture without a `test:spec` script — `check` names the lines (`specScript`); a
  * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them; a project with
  * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`). The project's checks — the
@@ -241,7 +242,9 @@ Examples:
 elves check --hook
 
 Whether the install is behind, changes nothing: 0 — up to date, 1 — behind, the project's git ignores flow files, its
-compose file breaks task isolation, standards and architecture have no test:spec script or the CI of a project (an
+manifest .agents/elves.json is missing next to ${PACKAGE} in package.json (without the mode and language lines) or
+isn't in git in a repository with commits (the github skill refuses to write names without it), its compose file
+breaks task isolation, standards and architecture have no test:spec script or the CI of a project (an
 Elves clone too) with "batch": true runs a workflow on a PR into a batch branch — on.pull_request lets a batch branch in,
 its gate is the checks before a commit and pr premerge (ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
@@ -275,8 +278,9 @@ lockfile, a few lines in the branch of the current task; a project with a copy o
 now), AI_DEV_SLOT* in the project's code → ELVES_SLOT*, formatting the shortened imports, git add -A before the first
 run of the checks, the ! lines of check; from the npm package — by restarting from the latest release's package. The
 project's mode and language are kept; an install of a previous version without a language gets ru: before the field
-the flow worked in Russian. In a project install and update un-ignore flow files from .gitignore patterns with
-exceptions at its end and wrap the package.json checks (lint, typecheck, test, test:*) in the machine queue slot;
+the flow worked in Russian; ${PACKAGE} in package.json without the manifest — a refusal (2): the language is unknown,
+the manifest comes from the main checkout or install --lang. In a project install and update un-ignore flow files from
+.gitignore patterns with exceptions at its end and wrap the package.json checks (lint, typecheck, test, test:*) in the machine queue slot;
 prints what changed: every release after the installed one, newest first, with the list of changes of its GitHub
 Release (a --link clone — the flow commits it pulled), and the git add of what changed. An install from before the rename to Elves — the ai-dev names
 (.agents/ai-dev.json, .agents/ai-dev/, .claude/rules/ai-dev*.md, the blocks in AGENTS.md and .gitignore,
@@ -2120,6 +2124,10 @@ interface Result {
   ignored?: boolean;
   compose?: boolean;
   spec?: boolean;
+  /** The project manifest is missing in the checkout (#681). */
+  manifest?: boolean;
+  /** The project manifest isn't in git (#681). */
+  untracked?: boolean;
   run?: boolean;
 }
 
@@ -2296,6 +2304,23 @@ function batchCi(root: string): { lines: string[]; missing: boolean } {
   return { lines, missing: lines.length > 0 };
 }
 
+/**
+ * The project manifest outside git (#681): another checkout, a fresh worktree and a cloud session don't get it — the
+ * github skill refuses to write names there, the project language unknown. `update` puts it into its commit line with
+ * the flow files git doesn't track (`committable`). A repository without commits has no other checkout yet — no line;
+ * an ignored manifest is a ❌ of `gitignoreFlow`; a staged one goes into the commit; not git — nothing to check.
+ */
+function manifestGit(root: string): { lines: string[]; missing: boolean } {
+  try {
+    git(root, "rev-parse", "--verify", "--quiet", "HEAD");
+    if (!git(root, "ls-files", "--others", "--exclude-standard", "--", MANIFEST)) return { lines: [], missing: false };
+  } catch {
+    return { lines: [], missing: false };
+  }
+  const why = "another checkout, a fresh worktree and a cloud session don't see it, the github skill refuses to write names there";
+  return { lines: [`  ❌ ${MANIFEST} — not in git: ${why}; ${RUN} update puts it into the commit`], missing: true };
+}
+
 /** The check failed: what and why. */
 const unavailable = (global: boolean, e: unknown): Result => ({ code: 2, text: `Elves ${global ? "on the machine" : "in the project"}: check unavailable — ${reason(e)}` });
 
@@ -2401,6 +2426,11 @@ function check(global: boolean): Result {
     const batch = batchCi(root);
     return { code: batch.missing ? 1 : 0, text: [`Elves ${where}: not installed — an Elves clone, the canon is at its root`, ...batch.lines, ...cloudLines(root), ...modeLines(root)].join("\n") };
   }
+  // the package is there, the manifest isn't (#681): a fresh worktree or a clone of a project that keeps the manifest
+  // out of git — not "not installed": the project language is unknown, the github skill refuses to write names here;
+  // without the mode and language lines — the language would be a guess
+  const missing = !installed && !global && projectPackage(root) !== undefined ? locale.missingManifest(root) : null;
+  if (missing) return { code: 1, manifest: true, text: [`Elves ${where}: ❌ ${missing} — ${PACKAGE} is in package.json, the github skill refuses to write names without it`, ...cloudLines(root)].join("\n") };
   if (!installed) return { code: 0, text: `Elves ${where}: not installed`, absent: true };
   const clone = global ? linkedClone(home) : null;
   if (clone) return checkLink(home, clone);
@@ -2417,10 +2447,15 @@ function check(global: boolean): Result {
   const spec = global ? { lines: [], missing: false } : specScript(root);
   // a batch project's CI that runs on a PR into a batch branch — a mismatch update doesn't fix either
   const batch = global ? { lines: [], missing: false } : batchCi(root);
-  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...(global ? [] : cloudLines(root)), ...mode];
+  // the manifest outside git — a mismatch update's commit line fixes
+  const untracked = global ? { lines: [], missing: false } : manifestGit(root);
+  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...(global ? [] : cloudLines(root)), ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
   const ignored = changes.filter((c) => c.op === "❌");
-  if (!stale.length && !ignored.length) return { code: compose.violations || spec.missing || batch.missing ? 1 : 0, compose: compose.violations, spec: spec.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
+  if (!stale.length && !ignored.length) {
+    const code = compose.violations || spec.missing || batch.missing || untracked.missing ? 1 : 0;
+    return { code, compose: compose.violations, spec: spec.missing, untracked: untracked.missing, run: untracked.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
+  }
   const m = readManifest(root);
   const fixable = ignored.some((c) => !c.manual);
   const lost = "ignores flow files — they are missing from the commit, other checkouts and the cloud session:";
@@ -2445,7 +2480,8 @@ function check(global: boolean): Result {
     ignored: ignored.length > 0,
     compose: compose.violations,
     spec: spec.missing,
-    run: stale.length > 0 || fixable,
+    untracked: untracked.missing,
+    run: stale.length > 0 || fixable || untracked.missing,
     text: [
       head,
       ...capped(changeLines(stale, root, global)),
@@ -2736,6 +2772,8 @@ function hook(failed?: unknown) {
     tail.push("The canon loads twice — the machine's rules and the project's copy: recommend the project's move to the thin project and ask whether to queue its update task (task new above); work by the current flow.");
   }
   if (shown.some((r) => r.ignored)) tail.push("Git ignores flow files — update adds exceptions to .gitignore, committed with the update; a rule outside the project — fix it yourself.");
+  if (shown.some((r) => r.manifest)) tail.push("No project manifest in this checkout — copy it from the main checkout before the task, as the ❌ line says: the github skill refuses to write names without it.");
+  if (shown.some((r) => r.untracked)) tail.push("The project manifest isn't in git — update names it in its commit line, committed with the session's task.");
   // the session has no task yet at its start, and one session is one task: the fix goes into a task of its own
   if (shown.some((r) => r.compose)) tail.push("The compose file breaks task isolation — each ❌ line names the rule and the service (the task-env skill); fixing it is a task of its own in the project.");
   if (shown.some((r) => r.spec)) tail.push("No test:spec script — pr premerge doesn't run standards and architecture on the merge; the ❌ line names the package.json scripts; adding them is a task of its own in the project.");
@@ -2804,6 +2842,10 @@ function update(global: boolean) {
   }
   const root = projectRoot();
   if (isElvesClone(root)) return note(CLONE_NOTE), 0;
+  // the package is there, the manifest isn't (#681): the install would write the `en` default into a project of
+  // another language — check's ❌ and its way out
+  const missing = projectPackage(root) !== undefined ? locale.missingManifest(root) : null;
+  if (missing) return warn(`update: ${missing}; a project the flow never installed — ${RUN} install --lang <project language>`), 2;
   const copy = isCopy(root);
   const { from, why } = copy ? { from: readManifest(root), why: undefined } : packageFrom(root);
   installProject(root);
