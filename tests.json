@@ -130,6 +130,13 @@
   "describes": [
    "Коммит мержа ждут по номеру PR — SHA мержа скрипт берёт сам"
   ],
+  "name": "красный прогон другой ветки на SHA мержа не делает ожидание FAIL — ждут прогоны базы PR"
+ },
+ {
+  "path": "tests/capabilities/ci-wait/wait.test.ts",
+  "describes": [
+   "Коммит мержа ждут по номеру PR — SHA мержа скрипт берёт сам"
+  ],
   "name": "невлитый PR — ERROR сразу, а не ожидание чеков"
  },
  {
@@ -1468,6 +1475,13 @@
    "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
   ],
   "name": "предупреждения нет, если переменные очереди доходят до задач turbo — globalPassThroughEnv или globalEnv с масками, envMode loose, --env-mode=loose — или turbo зовёт скрипт вне очереди"
+ },
+ {
+  "path": "tests/capabilities/elves/install.test.ts",
+  "describes": [
+   "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
+  ],
+  "name": "скрипт package.json поднимает стек docker compose up мимо task-env — install и check называют его с заменой task-env up, отставанием это не считается"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
@@ -4016,6 +4030,27 @@
  {
   "path": "tests/capabilities/github/github-premerge.test.ts",
   "describes": [
+   "pr premerge: чеки main — прогоны main, не любой ветки на его SHA"
+  ],
+  "name": "агрегат, упавший из-за отменённых джобов своего прогона, не делает базу красной"
+ },
+ {
+  "path": "tests/capabilities/github/github-premerge.test.ts",
+  "describes": [
+   "pr premerge: чеки main — прогоны main, не любой ветки на его SHA"
+  ],
+  "name": "красный чек прогона другой ветки на SHA базы не делает базу красной"
+ },
+ {
+  "path": "tests/capabilities/github/github-premerge.test.ts",
+  "describes": [
+   "pr premerge: чеки main — прогоны main, не любой ветки на его SHA"
+  ],
+  "name": "красный чек прогона самой базы делает её красной, как раньше — и джоб, упавший рядом с отменёнными (fail-fast)"
+ },
+ {
+  "path": "tests/capabilities/github/github-premerge.test.ts",
+  "describes": [
    "Выпуск пачки — один PR в main"
   ],
   "name": "PR в ветку пачки без выпуска или с выпуском, закрытым без мержа, проверяется как обычно"
@@ -4340,6 +4375,13 @@
   "describes": [
    "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
   ],
+  "name": "метка из списка, которую GitHub по имени уже не находит, не роняет загрузку состояния проекта: project check — строка ○ с её именем, fix её не сливает"
+ },
+ {
+  "path": "tests/capabilities/github/github-project.test.ts",
+  "describes": [
+   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
+  ],
   "name": "метка нового решения на открытой задаче — не ❌, а строка «новое решение» с номерами открытых задач; fix её не удаляет"
  },
  {
@@ -4495,6 +4537,20 @@
    "Способ мержа — только rebase"
   ],
   "name": "разрешены merge commit или squash, выключен rebase — ❌ по каждой причине; fix оставляет только rebase одним запросом REST"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "PR в пачку вливается только с метками решений, выпуск ставит недостающие"
+  ],
+  "name": "PR задачи в пачку меняет файл решения без pr labels — pr premerge отказывает с кодом 1 и называет команду pr labels"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "PR в пачку вливается только с метками решений, выпуск ставит недостающие"
+  ],
+  "name": "batch release: у задачи пачки нет метки решения, которое менял её PR, — метка ставится задаче и эпику, строка +"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -10148,6 +10204,20 @@
    "Настройки проекта — `.agents/elves.json`; установка до `update` — `.agents/ai-dev.json`"
   ],
   "name": "`env.http` — из `.agents/elves.json`; пока его нет — из `.agents/ai-dev.json`; сообщение об ошибке называет прочитанный файл"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Подъём стека задачи — тяжёлая работа машины: идёт очередью slot до здоровья контейнеров"
+  ],
+  "name": "подъём стека задачи ждёт места в очереди, когда два тяжёлых прогона уже идут"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Подъём стека задачи — тяжёлая работа машины: идёт очередью slot до здоровья контейнеров"
+  ],
+  "name": "подъём стека задачи отдаёт место в очереди, когда контейнеры стека здоровы"
  },
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
