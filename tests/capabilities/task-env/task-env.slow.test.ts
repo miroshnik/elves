@@ -308,6 +308,44 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     expect(taskEnv("check").code).toBe(0);
   });
 
+  /**
+   * Два стека с одноимёнными HTTP-сервисами в сети прокси (#700): Compose дал бы каждому в ней алиас короткого имени, и
+   * `web` отвечал бы то из одного стека, то из другого. Сервис входит в сеть прокси без алиаса — под именем контейнера.
+   */
+  describe("короткое имя сервиса в сети прокси", () => {
+    /** Ответы `http://<host>/` из одноразового busybox в сетях `networks`, по строке на запрос; не ответил — строка `fail`. */
+    const askFrom = (networks: string[], host: string, times = 1) =>
+      dockerOut(
+        "run", "--rm", ...networks.flatMap((n) => ["--network", n]), BUSYBOX, "sh", "-c",
+        `for i in $(seq ${times}); do wget -qO- -T 3 http://${host}/ 2>/dev/null | grep '^Hostname:' || echo fail; done`,
+      ).split("\n");
+    const upTwo = () => {
+      for (const branch of ["feat/42-checkout", "feat/43-refund"]) {
+        on(branch);
+        const r = taskEnv("up");
+        expect(r.code, r.out).toBe(0);
+      }
+    };
+
+    it("сервис стека в сети прокси не виден другому стеку под коротким именем", () => {
+      upTwo();
+      const dns = JSON.parse(dockerOut("inspect", "--format", "{{json .NetworkSettings.Networks}}", containerId(`${PROJECT}-42`, "web"))) as Record<string, { DNSNames: string[] }>;
+      expect(dns[PROXY]?.DNSNames).toEqual([`${PROJECT}-42-web-1`, containerId(`${PROJECT}-42`, "web")]);
+      expect(askFrom([PROXY], "web")).toEqual(["fail"]);
+      // имя контейнера в сети прокси остаётся — по нему прокси и соседи находят сервис
+      expect(askFrom([PROXY], `${PROJECT}-43-web-1`)).toEqual([`Hostname: ${containerId(`${PROJECT}-43`, "web")}`]);
+    });
+
+    it("сосед внутри стека по короткому имени всегда попадает в свой стек", async () => {
+      upTwo();
+      const own = `Hostname: ${containerId(`${PROJECT}-42`, "web")}`;
+      expect(new Set(askFrom([`${PROJECT}-42_default`, PROXY], "web", 12))).toEqual(new Set([own]));
+      // прокси по-прежнему ходит к обоим стекам
+      expect((await until(`web.42.${PROJECT}.localhost`, 200)).body).toContain(own);
+      expect((await until(`web.43.${PROJECT}.localhost`, 200)).body).toContain(`Hostname: ${containerId(`${PROJECT}-43`, "web")}`);
+    });
+  });
+
   it("профиль (`--profile`) поднимает сервисы профиля, без него их нет", async () => {
     on("feat/44-search");
     const plain = taskEnv("up");

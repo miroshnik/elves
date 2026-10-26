@@ -80,9 +80,10 @@ variables live only in the environment of the script's Compose process — no `.
 `docker compose up` by hand gets the default. A public variable baked in at build time (`NEXT_PUBLIC_*`, `VITE_*`)
 goes into `build.args` the same way: Compose interpolates them too.
 
-**The override** — the proxy's labels and network for the `env.http` services (a database isn't published), on
-Compose's stdin, not a file; `up` starts the proxy first if it isn't running — reference.md, "Override and compose
-files"; the labels — reference.md, "Labels of a task stack's service".
+**The override** — the proxy's labels for the `env.http` services (a database isn't published), on Compose's stdin,
+not a file; the script joins those services to the proxy's network itself, without their short name — inside the
+stack `http://storage:9000` always reaches the stack's own `storage`; `up` starts the proxy first if it isn't running
+— reference.md, "Override and compose files"; the labels — reference.md, "Labels of a task stack's service".
 
 **e2e** — `<project>-<N>-e2e`, apart from the dev stack of the task: `down --volumes` and `up` again on every run, so
 the run starts on clean volumes; then the command runs on the host (the current directory, the script's environment)
