@@ -88,19 +88,21 @@ separately (`reference.md`, "Report formats").
 
 ## spec-doc
 
-A page per decision folder is a story in three layers: the `<folder>.md`
-description (**why**), `describe` sections with prose from their JSDoc
-(**what it can do**), the section's tests in a collapsed block (**what checks
-it**); plus the `README.md` index and `architecture.md` from the model
-`tests/architecture/model.ts`. `--strict` — exit code 1 when:
+A page per decision folder — a topic with sections — is a story in three
+layers: the `<topic>.md` description (**why**), then the sections by name,
+each with its `<section>.md` and `describe` headings with prose from their
+JSDoc (**what it can do**), the tests in a collapsed block (**what checks
+it**); plus the `README.md` index (topics, their sections under them) and
+`architecture.md` from the model `tests/architecture/model.ts`. A section is
+the files `<section>.test.ts`, `<section>.<part>.test.ts`, `<section>.e2e.ts`,
+`<package>/<section>.test.ts`; a folder with a test file named after it
+isn't regrouped yet — one section, the folder's own. `--strict` — exit code
+1 when:
 
 - a test is outside `tests/capabilities/<name>`, `tests/architecture/<name>`
   and `tests/standards/<name>` (in `src/`, in `tests/unit/`, a file directly in
   `tests/capabilities/`) — «Outside the tree», a signal to move it;
-- a folder has no main file `tests/<kind>/<name>/<name>.*` (in a monorepo also
-  `tests/<kind>/<name>/<package>/<name>.*`): its `describe` order is the order
-  of the story;
-- a folder has no description `tests/<kind>/<name>/<name>.md`;
+- a topic has no description `<topic>.md`, a section — `<section>.md`;
 - a test file has a JSDoc header (its text belongs in `<folder>.md` or in
   `//`), or a standard's main file is still `rule.*` (rename it to `<name>.*`);
 - a `<!-- spec: c4-context -->` marker (`c4-container`, `c4-component`,
@@ -123,7 +125,8 @@ The ready `## Spec (tests)` section for the PR body: test names compared
 **statically** — the `tests/` files at two revisions via `git show`, without a
 run. The removed come first: a removed test is a removed requirement. Then
 «Changed» (renames), «Added» and, only if they changed, «Architecture model»,
-«Exceptions», «Harness checks».
+«Exceptions», «Harness checks». The lists go by topic and section: a test's
+place is `<folder>#<section>`, as the section's anchor in `spec-doc`.
 
 - The base is the merge-base of `--base` (default `origin/main`) and HEAD;
   before running — `git fetch origin`, otherwise `origin/main` is stale.
@@ -162,7 +165,8 @@ even without a breakage — exit code 2. After an interruption without a revert
 
 ## spec-exceptions
 
-A decision's exceptions are the folder's `exceptions/` directory, one file per
+A decision's exceptions are the folder's `exceptions/` directory (a section's —
+`exceptions/<section>/`), one file per
 exception (`<item>.json`: `{ item, rule?, issue, reason }`), not an array in
 `exceptions.ts`. `spec-exceptions` moves each `exceptions.ts` of a decision
 folder there and rewrites the imports (`exceptionsIn()`) and the paths in

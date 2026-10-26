@@ -13,7 +13,9 @@ What ends up in `docs/spec/` (the generated text is in the project language):
   as the first line, then per architecture rule; neither a model nor rules —
   no section), «Which rules the code obeys»
   (per standard); each link has the first paragraph of `<folder>.md` (the
-  description) and, if any, the number of skipped and failing tests; the
+  description) and, if any, the number of skipped and failing tests; a topic's
+  sections — links to their headings under it, each with the first paragraph
+  of its `<section>.md`; the
   «Outside the tree» section — only if there are such tests;
 - `architecture.md` — from the model `tests/architecture/model.ts`: Mermaid
   diagrams C1 (`C4Context`, the system and external systems), C2
@@ -27,7 +29,9 @@ What ends up in `docs/spec/` (the generated text is in the project language):
 - `capabilities/<name>.md`, `architecture/<name>.md`, `standards/<name>.md` —
   one file per folder, a story
   in three layers: the heading is the folder name, under it the `<folder>.md`
-  description (**why**); `describe` → a section with prose from its own JSDoc
+  description (**why**); in a topic with sections — then a heading per section
+  by name with its `<section>.md` and its files' `describe` a level deeper;
+  `describe` → a section with prose from its own JSDoc
   (**what it can do**; a nested one — a level deeper); the section's tests — a
   collapsed block `<details><summary>✅ 12 tests</summary>` (**what checks
   it**), with lines `- ✅ name` inside. A skipped one —
@@ -56,13 +60,18 @@ declaration order.
 Identical `describe` from several files of a folder (unit and e2e of one
 capability) merge into one section.
 
+**A topic with sections** (#685): a decision folder is a topic, a section — its
+files by the first part of the name: `<section>.test.ts`,
+`<section>.<part>.test.ts`, `<section>.e2e.ts`, `<package>/<section>.test.ts`;
+sections go by name, a section's main file is `<section>.*`. A folder with a
+test file named after it (in the root or a package subfolder, in the report or
+on disk) isn't regrouped yet: a topic of one section, all its files in it.
 **The main file of a folder** — `tests/<kind>/<name>/<name>.*`
 (`<name>.test.ts`, `<name>.e2e.ts`…) for a capability, an architecture rule
 and a standard, in a monorepo also `tests/<kind>/<name>/<package>/<name>.*`
 (a package subfolder, no deeper): its `describe` go first — the main file of
 the folder root, then the packages' main files by package name, then the
-remaining files by path; no main file either at the root or in subfolders —
-stderr, `--strict` — exit code 1. With both `<name>.test.*` and
+remaining files by path. With both `<name>.test.*` and
 `<name>.e2e.ts` side by side, the main one is `.test.*`: the page opens with
 the unit statements, e2e follows, before the folder's other files. **Names**
 of `describe` and `it` are statements in the project language (`language` in
@@ -82,8 +91,9 @@ decision folder isn't read — a warning line asking to delete it; the
 like any unknown flag). The generated `docs/spec`, the PR section of
 `spec-diff` and the names of the harness's tests are in the project language
 too (the `spec` keys of `locales/<language>.json` of the `github` skill).
-**Description** — `tests/<kind>/<name>/<name>.md`: missing — `spec-doc` names
-the file in stderr, `--strict` — exit code 1. A JSDoc header on a test file
+**Description** — `tests/<kind>/<name>/<name>.md`, a section's —
+`<section>.md` next to it: missing — `spec-doc` names the file in stderr,
+`--strict` — exit code 1. A JSDoc header on a test file
 doesn't go into the documentation — into stderr with a hint to move it to md,
 `--strict` — exit code 1. A standard's former main file `rule.*` — also into
 stderr with a hint to rename it to `<name>.*`, `--strict` — exit code 1.
@@ -149,8 +159,9 @@ describe("A paid invoice is closed without the accountant", () => { … });
 Decisions outside test names — as separate sections «<title> — removed» and
 «<title> — added», only if they changed: «Architecture model» (modules,
 dependencies, packages from `tests/architecture/model.ts`),
-«Exceptions» (the files of the decision folders' `exceptions/` — not in a
-subfolder and `.json`, as the harness reads them, — entries of the former
+«Exceptions» (the files of the decision folders' `exceptions/` and their
+sections' `exceptions/<section>/` — not in a subfolder and `.json`, as the
+harness reads them, a section's line names `<folder>#<section>` — entries of the former
 `exceptions.ts` — the item and the harness `rule` — and lint disables
 `eslint-disable … -- #N` in changed files,
 except the flow copy `.agents/` and `.claude/`; each entry

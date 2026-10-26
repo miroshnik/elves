@@ -55,7 +55,9 @@ const TABLE: { path: string; want: Answer; why: string }[] = [
   { path: "tests/architecture/boundaries/exceptions/src-db.json", want: at("tests/architecture/boundaries", "exceptions"), why: "правило архитектуры — тоже папка решения" },
   { path: `${A}/exceptions/a.txt`, want: at(A, "exceptions", false, true), why: "не JSON" },
   { path: `${A}/exceptions/importLegacy.ts`, want: at(A, "exceptions", false, true), why: "модуль вместо JSON" },
-  { path: `${A}/exceptions/old/a.json`, want: at(A, "exceptions", false, true), why: "вложенный каталог" },
+  { path: `${A}/exceptions/routes/a.json`, want: at(A, "exceptions/routes"), why: "исключение раздела — файл в exceptions/<раздел>/" },
+  { path: `${A}/exceptions/routes/a.ts`, want: at(A, "exceptions/routes", false, true), why: "модуль вместо JSON в каталоге раздела" },
+  { path: `${A}/exceptions/old/deep/a.json`, want: at(A, "exceptions", false, true), why: "каталог глубже раздела" },
   { path: `${A}/sub/exceptions/a.json`, want: at(A, "exceptions", false, true), why: "каталог в подпапке — не читается" },
   ...["ts", "mts", "js", "mjs", "json"].map((ext) => ({ path: `${A}/exceptions.${ext}`, want: at(A, "exceptions", true), why: "прежний файл, любое расширение" })),
   { path: `${A}/sub/exceptions.ts`, want: at(A, "exceptions", true), why: "прежний файл подпапки — исключения папки решения" },
@@ -127,11 +129,13 @@ describe("Файл исключений папки решения распозн
     expect(wrong.map((row) => `${row.path} (${row.why})`)).toEqual([]);
   });
 
-  it("таблица ловит расхождения pr labels до стандарта: не JSON, прежний файл не .ts, подпапка, скрытый файл", () => {
+  it("таблица ловит расхождения pr labels до стандарта: не JSON, раздел, прежний файл не .ts, подпапка, скрытый файл", () => {
     expect(mismatches(before).map((m) => m.split(":")[0])).toEqual([
       `${A}/exceptions/a.txt`,
       `${A}/exceptions/importLegacy.ts`,
-      `${A}/exceptions/old/a.json`,
+      `${A}/exceptions/routes/a.json`,
+      `${A}/exceptions/routes/a.ts`,
+      `${A}/exceptions/old/deep/a.json`,
       `${A}/sub/exceptions/a.json`,
       `${A}/exceptions.mts`,
       `${A}/exceptions.js`,

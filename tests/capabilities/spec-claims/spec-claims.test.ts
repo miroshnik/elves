@@ -187,6 +187,20 @@ describe("Сверка попадает в спеку как стандарт", 
     expect(doc.stdout).toContain("- ✅ POST /invoices вызывается тестом capability");
   });
 
+  // тема с разделами (#685): сверка — раздел темы, её описание — `<раздел>.md`, а не `<папка>.md`
+  it("с --section отчёт — раздел темы: spec-doc показывает его под темой с описанием `<раздел>.md`", () => {
+    writeTree(dir, {
+      "entries.json": JSON.stringify(["POST /invoices"]),
+      ".spec-journal/1.jsonl": line("POST /invoices", "tests/capabilities/billing/billing.test.ts"),
+      "tests/standards/routes/routes.md": "Маршруты.\n",
+      "tests/standards/routes/entry-points.md": "Каждый маршрут вызывается тестом capability.\n",
+    });
+    expect(claims("--standard", "tests/standards/routes", "--section", "entry-points").code).toBe(0);
+    expect(report()).toContain('file="tests/standards/routes/entry-points.test.ts"');
+    const doc = runScript("spec-doc", [".spec-claims.xml", "--root", dir, "--stdout"], dir);
+    expect(doc.stdout).toContain("### routes\n\nМаршруты.\n\n#### entry-points\n\nКаждый маршрут вызывается тестом capability.\n\n##### Каждая точка входа");
+  });
+
   // названия сверки попадают в спеку проекта, как названия харнесса: язык — проекта, а не Elves
   it("названия тестов сверки — на языке проекта: в проекте на en — по-английски", () => {
     setLanguage(dir, "en");

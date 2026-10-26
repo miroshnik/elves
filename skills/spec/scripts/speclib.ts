@@ -110,6 +110,36 @@ export function decisionFolder(file: string): string | null {
   return kind === "capability" || kind === "architecture" || kind === "standard" ? file.split("/").slice(0, 3).join("/") : null;
 }
 
+/**
+ * A test file of a not-yet-regrouped decision: named after its folder (`<name>.*`) in the folder root or in a monorepo
+ * package subfolder — the folder is a topic of one section, the folder's own (#685).
+ */
+export function isFolderNamed(file: string): boolean {
+  const folder = decisionFolder(file);
+  if (folder === null || !isTestFile(file)) return false;
+  const inner = file.split("/").slice(3);
+  return inner.length <= 2 && inner.at(-1)!.split(".")[0] === folder.split("/")[2];
+}
+
+/**
+ * A test file's section in its topic (`tests/<kind>/<topic>/<section>.test.ts`, `<section>.<part>.test.ts`,
+ * `<section>.e2e.ts`, `<package>/<section>.test.ts`): the first part of the file name. A topic folder with a test file
+ * named after it (`unregrouped` has the folder) — a not-yet-regrouped decision: one section, named after the topic.
+ * Outside the decision tree — null.
+ */
+export function sectionOf(file: string, unregrouped: ReadonlySet<string>): string | null {
+  const folder = decisionFolder(file);
+  if (folder === null) return null;
+  return unregrouped.has(folder) ? folder.split("/")[2]! : posix.basename(file).split(".")[0]!;
+}
+
+/** Decision folders of not-yet-regrouped decisions among test files (`isFolderNamed`). */
+export function unregroupedFolders(files: Iterable<string>): Set<string> {
+  const out = new Set<string>();
+  for (const f of files) if (isFolderNamed(f)) out.add(decisionFolder(f)!);
+  return out;
+}
+
 /** Decision folder exceptions — the `exceptions/` directory, a file per harness registry element (`exceptionsIn`). */
 export const EXCEPTIONS_DIR = "exceptions";
 
@@ -120,8 +150,10 @@ const LEGACY_EXCEPTIONS = /^exceptions\.(ts|mts|js|mjs|json)$/;
 export interface ExceptionFile {
   /** The decision folder `tests/<kind>/<name>` these exceptions belong to. */
   folder: string;
-  /** The folder's exceptions directory. */
-  dir: typeof EXCEPTIONS_DIR;
+  /** The exceptions directory in the folder: `exceptions`, a section's — `exceptions/<section>`. */
+  dir: string;
+  /** The section whose exceptions these are (`exceptions/<section>/<element>.json`); none — the whole folder's. */
+  section?: string;
   /**
    * The old format — an array in one file of the folder or a subfolder: spec-exceptions moves it into the folder's
    * `dir` directory.
@@ -137,7 +169,9 @@ export interface ExceptionFile {
  * `tests/standards/exception-files`.
  *
  * - `tests/<kind>/<name>/exceptions/<element>.json` — the folder's exception;
- * - another file in the directory (not `.json`, a nested directory) — an error: an exception is a JSON file;
+ * - `tests/<kind>/<topic>/exceptions/<section>/<element>.json` — an exception of the topic's section;
+ * - another file in the directory (not `.json`, a directory deeper than a section's) — an error: an exception is a
+ *   JSON file;
  * - the directory in a subfolder of the decision folder — an error: there's one directory per folder, `exceptionsIn()`
  *   of a test in any subfolder reads it;
  * - `exceptions.{ts,mts,js,mjs,json}` in the folder or a subfolder — the folder's old exceptions format;
@@ -153,8 +187,9 @@ export function exceptionFile(p: string): ExceptionFile | null {
   const dir = EXCEPTIONS_DIR;
   if (at === inner.length - 1) return { folder, dir, legacy: true };
   if (at > 0) return { folder, dir, legacy: false, error: `exceptions — only in ${folder}/${dir}/ of the decision folder, not in a subfolder` };
-  if (inner.length > 2 || !p.endsWith(".json")) return { folder, dir, legacy: false, error: "an exception is an <element>.json file with { item, issue, reason }" };
-  return { folder, dir, legacy: false };
+  const section = inner.length === 3 ? { dir: `${dir}/${inner[1]}`, section: inner[1]! } : { dir };
+  if (inner.length > 3 || !p.endsWith(".json")) return { folder, ...section, legacy: false, error: "an exception is an <element>.json file with { item, issue, reason }" };
+  return { folder, ...section, legacy: false };
 }
 
 // a word: letters, the capital — only the first or all (an abbreviation), parts — joined by an apostrophe or a hyphen

@@ -4598,11 +4598,11 @@ const LEGACY_EXCEPTIONS = /^exceptions\.(ts|mts|js|mjs|json)$/;
  * Which decision folder's exceptions file is it? A copy of the spec skill's `exceptionFile` rule (`speclib.ts`):
  * github imports no other skill (tests/standards/skill-imports) and works without spec; the
  * `tests/standards/exception-files` standard checks both copies against one table. The `exceptions/` directory of a
- * `tests/<kind>/<name>` folder, a `.json` file — the folder's exception; another file in the directory and a directory
- * in a subfolder — an error; `exceptions.*` in a folder or a subfolder — the former format; outside decision folders
- * and hidden ones — null.
+ * `tests/<kind>/<name>` folder, a `.json` file — the folder's exception, in `exceptions/<section>/` — the topic
+ * section's; another file in the directory, a deeper directory and a directory in a subfolder — an error;
+ * `exceptions.*` in a folder or a subfolder — the former format; outside decision folders and hidden ones — null.
  */
-export function exceptionFile(p: string): { folder: string; dir: string; legacy: boolean; error?: string } | null {
+export function exceptionFile(p: string): { folder: string; dir: string; section?: string; legacy: boolean; error?: string } | null {
   const parts = p.split("/");
   if (parts[0] !== "tests" || parts.length < 4 || !DECISION_KINDS.some((k) => DECISIONS[k].dir === parts[1])) return null;
   const folder = parts.slice(0, 3).join("/");
@@ -4613,8 +4613,9 @@ export function exceptionFile(p: string): { folder: string; dir: string; legacy:
   const dir = "exceptions";
   if (at === inner.length - 1) return { folder, dir, legacy: true };
   if (at > 0) return { folder, dir, legacy: false, error: "the exceptions directory is in a subfolder" };
-  if (inner.length > 2 || !p.endsWith(".json")) return { folder, dir, legacy: false, error: "an exception is not a .json file" };
-  return { folder, dir, legacy: false };
+  const section = inner.length === 3 ? { dir: `${dir}/${inner[1]}`, section: inner[1]! } : { dir };
+  if (inner.length > 3 || !p.endsWith(".json")) return { folder, ...section, legacy: false, error: "an exception is not a .json file" };
+  return { folder, ...section, legacy: false };
 }
 
 /**

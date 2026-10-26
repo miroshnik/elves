@@ -215,14 +215,22 @@ const MIGRATE = `migrate with spec-exceptions: ${process.versions["pnp"] ? PACKA
  * Exceptions of a decision folder — the `exceptions/` directory, a file per exception (`<element>.json`:
  * `{ item, issue, reason, rule? }`): parallel PRs each add and remove their own file, while in a shared array
  * neighboring lines conflict. The directory is `<dir>/exceptions`, by default the calling test's folder (by the stack,
- * like `meta`); no directory — no exceptions. A file that isn't a JSON exception, or one element (with the same `rule`)
- * in two files — an error with the paths.
+ * like `meta`); no directory — no exceptions. A topic's section (#685) also has `exceptions/<section>/`: the calling
+ * test's section is the first part of its file name (`<section>.test.ts`), with an explicit `dir` — `section`. A file
+ * that isn't a JSON exception, or one element (with the same `rule`) in two files — an error with the paths.
  */
-export function exceptionsIn(dir?: string): Exception[] {
+export function exceptionsIn(dir?: string, section?: string): Exception[] {
   // from the test file's location, not from cwd: a monorepo package's runner runs from its own directory
-  const folder = dir ?? callerFolder()?.abs;
+  const caller = dir === undefined ? callerFolder() : null;
+  const folder = dir ?? caller?.abs;
   if (folder === undefined) throw new Error("exceptionsIn: not called from a test file — pass the decision folder's directory");
-  return exceptionFiles(path.join(folder, EXCEPTIONS_DIR));
+  const own = section ?? (caller ? path.posix.basename(caller.file).split(".")[0] : undefined);
+  const at = path.join(folder, EXCEPTIONS_DIR);
+  return [...exceptionFiles(at), ...(own ? exceptionFiles(path.join(at, own)) : [])].filter((e, i, all) => {
+    const twin = all.findIndex((x) => x.item === e.item && (x.rule ?? "") === (e.rule ?? ""));
+    if (twin < i) throw new Error(`exception ${e.item}${e.rule ? ` (${e.rule})` : ""} is in two files: ${all[twin]!.file}, ${e.file} — keep one`);
+    return true;
+  });
 }
 
 /**
@@ -234,7 +242,12 @@ export function exceptionsIn(dir?: string): Exception[] {
 export function exceptionFiles(at: string): Exception[] {
   let names: string[];
   try {
-    names = readdirSync(at).filter((n) => !n.startsWith(".")).sort();
+    // a subdirectory — a section's exceptions (`exceptions/<section>/`): its tests read it, and a misplaced file there
+    // is the check of legacyExceptions
+    names = readdirSync(at, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith(".") && !e.isDirectory())
+      .map((e) => e.name)
+      .sort();
   } catch {
     return [];
   }
@@ -283,12 +296,12 @@ function shownPath(abs: string): string {
  * The calling test's decision folder: from the project root (`tests/<kind>/<name>`, outside `tests/` — the file's
  * directory), its absolute path and the project root (the directory with the `tests/` tree) that `rel` is counted from.
  */
-function callerFolder(): { rel: string; abs: string; base: string } | null {
+function callerFolder(): { rel: string; abs: string; base: string; file: string } | null {
   const t = testFileAt(new Error().stack ?? "", process.cwd());
   if (!t) return null;
   const rel = folderOf(t.rel);
   const base = t.abs.slice(0, t.abs.length - t.rel.length);
-  return { rel, abs: path.join(base, rel), base };
+  return { rel, abs: path.join(base, rel), base, file: t.rel };
 }
 
 /** A test file's decision folder from the project root: `tests/<kind>/<name>`; outside `tests/` — its directory. */
@@ -328,7 +341,7 @@ function legacyExceptions(it: It): void {
   seen.add(`legacy\0${folder}`);
   const found = filesUnder(folder, base).flatMap((f) => {
     const x = exceptionFile(f);
-    return x?.dir === EXCEPTIONS_DIR ? [{ f, x }] : [];
+    return x ? [{ f, x }] : [];
   });
   const at = (f: string) => shownPath(path.join(base, f));
   const legacy = found.filter(({ x }) => x.legacy).map(({ f, x }) => `${at(f)}: exceptions — a file per element in ${x.folder}/${EXCEPTIONS_DIR}/ — ${MIGRATE}`);

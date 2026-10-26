@@ -196,6 +196,34 @@ describe("Исключения папки решения — файл на эл�
     expect(() => exceptionsIn(path.join(dir, AUDIT))).toThrow(`exception importLegacy is in two files: ${path.join(dir, AUDIT, "exceptions/a.json")}, ${path.join(dir, AUDIT, "exceptions/b.json")} — keep one`);
   });
 
+  // тема с разделами (#685): исключения раздела — его каталог, соседний раздел их не видит
+  it("исключение раздела — файл exceptions/<раздел>/<элемент>.json", () => {
+    const ROUTES = "tests/standards/routes";
+    writeTree(dir, {
+      [`${ROUTES}/audit.test.ts`]: auditTest("", "exceptionsIn()"),
+      [`${ROUTES}/naming.test.ts`]: auditTest("", "exceptionsIn()").replace("пишет аудит", "назван по правилу"),
+      [`${ROUTES}/exceptions/audit/importLegacy.json`]: exception("importLegacy", 12, "аудит в #12"),
+    });
+    const r = bunTest();
+    expect(r["исключение: importLegacy (#12)"]).toBe("✓");
+    expect(r["importLegacy пишет аудит"]).toBeUndefined();
+    expect(r["importLegacy назван по правилу"]).toBe("✗ нет аудита");
+    expect(exceptionsIn(path.join(dir, ROUTES), "audit").map((e) => [e.item, path.relative(dir, e.file!)])).toEqual([
+      ["importLegacy", `${ROUTES}/exceptions/audit/importLegacy.json`],
+    ]);
+    expect(exceptionsIn(path.join(dir, ROUTES))).toEqual([]);
+  });
+
+  it("исключение одного элемента и в каталоге папки, и в каталоге раздела — ошибка с путями обоих", () => {
+    writeTree(dir, {
+      [`${AUDIT}/exceptions/a.json`]: exception("importLegacy", 12, "аудит в #12"),
+      [`${AUDIT}/exceptions/logs/b.json`]: exception("importLegacy", 14, "ещё раз"),
+    });
+    expect(() => exceptionsIn(path.join(dir, AUDIT), "logs")).toThrow(
+      `exception importLegacy is in two files: ${path.join(dir, AUDIT, "exceptions/a.json")}, ${path.join(dir, AUDIT, "exceptions/logs/b.json")} — keep one`,
+    );
+  });
+
   it("файл в exceptions/ — не JSON-исключение { item, issue, reason }: ошибка с путём файла", () => {
     writeTree(dir, { [`${AUDIT}/exceptions/importLegacy.ts`]: 'export default { item: "importLegacy" };\n' });
     expect(() => exceptionsIn(path.join(dir, AUDIT))).toThrow(`${AUDIT}/exceptions/importLegacy.ts: an exception is an <element>.json file`);
