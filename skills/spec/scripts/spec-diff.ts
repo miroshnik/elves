@@ -907,7 +907,16 @@ function asJson(
  * before the project language changed.
  */
 export function parseScenarios(md: string): string[] | null {
-  const lines = md.split(/\r?\n/);
+  // a fenced code block is an example in the task text, not its sections: its lines are blanked out
+  let fence: string | null = null;
+  const lines = md.split(/\r?\n/).map((l) => {
+    const f = /^\s*(`{3,}|~{3,})/.exec(l)?.[1];
+    if (f && (fence === null || (f[0] === fence[0] && f.length >= fence.length))) {
+      fence = fence === null ? f : null;
+      return "";
+    }
+    return fence === null ? l : "";
+  });
   const heads = locale.every((n) => n.sections.scenarios).map((h) => new RegExp(`^${locale.escapeRe(h).replace(/ +/g, "\\s+")}\\s*$`));
   const start = lines.findIndex((l) => heads.some((h) => h.test(l.trim())));
   if (start < 0) return null;
