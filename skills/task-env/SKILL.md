@@ -106,6 +106,9 @@ a question: a closed task's stack is nobody's; what is left — reference.md, "S
 didn't come up** — code 1, each failed service with its state and log — reference.md, "A stack that didn't come up".
 Exit codes — reference.md, "Exit codes".
 
+**Machine queue** — a bring-up is heavy work: `up` and `e2e` hold a place in the `slot` queue until the containers
+are healthy, the e2e command runs outside it; a package.json script with its own `docker compose up` — `check` names it.
+
 ### Network subnets
 
 Every stack is a network of its own, and Docker Desktop's default address pools hold about 30 networks on the
