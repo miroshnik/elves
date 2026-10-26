@@ -43,7 +43,7 @@ task's own Compose project, and nothing of it is shared with other tasks.
 
 | what | value |
 |---|---|
-| task | the number from the branch `[<area>/]<type>/<N>-<slug>`; in the middle of a rebase — the branch being rebased (`rebase-merge/head-name`); no number — the main checkout's stack, but never from a linked worktree: there `up` and `down` without a number refuse (give `up <N>` or finish the rebase) |
+| task | the number from the branch `[<area>/]<type>/<N>-<slug>`; in the middle of a rebase — the branch being rebased (`rebase-merge/head-name`); no number — the main checkout's stack, but never from a linked worktree: there `up` and `down` without a number take `ELVES_TASK=<N>` (`pr premerge` gives the PR's task to the checks on its detached HEAD), without it refuse (give `up <N>` or finish the rebase); a stack that didn't come up appends its reason to the file of `ELVES_TASK_ENV_FAILED` |
 | `<project>` | the repository of `origin` (the last part of its URL without `.git`), no remote — the main checkout's directory; lowercase letters, digits and `-`. Not the directory Compose takes by default — a worktree's is random |
 | stack | Compose project `<project>-<N>`, e2e — `<project>-<N>-e2e`, without a task — `<project>`, `<project>-e2e` |
 | profiles | `--profile <name>` (repeated) goes to Compose: a heavy service in `profiles` runs only in a task that asks for it |
