@@ -215,7 +215,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 207 тестов</summary>
+<details><summary>✅ 208 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -299,6 +299,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «`<base>` is red…» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «`main` is red…» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «a mark belongs in one element's file» из skills/spec/checks.md печатает или пишет скрипт
+- ✅ цитату «a mark names a topic or its section» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «a proxy without the API?» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «actual unavailable» из skills/est/SKILL.md печатает или пишет скрипт
 - ✅ цитату «after / before» из skills/est/reference.md печатает или пишет скрипт
@@ -433,7 +434,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ### Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 361 тест</summary>
+<details><summary>✅ 362 теста</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -777,6 +778,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название spec.harness.knip.unlisted скрипты читают из словаря
 - ✅ название spec.harness.knip.unresolved скрипты читают из словаря
 - ✅ название spec.harness.lintExceptions скрипты читают из словаря
+- ✅ название spec.harness.markNames скрипты читают из словаря
 - ✅ название spec.harness.markOneElement скрипты читают из словаря
 - ✅ название spec.harness.markRules скрипты читают из словаря
 - ✅ название spec.harness.oneRecord скрипты читают из словаря
