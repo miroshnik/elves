@@ -938,6 +938,22 @@ const norm = (s: string): string => {
   return t.toLowerCase();
 };
 
+/**
+ * A scenario with the decision folder in front — `` `<folder>` · <name> ``, as spec-diff prints a test: the folder
+ * and the name; without the prefix — the folder is null (any folder).
+ */
+export function scenarioFolder(scenario: string): { folder: string | null; name: string } {
+  const m = /^\s*`([^`]+)`\s*·\s*(.+)$/.exec(scenario);
+  return m ? { folder: m[1]!.trim(), name: m[2]! } : { folder: null, name: scenario };
+}
+
+/**
+ * The prefix names the folder as spec-diff prints it (`tests/capabilities/billing`, with `#section` in a topic with
+ * sections) or by its tail (`billing`, `capabilities/billing`).
+ */
+const inFolder = (folder: string | null, places: string[]): boolean =>
+  folder === null || places.some((p) => p === folder || p.endsWith(`/${folder}`));
+
 /** A scenario and what it became: new tests, a harness check's describe, or nothing. */
 export interface Found {
   scenario: string;
@@ -948,7 +964,8 @@ export interface Found {
 /**
  * Scenario ↔ new tests: each one whose it name or "describe › it" chain matches it (case-insensitive, without outer
  * quotes and a trailing mark) — one scenario is checked both on the server and in the UI; no test — the describe of a
- * new harness check, its name or chain. Tests that check generated (`generated` — only from the report) are tests of
+ * new harness check, its name or chain. A scenario with the decision folder in front (`scenarioFolder`) is matched only
+ * within that folder; without it — in any. Tests that check generated (`generated` — only from the report) are tests of
  * its scenario, not beyond the scenarios.
  */
 export function matchScenarios(
@@ -960,13 +977,16 @@ export function matchScenarios(
   const used = new Set<Test>();
   const usedChecks = new Set<HarnessDescribe>();
   const found = scenarios.map((scenario): Found => {
-    const want = norm(scenario);
-    const tests = fresh.filter((x) => norm(x.name) === want || norm([...x.describes, x.name].join(" › ")) === want);
+    const { folder, name } = scenarioFolder(scenario);
+    const want = norm(name);
+    const tests = fresh.filter(
+      (x) => inFolder(folder, [L.folderOf(x), placeOf(x)]) && (norm(x.name) === want || norm([...x.describes, x.name].join(" › ")) === want),
+    );
     if (tests.length) {
       for (const t of tests) used.add(t);
       return { scenario, tests, harness: null };
     }
-    const harness = checks.find((c) => !usedChecks.has(c) && (norm(c.describes.at(-1)!) === want || norm(c.describes.join(" › ")) === want)) ?? null;
+    const harness = checks.find((c) => !usedChecks.has(c) && inFolder(folder, [c.folder]) && (norm(c.describes.at(-1)!) === want || norm(c.describes.join(" › ")) === want)) ?? null;
     if (harness) usedChecks.add(harness);
     return { scenario, tests, harness };
   });

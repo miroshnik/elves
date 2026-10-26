@@ -226,7 +226,9 @@ no decision claims is dead and is deleted.
 - **Intent comes in through an issue:** we discuss the implementation and make
   decisions in the task (the questions section, comments). A code task gets at
   creation the labels of its topics (the "Task tracking" section in `AGENTS.md`)
-  and the scenarios section: future `it` names (or "describe › it") as a list:
+  and the scenarios section: future `it` names (or "describe › it") as a list,
+  optionally with the decision folder in front, as `spec-diff` prints a test
+  (`` `billing` · a draft is deleted `` — only a test of that folder matches):
   from them the user sees the requirements before the code and can stop it.
   For a "registry + invariant" standard the harness generates the tests per
   element — the scenario is the name of the `describe` in which `invariant`
