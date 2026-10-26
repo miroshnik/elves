@@ -189,9 +189,9 @@ it.
   direct push and `gh pr merge --admin` — only on the owner's direct
   instruction. **Before a push** — is it my branch.
 - **Commits in logical steps**, tests in the same commit as the code.
-  **Before a commit — `lint`, `typecheck`, `test:spec`; `test` — what the
-  change affects** (`--changed=origin/main`; the full run — CI,
-  `docs/testing.md`); before merging — a full build; `set -o pipefail` in
+  **Before a commit — one `elves precommit`** (`lint`, `typecheck`,
+  `test:spec`, the affected tests; the full run — CI, `docs/testing.md`);
+  before merging — a full build; `set -o pipefail` in
   `script | tail`.
 - **I merge as soon as all checks are green** (the preview deploy too; an
   empty list is "not registered yet") and GitHub merges without a conflict;
