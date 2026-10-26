@@ -3728,6 +3728,20 @@
  {
   "path": "tests/capabilities/github/github-premerge.test.ts",
   "describes": [
+   "pr premerge: база стека задачи PR"
+  ],
+  "name": "база стека не поднялась — «не смог проверить», а не «красная база»"
+ },
+ {
+  "path": "tests/capabilities/github/github-premerge.test.ts",
+  "describes": [
+   "pr premerge: база стека задачи PR"
+  ],
+  "name": "проверки на слиянии берут базу стека задачи PR"
+ },
+ {
+  "path": "tests/capabilities/github/github-premerge.test.ts",
+  "describes": [
    "pr premerge: красный main чинит PR задачи, чей коммит его покрасил"
   ],
   "name": "pr premerge на красном main останавливает PR другой задачи кодом 3"
@@ -9753,6 +9767,13 @@
   "describes": [
    "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
   ],
+  "name": "up на отцеплённом HEAD в worktree с ELVES_TASK поднимает стек задачи <project>-<N>"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
   "name": "up посреди ребейза ветки feat/42-x поднимает стек <project>-42"
  },
  {
@@ -9761,6 +9782,20 @@
    "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
   ],
   "name": "в основном чекауте без ветки задачи up по-прежнему поднимает стек <project>"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "стек не поднялся — причина в файле ELVES_TASK_ENV_FAILED: pr premerge отличает «не смог проверить» от красной проверки"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Посреди ребейза и на отцеплённом HEAD в worktree — стек задачи, а не основного чекаута"
+  ],
+  "name": "страховка от перекоррекции: ветка задачи важнее ELVES_TASK"
  },
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
