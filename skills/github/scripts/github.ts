@@ -1950,6 +1950,8 @@ const isDispatcher = (io: Io) => {
  * cloud executor's (`--assignment N --cloud`, #609) — `CLOUD_HANDOUT` in its place: the dispatcher printed its brief,
  * there is no worktree, and the queue names the wait for the task's closing. An app executor session's (`--assignment N
  * --session`, #624) — `SESSION_HANDOUT`: the dispatcher printed its prompt, the app makes the session's worktree later.
+ * A task past the batch (`--assignment N --main`, #697) — `MAIN_HANDOUT` as the line's last word: its PR goes into the
+ * default branch, the queue names it so and the batch's release doesn't wait for it.
  */
 const handedOutFile = (io: Io) => {
   const file = dispatcherFile(io);
@@ -1965,12 +1967,16 @@ interface HandOut {
    * app session (#624) — the end of each of its turns comes as the app's note.
    */
   executor: "subagent" | "cloud" | "session";
+  /** Past the dispatcher's batch (#697): the PR into the default branch, the release doesn't wait for it. */
+  main: boolean;
 }
 
 /** A cloud executor's mark in place of the worktree: a worktree is an absolute path. */
 const CLOUD_HANDOUT = "@cloud";
 /** An app executor session's mark in place of the worktree (#624): the app makes the session's worktree after the hand-out. */
 const SESSION_HANDOUT = "@session";
+/** A hand-out past the batch (#697) — the line's last word, after the worktree or the executor's mark. */
+const MAIN_HANDOUT = "@main";
 
 /** The repository's tasks handed out to this dispatcher's executors (`handedOutFile`); a line without a worktree — `null`. */
 function handedOut(io: Io, slug: string): HandOut[] {
@@ -1986,9 +1992,10 @@ function handOutsIn(file: string, slug: string): HandOut[] {
     .filter((l) => l.startsWith(`${slug}#`))
     .map((l) => {
       const [number, ...rest] = l.slice(slug.length + 1).split(" ");
-      const worktree = rest.join(" ").trim();
+      const main = rest.at(-1) === MAIN_HANDOUT;
+      const worktree = (main ? rest.slice(0, -1) : rest).join(" ").trim();
       const executor: HandOut["executor"] = worktree === CLOUD_HANDOUT ? "cloud" : worktree === SESSION_HANDOUT ? "session" : "subagent";
-      return { number: Number(number), worktree: executor === "subagent" ? worktree || null : null, executor };
+      return { number: Number(number), worktree: executor === "subagent" ? worktree || null : null, executor, main };
     })
     .filter((h) => Number.isInteger(h.number) && h.number > 0);
 }
@@ -2019,6 +2026,9 @@ function batchesIn(file: string | null): { repo: string; branch: string }[] {
 function batchOf(io: Io, slug: string): string | null {
   return batchesIn(dispatcherFile(io)).find((b) => b.repo.toLowerCase() === slug.toLowerCase())?.branch ?? null;
 }
+
+/** The task is handed out past the batch (`--assignment N --main`, #697): its PR goes into the default branch. */
+const handedPastBatch = (io: Io, slug: string, number: number) => handedOut(io, slug).some((h) => h.number === number && h.main);
 
 /** The queue command of the dispatcher marker — its first line; the batch lines follow it. */
 const queueCommandIn = (file: string) => readFileSync(file, "utf8").split("\n")[0]!.trim();
@@ -3265,12 +3275,14 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     // an app executor session (#624): the app continues the dispatcher at the end of each of its turns
     else if (!work.length && hand?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
     else if (!work.length && hand) work.push("handed out to an executor of this session");
+    // past the batch (#697): its PR goes into the default branch — the release doesn't wait for it
+    if (batch !== null && hand?.main && merged === undefined) work.push(`past the batch ${batch} (--main): its PR goes into ${recent.base} with the full CI — the release doesn't wait for it`);
     if (work.length) {
       running.push(`= ${label} — ${work.join(", ")}`);
       // merged into the batch, no open PR of it: its executor is done, the task waits for the release
       if (merged !== undefined && pr === undefined) settled++;
       else if (batch === null) holding++;
-      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && hand.executor !== "cloud" && !pastBatch(i)) holding++;
+      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && hand.executor !== "cloud" && !hand.main && !pastBatch(i)) holding++;
       else past.push(`#${i.number}`);
       continue;
     }
@@ -4135,8 +4147,12 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * who hadn't said «yes» to that merge, learned of it from the dispatcher afterwards — now the lead's mode and the
  * `merge` line: up to `pr premerge` by itself, then the answer «question: merge PR #N?», the merge — on the owner's «yes»
  * the dispatcher forwards; a cloud executor asks in its session; an app session's lead names its mode itself.
+ * `main` — past the dispatcher's batch (#697, the owner's word): the plain lead with the `bypass` line — the branch from
+ * origin/<base>, the PR into it with the full CI, the deploy, the refresh and `task close`; the hand-out marked
+ * (`MAIN_HANDOUT`) — a restart keeps the way, `task finish` opens the PR into the default branch, the queue names the task
+ * «past the batch» and its release doesn't wait for it; a task of a red release refuses it — its fix is the batch's.
  */
-export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean } = {}): number {
+export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean; main?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
   const file = handedOutFile(io);
   const own = pinnedTask(io)?.task;
@@ -4151,23 +4167,28 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   }
   // the dispatcher's batch of the repository (#648): the task branch from it, the PR into it, the task open till the
   // release; the session's own task isn't the batch's — it goes into the default branch, as a session outside a dispatcher
-  const batch = own?.slug === slug && own.number === number ? null : batchOf(io, slug);
+  const dispatched = own?.slug === slug && own.number === number ? null : batchOf(io, slug);
+  // past the batch (#697): the owner's word, or the task's earlier hand-out with it — a restart keeps the way
+  const main = dispatched !== null && (Boolean(o.main) || handedPastBatch(io, slug, number));
+  const batch = main ? null : dispatched;
   // the batch's release is red and the task is in it (#650): its fix goes into the batch — a cloud executor isn't in it
-  const fix = batch === null ? null : fixOf(io, slug, batch, number);
-  if (fix && o.cloud) {
-    throw new GhError(`#${number} is in the red release PR #${fix.release.number} of ${batch}: its fix goes into the batch, and a cloud executor isn't in the batch — a subagent or an app executor session`);
+  const fix = dispatched === null ? null : fixOf(io, slug, dispatched, number);
+  if (fix && (o.cloud || main)) {
+    throw new GhError(
+      `#${number} is in the red release PR #${fix.release.number} of ${dispatched}: its fix goes into the batch, and ${o.cloud ? "a cloud executor isn't in the batch — a subagent or an app executor session" : "--main takes it past the batch — the assignment without --main"}`,
+    );
   }
   if (file && !(own?.slug === slug && own.number === number)) {
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — hand-outs aren't committed into it
     writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-    const where = o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree;
+    const where = [o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree, main ? MAIN_HANDOUT : ""].filter(Boolean).join(" ");
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
   // the project's mode (#667): outside auto the executor's merge waits for the owner's «yes» — the dispatcher's request
   // is the work's scope, not a «yes» to each merge
   const auto = locale.autoProject(io.cwd ?? process.cwd());
-  if (o.cloud) return cloudBrief(io, slug, issue, batch, auto), 0;
+  if (o.cloud) return cloudBrief(io, slug, issue, dispatched, auto), 0;
   // a fix starts a new branch from the batch: the task's earlier branch is in the batch already — no restart line
   const inProgress = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress;
   const restart = fix || inProgress ? taskBranchesHere(io, slug, number) : [];
@@ -4185,7 +4206,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     branches: restart.map((b) => `\`${b}\``).join(", "),
     doneQuestions: N.lastLine.questions,
     remaining: N.lastLine.remaining,
-    batch: batch ?? "",
+    batch: batch ?? dispatched ?? "",
     release: fix?.release.number ?? "",
     checks: fix?.red.join(", ") ?? "",
     previous: fix && restart.length ? locale.fill(N.queue.fixPrevious, { branches: restart.map((b) => `\`${b}\``).join(", ") }) : "",
@@ -4199,10 +4220,12 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   // the leads take the task with `task start --branch` (#709), a restart — `--resume` (the `resume` line); the fix's
   // leads keep `task status --branch`: the new branch is cut beside the task's merged one, which task start stops on
   const sessionLead = fix ? N.queue.sessionFixLead : batch ? N.queue.sessionBatchLead : N.queue.sessionLead;
+  const bypass = main ? [N.queue.bypass] : [];
   const lines = o.session
-    ? [sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.batchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
+    ? [sessionLead, ...bypass, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.batchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
     : [
         fix ? N.queue.fixLead : batch ? N.queue.batchLead : N.queue.lead,
+        ...bypass,
         ...resume,
         N.queue.subagent,
         N.queue.session,
@@ -4951,7 +4974,8 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (!isTaskBranch(branch, number)) throw new GhError(`the checkout is on ${q(branch || "a detached HEAD")}, not on a branch of #${number} — task start ${number} --branch <type>/${number}-<slug>`);
   const dirty = git(io, io.cwd, "status", "--porcelain", "--untracked-files=no").stdout.trim();
   if (dirty) return stop(1, `! uncommitted changes in the checkout — the PR would go without them`, `the checks before a commit, git commit, then ${again}`);
-  const base = open?.base ?? batchOf(io, slug) ?? found.base;
+  // a task past the batch (#697) — into the default branch, as outside a batch
+  const base = open?.base ?? (handedPastBatch(io, slug, number) ? null : batchOf(io, slug)) ?? found.base;
   const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base}: ${why(fetched)}`);
   const commits = git(io, io.cwd, "log", "--reverse", "--format=%s", `origin/${base}..HEAD`).stdout.split("\n").filter((l) => l.trim());
@@ -6193,7 +6217,7 @@ that can't be continued, in the worktree of its task's branch.
 Examples:
   github task resume`,
   "task queue": `github task queue [--epic N] [--type Task|Bug] [--priority Urgent,High] [--repo owner/repo]
-github task queue --assignment <N> [--cloud | --session] [--repo owner/repo]
+github task queue --assignment <N> [--cloud | --session] [--main] [--repo owner/repo]
 
 The dispatcher session's queue: ready tasks (open, not an epic, not in work, no open blockers — other repositories'
 too —, no external blocker label) by Priority, then number, each with its executor's prompt; the rest — in work (=: In
@@ -6228,14 +6252,19 @@ merged into it — Next: names batch release, a task past the batch (a PR into t
 doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
 Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
 assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N; --cloud
-refused); released — a new batch, a released batch branch without an open PR into it is deleted (+).
+refused); released — a new batch, a released batch branch without an open PR into it is deleted (+). --main — the
+owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
+into it with the full CI, the deploy, the epic refresh, task close), the hand-out marked — a restart keeps it, task
+finish opens the PR into the default branch, the queue's = line says «past the batch» and the release doesn't wait for
+it; a task of a red release refuses it; with --cloud — the same, a cloud executor isn't in the batch anyway.
 
 Examples:
   github task queue --epic 40
   github task queue --type Bug --priority Urgent,High
   github task queue --assignment 42
   github task queue --assignment 42 --cloud
-  github task queue --assignment 42 --session`,
+  github task queue --assignment 42 --session
+  github task queue --assignment 42 --main`,
   "task close": `github task close <N> [--no-git] [--repo owner/repo]
 
 After the PR merge and the deploy (or a close without a PR) in one call: the actual (est fact --write), Status Done, the
@@ -6452,6 +6481,7 @@ export function main(argv: string[], io: Io): number {
           apply: { type: "string" },
           cloud: { type: "boolean", default: false },
           session: { type: "boolean", default: false },
+          main: { type: "boolean", default: false },
           resume: { type: "boolean", default: false },
           auto: { type: "boolean", default: false },
           timeout: { type: "string" },
@@ -6477,9 +6507,10 @@ export function main(argv: string[], io: Io): number {
         if (values.cloud && !values.assignment) throw new GhError("--cloud — only with --assignment <N>: the brief of one task's cloud executor");
         if (values.session && !values.assignment) throw new GhError("--session — only with --assignment <N>: the prompt of one task's app executor session");
         if (values.cloud && values.session) throw new GhError("--cloud or --session, not both: a cloud executor or an app session");
+        if (values.main && !values.assignment) throw new GhError("--main — only with --assignment <N>: one task's assignment past the batch");
         if (values.assignment) {
           if (positionals.length !== 1) throw new GhError("task queue --assignment <N>: one task number");
-          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { cloud: values.cloud!, session: values.session! });
+          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { cloud: values.cloud!, session: values.session!, main: values.main! });
         }
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")} — the queue is chosen by --epic, --type and --priority`);
         const priority = values.priority === undefined ? undefined : values.priority.split(",").map((x) => x.trim()).filter(Boolean);
