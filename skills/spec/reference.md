@@ -306,6 +306,21 @@ the move is "added", a test that also stayed outside the tree is a copy, also
 "added". In `--json` — `moved` with the original (`from`) and the new path of
 each test.
 
+**Regrouping into topics** (`migration.md`, its last section): a test of a
+decision not regrouped on the base that appears with the same `describe` chain
+and name in a section of the same root named after that decision is moved, not
+removed and added — «Regrouped into topics», a line per former decision; a
+harness check moves with its file the same way. A section under another name is
+honestly removed and added. In `--json` — `regrouped` with the former folder
+(`from`).
+
+```markdown
+**Regrouped into topics (3):** the same names, the topic's section is the former decision.
+
+- `tests/capabilities/billing` → `tests/capabilities/payments#billing` — 2 tests
+- `tests/capabilities/refunds` → `tests/capabilities/payments#refunds` — 1 test
+```
+
 The section is inserted into the PR body as a whole (after `Closes #N`); on
 new commits with tests — regenerate it and replace it.
 
@@ -474,7 +489,7 @@ folder and subfolders (`import exceptions from "./exceptions.ts"`) — to
 to the old file in `package.json` and `.github/workflows/*.yml` (`spec-claims
 --exceptions`) — to the directory. Which file belongs to whom — one rule,
 `exceptionFile` (`speclib.ts`), for the harness, spec-diff and
-spec-exceptions (the Elves standard `exception-files`); the
+spec-exceptions (the Elves standard `scripts#exception-files`); the
 command doesn't touch files outside decision folders. Output
 — lines `-` (file moved), `+` (new file), `~` (import or path rewritten), `!`
 (fix by hand: a reference from another folder, no harness import). Exit codes:
@@ -496,7 +511,7 @@ config import — `@miroshnik/elves/spec/harness`, `…/spec/architecture`,
 `…/spec/eslint-config` — load under the project's own runner (Vitest, Jest,
 Playwright, ESLint on Node) from the package's build, Bun and the type checker
 take the TypeScript source: only `node:` APIs and erasable TypeScript, no
-`import.meta` and no top-level `await` (tests/standards/harness-load). The
+`import.meta` and no top-level `await` (tests/standards/exports/harness-load). The
 agent before a PR and CI call the same project `spec:doc` / `spec:diff` at
 the same version, so what the agent sees locally matches CI. Why a package and
 not a copy, a submodule or a checkout in the workflow — section "Wiring into
@@ -515,7 +530,7 @@ the project's CI" below.
    TypeScript itself, for any project `type`) under `bun --no-env-file`: `bun`
    reads the bin itself, past its shebang, and without the flag would load the
    project's env files — the script would pass their keys on to `gh`, `git`
-   and the checked command (`tests/standards/no-env-file`); a job without the
+   and the checked command (`tests/standards/scripts/no-env-file`); a job without the
    project's dependencies — `bunx @miroshnik/elves@<version> spec-…` (`ci.md`).
    Reports — those the project has:
    ```json
@@ -768,7 +783,7 @@ the project's CI" below.
   under Bun: only `node:` APIs, erasable syntax (no `enum`, `namespace` or
   parameter properties, imports with `.ts`), no `import.meta` and no top-level
   `await` — Playwright and Jest in a project without `"type": "module"` load
-  them as CommonJS. The guard is `tests/standards/harness-load`: a real
+  them as CommonJS. The guard is `tests/standards/exports/harness-load`: a real
   Playwright in a temporary project, CommonJS and ESM.
 - The skill's tests — `bun test` (imports from `bun:test`): runner overhead of
   0.01 s versus 0.3 s for Vitest per file. Scripts in the tests are run via
@@ -792,11 +807,11 @@ the project's CI" below.
   don't transpile it: the package carries a build for Node — `elves pack`
   builds the modules of `exports` into `dist/` on publishing (#556); the
   `default` condition leads a runner on Node there, `types` and `bun` — to
-  the TypeScript source (tests/standards/harness-load). TypeScript checks a
+  the TypeScript source (tests/standards/exports/harness-load). TypeScript checks a
   `.ts` from `node_modules` with the project's options (`skipLibCheck` skips
   only `.d.ts`), so the modules of `exports` pass the strictest ones —
   `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature` and the
-  rest TypeScript keeps off by default (tests/standards/consumer-typecheck).
+  rest TypeScript keeps off by default (tests/standards/exports/consumer-typecheck).
 - Rejected:
   - a copy of the skill in the project (`.agents/skills/spec`, the install of
     earlier releases): every update is a PR of thousands of lines and a task of
