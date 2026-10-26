@@ -190,7 +190,9 @@ Besides the comment — the fields «Actual, h», «Tokens, M», «Cost, $» (th
 two — if the project has them). Tokens are taken from `message.usage` of the
 same linked records as the time (including subagents), once per `message.id` —
 in a transcript, usage repeats on every block of a response, and a resumed
-session copies the history. Cost is the **API equivalent** at public rates (the
+session copies the history; output — by the response's final record: a
+subagent's response is written while it streams, and its first record has a
+partial `output_tokens`. Cost is the **API equivalent** at public rates (the
 `PRICES` table at the top of `est.ts`, the date is there too; cache write =
 input ×1.25 for a 5-min TTL and ×2 for 1 h; fast mode — at its own rate). On a
 subscription this money isn't charged — it is a measure for comparing tasks and
