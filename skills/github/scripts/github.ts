@@ -3771,6 +3771,17 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
     const of = prTasks(p);
     io.out(`○ PR #${p.number}${of.length ? ` (${of.map((n) => `#${n}`).join(", ")})` : ""} into ${batch} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or ${base}`);
   }
+  // the decision labels of the batch's tasks by their PRs' files, before the release PR (#733): a PR merged without them
+  // gets them here — the release's own diff gives none
+  for (const m of merged) {
+    try {
+      const plan = prLabelPlan(io, slug, m.pr);
+      if (!("release" in plan)) for (const l of applyPrLabels(io, slug, plan, false)) io.out(l);
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      io.out(`! decision labels of PR #${m.pr} (${m.tasks.map((n) => `#${n}`).join(", ")}) not checked: ${e.message} — bun --no-env-file ${import.meta.path} pr labels ${m.pr}`);
+    }
+  }
 
   const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`, `+refs/heads/${batch}:refs/remotes/origin/${batch}`);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base} ${batch}: ${why(fetched)}`);
@@ -5543,6 +5554,17 @@ function statementDecisions(files: PrFile[], body: string): Set<string> {
  * a mutation past the limit would fail and leave the issue without a single label. Returns the lines to print.
  */
 function putLabels(io: Io, issue: Issue, who: string, want: string[], statements: Set<string> | null, all: Label[]): string[] {
+  const { add, lines } = labelsToAdd(issue, who, want, statements);
+  const added = addLabels(io, issue, add, all);
+  if (added) lines.push(`+ ${who}: ${added}`);
+  return lines;
+}
+
+/**
+ * What `putLabels` would set on the issue — the decision labels it lacks, as many as fit — and its `○` lines: `pr
+ * premerge` refuses while it isn't empty (#733), a label past GitHub's limit doesn't hold the merge.
+ */
+function labelsToAdd(issue: Pick<Issue, "labels">, who: string, want: string[], statements: Set<string> | null): { add: string[]; lines: string[] } {
   const lines: string[] = [];
   const missing = want.filter((n) => !issue.labels.includes(n));
   const room = Math.max(0, ISSUE_LABEL_LIMIT - issue.labels.length);
@@ -5556,9 +5578,7 @@ function putLabels(io: Io, issue: Issue, who: string, want: string[], statements
     lines.push(`○ ${who}: ${missing.length} new decision labels, room for ${room} (GitHub puts at most ${ISSUE_LABEL_LIMIT} on an issue, it has ${issue.labels.length}) — ${which}${without}`);
     if (named.length > room) lines.push(`○ ${who}: no room — not set: ${named.slice(room).join(", ")}`);
   }
-  const added = addLabels(io, issue, add, all);
-  if (added) lines.push(`+ ${who}: ${added}`);
-  return lines;
+  return { add, lines };
 }
 
 /**
@@ -5601,25 +5621,48 @@ function modulesAt(io: Io, slug: string, rev: string, what: string): Record<stri
   return {};
 }
 
-/**
- * Decision labels from the PR's diff for its tasks and their epics. The tasks — GitHub's link; right after the PR is
- * created there is none yet — the PR's tasks by the one rule (`taskLinks`: the task branch, «Closes #N» of the body):
- * a fix PR into a batch branch has «Refs #N» (#650). A batch's release PR — no labels (#650): its tasks got theirs from
- * their PRs into the batch, the release's diff would give each task the whole batch's — and a red release names its
- * guilty task by them.
- */
+/** Decision labels from the PR's diff for its tasks and their epics (`prLabelPlan`, `applyPrLabels`). */
 export function cmdPrLabels(io: Io, slug: string, number: number): number {
-  const { head, files, base } = loadPrChange(io, slug, number);
-  if (isBatchBranch(head.headRefName ?? "") && releaseOf([head], head.headRefName, base)) {
+  const plan = prLabelPlan(io, slug, number);
+  if ("release" in plan) {
     io.out(
-      `○ PR #${number} is the release of the batch ${head.headRefName}: its tasks got their decision labels from their PRs into the batch — ` +
+      `○ PR #${number} is the release of the batch ${plan.release}: its tasks got their decision labels from their PRs into the batch — ` +
         `the release's diff would give each task the whole batch's, and a red release names its guilty task by them: no labels`,
     );
     return 0;
   }
+  const { closes, want } = plan;
+  if (!closes.length) throw new GhError(`PR #${number} has no «Closes #N» and no task branch — nowhere to put the labels`);
+  io.out(`PR #${number} → ${closes.map((n) => `#${n}`).join(", ")}: ${want.join(", ") || "no decisions in the diff"}`);
+  for (const l of plan.skipped) io.out(`○ ${l} — only a mechanical edit (a deletion, a rename without changes, exceptions): no label`);
+  for (const x of plan.dimensions) io.out(`○ ${x.name} — label ${q(x.name)} is slice ${q(x.dim)}, not a decision label: not set`);
+  for (const l of applyPrLabels(io, slug, plan, true)) io.out(l);
+  return 0;
+}
+
+/** A PR's decision labels (`prLabelPlan`): its tasks, the decisions its diff changes, the repository's labels. */
+interface LabelPlan {
+  closes: number[];
+  want: string[];
+  decided: Map<string, DecisionKind[]>;
+  skipped: string[];
+  dimensions: { name: string; dim: string }[];
+  all: Label[];
+  statements: Set<string>;
+}
+
+/**
+ * What `pr labels` puts and where — one rule for it, `pr premerge` (#733: a PR doesn't merge without its labels) and
+ * `batch release` (it sets the missing ones). The tasks — GitHub's link; right after the PR is created there is none
+ * yet — the PR's tasks by the one rule (`taskLinks`: the task branch, «Closes #N» of the body): a fix PR into a batch
+ * branch has «Refs #N» (#650). A batch's release PR — its batch (#650): its tasks got theirs from their PRs into the
+ * batch, the release's diff would give each task the whole batch's — and a red release names its guilty task by them.
+ */
+function prLabelPlan(io: Io, slug: string, number: number): LabelPlan | { release: string } {
+  const { head, files, base } = loadPrChange(io, slug, number);
+  if (isBatchBranch(head.headRefName ?? "") && releaseOf([head], head.headRefName, base)) return { release: head.headRefName };
   let closes: number[] = (head.closingIssuesReferences?.nodes ?? []).map((x: Any) => x.number);
   if (!closes.length) closes = prTasks(head);
-  if (!closes.length) throw new GhError(`PR #${number} has no «Closes #N» and no task branch — nowhere to put the labels`);
   // modules come from the PR head: the PR may add a module or move its directory
   const modules = modulesAt(io, slug, head.headRefOid, "the PR head");
   const { changed: decided, mechanical: skipped } = decisionsOfFiles(files, modules);
@@ -5630,31 +5673,61 @@ export function cmdPrLabels(io: Io, slug: string, number: number): number {
     return dim ? [{ name: l.name, dim }] : [];
   });
   const want = [...decided.keys()].filter((n) => !dimensions.some((x) => x.name === n));
-  io.out(`PR #${number} → ${closes.map((n) => `#${n}`).join(", ")}: ${want.join(", ") || "no decisions in the diff"}`);
-  for (const l of skipped) io.out(`○ ${l} — only a mechanical edit (a deletion, a rename without changes, exceptions): no label`);
-  for (const x of dimensions) io.out(`○ ${x.name} — label ${q(x.name)} is slice ${q(x.dim)}, not a decision label: not set`);
-  if (!want.length) return 0;
+  return { closes, want, decided, skipped, dimensions, all, statements: statementDecisions(files, head.body ?? "") };
+}
 
+/**
+ * The PR's decision labels on its tasks and their epics (`prLabelPlan`): a label the repository lacks is created first.
+ * Returns the lines to print — `verbose` (`pr labels`) adds the labels that stay; `batch release` — only what it sets.
+ */
+function applyPrLabels(io: Io, slug: string, plan: LabelPlan, verbose: boolean): string[] {
+  const { closes, want, all, statements } = plan;
+  if (!want.length) return [];
+  const lines: string[] = [];
   const fresh = want.filter((l) => !all.some((x) => x.name === l));
   const repoId = fresh.length ? loadRepo(io, slug).id : "";
   for (const l of fresh) {
-    const label = decisionLabel(l, decided.get(l)!);
+    const label = decisionLabel(l, plan.decided.get(l)!);
     const created = mutate(io, { op: "CreateLabel", input: { repositoryId: repoId, ...label } }).createLabel.label;
     all.push({ id: created.id, ...label, open: { total: 0, numbers: [] } });
-    io.out(`+ created label ${q(l)}`);
+    lines.push(`+ created label ${q(l)}`);
   }
   const isDecision = (n: string) => legacyDecision(n) !== null || labelKinds(all.find((x) => x.name === n)?.description) !== null;
-  const statements = statementDecisions(files, head.body ?? "");
   const epics = new Map<number, Issue>();
   for (const n of closes) {
     const issue = loadIssue(io, slug, n);
-    for (const l of putLabels(io, issue, `#${n}`, want, statements, all)) io.out(l);
+    lines.push(...putLabels(io, issue, `#${n}`, want, statements, all));
     // earlier labels aren't removed: the task may have touched the decision in another PR too
-    for (const l of issue.labels.filter((x) => isDecision(x) && !want.includes(x))) io.out(`= #${n}: ${l} — the decision is not in the PR diff, the label stays`);
+    if (verbose) for (const l of issue.labels.filter((x) => isDecision(x) && !want.includes(x))) lines.push(`= #${n}: ${l} — the decision is not in the PR diff, the label stays`);
     if (issue.parent && !epics.has(issue.parent.number)) epics.set(issue.parent.number, loadIssue(io, slug, issue.parent.number));
   }
-  for (const epic of epics.values()) for (const l of putLabels(io, epic, `epic #${epic.number}`, want, statements, all)) io.out(l);
-  return 0;
+  for (const epic of epics.values()) lines.push(...putLabels(io, epic, `epic #${epic.number}`, want, statements, all));
+  return lines;
+}
+
+/**
+ * The decision labels the PR's tasks and their epics lack (#733): `<who>: <labels>` each, none — empty. In batch
+ * 2026-10-26-1 four executors merged their PRs into the batch without `pr labels`, the dispatcher found it after the
+ * release — `pr premerge` refuses such a merge, on every path to it: by hand and through `task finish`.
+ */
+function missingPrLabels(io: Io, slug: string, number: number): string[] {
+  const plan = prLabelPlan(io, slug, number);
+  if ("release" in plan || !plan.closes.length || !plan.want.length) return [];
+  const out: string[] = [];
+  const epics = new Set<number>();
+  const check = (issue: Issue, who: string) => {
+    const { add } = labelsToAdd(issue, who, plan.want, plan.statements);
+    if (add.length) out.push(`${who}: ${add.join(", ")}`);
+  };
+  for (const n of plan.closes) {
+    const issue = loadIssue(io, slug, n);
+    check(issue, `#${n}`);
+    if (issue.parent && !epics.has(issue.parent.number)) {
+      epics.add(issue.parent.number);
+      check(loadIssue(io, slug, issue.parent.number), `epic #${issue.parent.number}`);
+    }
+  }
+  return out;
 }
 
 // ----------------------------------------------------------------------------
@@ -5983,6 +6056,13 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   }
   // what the PR's fix goes through again: a PR into a batch has no CI to wait for (#676)
   const recheck = batch ? `pr premerge ${number} again` : "ci-wait again";
+  // the decision labels — not up to the executor's memory (#733): a PR doesn't merge without the labels of the decisions
+  // it changes
+  const unlabeled = missingPrLabels(io, slug, number);
+  if (unlabeled.length) {
+    io.out(`❌ don't merge: PR #${number} changes decisions without their labels — ${unlabeled.join("; ")}: bun --no-env-file ${import.meta.path} pr labels ${number}, then pr premerge ${number} again`);
+    return 1;
+  }
 
   /**
    * A red main: don't merge and don't fix it in your PR — one bug for everyone, the others wait for it to close.
@@ -6402,7 +6482,8 @@ Examples:
 The dispatcher's batch (epic #645) into the default branch by one PR — one full CI run and one deploy: the batch branch
 (the session's, from its marker, or the one named) rebased onto a fresh origin/<base> and pushed (--force-with-lease),
 the PR into the default branch — a conventional-commit title, the body: spec-diff of the batch and «Closes #N» of each
-task merged into it; Next: — ci-wait, pr premerge, the merge (outside auto — on the owner's «yes»), the deploy wait and the
+task merged into it, before the PR — the decision labels its tasks' PRs into the batch change and their tasks or epics
+lack (+ lines; a PR not read — a ! line with pr labels); Next: — ci-wait, pr premerge, the merge (outside auto — on the owner's «yes»), the deploy wait and the
 epic refresh — one per epic of the batch's tasks (task actualize with all of them), then task close of each task. The live
 executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
 the next batch or the default branch. The release PR open — its steps again; red — the guilty task (the release's only
@@ -6438,7 +6519,8 @@ checked this tree), the batch moved on — the fast checks on the merge with it.
 batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
 fix, checked as usual; merged — code 1 and the move: into the dispatcher's next
 batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the base by their
-changes (git cherry) — code 1 and a rebase.
+changes (git cherry) — code 1 and a rebase. The PR changes decisions whose labels its tasks or their epics lack (pr
+labels wasn't run) — code 1 and pr labels <N>, on every path to the merge.
 
 Examples:
   github pr premerge 57`,

@@ -779,6 +779,12 @@ already created by then.
 
 ### pr premerge
 
+First the decision labels (#733): the PR changes decisions (`pr labels`'
+rule) whose labels its tasks or their epics lack — `❌`, code 1 and the
+command `pr labels <N>`, then `premerge` again: on every path to the merge,
+by hand and through `task finish`, into a batch too; a label past GitHub's
+limit on an issue doesn't hold it. A batch's release PR — no labels, no check.
+
 Before merging a green PR, from a repository checkout: CI
 checked the merge with the default branch as it was at the time of the run,
 and without a merge queue the branch moves ahead. Didn't move — `✅ merge`,
@@ -1186,7 +1192,9 @@ dictionary); the body — the lead with the tasks' PRs, the batch's `spec-diff`
 (the spec skill's script next to this one, `--base origin/<base> --head <the
 rebased batch>`; not installed or failed — a line, the body without it) and
 `Closes #N` of each task: the merge closes them, and `task close` finds the
-release PR linked. Open PRs into the batch — the live executors' — `○` lines:
+release PR linked. Before the PR — the decision labels (#733): each task's PR
+into the batch by `pr labels`' rule, a label its task or epic lacks is set —
+a `+` line; a PR not read — a `!` line with `pr labels <PR>`. Open PRs into the batch — the live executors' — `○` lines:
 not in the release, the executors go on (question 2 of epic #645), their `pr
 premerge` holds the merge till the release, then moves the PR. The release PR
 already open — `=` and its steps again, no second PR; merged — the closing

@@ -167,8 +167,13 @@ function fakeGh(
     if (args[0] !== "api") throw new Error(`fake gh: неожиданный вызов gh ${args.join(" ")}`);
     // нынешнее имя репозитория (RepoName): репозиторий проекта — SLUG, другого нет
     if (url === "graphql") {
-      const { variables: v } = JSON.parse(stdin ?? "{}");
+      const { query, variables: v } = JSON.parse(stdin ?? "{}");
       const full = `${v?.owner}/${v?.name}`;
+      // файлы PR (PrChange) — для меток решений (#733): здесь PR решений не меняет, метки — в тестах задач
+      if (String(query).startsWith("query PrChange")) {
+        const pullRequest = { number: PR, headRefOid: head, headRefName: ref, baseRefName: base, body, closingIssuesReferences: { nodes: [] }, files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } };
+        return JSON.stringify({ data: { repository: { defaultBranchRef: { name: "main" }, pullRequest } } });
+      }
       return JSON.stringify(full === SLUG ? { data: { repository: { nameWithOwner: SLUG } } } : { data: { repository: null }, errors: [{ type: "NOT_FOUND", message: `Could not resolve to a Repository with the name '${full}'.` }] });
     }
     if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
