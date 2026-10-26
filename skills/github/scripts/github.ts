@@ -289,6 +289,12 @@ interface Label {
 /** Default-branch decisions by kind; the model didn't load — the reason, and then `architecture` has no modules. */
 export interface Decisions {
   names: Record<DecisionKind, string[]>;
+  /**
+   * The sections of each topic folder by kind: topic → its section names (`<section>.md`, `<section>.test.ts`,
+   * `<section>.e2e.ts`, `<section>.<part>.test.ts` at the topic root, the topic's own name excluded). A section has no
+   * label of its own: its changes label the topic.
+   */
+  sections: Record<DecisionKind, Record<string, string[]>>;
   modelError: string | null;
 }
 /**
@@ -331,7 +337,10 @@ export interface State {
   project: Project | null;
   openIssues: { id: string; number: number }[];
   labels: Label[];
-  /** Tasks of old `kind:name` labels that merge into an already taken name: by label id. */
+  /**
+   * Tasks of labels that merge into another one, open and closed, by label id: an old `kind:name` label into an already
+   * taken name, a section's label into its topic's.
+   */
   labelIssues: Record<string, { id: string; number: number }[]>;
   decisions: Decisions;
   /** An empty repository (no default branch) — null. */
@@ -482,9 +491,9 @@ export const Q = {
   // HEAD is the default branch: labels are checked against what's already merged
   SpecDecisions: `query SpecDecisions($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    capabilities: object(expression: "HEAD:tests/capabilities") { ... on Tree { entries { name type } } }
-    standards: object(expression: "HEAD:tests/standards") { ... on Tree { entries { name type } } }
-    architecture: object(expression: "HEAD:tests/architecture") { ... on Tree { entries { name type } } }
+    capabilities: object(expression: "HEAD:tests/capabilities") { ... on Tree { entries { name type object { ... on Tree { entries { name type } } } } } }
+    standards: object(expression: "HEAD:tests/standards") { ... on Tree { entries { name type object { ... on Tree { entries { name type } } } } } }
+    architecture: object(expression: "HEAD:tests/architecture") { ... on Tree { entries { name type object { ... on Tree { entries { name type } } } } } }
     model: object(expression: "HEAD:${MODEL_PATH}") { ... on Blob { text } }
   }
 }`,
@@ -840,7 +849,8 @@ export function loadState(io: Io, slug: string): State {
   const openIssues = pages<{ id: string; number: number }>((after) => graphql(io, Q.RepoIssues, { owner, name, after }).repository.issues);
   const main = mainProject(repo);
   const labels = loadLabels(io, slug);
-  return { repo, project: main ? loadProject(io, main.id) : null, openIssues, labels, labelIssues: mergedIssues(io, slug, labels), decisions: loadDecisions(io, slug), merge: loadMerge(io, slug) };
+  const decisions = loadDecisions(io, slug);
+  return { repo, project: main ? loadProject(io, main.id) : null, openIssues, labels, labelIssues: mergedIssues(io, slug, labels, decisions), decisions, merge: loadMerge(io, slug) };
 }
 
 const statusChecks = (rule: Any): { strict: boolean; contexts: string[] } | null =>
@@ -929,15 +939,24 @@ function loadMerge(io: Io, slug: string): Merge | null {
   };
 }
 
-/** Tasks of old labels whose name is taken (by another label or an old label earlier in the list) — fix merges them. */
-function mergedIssues(io: Io, slug: string, labels: Label[]): State["labelIssues"] {
+/**
+ * Tasks of the labels fix merges into another one: old labels whose name is taken (by another label or an old label
+ * earlier in the list), and decision labels without a decision whose name is a section of a topic (`sectionTopics`).
+ */
+function mergedIssues(io: Io, slug: string, labels: Label[], d: Decisions): State["labelIssues"] {
   const [owner, name] = slug.split("/") as [string, string];
   const seen = new Set(labels.filter((l) => !legacyDecision(l.name)).map((l) => l.name));
   const out: State["labelIssues"] = {};
+  const load = (l: Label) => (out[l.id] = pages<{ id: string; number: number }>((after) => graphql(io, Q.LabelIssues, { owner, name, label: l.name, after }).repository.label.issues));
+  const want = decisionsByName(d);
   for (const l of labels) {
     const old = legacyDecision(l.name);
-    if (!old) continue;
-    if (seen.has(old.name)) out[l.id] = pages<{ id: string; number: number }>((after) => graphql(io, Q.LabelIssues, { owner, name, label: l.name, after }).repository.label.issues);
+    if (!old) {
+      const kinds = labelKinds(l.description);
+      if (kinds && !want.has(l.name) && sectionTopics(d, l.name, kinds).length === 1) load(l);
+      continue;
+    }
+    if (seen.has(old.name)) load(l);
     seen.add(old.name);
   }
   return out;
@@ -984,6 +1003,9 @@ export function loadDecisions(io: Io, slug: string): Decisions {
   const r = inCloud(io) ? restSpecTree(io, slug) : (graphql(io, Q.SpecDecisions, { owner, name })?.repository ?? {});
   const dirs = (t: Any): string[] => (t?.entries ?? []).filter((e: Any) => e.type === "tree").map((e: Any) => e.name as string);
   const names = { capability: dirs(r.capabilities), standard: dirs(r.standards), architecture: dirs(r.architecture) };
+  const topics = (t: Any): Record<string, string[]> =>
+    Object.fromEntries((t?.entries ?? []).filter((e: Any) => e.type === "tree").map((e: Any) => [e.name, sectionNames(e.name, e.object?.entries ?? [])]));
+  const sections = { capability: topics(r.capabilities), standard: topics(r.standards), architecture: topics(r.architecture) };
   let modelError: string | null = null;
   if (r.model) {
     const mods = modelModules(r.model.text ?? "");
@@ -991,14 +1013,42 @@ export function loadDecisions(io: Io, slug: string): Decisions {
     else names.architecture.push(...Object.keys(mods));
   }
   for (const k of DECISION_KINDS) names[k] = [...new Set(names[k])].sort();
-  return { names, modelError };
+  return { names, sections, modelError };
+}
+
+/**
+ * A topic folder's sections — from the files at its root: `<section>.md` and the section's test files
+ * (`<section>.test.ts`, `<section>.e2e.ts`, `<section>.<part>.test.ts`); `<topic>.md`, the mechanism (`eslint.ts`,
+ * `rule.yml`) and subfolders aren't sections.
+ */
+export function sectionNames(topic: string, entries: { name: string; type: string }[]): string[] {
+  const out = new Set<string>();
+  for (const e of entries) {
+    if (e.type !== "blob" || !/\.(md|(test|e2e)\.[cm]?[jt]sx?)$/.test(e.name)) continue;
+    const section = e.name.split(".")[0]!;
+    if (section && section !== topic) out.add(section);
+  }
+  return [...out].sort();
+}
+
+/** The topics of these kinds that have a section with this name; a topic of several kinds — once. */
+export function sectionTopics(d: Decisions, name: string, kinds: DecisionKind[]): string[] {
+  const out = new Set<string>();
+  for (const k of DECISION_KINDS) if (kinds.includes(k)) for (const [topic, ss] of Object.entries(d.sections[k] ?? {})) if (ss.includes(name)) out.add(topic);
+  return [...out].sort();
 }
 
 /** SpecDecisions over the REST contents of the default branch — the cloud (#603): folders as `tree` entries, the model's text. */
 function restSpecTree(io: Io, slug: string): Any {
+  const list = (p: string) => {
+    const entries = rest(io, `repos/${slug}/contents/${p}`, { missing: true });
+    return Array.isArray(entries) ? entries.map((e: Any) => ({ name: e.name as string, type: e.type === "dir" ? "tree" : "blob" })) : null;
+  };
+  // a topic folder's files — its sections: one listing per topic
   const dir = (kind: DecisionKind) => {
-    const entries = rest(io, `repos/${slug}/contents/tests/${DECISIONS[kind].dir}`, { missing: true });
-    return Array.isArray(entries) ? { entries: entries.map((e: Any) => ({ name: e.name, type: e.type === "dir" ? "tree" : "blob" })) } : null;
+    const root = `tests/${DECISIONS[kind].dir}`;
+    const entries = list(root);
+    return entries ? { entries: entries.map((e) => (e.type === "tree" ? { ...e, object: { entries: list(`${root}/${e.name}`) ?? [] } } : e)) } : null;
   };
   const model = rest(io, `repos/${slug}/contents/${MODEL_PATH}`, { missing: true });
   return { capabilities: dir("capability"), standards: dir("standard"), architecture: dir("architecture"), model: model?.content ? { text: Buffer.from(model.content, "base64").toString("utf8") } : null };
@@ -1373,8 +1423,36 @@ export function analyze(s: State): Check[] {
   for (const [dim, names] of dimensions) {
     labels.note(`slice ${q(dim)}: labels ${names.map(q).join(", ")} aren't decision labels, decisions of the same name aren't labeled`);
   }
+  // A former decision regrouped into a section of a topic (#688): its label merges into the topic's — on every task with
+  // it, closed ones too (est picks analogs by them), the label is deleted; the topic has no label yet — the section's
+  // label is renamed into it. A section of several topics — which one is a guess: an ○ line, the label is left alone.
+  const regrouped = new Set<string>();
+  for (const { label: l, kinds } of orphans) {
+    const topics = sectionTopics(d, l.name, kinds);
+    if (!topics.length) continue;
+    regrouped.add(l.id);
+    if (topics.length > 1) {
+      labels.note(`label ${q(l.name)}: a section of topics ${topics.map(q).join(", ")} — not merged, the topic is a guess`);
+      continue;
+    }
+    const topic = topics[0]!;
+    const into = taken.get(topic);
+    const what = `label ${q(l.name)} without a decision is a section of topic ${q(topic)} — merge into the topic's label`;
+    if (!into) {
+      const to = decisionLabel(topic, want.get(topic)!);
+      taken.set(topic, { ...l, ...to });
+      labels(what, { kind: "confirm", text: `rename label ${q(l.name)} → ${q(topic)} (tasks keep it)`, mutations: [{ op: "UpdateLabel", input: { id: l.id, ...to } }] });
+      continue;
+    }
+    const issues = s.labelIssues[l.id] ?? [];
+    labels(what, {
+      kind: "confirm",
+      text: `merge label ${q(l.name)} into ${q(topic)}: ${issues.length ? `${nums(issues)} get ${q(topic)}, ` : ""}the old one is deleted`,
+      mutations: [...issues.map((i) => ({ op: "AddLabels", input: { labelableId: i.id, labelIds: [into.id] } })), { op: "DeleteLabel", input: { id: l.id } }],
+    });
+  }
   const unlabeled = [...want.keys()].filter((n) => !taken.has(n));
-  const sure = orphans.filter((o) => !unsure(o.kinds));
+  const sure = orphans.filter((o) => !unsure(o.kinds) && !regrouped.has(o.label.id));
   for (const { label: l } of sure.filter((o) => o.label.open.total)) {
     const more = l.open.total - l.open.numbers.length;
     labels.note(`new decision ${q(l.name)}: not in the default branch yet, the label is on open tasks ${l.open.numbers.map((n) => `#${n}`).join(", ")}${more > 0 ? ` and ${more} more` : ""}`);
@@ -2191,14 +2269,22 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const open = questionItems(o.body).filter((x) => !x.answered).map((x) => x.k);
   const repoLabels = wanted.length || open.length ? loadLabels(io, slug) : [];
   const has = (n: string) => repoLabels.find((x) => x.name === n);
-  // a decision by name comes from the default branch; `kind:name` — also a new one that isn't there yet
-  const decisions = wanted.some((l) => legacyDecision(l) || !has(l)) ? loadDecisions(io, slug) : null;
+  // a decision by name comes from the default branch; `kind:name` — also a new one that isn't there yet; a decision
+  // label — it may be a former decision regrouped into a section, whose label is the topic's
+  const decisions = wanted.some((l) => legacyDecision(l) || !has(l) || labelKinds(has(l)!.description)) ? loadDecisions(io, slug) : null;
   const inMain = decisions ? decisionsByName(decisions) : new Map<string, DecisionKind[]>();
   const plan = wanted.map((l) => {
     const dec = legacyDecision(l);
     const name = dec?.name ?? l;
     const label = has(name);
     const main = inMain.get(name) ?? [];
+    // a section has no label of its own: its changes label the topic (#688) — before the task is created
+    // a regular label of the repository with a section's name is a different label, not checked
+    const among = dec ? [dec.kind] : label ? labelKinds(label.description) : DECISION_KINDS;
+    const topics = decisions && among && !main.length ? sectionTopics(decisions, name, among) : [];
+    if (topics.length) {
+      throw new GhError(`${name} is a section of topic ${topics.map(q).join(", ")}: the label is the topic's, a section has none — --labels ${topics.join(" or ")}`);
+    }
     const kinds = dec && !main.includes(dec.kind) ? [...main, dec.kind] : main;
     const dim = dec && label ? labelDimension(label.description) : null;
     if (dim) throw new GhError(`label ${q(name)} is slice ${q(dim)}, not a decision label: decision ${name} isn't labeled; the slice label — --labels ${name}`);
@@ -4780,7 +4866,7 @@ export function decisionsOfFiles(files: PrFile[], modules: Record<string, string
 /**
  * Decisions whose statements the PR changes — who gets a label when not all of them fit on an issue (#569): a codemod
  * over every test (a test runner change) rewrites the bodies and changes no statement, and a decision label means "the
- * task changes the decision". A statement is the decision folder's `<name>.md` edited in content, or the folder named in
+ * task changes the decision". A statement is a `.md` at the topic folder's root (`<topic>.md`, a section's `<section>.md`) edited in content, or the folder named in
  * the spec section of the PR body (spec-diff output): a list line or a summary row starting with the folder — removed,
  * changed and added tests, the move into the tree, harness checks, scenarios that became tests. Exceptions aren't
  * statements (`mechanical`): their blocks are skipped. The section heading and block titles — in any dictionary
@@ -4790,8 +4876,9 @@ function statementDecisions(files: PrFile[], body: string): Set<string> {
   const dirs = new Set<string>(DECISION_KINDS.map((k) => DECISIONS[k].dir));
   const out = new Set<string>();
   for (const f of files) {
+    // the topic's `<topic>.md` and a section's `<section>.md` — the topic's statements (#688)
     const [root, dir, name, file, ...rest] = f.path.split("/");
-    if (root === "tests" && dirs.has(dir!) && file === `${name}.md` && !rest.length && !mechanical(f)) out.add(name!);
+    if (root === "tests" && dirs.has(dir!) && file?.endsWith(".md") && !rest.length && !mechanical(f)) out.add(name!);
   }
   const heads = locale.every((n) => n.prSpecSection);
   const exceptions = locale.every((n) => n.spec.diff.exceptionsTitle).map((t) => `**${t}`);
@@ -4827,7 +4914,7 @@ function putLabels(io: Io, issue: Issue, who: string, want: string[], statements
     const named = statements ? missing.filter((n) => statements.has(n)) : [...missing].sort();
     const bodies = statements ? missing.filter((n) => !statements.has(n)) : [];
     add = named.slice(0, room);
-    const which = statements ? "only decisions whose <folder>.md or test names the PR changes" : "alphabetically, as many as fit";
+    const which = statements ? "only decisions whose <topic>.md, <section>.md or test names the PR changes" : "alphabetically, as many as fit";
     const without = bodies.length ? `; test bodies and code only, no label: ${bodies.join(", ")}` : "";
     lines.push(`○ ${who}: ${missing.length} new decision labels, room for ${room} (GitHub puts at most ${ISSUE_LABEL_LIMIT} on an issue, it has ${issue.labels.length}) — ${which}${without}`);
     if (named.length > room) lines.push(`○ ${who}: no room — not set: ${named.slice(room).join(", ")}`);
@@ -5588,7 +5675,7 @@ Examples:
 Decision labels from the PR diff for the tasks from «Closes #N» (not linked yet — the task branch too) and their epics;
 doesn't remove earlier ones. A decision touched only mechanically (a deletion, a rename without changes, exceptions) and
 a decision with a slice label's name — an ○ line, no label. More than fit on an issue (GitHub allows
-${ISSUE_LABEL_LIMIT}) — only decisions whose <folder>.md or test names (the PR body's spec section) the PR changes, as
+${ISSUE_LABEL_LIMIT}) — only decisions whose <topic>.md, <section>.md or test names (the PR body's spec section) the PR changes, as
 many as fit; the rest — ○ lines. A batch's release PR — an ○ line, no labels: its tasks have theirs from their PRs into
 the batch.
 
