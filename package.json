@@ -54,6 +54,7 @@
     "bun": ">=1.2"
   },
   "scripts": {
+    "precommit": "bun --no-env-file bin/elves.ts precommit",
     "test": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test --path-ignore-patterns=\"**/*.slow.test.ts\" --path-ignore-patterns=\"tests/standards/**\"'",
     "test:slow": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test .slow.test.ts'",
     "test:spec": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test tests/standards'",
