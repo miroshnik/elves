@@ -9,7 +9,7 @@ import { elves, sandbox, type Sandbox } from "../../lib/elves.ts";
 import { packageProject } from "../../lib/npm.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
-import { calls, COMPOSE, FAKE_GH, run, SCRIPT } from "../../lib/task-env.ts";
+import { calls, COMPOSE, FAKE_GH, run, SCRIPT, untilAnswer } from "../../lib/task-env.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -774,5 +774,24 @@ describe("Подъём стека задачи — тяжёлая работа �
     expect(existsSync(path.join(proj, "inner"))).toBe(true);
     expect(calls(log)).toContain("tickets 2");
     release("a");
+  });
+});
+
+/**
+ * Ожидание адреса в медленных тестах стеков (`untilAnswer`, #753): прокси, пока событие Docker о пересозданном стеке не
+ * дошло, ведёт запрос на остановленный контейнер, и тот висит до таймаута Traefik. Здесь прокси — сервер, первый запрос
+ * которого не отвечает никогда.
+ */
+describe("Ожидание адреса стека повторяет висящий запрос", () => {
+  it("адрес стека, пересозданного с чистыми томами, тест дожидается, даже если первый запрос висит на остановленном контейнере", async () => {
+    let asked = 0;
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => (++asked === 1 ? new Promise<Response>(() => {}) : new Response("ok")) });
+    try {
+      const r = await untilAnswer(String(server.port), "web.e2e.42.shop.localhost", 200, 5_000);
+      expect(r).toEqual({ status: 200, body: "ok" });
+      expect(asked).toBeGreaterThan(1);
+    } finally {
+      await server.stop(true);
+    }
   });
 });

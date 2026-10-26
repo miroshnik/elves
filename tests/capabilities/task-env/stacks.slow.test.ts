@@ -6,14 +6,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, setDefaultTimeout
 import { composeEnv, formerProxyName, proxyHosts, proxyLabels } from "../../../skills/task-env/scripts/task-env.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
-import { calls, COMPOSE, FAKE_GH, run, SCRIPT } from "../../lib/task-env.ts";
+import { calls, COMPOSE, FAKE_GH, proxyGet, run, SCRIPT, untilAnswer } from "../../lib/task-env.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
 /** Приложение в контейнере: отвечает своим Hostname — id контейнера, — по нему видно, кто ответил. */
 const WHOAMI = "traefik/whoami:v1.12.0";
-/** Ждать события дольше этого — ошибка с объяснением, а не таймаут теста без него. */
-const PATIENCE = 30_000;
 
 /** Docker отвечает — сценарии с настоящим прокси идут; в CI без Docker они падают, а не пропускаются. */
 const dockerUp = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], { encoding: "utf8", timeout: 20_000 }).status === 0;
@@ -58,32 +56,8 @@ describe.skipIf(!dockerUp && !process.env.CI)("Прокси на машине р
     return id;
   }
 
-  /** Запрос через прокси с заголовком Host — так браузер приходит по адресу `*.localhost`. */
-  async function get(host: string, timeout = PATIENCE) {
-    const r = await fetch(`http://127.0.0.1:${port}/`, { headers: { Host: host }, signal: AbortSignal.timeout(timeout) });
-    return { status: r.status, body: await r.text() };
-  }
-
-  /**
-   * Ждёт ответа status по host: прокси узнаёт о контейнерах из событий Docker, а не сразу. Запрос, пока событие не
-   * дошло, идёт на адрес остановленного контейнера и висит до таймаута Traefik (504 через 30 с) — у каждого запроса
-   * свой короткий таймаут, неответ — «ещё нет».
-   */
-  async function until(host: string, status: number) {
-    const deadline = Date.now() + PATIENCE;
-    let last = { status: 0, body: "" };
-    while (Date.now() < deadline) {
-      try {
-        last = await get(host, 1_000);
-      } catch (e) {
-        if ((e as Error).name !== "TimeoutError") throw e;
-        last = { status: 0, body: "no answer in 1 s" };
-      }
-      if (last.status === status) return last;
-      await Bun.sleep(100);
-    }
-    throw new Error(`${host}: за ${PATIENCE / 1000} с не дождались ${status}, последний ответ ${last.status} ${last.body.slice(0, 200)}`);
-  }
+  const get = (host: string) => proxyGet(port, host);
+  const until = (host: string, status: number) => untilAnswer(port, host, status);
 
   const labels = (stack: string, service: string, host: string) => proxyLabels({ stack, service, host, port: 80, network: NAME });
 
@@ -179,22 +153,8 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
   const appUrl = (stack: string) =>
     (JSON.parse(dockerOut("inspect", "--format", "{{json .Config.Env}}", containerId(stack, "web"))) as string[]).find((v) => v.startsWith("APP_URL="))?.slice("APP_URL=".length);
 
-  /** Запрос через прокси теста с заголовком Host — так приходит браузер по адресу `*.localhost`. */
-  async function get(host: string) {
-    const r = await fetch(`http://127.0.0.1:${port}/`, { headers: { Host: host }, signal: AbortSignal.timeout(PATIENCE) });
-    return { status: r.status, body: await r.text() };
-  }
-  /** Прокси узнаёт о контейнере из событий Docker, а не сразу: ждём ответа status. */
-  async function until(host: string, status: number) {
-    const deadline = Date.now() + PATIENCE;
-    let last = { status: 0, body: "" };
-    while (Date.now() < deadline) {
-      last = await get(host);
-      if (last.status === status) return last;
-      await Bun.sleep(100);
-    }
-    throw new Error(`${host}: за ${PATIENCE / 1000} с не дождались ${status}, последний ответ ${last.status} ${last.body.slice(0, 200)}`);
-  }
+  const get = (host: string) => proxyGet(port, host);
+  const until = (host: string, status: number) => untilAnswer(port, host, status);
 
   beforeAll(() => {
     // прокси на порту, который выдаёт Docker; стек получает этот порт — он в адресах
