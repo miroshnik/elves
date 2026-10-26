@@ -7,8 +7,8 @@ Which check for what:
 | What to check | With what | Where in `tests/` |
 |---|---|---|
 | A convention on every item of a registry from the code ("every mutation writes an audit record") | `invariant` | `standards/<name>/` |
-| A lint rule: «not allowed», «allowed», «outside scope» | `examples`, `eslintLinter` | `standards/<name>/` + an `eslint.ts` fragment |
-| An ESLint rule in a standard's folder | `collectEslint` in `eslint.config.*` | the tree's `eslint.ts` fragments |
+| A lint rule: «not allowed», «allowed», «outside scope» | `examples`, `eslintLinter` | `standards/<topic>/` + an ESLint fragment (`eslint.ts`, `<section>.eslint.ts`) |
+| An ESLint rule in a standard's folder | `collectEslint` in `eslint.config.*` | the tree's `eslint.ts` and `<section>.eslint.ts` fragments |
 | Out of scope and an item's exception with its own file | `fileOf` in `invariant`; a mark `spec-outside(<decision>)` / `spec-exception(<decision>) #N` in the file (`marksIn`), in JSON — the value of the `"//"` key | the item's file (a route, a script, a migration, a workspace package's `package.json`) |
 | Exceptions with a ratchet | `exceptionsIn()` → `exceptions` in `invariant`; a disable `-- #N reason` + `lintExceptions` | the decision folder's `exceptions/<item>.json`; migration — `spec-exceptions` |
 | Architecture model: module boundaries, directories, packages | `boundariesConfig`, `architecture` | `architecture/model.ts`, `architecture/<name>/` |
@@ -142,7 +142,8 @@ Biome will be added when a project needs them (the core doesn't depend on the
 linter, `Linter` is an interface with one required method, `lint`).
 
 **A rule lives in its standard's folder.** A flat config fragment is
-`eslint.ts` next to the test (`export default [{ files: ["src/domain/**"],
+the topic's `eslint.ts` or a section's `<section>.eslint.ts` — each standard
+of a topic keeps its own — next to the test (`export default [{ files: ["src/domain/**"],
 rules: {…} }]`, paths from the project root); the project's `eslint.config.*`
 only collects the tree's fragments — `lint` and the editor see the rule as
 usual:
@@ -168,7 +169,9 @@ export default restrict({ id: "no-alert", selectors: ["CallExpression[callee.nam
 
 A fragment is `eslint.ts`, `eslint.mts` (ESM even in a project without
 `"type": "module"`, without the `MODULE_TYPELESS_PACKAGE_JSON` warning),
-`eslint.mjs` or `eslint.js`; `tests/lib` holds helpers, not fragments.
+`eslint.mjs` or `eslint.js`, a section's — the same under its prefix
+(`<section>.eslint.mts`); a knip entry for the fragments —
+`tests/**/*eslint.{ts,mts}`; `tests/lib` holds helpers, not fragments.
 
 **Exceptions are explicit, have a task, and go away when no longer needed.**
 

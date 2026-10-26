@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
+import { eslintFragments } from "../../../skills/spec/scripts/eslint-config.ts";
 import { eslintLinter, examples } from "../../../skills/spec/scripts/harness.ts";
 import type { It, LintMessage, Linter } from "../../../skills/spec/scripts/harness.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
@@ -210,5 +211,32 @@ describe("Правило ESLint живёт в папке своего станд
     const { ESLint } = await import(ESLINT);
     const results = await new ESLint({ cwd: dir }).lintFiles(["src/domain/invoice.js"]);
     expect(results[0].messages.map((m: { ruleId: string }) => m.ruleId)).toEqual(["no-console"]);
+  });
+
+  // у темы со многими стандартами на ESLint eslint.ts один — у раздела свой фрагмент под его префиксом (migration.md, шаг 2)
+  it("фрагмент раздела <раздел>.eslint.ts в папке темы входит в конфиг линта", async () => {
+    project(dir, false);
+    writeTree(dir, { "tests/standards/code/domain-no-console.eslint.ts": `export default [{ files: ["src/domain/**/*.js"], rules: { "no-console": "error" } }];\n` });
+    const { ESLint } = await import(ESLINT);
+    const results = await new ESLint({ cwd: dir }).lintFiles(["src/domain/invoice.js"]);
+    expect(results[0].messages.map((m: { ruleId: string }) => m.ruleId)).toEqual(["no-console"]);
+  });
+
+  it("фрагменты темы и её разделов идут в конфиг по порядку путей", () => {
+    const fragment = "export default [];\n";
+    writeTree(dir, {
+      "tests/standards/code/eslint.ts": fragment,
+      "tests/standards/code/b-section.eslint.mts": fragment,
+      "tests/standards/code/a-section.eslint.ts": fragment,
+      "tests/standards/code/a-section.test.ts": fragment,
+      "tests/standards/code/a-section.md": "",
+      "tests/capabilities/billing/invoice.eslint.js": fragment,
+    });
+    expect(eslintFragments(dir).map((f) => path.relative(dir, f))).toEqual([
+      "tests/capabilities/billing/invoice.eslint.js",
+      "tests/standards/code/a-section.eslint.ts",
+      "tests/standards/code/b-section.eslint.mts",
+      "tests/standards/code/eslint.ts",
+    ]);
   });
 });

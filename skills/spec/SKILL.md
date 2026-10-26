@@ -183,7 +183,7 @@ each one — `checks.md` next to this file:
 
 - a convention on every item of a registry from the code — `invariant`
   (`standards/<name>/`);
-- a lint rule — `examples`, `eslintLinter`, the folder's `eslint.ts` fragment
+- a lint rule — `examples`, `eslintLinter`, an `eslint.ts` or `<section>.eslint.ts` fragment
   collected by `collectEslint`;
 - out of scope and exceptions — `fileOf`, marks `spec-outside(<decision>)` /
   `spec-exception(<decision>) #N`, `exceptionsIn()`, `lintExceptions`;

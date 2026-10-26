@@ -44,8 +44,8 @@ no decision claims is dead and is deleted.
   - a topic of one section has the same anatomy — `<topic>.md` and a section
     with a name of its own; a test file named after its folder
     (`<name>/<name>.test.ts`) is a decision not regrouped yet;
-  - the mechanism — in the same folder: an `eslint.ts` fragment, an ast-grep
-    `rule.yml`. The project's tool configs (`eslint.config.*`, `sgconfig.yml`)
+  - the mechanism — in the same folder: an ESLint fragment (the topic's
+    `eslint.ts`, a section's `<section>.eslint.ts`), an ast-grep `rule.yml`. The project's tool configs (`eslint.config.*`, `sgconfig.yml`)
     only collect them from the tree (the harness's `collectEslint`) — a rule
     has one home;
   - `exceptions/<section>/` — exceptions for elements without a file of their
