@@ -22,7 +22,7 @@
  * The shebang goes through `sh`: the second line — `exec bun --no-env-file` for sh, a string and a comment for TypeScript
  * — starts Bun without the project's env files however the bin is called (`elves`, `node_modules/.bin/elves`, a
  * package.json script, bunx), and `elves slot '<command>'` doesn't pass their keys on to the command; not `#!/usr/bin/env
- * -S bun --no-env-file` — `env -S` isn't everywhere (busybox) (tests/standards/no-env-file, #592).
+ * -S bun --no-env-file` — `env -S` isn't everywhere (busybox) (tests/standards/scripts/no-env-file, #592).
  *
  * The layout is as with skills (`npx skills`), on the machine (`-g`, #557): the canon `~/.agents/elves/` (AGENTS.md,
  * claude/CLAUDE.md, docs/*.md) with Claude Code's rules `~/.claude/rules/elves*.md` — they load without the
@@ -120,7 +120,7 @@ const MANIFEST = ".agents/elves.json";
 const CANON = ".agents/elves";
 /** Claude Code's rules: symlinks to the canon's AGENTS.md and claude/CLAUDE.md. */
 const RULES = { agents: ".claude/rules/elves.md", claude: ".claude/rules/elves-claude.md" };
-/** The personal configuration directory, from the home directory (tests/standards/config-dir). */
+/** The personal configuration directory, from the home directory (tests/standards/scripts/config-dir). */
 const CONFIG = ".config/elves";
 
 /**
@@ -199,7 +199,7 @@ const TASK_ENV = path.join(SRC, "skills/task-env/scripts/task-env.ts");
 const TASK_ENV_TIMEOUT = 30_000;
 
 /**
- * Help — `--help` or `-h` anywhere in the arguments (tests/standards/cli-help): a command's synopsis (the first
+ * Help — `--help` or `-h` anywhere in the arguments (tests/standards/scripts/cli-help): a command's synopsis (the first
  * paragraph), what it does and examples; `elves --help` — the synopses of all. Answered before the launcher goes to the
  * release (`toRelease`) — by the launcher's own version: no network, at the cost of lagging behind a newer release. The
  * dispatcher takes only the commands from here (their flags — `FLAGS`) and the skills' scripts (`SCRIPTS`).
@@ -362,7 +362,7 @@ const synopses = (s: Script) => (typeof s.HELP === "string" ? [s.HELP] : Object.
 /**
  * The package's script in the current project — the form of its package.json: on Yarn 2+ through bunx (`packageRun`).
  * The root — by `.git` up from the current directory, without git: help runs no external commands
- * (tests/standards/cli-help).
+ * (tests/standards/scripts/cli-help).
  */
 const projectRun = () => packageRun(packageManager(locale.projectRoot(process.cwd())).berry);
 
@@ -370,7 +370,7 @@ const projectRun = () => packageRun(packageManager(locale.projectRoot(process.cw
  * A script's help under the elves name: its synopsis and example lines start with the package's script in the project
  * (`projectRun`: `PACKAGE_RUN <command>`, on Yarn 2+ — `PACKAGE_BUNX <command>`) — the agent copies an example as is:
  * the form of package.json and CI and the project's version, while bare `elves` in the agent's shell is the machine's
- * global package, if it's on PATH at all (tests/standards/no-env-file).
+ * global package, if it's on PATH at all (tests/standards/scripts/no-env-file).
  */
 const underElves = (cmd: string, text: string, run = projectRun()) => text.replace(new RegExp(`^( *)${cmd}(?= |$)`, "gm"), `$1${run} ${cmd}`).trimEnd();
 
@@ -760,7 +760,7 @@ interface Manifest {
 /**
  * The install's manifest: `.agents/elves.json`, until `update` moves it — the manifest of an earlier release under the
  * flow's former name (FORMER.manifest); missing or broken — empty. Read by `manifestOf` of the github skill's locale
- * module — the one reader of the manifest (tests/standards/project-manifest).
+ * module — the one reader of the manifest (tests/standards/scripts/project-manifest).
  */
 function readManifest(root: string): Manifest {
   return locale.manifestOf(root).fields as Manifest;
@@ -857,7 +857,7 @@ const unslot = (cmd: string) => SLOT_WRAPPED.exec(cmd)?.[1] ?? SLOT_STRING.exec(
  * can't be sourced there: the command stays a string argument of the package's slot, hidden from knip, but in the
  * queue. The package there — `PACKAGE_BUNX`: Yarn 2+ runs a `.ts` bin by Node, past its shebang, with any `nodeLinker`,
  * and with PnP there is no `node_modules` (#608). Yarn 2+ or not — the project's package manager by `packageManager` of
- * the github skill (tests/standards/package-manager).
+ * the github skill (tests/standards/scripts/package-manager).
  */
 const yarnShell = (root: string) => packageManager(root).berry;
 /**
@@ -1086,7 +1086,7 @@ function sessionHook(root: string, hook: SessionHook, ours: (h: { command?: unkn
  * The SessionStart hook in `~/.claude/settings.json` (HOOK): a hook of a previous version (with npx too, with the
  * repository's name before the rename — LEGACY_SOURCE) is replaced. A dry run names what the hook gives: from a
  * terminal `check -g` can't see the agent's shell, a missing hook is how it names a missing Bash environment
- * (tests/capabilities/agent-shell).
+ * (tests/capabilities/elves/agent-shell).
  */
 function claudeHook(home: string) {
   const ours = ({ command }: { command?: unknown }) => typeof command === "string" && [SOURCE, LEGACY_SOURCE].some((repo) => command.includes(`${repo} check --hook`));
@@ -1981,7 +1981,7 @@ function renamedOrigin(url: string): string | null {
 
 /**
  * A `--link` clone's origin — on the repository's current name: GitHub redirects git by the old name, but the skills
- * find the repository and answer "a checkout of repository X?" by the origin URL (tests/standards/origin-repo), and
+ * find the repository and answer "a checkout of repository X?" by the origin URL (tests/standards/scripts/origin-repo), and
  * GraphQL by the old name may not find it. The clone is cloned by the old name — `install -g --link` and `update -g`
  * (it reinstalls the links) move it, `check -g` names it. `.git/config` is shared with the clone's worktrees, a parallel
  * git may hold its lock: a failed move is a warning with the command, the install goes on.
@@ -2039,7 +2039,7 @@ function installGlobal(src: string, linkMode: boolean) {
 
   // The default location of the personal configuration. ELVES_CONFIG_DIR is deliberately not read here: the
   // variable overrides the whole directory and needs no symlink — the skills' scripts look where it points
-  // (tests/standards/config-dir).
+  // (tests/standards/scripts/config-dir).
   moveConfig(home);
   const priv = process.env.ELVES_PRIVATE || process.env[FORMER.env.ELVES_PRIVATE];
   if (priv) {
@@ -2064,7 +2064,7 @@ function installGlobal(src: string, linkMode: boolean) {
  * `~/.config/elves`: a directory — whole, a symlink (to a private checkout, `ELVES_PRIVATE`) — the same symlink. In its
  * place stays a symlink to the new one: the scripts of earlier releases — a project copy `update` hasn't brought yet —
  * keep the same directory, and the queue, the pins and the registry don't split in two; the skills' scripts read the
- * former directory until the move (tests/standards/config-dir). Both exist — not merged by the script: a warning with
+ * former directory until the move (tests/standards/scripts/config-dir). Both exist — not merged by the script: a warning with
  * what to do.
  */
 function moveConfig(home: string) {
@@ -2139,7 +2139,7 @@ interface Result {
 }
 
 /**
- * The project's compose file against the task isolation rules (the task-env skill, tests/capabilities/task-env): a `❌`
+ * The project's compose file against the task isolation rules (the task-env skill, tests/capabilities/task-env/stacks): a `❌`
  * line per violation, `○` — not checked (no docker compose, the config doesn't parse): that isn't a violation, and the
  * exit code of `check` doesn't change. No compose file — no lines, the script doesn't start. The script runs under the
  * same Bun as the installer.
@@ -2228,7 +2228,7 @@ const BATCHES_DOC = "~/.agents/skills/spec/ci.md, «Batches»";
 const BATCH_SAMPLE = "batch/2026-01-01-1";
 
 /**
- * Whether a workflow gets a run on a PR into `base`, by its `on:` (tests/standards/pr-workflow-run): `yes`, `no` or
+ * Whether a workflow gets a run on a PR into `base`, by its `on:` (tests/standards/scripts/pr-workflow-run): `yes`, `no` or
  * `unknown` — not decidable without the PR's diff and event. `pull_request` as a string, in an array, a key with
  * filters or null; `pull_request_target` runs in the base, not on the PR's head — `no`. The branch filter goes first: a
  * base it filters out gets no run whatever the diff. Its patterns — GitHub's filter pattern cheat sheet: in order, `!`
@@ -2236,7 +2236,7 @@ const BATCH_SAMPLE = "batch/2026-01-01-1";
  * `?`, `+` and `[…]` — as in a regex; a pattern that isn't one takes nothing. Then a paths filter and `types` without
  * `synchronize` — `unknown`. What follows from the answer is the reader's: `batchCi` — a `❌` line on `yes` and on
  * `unknown` into a batch branch (a PR into it starts no workflow). A copy — PR_RUN in skills/ci-wait/scripts/wait-ci.sh
- * (`ci-wait pr` waits on `yes`): ci-wait and the installer don't import each other (tests/standards/skill-imports),
+ * (`ci-wait pr` waits on `yes`): ci-wait and the installer don't import each other (tests/standards/scripts/skill-imports),
  * both answer by one table.
  */
 export function prRun(on: unknown, base: string): "yes" | "no" | "unknown" {
@@ -2374,7 +2374,7 @@ const hookStep = (cmd: string, what: string, shown = cmd) => `{ ${cmd}; } >/dev/
  * failed step — a line with its command; the code is always 0: Claude Code drops the output of any other.
  * An Elves clone (`clone`) installs the flow from itself, `install -g --link` — the canon of the branch, as a clone on
  * the owner's machine, and npm has no release yet then (only the `0.0.0` stub), — and zsh for its tests
- * (tests/capabilities/agent-shell).
+ * (tests/capabilities/elves/agent-shell).
  */
 function cloudHook(clone: boolean): SessionHook {
   const there = '[ -e "$HOME/.claude/rules/elves.md" ]';
@@ -2382,7 +2382,7 @@ function cloudHook(clone: boolean): SessionHook {
   const steps = clone
     ? [
         `${there} || ${hookStep(CLOUD_BUN, "Bun isn't updated")}`,
-        `command -v zsh >/dev/null || ${hookStep(CLOUD_ZSH, "no zsh for tests/capabilities/agent-shell")}`,
+        `command -v zsh >/dev/null || ${hookStep(CLOUD_ZSH, "no zsh for tests/capabilities/elves/agent-shell")}`,
         hookStep(`${elves} install -g --link`, "the flow isn't installed", "bun --no-env-file bin/elves.ts install -g --link"),
       ]
     : [`${there} || { ${CLOUD_FLOW}; } >/dev/null 2>&1 || { echo "Elves cloud hook: the flow isn't installed (exit $?) — run: ${CLOUD_FLOW}"; exit 0; }`];
@@ -2400,7 +2400,7 @@ function olderVersion(a: string, b: string) {
 /**
  * A Claude Code cloud session's environment (#598): the image's Bun lags behind the project's `packageManager` (1.4.2
  * without the `bun check` of 1.4.3: typecheck and tests are red), an Elves clone's tests need zsh
- * (tests/capabilities/agent-shell) the image doesn't have. The project's cloud hook installs them at the session's
+ * (tests/capabilities/elves/agent-shell) the image doesn't have. The project's cloud hook installs them at the session's
  * start (`cloudHook`, #610); the line names an environment still without them — a project without the hook yet, a
  * failed step of the hook, a setup script's cache with an older Bun — with the command the session runs itself.
  * Doesn't change the check's code — the environment isn't the flow falling behind.
@@ -2413,7 +2413,7 @@ function cloudLines(root: string): string[] {
   const missing: string[] = [];
   const fix: string[] = [];
   if (want && have && olderVersion(have, want)) missing.push(`Bun ${have} is older than packageManager bun@${want}`), fix.push(CLOUD_BUN);
-  if (isElvesClone(root) && !onPath("zsh")) missing.push("no zsh for tests/capabilities/agent-shell"), fix.push(CLOUD_ZSH);
+  if (isElvesClone(root) && !onPath("zsh")) missing.push("no zsh for tests/capabilities/elves/agent-shell"), fix.push(CLOUD_ZSH);
   if (!missing.length) return [];
   return [`  cloud environment: ${missing.join("; ")} — the session runs it itself: ${fix.join(" && ")}; at a cloud session's start the project's SessionStart hook does it (docs/cloud-sessions.md)`];
 }
@@ -2670,7 +2670,7 @@ function cacheTtlLines(home: string): string[] {
 const ttlNote = () => cacheTtlLines(os.homedir()).forEach((l) => note(l.trimStart()));
 
 /**
- * The agent's Bash environment (tests/capabilities/agent-shell). Claude Code's Bash tool — the user's zsh on macOS —
+ * The agent's Bash environment (tests/capabilities/elves/agent-shell). Claude Code's Bash tool — the user's zsh on macOS —
  * puts the text of the files SessionStart hooks write to `$CLAUDE_ENV_FILE` into every call, after the user's shell
  * snapshot and before the command's `eval` (checked on Claude Code 2.1.295): shell options and PATH from there hold
  * in the command itself, in subagents too. zsh breaks commands written for bash: a glob without matches is an error
@@ -3274,7 +3274,7 @@ function takeTag(args: string[]): { tag: string | undefined; rest: string[] } {
 
 /**
  * The command line. It runs only as the entry point (`import.meta.main`, as the skills' scripts): a test imports the
- * installer for `prRun` (tests/standards/pr-workflow-run); the installer under its path before the rename calls it
+ * installer for `prRun` (tests/standards/scripts/pr-workflow-run); the installer under its path before the rename calls it
  * itself.
  */
 export async function main(argv: string[]): Promise<number> {

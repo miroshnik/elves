@@ -1,4 +1,4 @@
-# Релиз в npm: тег релиза (elves release) — пакет @miroshnik/elves этой версии с provenance (tests/capabilities/release).
+# Релиз в npm: тег релиза (elves release) — пакет @miroshnik/elves этой версии с provenance (tests/capabilities/elves/release).
 # Версия и сборка модулей для Node — elves pack по тегу, публикация — npm publish (publishConfig в package.json).
 # Публикация тега не отменяется и не вытесняется (docs/ci-concurrency.md). Без токена — trusted publishing npm по OIDC
 # (docs.npmjs.com/trusted-publishers); шаг владельца — trusted publisher в настройках пакета на npmjs.com
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # tests/standards/ci-timeouts: зависший шаг не держит публикацию до 6 часов
+    timeout-minutes: 10 # tests/standards/workflows/ci-timeouts: зависший шаг не держит публикацию до 6 часов
     permissions: { contents: read, id-token: write } # id-token — OIDC: вход в npm и подпись provenance
     steps:
       - uses: actions/checkout@v7

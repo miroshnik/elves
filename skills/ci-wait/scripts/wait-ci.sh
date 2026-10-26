@@ -24,7 +24,7 @@
 # Exit:  0 PASS · 1 FAIL · 2 TIMEOUT · 3 ERROR or a wrong call. The outcome is the exit code.
 set -uo pipefail
 
-# help [mode]: the mode's synopsis, what it does and examples, otherwise the overview (tests/standards/cli-help);
+# help [mode]: the mode's synopsis, what it does and examples, otherwise the overview (tests/standards/scripts/cli-help);
 # printf is a builtin — help runs no commands. The overview takes a mode's first line by command substitution, not a
 # pipeline (#495): `help "$m" | { read -r line; … }` — the reader leaves after one line, bash writes stdout line by line,
 # and the writer got SIGPIPE under load; with pipefail the last mode's 141 broke the && chain, and the tail was lost
@@ -99,13 +99,13 @@ rate_limited() { grep -qi 'rate limit' <<<"$1"; }
 # without this line the outcome came down to hosting statuses (#360).
 # The spec publish job (the spec skill, ci.md; "<job> / spec-publish" — the same job in a reusable workflow) — publishing
 # the documentation, not a check: it is neither awaited nor a FAIL, only by --context (#443). A copy — in the github
-# skill's premerge (SPEC_PUBLISH): its red isn't a red main; both answer by one table, tests/standards/spec-publish-job.
+# skill's premerge (SPEC_PUBLISH): its red isn't a red main; both answer by one table, tests/standards/scripts/spec-publish-job.
 SPEC_PUBLISH='^(.+ / )?spec-publish$'
 # The state of each check-run name (jq check_states over REST check-runs): not completed — pending; success — pass;
 # neutral, skipped — skipping; cancelled — cancel; any other conclusion — fail. Reruns of one name — the last check-run
 # of each app (the id grows with creation), not the best one and not the order of the response; several apps — the
 # worst of their states. A copy — in the github skill (checkStates: task show, project check): both answer by one table,
-# tests/standards/check-run-state.
+# tests/standards/scripts/check-run-state.
 CHECK_STATES='def check_states:
   group_by([.name, .app.id]) | map(max_by(.id))
   | map({ name, bucket: (if .status != "completed" then "pending"
@@ -163,7 +163,7 @@ load_required() {
 # what the earlier ones took, a later pattern takes it back; `*` — anything but `/`, `**` — anything, `?`, `+` and `[…]`
 # — as in a regex; a pattern that isn't one takes nothing. Then a paths filter and `types` without `synchronize` —
 # "unknown". A copy — in the installer (prRun, bin/elves.ts: check of a batch project): both answer by one table,
-# tests/standards/pr-workflow-run.
+# tests/standards/scripts/pr-workflow-run.
 PR_RUN='def pr_run($base):
   def list: if type == "array" then . else [.] end;
   def takes: reduce (.[] | strings) as $p (false;

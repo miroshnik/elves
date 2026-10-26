@@ -39,7 +39,7 @@ interface Place {
   reads: string;
   /**
    * Тест «старое имя узнаётся своим и заменяется, второго нет» — `<папка решения> › <название теста>`; у выражения
-   * каталога конфигурации — папка стандарта `config-dir`, который его держит.
+   * каталога конфигурации — папка стандарта `scripts#config-dir`, который его держит.
    */
   test: string;
 }
@@ -241,26 +241,34 @@ function outside(file: string, text: string, places: readonly Place[] = PLACES):
     .map((o) => `${file}${o.line ? `:${o.line}` : ""} (${o.block}) — ${o.snippet}`);
 }
 
-/** Названия тестов папки решения — по разбору исходников, без запуска. */
+/** Тестовые файлы тем: `tests/<корень>/<тема>/<файл>.test.ts`, без пакетов монорепо. */
+const TOPIC_TESTS = ["capabilities", "standards"].flatMap((k) =>
+  readdirSync(path.join(ROOT, "tests", k)).flatMap((topic) =>
+    readdirSync(path.join(ROOT, "tests", k, topic))
+      .filter((f) => f.endsWith(".test.ts"))
+      .map((f) => ({ topic, section: f.split(".")[0]!, file: `tests/${k}/${topic}/${f}` })),
+  ),
+);
+
+/** Названия тестов раздела, а тема из одного раздела — и по имени темы: по разбору исходников, без запуска. */
 const testNames = new Map<string, string[] | null>();
-function testsOf(folder: string): string[] | null {
-  if (!testNames.has(folder)) {
-    const dir = ["capabilities", "standards"].map((k) => `tests/${k}/${folder}`).find((d) => existsSync(path.join(ROOT, d)));
-    const files = dir ? readdirSync(path.join(ROOT, dir)).filter((f) => f.endsWith(".test.ts")) : [];
-    testNames.set(folder, dir ? files.flatMap((f) => parseJs(`${dir}/${f}`, read(`${dir}/${f}`)).map((t) => t.name)) : null);
+function testsOf(name: string): string[] | null {
+  if (!testNames.has(name)) {
+    const files = TOPIC_TESTS.filter((t) => t.section === name || t.topic === name).map((t) => t.file);
+    testNames.set(name, files.length ? files.flatMap((f) => parseJs(f, read(f)).map((t) => t.name)) : null);
   }
-  return testNames.get(folder)!;
+  return testNames.get(name)!;
 }
 
 /** Место живо: файл есть, старое имя в месте есть, тест перехода есть. */
 function checkPlace(p: Place): void {
-  if (!existsSync(path.join(ROOT, p.file))) throw new Error(`${where(p)}: файла нет — убери место из реестра (tests/standards/old-name)`);
+  if (!existsSync(path.join(ROOT, p.file))) throw new Error(`${where(p)}: файла нет — убери место из реестра (tests/standards/scripts/old-name)`);
   const text = read(p.file);
   const live = p.at === undefined ? hasOld(p.file) || hasOld(text) : occurrences(p.file, text).some((o) => o.in(p.at!));
-  if (!live) throw new Error(`${where(p)}: старого имени в месте нет — переход снят или место переехало: убери его из реестра или поправь at (tests/standards/old-name)`);
+  if (!live) throw new Error(`${where(p)}: старого имени в месте нет — переход снят или место переехало: убери его из реестра или поправь at (tests/standards/scripts/old-name)`);
   const [folder = "", name] = p.test.split(" › ", 2);
   const names = testsOf(folder);
-  if (!names) throw new Error(`${where(p)}: папки решения ${folder} нет ни в tests/capabilities, ни в tests/standards`);
+  if (!names) throw new Error(`${where(p)}: раздела или темы ${folder} нет ни в tests/capabilities, ни в tests/standards`);
   if (name !== undefined && !names.includes(name)) throw new Error(`${where(p)}: в ${folder} нет теста «${name}» — назови тест, который держит переход`);
 }
 
@@ -278,7 +286,7 @@ describe("Старое имя ai-dev в файлах флоу — только �
       const found = outside(f.file, f.text);
       if (found.length) {
         throw new Error(
-          `старое имя вне реестра имён для перехода — новое имя (Elves, elves, ELVES_*); читается для перехода — место в реестр tests/standards/old-name с тем, что узнаётся, и тестом перехода:\n${found.join("\n")}`,
+          `старое имя вне реестра имён для перехода — новое имя (Elves, elves, ELVES_*); читается для перехода — место в реестр tests/standards/scripts/old-name с тем, что узнаётся, и тестом перехода:\n${found.join("\n")}`,
         );
       }
     },

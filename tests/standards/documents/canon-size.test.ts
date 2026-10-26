@@ -54,16 +54,16 @@ export const charsOf = (s: string): number => [...s].length;
 
 const overBudget = (d: Doc, hint: string) => {
   const words = wordsOf(d.text);
-  if (words > d.limit) throw new Error(`${d.file}: ${words} слов при бюджете ${d.limit} — ${hint} (tests/standards/canon-size)`);
+  if (words > d.limit) throw new Error(`${d.file}: ${words} слов при бюджете ${d.limit} — ${hint} (tests/standards/documents/canon-size)`);
 };
 const checkCore = (d: Doc) => overBudget(d, "вынести справочное в скилл или docs/");
 const checkSkill = (d: Doc) => overBudget(d, "справку — в reference.md скилла или в --help, в SKILL.md — когда и что звать");
 const checkDescription = (d: Doc) => {
   const desc = descriptionOf(d.text);
-  if (desc === null) throw new Error(`${d.file}: нет description во frontmatter (tests/standards/canon-size)`);
-  if (descriptionCut(d.text)) throw new Error(`${d.file}: описание без кавычек обрезано — « #» в YAML начинает комментарий; взять описание в двойные кавычки (tests/standards/canon-size)`);
+  if (desc === null) throw new Error(`${d.file}: нет description во frontmatter (tests/standards/documents/canon-size)`);
+  if (descriptionCut(d.text)) throw new Error(`${d.file}: описание без кавычек обрезано — « #» в YAML начинает комментарий; взять описание в двойные кавычки (tests/standards/documents/canon-size)`);
   const n = charsOf(desc);
-  if (n > DESCRIPTION_LIMIT) throw new Error(`${d.file}: описание ${n} символов при лимите ${DESCRIPTION_LIMIT} — подробности в тело SKILL.md (tests/standards/canon-size)`);
+  if (n > DESCRIPTION_LIMIT) throw new Error(`${d.file}: описание ${n} символов при лимите ${DESCRIPTION_LIMIT} — подробности в тело SKILL.md (tests/standards/documents/canon-size)`);
 };
 
 /** Куда ядро отправляет читателя: скилл `name` (``the `name` skill`` или ``skill `name` ``) или справочник `docs/<name>.md`. */
@@ -172,7 +172,7 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
     key: (p) => pointerPath(p),
     name: (p) => `${pointerPath(p)} есть в репозитории`,
     check: (p) => {
-      if (!existsSync(path.join(ROOT, pointerPath(p)))) throw new Error(`ядро ссылается на ${pointerPath(p)}, а его нет — вынесенное потерялось (tests/standards/canon-size)`);
+      if (!existsSync(path.join(ROOT, pointerPath(p)))) throw new Error(`ядро ссылается на ${pointerPath(p)}, а его нет — вынесенное потерялось (tests/standards/documents/canon-size)`);
     },
     violator: { name: "ссылка ядра на удалённый скилл", item: { kind: "skill" as const, name: "billing" } },
     includes: ["skills/est/SKILL.md", "skills/github/SKILL.md", "skills/spec/SKILL.md", "docs/ci-concurrency.md", "docs/parallel-checkouts.md"],

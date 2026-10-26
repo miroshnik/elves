@@ -20,7 +20,7 @@ bun@latest @miroshnik/elves && elves install -g`, then `check --hook` into the
 context; outside the cloud it exits at once. The canon already on the machine
 — nothing to install; a failed step — a line with its command, code 0. An
 Elves clone carries the hook in its commit: Bun, zsh for its tests
-(`tests/capabilities/agent-shell`) and the flow from the clone itself —
+(`tests/capabilities/elves/agent-shell`) and the flow from the clone itself —
 `install -g --link`, the branch's canon, no npm. A fresh start of the clone's
 hook with zsh in place took 4.4 s (2026-10-17: npm about 3 s, `check --hook`
 about 1 s); without zsh `apt-get update` and its install add about 6 s.
@@ -43,7 +43,7 @@ about 1 s); without zsh `apt-get update` and its install add about 6 s.
 
   ```bash
   npm i -g bun@latest @miroshnik/elves && elves install -g
-  # an Elves clone's environment: zsh for its tests (tests/capabilities/agent-shell), CI installs it too
+  # an Elves clone's environment: zsh for its tests (tests/capabilities/elves/agent-shell), CI installs it too
   apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold zsh
   ```
 

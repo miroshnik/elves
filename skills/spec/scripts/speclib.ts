@@ -7,7 +7,7 @@
  *
  * The scripts run under Bun (`bun script.ts`); the harness imports this module too, and a project's test loads the
  * harness under the project's runner, Node included — so only `node:` APIs and erasable TypeScript
- * (tests/standards/harness-load). Without dependencies (the parser is the skill's file `vendor/babel-parser.cjs`) and
+ * (tests/standards/exports/harness-load). Without dependencies (the parser is the skill's file `vendor/babel-parser.cjs`) and
  * without per-repository configuration: the tests/ tree from the rule "Specification — decisions"
  * (skills/spec/canon.md) and the standard report formats.
  */
@@ -166,7 +166,7 @@ export interface ExceptionFile {
 /**
  * Exceptions file of which decision folder? One rule for the harness, spec-doc, spec-diff and spec-exceptions; a copy
  * in the github skill (`pr labels`: a mechanical edit) is checked against it by the standard
- * `tests/standards/exception-files`.
+ * `tests/standards/scripts/exception-files`.
  *
  * - `tests/<kind>/<name>/exceptions/<element>.json` — the folder's exception;
  * - `tests/<kind>/<topic>/exceptions/<section>/<element>.json` — an exception of the topic's section;
@@ -493,7 +493,7 @@ function junitCase(a: Record<string, string>, body: string, stack: Suite[], root
 /**
  * A Babel AST node: the type, bounds in the source and the fields of its type. The fields this module reads are
  * declared: a field from the index signature is an error for a project with `noPropertyAccessFromIndexSignature`,
- * whose typecheck checks this source (tests/standards/consumer-typecheck).
+ * whose typecheck checks this source (tests/standards/exports/consumer-typecheck).
  */
 interface AstNode {
   type: string;
@@ -540,7 +540,7 @@ interface Parsed {
  *
  * The import is static, at the top of the file: `createRequire(import.meta.url)` broke Playwright and Jest in a project
  * without `"type": "module"` — they load TS as CommonJS, where `import.meta` is a syntax error (#303,
- * tests/standards/harness-load).
+ * tests/standards/exports/harness-load).
  */
 
 const OPTIONS = {

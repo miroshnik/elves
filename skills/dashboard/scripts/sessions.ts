@@ -617,7 +617,7 @@ table.autos td:not(:first-child){min-width:220px}
 
 /**
  * Pins of tasks to sessions: `owner/repo#N` → session ids — est reads the `sessions/<id>` files of the configuration
- * directory (loadPins): the dashboard imports est anyway, its own parse would be a third copy (tests/standards/session-pin).
+ * directory (loadPins): the dashboard imports est anyway, its own parse would be a third copy (tests/standards/scripts/session-pin).
  */
 export function readPins(dir?: string): Record<string, string[]> {
   const out: Record<string, string[]> = {};

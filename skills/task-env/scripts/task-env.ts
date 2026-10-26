@@ -2,7 +2,7 @@
 /**
  * task-env — a task's environment (the task-env skill): the task's stack is the Docker Compose project `<project>-<N>`;
  * the machine's proxy — one Traefik per machine — gives containers of task stacks the addresses
- * `http://<service>.<N>.<project>.localhost` by their labels, without ports on the host (tests/capabilities/task-env).
+ * `http://<service>.<N>.<project>.localhost` by their labels, without ports on the host (tests/capabilities/task-env/stacks).
  *
  * `up` brings the task's stack up: the number from the branch `<type>/<N>-slug`, the Compose project `<project>-<N>`
  * (without a number — `<project>`), the project's compose files plus the task's override on Compose's stdin — the
@@ -51,7 +51,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Help — `--help` or `-h` before `--` (after it — the e2e command's arguments; tests/standards/cli-help): a command's
+ * Help — `--help` or `-h` before `--` (after it — the e2e command's arguments; tests/standards/scripts/cli-help): a command's
  * synopsis (the first paragraph), what it does and examples; `task-env --help` — the synopses of all. The dispatcher takes
  * only the commands from here: a command without help can't be called. A project's scripts and tests run it from the
  * project's package — `elves task-env …` (bin/elves.ts imports `main`, `HELP` and `OVERVIEW` and prints them under its
@@ -521,7 +521,7 @@ function check(dir: string): number {
 // ----------------------------------------------------------------------------
 
 // canon task types — a copy of EST_TYPES and BRANCH_CONV_RE from skills/est/scripts/est.ts (and in skills/github/scripts/github.ts):
-// no shared module: task-env imports no other skill (tests/standards/skill-imports); the tests/standards/task-branch
+// no shared module: task-env imports no other skill (tests/standards/scripts/skill-imports); the tests/standards/scripts/task-branch
 // standard keeps the parsing identical
 const TASK_TYPES = ["feat", "fix", "docs", "refactor", "perf", "test", "chore", "ci", "build", "research"];
 const TASK_BRANCH_RE = new RegExp("^(?:[\\p{L}\\p{N}_.-]+/)?(" + TASK_TYPES.join("|") + ")/(\\d{1,6})-", "iu");
@@ -611,8 +611,8 @@ const varOf = (service: string, suffix: string | number) => `TASK_ENV_${service.
 /**
  * The project's settings file at `root`: `.agents/elves.json`; an install from before the rename has
  * `.agents/ai-dev.json` until `update` moves it — read then (#545). Not JSON or not an object — no fields, `error` says
- * why. A copy of `manifestOf` of the github skill: task-env imports no other skill (tests/standards/skill-imports), the
- * copy answers by the same table (tests/standards/project-manifest).
+ * why. A copy of `manifestOf` of the github skill: task-env imports no other skill (tests/standards/scripts/skill-imports), the
+ * copy answers by the same table (tests/standards/scripts/project-manifest).
  */
 export function manifestOf(root: string): { file: string | null; fields: Record<string, unknown>; error?: string } {
   const file = [".agents/elves.json", ".agents/ai-dev.json"].find((f) => existsSync(path.join(root, f)));
@@ -925,7 +925,7 @@ function stackDown(root: string, task: number | undefined, env: NodeJS.ProcessEn
 }
 
 // The checkout's GitHub repository by its origin — a copy of originRepo from skills/est/scripts/est.ts and skills/github/scripts/github.ts:
-// no shared module: task-env imports no other skill (tests/standards/skill-imports); the tests/standards/origin-repo
+// no shared module: task-env imports no other skill (tests/standards/scripts/skill-imports); the tests/standards/scripts/origin-repo
 // standard keeps the parsing identical
 const ORIGIN_RE = /^(?:[a-z][a-z\d+.-]*:\/\/(?:[^@/\s]+@)?(?:ssh\.)?github\.com(?::\d+)?\/|(?:[^@/\s:]+@)?(?:ssh\.)?github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
 

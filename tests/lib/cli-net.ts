@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 /**
  * Preload песочницы справки (`tests/lib/cli.ts`): `fetch` дочернего bun записывает обращение в журнал `$CLI_NET` и
  * отказывает — справке сеть не нужна, а слушать порт ради ловушки нельзя: в песочнице агента его нет
- * (`tests/standards/fast-tests`). Скрипты флоу ходят в сеть только `fetch` и командами (`gh`, `git` — заглушки). Не спека.
+ * (`tests/standards/tests/fast-tests`). Скрипты флоу ходят в сеть только `fetch` и командами (`gh`, `git` — заглушки). Не спека.
  */
 globalThis.fetch = Object.assign(
   async (input: string | URL | Request) => {

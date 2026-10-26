@@ -2,7 +2,7 @@
 /**
  * timeout — GNU coreutils `timeout` for a machine without it (macOS without coreutils). The SessionStart hook puts this
  * directory at the end of the agent's Bash PATH (bin/elves.ts, `agentShellScript`), so a real `timeout` wins;
- * tests/capabilities/agent-shell.
+ * tests/capabilities/elves/agent-shell.
  *
  *   timeout [-s SIGNAL] [-k DURATION] [--preserve-status] [--foreground] [-v] DURATION COMMAND [ARG]...
  *
