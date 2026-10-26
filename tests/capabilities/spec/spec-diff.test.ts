@@ -540,6 +540,40 @@ describe("Сценарии задачи сверяются с тестами PR"
     expect(out).not.toContain("сверх сценариев");
   });
 
+  // spec-diff печатает тест строкой «`<папка>` · <название>», и сценарии в задачу копируют так же (#717)
+  const UI = "tests/capabilities/cabinet/cabinet.test.ts";
+  const STD = "tests/standards/audit/audit.test.ts";
+  const AUDIT = ts(
+    `import { invariant } from "../../../harness.ts";\n` +
+      `describe("каждая мутация пишет аудит", () => { invariant(it, { registry: "мутации", items, name: (m) => m + " пишет аудит" }); });`,
+  );
+  const prefixed = (issue: string) => {
+    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
+    repo.commit({ [BILLING]: ts(`it("x", () => {}); it("выставляется за месяц", () => {});`), [UI]: ts(`it("выставляется за месяц", () => {});`), [STD]: AUDIT, "issue.md": issue });
+    return JSON.parse(diffFrom(base, "--scenarios", "issue.md", "--json").stdout);
+  };
+
+  it("сценарий с префиксом папки находит тест этой папки", () => {
+    const j = prefixed("## Сценарии\n\n- `billing` · выставляется за месяц\n- `tests/capabilities/cabinet` · выставляется за месяц\n- `audit` · каждая мутация пишет аудит\n");
+    expect(j.scenarios.map((s: { tests: { folder: string }[] }) => s.tests.map((t) => t.folder))).toEqual([["tests/capabilities/billing"], ["tests/capabilities/cabinet"], []]);
+    expect(j.scenarios[2].harness.folder).toBe("tests/standards/audit");
+    expect(j.extra_tests).toEqual([]);
+  });
+
+  it("сценарий с префиксом папки не находит тест с тем же именем в другой папке", () => {
+    const j = prefixed("## Сценарии\n\n- `invoices` · выставляется за месяц\n- `billing` · каждая мутация пишет аудит\n");
+    expect(j.scenarios.map((s: { tests: unknown[]; harness: unknown }) => [s.tests.length, s.harness])).toEqual([
+      [0, null],
+      [0, null],
+    ]);
+    expect(j.extra_tests).toHaveLength(2);
+  });
+
+  it("сценарий без префикса находит тест в любой папке", () => {
+    const j = prefixed("## Сценарии\n\n- выставляется за месяц\n");
+    expect(j.scenarios[0].tests.map((t: { folder: string }) => t.folder)).toEqual(["tests/capabilities/billing", "tests/capabilities/cabinet"]);
+  });
+
   it("в задаче нет раздела «## Сценарии» — сверка говорит об этом, а не молчит", () => {
     const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
     repo.commit({ [BILLING]: ts(`it("x", () => {}); it("новое", () => {});`), "issue.md": "## Контекст\n\nбез сценариев\n" });
