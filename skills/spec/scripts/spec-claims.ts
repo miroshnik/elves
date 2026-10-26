@@ -15,7 +15,8 @@
  * section — `exceptions/<section>/`), a file per exception (`{ item, issue, reason }`): an entry point without a test,
  * with a task, until a test appears; once it appears — "remove the exception". The report is JUnit in the standard's
  * folder (`spec-doc` puts it into the spec with the description from the standard's `<folder>.md`; with `--section` — a
- * section of the topic `--standard` (#685), the description from `<section>.md`). Codes: 0 — everything is claimed,
+ * section of the topic `--standard` (#685), the description from `<section>.md`; without both flags a registry
+ * `tests/standards/<topic>/<section>.entries.ts` names that topic and section, #751). Codes: 0 — everything is claimed,
  * 1 — there are unclaimed ones or exception errors, 2 — a call error.
  */
 
@@ -38,6 +39,7 @@ is claimed, 1 — there are unclaimed ones or exception errors, 2 — a call err
 
 Examples:
   spec-claims --entries tests/standards/entry-points/entries.ts
+  spec-claims --entries tests/standards/routes/entry-points.entries.ts   # report: tests/standards/routes/entry-points.test.ts
   spec-claims --entries entries.json --journal .spec-journal --report .spec-claims.xml`;
 const CAPABILITIES = "tests/capabilities/";
 
@@ -92,6 +94,23 @@ ${body}
 `;
 }
 
+const DEFAULT_STANDARD = "tests/standards/entry-points";
+/** A registry `tests/standards/<topic>/<section>.entries.<ext>` — its topic and section (#751). */
+const SECTION_ENTRIES = /(?:^|\/)(tests\/standards\/[^/]+)\/([^/]+)\.entries\.(?:[cm]?[jt]s|json)$/;
+
+/**
+ * Where the report goes: explicit `--standard`/`--section` win; without them a registry
+ * `tests/standards/<topic>/<section>.entries.ts` names its topic and section — after regrouping decisions into topics
+ * the project moves the registry, and a default path hidden in the script would leave the report under the old decision
+ * (#751); otherwise — `tests/standards/entry-points`.
+ */
+function reportPlace(entries: string, standard?: string, section?: string): { standard: string; section: string } {
+  const m = SECTION_ENTRIES.exec(entries.split(path.sep).join("/"));
+  const topic = (standard ?? m?.[1] ?? DEFAULT_STANDARD).replace(/\/+$/, "");
+  const name = section ?? (standard === undefined && m ? m[2]! : path.posix.basename(topic));
+  return { standard: topic, section: name };
+}
+
 export async function main(argv: string[]): Promise<number> {
   let opts;
   try {
@@ -101,7 +120,7 @@ export async function main(argv: string[]): Promise<number> {
         entries: { type: "string" },
         journal: { type: "string", default: ".spec-journal" },
         exceptions: { type: "string" },
-        standard: { type: "string", default: "tests/standards/entry-points" },
+        standard: { type: "string" },
         section: { type: "string" },
         report: { type: "string", default: ".spec-claims.xml" },
         help: { type: "boolean", short: "h", default: false },
@@ -184,9 +203,9 @@ export async function main(argv: string[]): Promise<number> {
     cases.push({ name: locale.fill(N.spec.harness.exception, { tag: "", item: e.item, issue: e.issue }), failure });
   }
 
-  const standard = v.standard.replace(/\/+$/, "");
+  const { standard, section } = reportPlace(v.entries, v.standard, v.section);
   // a section of a topic (#685) — its file `<section>.test.ts`: spec-doc shows it under the section with `<section>.md`
-  writeFileSync(v.report, junit(`${standard}/${v.section ?? path.posix.basename(standard)}.test.ts`, N.spec.claims.describe, cases));
+  writeFileSync(v.report, junit(`${standard}/${section}.test.ts`, N.spec.claims.describe, cases));
   const unclaimed = entries.filter((id) => !excepted.has(id) && !claimed(id));
   const failed = cases.filter((c) => c.failure);
   console.error(
