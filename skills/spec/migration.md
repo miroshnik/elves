@@ -159,7 +159,9 @@ a flat decision as a topic of one section. One task, one PR, in this order:
    file stays as is: `<name>` is now the section's name, and the mark takes
    the file out of that section's invariants only; `spec-outside(<topic>)` —
    out of all the topic's sections. A mark whose name no topic or section has
-   is red «a mark names a topic or its section».
+   is red «a mark names a topic or its section». The `spec-claims` registry
+   moves as `tests/standards/<topic>/<section>.entries.ts`: the report goes
+   under that section by the path itself, no `--standard`/`--section`.
 4. **Labels.** After the merge — `github project check`, then `project fix
    --confirm`: a label whose name is a section of exactly one topic of the
    same root is merged into the topic's label on every task, closed ones too,

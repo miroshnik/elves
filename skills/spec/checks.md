@@ -466,7 +466,10 @@ claimed behavior").
   entry points. The report is `.spec-claims.xml` (JUnit) in the standard's
   folder `tests/standards/entry-points` (`--standard`): pass it to `spec-doc`
   together with the runners' reports — the reconciliation gets into the spec
-  with the standard's `entry-points.md` description.
+  with the standard's `entry-points.md` description. A section of a topic — the
+  registry `tests/standards/<topic>/<section>.entries.ts`: the report goes to
+  `<topic>/<section>.test.ts` by that path (explicit `--standard`, `--section`
+  win), the description — `<section>.md`.
 
 **Scenarios — `sequence` and `trace`.** How the parts of the system interact in
 a scenario is a sequence diagram from a capability test's trace, not a drawing.

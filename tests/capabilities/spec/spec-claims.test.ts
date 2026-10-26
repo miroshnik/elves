@@ -201,6 +201,22 @@ describe("Сверка попадает в спеку как стандарт", 
     expect(doc.stdout).toContain("### routes\n\nМаршруты.\n\n#### entry-points\n\nКаждый маршрут вызывается тестом capability.\n\n##### Каждая точка входа");
   });
 
+  // после перегруппировки (#751) проект переносит реестр в тему, а прежний путь по умолчанию зашит в скрипте:
+  // spec-doc --strict краснел бы на «no description tests/standards/entry-points/entry-points.md»
+  it("spec-claims с --entries tests/standards/<тема>/<раздел>.entries.ts пишет отчёт под tests/standards/<тема>/<раздел>.test.ts", () => {
+    writeTree(dir, {
+      "tests/standards/routes/entry-points.entries.ts": 'export default ["POST /invoices"];\n',
+      ".spec-journal/1.jsonl": line("POST /invoices", "tests/capabilities/billing/billing.test.ts"),
+    });
+    expect(runScript("spec-claims", ["--entries", "tests/standards/routes/entry-points.entries.ts"], dir).code).toBe(0);
+    expect(report()).toContain('file="tests/standards/routes/entry-points.test.ts"');
+    expect(runScript("spec-claims", ["--entries", path.join(dir, "tests/standards/routes/entry-points.entries.ts")], dir).code).toBe(0);
+    expect(report()).toContain('file="tests/standards/routes/entry-points.test.ts"');
+    // явные флаги сильнее пути реестра
+    expect(runScript("spec-claims", ["--entries", "tests/standards/routes/entry-points.entries.ts", "--standard", "tests/standards/api", "--section", "calls"], dir).code).toBe(0);
+    expect(report()).toContain('file="tests/standards/api/calls.test.ts"');
+  });
+
   // названия сверки попадают в спеку проекта, как названия харнесса: язык — проекта, а не Elves
   it("названия тестов сверки — на языке проекта: в проекте на en — по-английски", () => {
     setLanguage(dir, "en");
