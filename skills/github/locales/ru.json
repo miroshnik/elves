@@ -235,6 +235,7 @@
   },
   "updateCommit": "флоу Elves {version}",
   "updateTask": "Обновить флоу Elves",
+  "regroupTask": "Перегруппировать решения спеки в темы",
   "formerly": {
     "updateTask": "Обновить флоу ai-dev"
   },
