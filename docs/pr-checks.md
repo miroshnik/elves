@@ -8,6 +8,12 @@ the `github` skill, section "Git, PRs and merging — mechanics".
 
 ## Rules
 
+- **The tail of a task — `github task finish <N>`:** the push, the PR,
+  labels, the CI wait, `pr premerge`, then the merge command; after the merge
+  — the deploy wait on the merge SHA, the epic refresh and `task close`. Each
+  call does what is ready within its `--timeout` and names the next step, a
+  repeat goes on (`skills/github/reference.md`, "task finish"); the rules
+  below are what it follows, and what manual work follows.
 - **The full SHA:** I don't dig up the SHA of my merge — `wait-ci.sh merged
   <N>` takes it from the PR itself (`git rev-parse origin/main` returns
   someone else's, later commit during parallel merges); of my commit — `git
@@ -58,7 +64,8 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   and the turn after a longer wait writes its whole context again. With
   `subagentPromptCacheTtl: "1h"` a wait of up to 9 minutes isn't worth that
   rewrite — one `ci-wait` call; without it — wait calls of at most 4 minutes
-  (`--timeout 240`, TIMEOUT — call it again): the turn between two calls
+  (`--timeout 240`, TIMEOUT — call it again; `task finish` — the same, its
+  code 5): the turn between two calls
   reads the cache instead of rewriting it.
 - **Deploy — by the commit status, not by polling the site.** Whether the
   merge rolled out is told by the host's status on the merge SHA (`ci-wait

@@ -639,6 +639,33 @@ flow calls in a task (session title, PR monitor, `TaskStop`, archive) — one
 load, not one per call. An epic, a closed task, a `--branch` not of this task
 — code 2. `task status` stays for other status changes.
 
+### task finish
+
+The tail of a task from its committed branch to its close in one resumable
+command (#668) instead of ≈19 flow turns at the peak context. Each call does
+what is ready within `--timeout` (an hour by default), prints the state and
+`Next:`, and a repeat goes on from there: the state is GitHub's and git's,
+plus two marks in `~/.config/elves/finishes/` — the merge's deploy passed,
+the refresh prompt printed (a repeat doesn't print it for a second
+subagent). Before the merge: uncommitted changes or no commits past
+`origin/<base>` — code 1; the task branch pushed (origin has the same
+commits rebased — `--force-with-lease` on its head; commits that aren't
+here — code 1), no `-u`; the PR into the dispatcher's batch branch, otherwise
+the default branch: the title — `--title`, otherwise the first commit of the
+branch type, a conventional commit; the body — `spec-diff` and `Closes #N`
+(an existing PR — the body updated); `pr labels`; `ci-wait pr` (none into a
+batch): FAIL, a conflict — code 1 with the step; `pr premerge` — its code 1
+or 3. Then the merge command, code 4: the merge stays a separate `gh pr merge
+<PR> --rebase` — the owner's permission rule matches it. After the merge:
+into a batch — code 0, nothing more (the release does it); otherwise
+`ci-wait merged`, the refresh's mechanics and its prompt (code 4 — the
+subagent), and `task close` once its report is on the epic (no epic or no
+other open tasks — right away). Code 5 — out of time: the same command
+again. A session runs it in the background — once before the merge and once
+after; a subagent — `--timeout 240` (540 with the hour cache,
+`docs/pr-checks.md`), again on code 5. The separate commands stay for manual
+work.
+
 ### task status
 
 Sets `Status` (a task outside the project is added). A
