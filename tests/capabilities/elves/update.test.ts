@@ -173,18 +173,11 @@ describe("Тонкий проект сверяется с версией пак�
     expect(JSON.parse(read(manifest(sb.proj))).auto).toBe(false);
   });
 
-  /**
-   * Язык задаёт только `install`. Установка прошлой версии без поля — проект, который флоу вёл по-русски: `update`
-   * записывает ему `ru`, и язык проекта после обновления не меняется.
-   */
-  it("update язык сохраняет: language ru остаётся ru, у установки прошлой версии без поля — ru", () => {
+  /** Язык задаёт только `install`: язык проекта после обновления не меняется. */
+  it("update язык сохраняет: language ru остаётся ru", () => {
     elves(sb, ["install", "--lang", "ru"]);
     expect(elves(sb, ["update"], { bin: newer.bin }).code).toBe(0);
     expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: false, language: "ru" });
-    elves(sb, ["install", "--lang", "en"]);
-    editManifest(sb.proj, { language: undefined });
-    expect(elves(sb, ["update"], { bin: newer.bin }).code).toBe(0);
-    expect(JSON.parse(read(manifest(sb.proj))).language).toBe("ru");
   });
 
   /** `env` — настройка стека задачи (скилл task-env: HTTP-сервисы и их порты): её пишет проект, установщик переносит. */
@@ -214,11 +207,9 @@ describe("Тонкий проект сверяется с версией пак�
   });
 
   /** Язык — последней строкой: в начале сессии агент видит, на каком языке работать, не читая манифест. */
-  it("check называет язык проекта; установка прошлой версии без поля — ru, отставанием не считается", () => {
+  it("check называет язык проекта", () => {
     elves(sb, ["install", "--lang", "ru"]);
     expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(/\n {2}language: ru\n$/) });
-    editManifest(sb.proj, { language: undefined });
-    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(/in the project: up to date[^\n]*\n {2}tasks: with permission\n {2}language: ru\n$/) });
   });
 
   /** Режим — последней строкой: в начале сессии агент видит, вести ли задачу целиком самому. */

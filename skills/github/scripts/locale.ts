@@ -5,8 +5,7 @@
  *
  * The language is `language` in `.agents/elves.json` of the project root (the nearest directory up with `.git`,
  * otherwise the directory itself), until `update` moves it — in the former manifest (`manifestOf`, the one reader of
- * the manifest): a manifest without the field (an install of a previous version) — `ru`, no manifest — `en` for
- * reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names
+ * the manifest): no field or no manifest — `en` for reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names
  * are `locales/<language>.json`, the same keys for each language; no dictionary for the language — `en`. Scripts write in the project language and parse the names of any dictionary language (`everyNames`):
  * a project that changed its language and tasks of other repositories are read without knowing their language.
  *
@@ -478,11 +477,6 @@ interface SpecNames {
 /** A BCP 47 language code: the language and optional subtags — `ru`, `en`, `pt-BR`, `zh-Hant`. */
 const LANGUAGE_CODE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 const DEFAULT_LANGUAGE = "en";
-/**
- * The language of an install of a previous version — a manifest without the `language` field: before the field the flow
- * worked only in Russian.
- */
-const LEGACY_LANGUAGE = "ru";
 /** The dictionary: language → names, one entry per `locales/<language>.json`. */
 const LOCALES: Record<string, Names> = { en, ru };
 
@@ -525,12 +519,11 @@ export function manifestOf(root: string): ManifestRead {
 
 /**
  * The project language of the `dir` directory (by default — the current one): the manifest's `language`
- * (`manifestOf`), no field or a broken manifest — ru, no manifest — en.
+ * (`manifestOf`); no field, a broken manifest or none — en.
  */
 function projectLanguage(dir: string = process.cwd()): string {
-  const { file, fields } = manifestOf(projectRoot(dir));
-  if (!file) return DEFAULT_LANGUAGE;
-  return typeof fields["language"] === "string" && LANGUAGE_CODE.test(fields["language"]) ? fields["language"] : LEGACY_LANGUAGE;
+  const { fields } = manifestOf(projectRoot(dir));
+  return typeof fields["language"] === "string" && LANGUAGE_CODE.test(fields["language"]) ? fields["language"] : DEFAULT_LANGUAGE;
 }
 
 /**
@@ -606,4 +599,4 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };

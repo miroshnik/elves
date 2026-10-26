@@ -226,17 +226,17 @@ describe("Названия, которые пишут и разбирают ск
 });
 
 /**
- * Язык проекта — `language` в `.agents/elves.json`, без поля — `ru`, без манифеста — `en`: скрипты скиллов и
+ * Язык проекта — `language` в `.agents/elves.json`, без поля и без манифеста — `en`: скрипты скиллов и
  * установщик берут его одним модулем `skills/github/scripts/locale.ts` — правило в одном месте.
  */
 describe("Язык проекта у скриптов скиллов и у установщика — один модуль", () => {
   it("установщик берёт язык и код языка модулем locale скилла github, своего правила у него нет", () => {
     const bin = codeOnly(read("bin/elves.ts"), "bin/elves.ts");
     expect(bin).toContain('import locale from "../skills/github/scripts/locale.ts";');
-    expect(bin).not.toMatch(/const (?:DEFAULT|LEGACY)_LANGUAGE\b|\[a-z\]\{2,3\}/);
+    expect(bin).not.toMatch(/const DEFAULT_LANGUAGE\b|\[a-z\]\{2,3\}/);
   });
 
-  it("манифест с языком — его язык, без поля — ru, битый — ru, без манифеста — en", () => {
+  it("манифест с языком — его язык, без поля, битый и без манифеста — en", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "flow-english-"));
     try {
       const project = (name: string, manifest: string | null) => {
@@ -251,10 +251,10 @@ describe("Язык проекта у скриптов скиллов и у ус�
       };
       expect([
         localeModule.projectLanguage(project("pt", '{ "language": "pt-BR" }')),
-        localeModule.projectLanguage(project("legacy", '{ "auto": true }')),
+        localeModule.projectLanguage(project("nofield", '{ "auto": true }')),
         localeModule.projectLanguage(project("broken", "{")),
         localeModule.projectLanguage(project("none", null)),
-      ]).toEqual(["pt-BR", "ru", "ru", "en"]);
+      ]).toEqual(["pt-BR", "en", "en", "en"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

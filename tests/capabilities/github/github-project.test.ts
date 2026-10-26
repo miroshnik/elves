@@ -876,12 +876,6 @@ describe("Канон проекта — на языке проекта из .age
     expect(check(f, REPO, en).code).toBe(0);
   });
 
-  it("проект без поля language в манифесте работает с русскими названиями, как раньше", () => {
-    const r = check(fake(), REPO, checkout('{ "auto": true }\n'));
-    expect(r.code).toBe(0);
-    expect(r.out).toContain("✅ Status: Бэклог → В работе → Готово");
-  });
-
   it("project check с манифестом language ru сверяет проект с русскими именами — как прежде", () => {
     const r = check(fake(), REPO, checkout('{ "language": "ru" }\n'));
     expect(r.code).toBe(0);

@@ -816,7 +816,7 @@ describe("Названия — текст, а не разметка", () => {
 
 /**
  * Документацию читают люди проекта — она на его языке (`language` в `.agents/elves.json`): заголовки, разделы,
- * счётчики и пометки тестов. Манифест без поля — установка прошлой версии: флоу до поля работал по-русски.
+ * счётчики и пометки тестов.
  */
 describe("Документация — на языке проекта", () => {
   it("проект без манифеста — на en: оглавление, разделы, счётчики и пометки тестов по-английски", () => {
@@ -861,13 +861,6 @@ describe("Документация — на языке проекта", () => {
       "## Invoices\n\n<details open><summary>❌ 4 tests, 2 skipped, 1 failing</summary>\n\n" +
         "- ✅ an invoice is issued for a month\n- ⏭️ an invoice in a foreign currency — skipped\n- ❌ an invoice with VAT — failing\n- 📝 a draft is deleted — todo\n",
     );
-  });
-
-  it("манифест без поля language — установка прошлой версии: документация по-русски, как раньше", () => {
-    writeTree(dir, { ".agents/elves.json": JSON.stringify({ auto: true }) + "\n" });
-    const r = doc("r.json", billing(), "--stdout");
-    expect(r.stdout).toStartWith("<!-- spec-doc: сгенерировано из названий тестов, руками не править -->\n# Спецификация\n");
-    expect(r.stdout).toContain("## Что делает система\n\n### billing\n\n#### Счета\n\n<details><summary>✅ 2 теста</summary>");
   });
 
   it("свой файл прошлого языка spec-doc узнаёт по шапке и удаляет, чужой не трогает", () => {
