@@ -381,23 +381,12 @@ outside git — ❌, `update` puts it into its commit.
    senior kind (capability → standard → architecture), all paths in the
    description. A decision label is recognized by the description
    `Decision: …`. A decision without a label — the label is created. A label
-   without a decision whose name is a section of exactly one topic of the same
-   root (`tests/<root>/<topic>/<name>.test.ts` or `<name>.md`) — a former
-   decision regrouped into a section, ❌ «merge into the topic's label», on an
-   open task too: `--confirm` puts the topic's label on every task with it,
-   closed ones too (`est` picks analogs by them), and deletes it; the topic has
-   no label yet — the section's label is renamed into it (tasks keep it);
-   renaming the section afterwards touches no label. A name in sections of
-   several topics — an `○` line, no merge: the topic would be a guess. A label
    without a decision on an open task — a new decision (`task new` puts it, it
    reaches the default branch with the task's PR): an `○` line with the task
    numbers, item ✅, the label is left alone. A label without a decision and
    without open tasks — deleted with `--confirm`; one such and one missing of
    the same kind — a rename with `--confirm` (tasks keep the label); a foreign
-   color or description — fixed. An old `kind:name` label is renamed to `name`
-   by itself, whether or not the decision is in the default branch; the name is
-   already taken — a merge with `--confirm` (tasks get the label with the name,
-   the old one is deleted). A regular label with a decision's name — ❌, it
+   color or description — fixed. A regular label with a decision's name — ❌, it
    becomes a decision label with `--confirm`. A slice label — another slice of
    the project's tasks (apps, teams), recognized by the description
    `Slice: <slice>[ — note]`: with a decision's name — an `○` line
