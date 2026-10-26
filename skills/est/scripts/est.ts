@@ -167,13 +167,13 @@ const BRANCH_CONV_RE = new RegExp("^(?:[\\p{L}\\p{N}_.-]+/)?(" + EST_TYPES.join(
 const PR_PAGE = 50;
 const PR_MAX = 500;
 const ISSUES_MAX = 500; // how many closed issues the index of closing commits keeps
-const SESSION_CACHE_V = 23; // transcript cache format version (changed — reparse); 11 = session name history
+const SESSION_CACHE_V = 24; // transcript cache format version (changed — reparse); 11 = session name history
 // (title_hist), 12 = cloud sessions, 13 = all session directories (cwds), 14 = PR repository on pr-link, 16 = git and
 // gh listing hashes — only own ones, 17 = shell keywords in a listing, 18 = agent number on a record (task fan-out),
 // 19 = a subagent's branch in its own worktree — from that checkout, not gitBranch, 20 = a record in the session's
 // folder on the branch of its subagent's worktree — neutral, 21 = the scope of a record and a hash — a subagent's own
 // worktree, 22 = waits for input on records and wait calls (calls, perm), 23 = a response's output — by its final
-// record, not the first partial one
+// record, not the first partial one, 24 = the kinds of a response's tool calls (call_kinds)
 const PROJECT_META_TTL = 86400; // a day: reread the cache of project/field ids
 const OPEN_PRS_TTL = 3600; // an hour: the list of open PRs (their branches are someone else's)
 // Long-lived branches: "neutral" — by themselves they don't link a task, but inside an anchor window they count.
@@ -562,6 +562,8 @@ export interface Session {
   first_refs: number[];
   first_urls: string[];
   usage: Any[][]; // [mid, model_idx, in, out, cw5, cw1, cr, fast]
+  call_kinds?: number[]; // the kinds of each response's tool calls, by usage row: a mask over CALL_KINDS (kindBit), 0 —
+  // no calls; absent — no response with calls
   models: string[];
   title: string; // the latest name
   title_refs: number[];
@@ -597,6 +599,9 @@ export interface CloudPart {
   tail?: number; // turns with context larger than TAIL_CTX
   preamble?: number; // context of the first top-level turn
   ctx_end?: number; // context of the last top-level turn
+  kinds?: Record<CallKind, number>; // the part's turns by kind (Fact.kinds)
+  rewrites?: number; // its cache rewrites after a pause and their $ (Fact.rewrites)
+  rewrite_usd?: number;
 }
 
 /** Turn context from which a turn is "tail": turns with such context were 20 % of turns and 45 % of tokens. */
@@ -1147,6 +1152,7 @@ interface Acc {
   first_refs: number[] | null;
   first_urls: string[];
   usage: Any[][];
+  kinds: number[]; // the kinds of each response's tool calls (Session.call_kinds), by usage row
   models: string[];
   mids: Map<string, number>; // a response's id → its row in usage
   title: string;
@@ -1164,7 +1170,7 @@ interface Acc {
 /** A commit hash from a tool's output: [ts, hash, scope?] — scope as on a record (Session.ev), absent — the session's. */
 type Hash = [number, string, number?];
 
-const newAcc = (): Acc => ({ cwd: null, cwds: [], n_human: 0, ev: [], prlinks: [], commits: [], listed: [], first_refs: null, first_urls: [], usage: [], models: [], mids: new Map(), title: "", titles: [], topCwds: new Set(), checkouts: new Map(), switched: new Map(), written: [], wtDirs: [], wtBranches: [], calls: [], perm: null });
+const newAcc = (): Acc => ({ cwd: null, cwds: [], n_human: 0, ev: [], prlinks: [], commits: [], listed: [], first_refs: null, first_urls: [], usage: [], kinds: [], models: [], mids: new Map(), title: "", titles: [], topCwds: new Set(), checkouts: new Map(), switched: new Map(), written: [], wtDirs: [], wtBranches: [], calls: [], perm: null });
 
 interface Checkout {
   root: string;
@@ -1344,6 +1350,99 @@ export function waitKind(command: string): number {
   if (GH_WATCH_RE.test(cmd)) return 1;
   return CHECKS_RE.test(cmd) ? 3 : 0;
 }
+
+// ----------------------------------------------------------------------------
+// Turn kinds: the agent's work and the overhead around it (#664)
+// ----------------------------------------------------------------------------
+
+/**
+ * Kinds of a turn by its tool calls: flow — the flow's overhead (its scripts, gh, git mechanics, CI waits); harness —
+ * the agent app's own tools (the session, the plan, background tasks, subagents, ToolSearch); checks — lint,
+ * typecheck, tests; work — the rest: reading, editing, search, other commands, a turn without calls.
+ */
+export const CALL_KINDS = ["work", "flow", "harness", "checks"] as const;
+export type CallKind = (typeof CALL_KINDS)[number];
+
+// the flow's skills whose scripts are its mechanics — run by their path: the machine's copy, a clone, a project's package
+const FLOW_SKILLS = ["github", "est", "ci-wait", "dashboard", "slot", "task-env", "spec"];
+const RUNNER = String.raw`(?:(?:bun|bunx|node|npx|tsx|bash|sh|zsh)(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+)?['"]?(?:[^\s'"]*\/)?`;
+
+/**
+ * What a tool call is: the first row that matches wins, none — work. A row matches by the tool's name (`tool`) or by
+ * one of the simple commands of the call's shell command (`cmd`, commandSegments). A new flow command — a row here.
+ */
+const CALL_RULES: ({ tool: RegExp; kind: CallKind } | { cmd: RegExp; kind: CallKind })[] = [
+  { tool: /^(?:ToolSearch|TodoWrite|Task\w*|Agent|Skill|SendMessage|SubagentHandback|Monitor|ScheduleWakeup|BashOutput|KillShell|AskUserQuestion|EnterPlanMode|ExitPlanMode|EnterWorktree|ExitWorktree|ListSkills|SearchSkills|ListPlugins|SearchPlugins|update_plan)$/, kind: "harness" },
+  { tool: /^mcp__ccd_/, kind: "harness" }, // the desktop app: the session's name and archive, the plan, the PR monitor
+  { cmd: CHECKS_RE, kind: "checks" }, // before the flow's scripts: a check under slot is a check
+  { cmd: new RegExp(String.raw`^${RUNNER}skills\/(?:${FLOW_SKILLS.join("|")})\/scripts\/`), kind: "flow" }, // wait-ci too
+  { cmd: new RegExp(String.raw`^${RUNNER}bin\/elves\.ts\b`), kind: "flow" }, // the installer from a clone
+  { cmd: /^(?:(?:bunx|npx)\s+(?:-\S+\s+)*@miroshnik\/elves|elves)(?:@\S*)?(?:\s|$)/, kind: "flow" }, // check, update
+  { cmd: /^gh(?:\s|$)/, kind: "flow" },
+  { cmd: /^git(?:\s+-[Cc]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:grep|blame)\b/, kind: "work" }, // searching the code
+  { cmd: /^git(?:\s|$)/, kind: "flow" },
+];
+
+// words before a command that don't change what it runs: `VAR=…`, shell keywords, `time`, `timeout 60`, `env`, `nohup`
+const LEAD_RE = /^(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)|(?:if|then|else|elif|do|while|until|!|\{|time|env|command|exec|nohup)(?=\s|$)|timeout\s+(?:-\S+\s+)*\S+)\s*/;
+
+/**
+ * A shell command's simple commands: split by `&&`, `||`, `;`, `|`, `&`, a newline, a parenthesis, `$(` and a backtick
+ * outside quotes, without heredoc bodies and the leading words of LEAD_RE.
+ */
+export function commandSegments(command: string): string[] {
+  const src = withoutHeredocs(command);
+  const segs: string[] = [];
+  let cur = "";
+  let quote = "";
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!;
+    if (quote) {
+      if (c === "\\" && quote === '"') cur += c + (src[++i] ?? "");
+      else {
+        cur += c;
+        if (c === quote) quote = "";
+      }
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      cur += c;
+    } else if (c === "\\") cur += c + (src[++i] ?? "");
+    else if (";&|\n()`".includes(c) || (c === "$" && src[i + 1] === "(")) {
+      segs.push(cur);
+      cur = "";
+    } else cur += c;
+  }
+  segs.push(cur);
+  return segs
+    .map((s) => {
+      let x = s.trim();
+      for (let m = LEAD_RE.exec(x); m?.[0]; m = LEAD_RE.exec(x)) x = x.slice(m[0].length);
+      return x;
+    })
+    .filter(Boolean);
+}
+
+/** The kind of a tool call by its tool's name and its shell command, if it has one (CALL_RULES). */
+export function callKind(tool: string, command?: unknown): CallKind {
+  const segs = typeof command === "string" && command ? commandSegments(command) : [];
+  for (const r of CALL_RULES) if ("tool" in r ? r.tool.test(tool) : segs.some((s) => r.cmd.test(s))) return r.kind;
+  return "work";
+}
+
+/** The bit of a call's kind in a turn's mask (Session.call_kinds). */
+const kindBit = (k: CallKind) => 1 << CALL_KINDS.indexOf(k);
+
+/**
+ * The kinds of a turn by the mask of its calls' kinds: the turn is split between them equally — a share of 1/n to each;
+ * no calls — work.
+ */
+export function turnKinds(mask: number | undefined): CallKind[] {
+  const ks = CALL_KINDS.filter((k) => (mask ?? 0) & kindBit(k));
+  return ks.length ? ks : ["work"];
+}
+
+/** Turns by kind, zero. */
+const noKinds = (): Record<CallKind, number> => ({ work: 0, flow: 0, harness: 0, checks: 0 });
 
 /** Seconds a command waited in the machine queue: the `slot: waited 1 min 5 s` lines of its output, summed. */
 export function slotWaitIn(txt: string): number {
@@ -1576,8 +1675,10 @@ function scanRecords(records: Iterable<Any>, acc: Acc, agent: number): void {
         if (!acc.models.includes(model)) acc.models.push(model);
         uidx = acc.usage.length;
         acc.usage.push([mid.slice(-12), acc.models.indexOf(model), Math.trunc(u.input_tokens || 0), Math.trunc(u.output_tokens || 0), cw5, cw1, Math.trunc(u.cache_read_input_tokens || 0), u.speed === "fast" ? 1 : 0]);
+        acc.kinds.push(0);
       }
     }
+    const kindRow = t === "assistant" && msg.id ? acc.mids.get(msg.id) : undefined; // the response's usage row: its calls' kinds
     const ownWt = inOwnWorktree(r, acc, subagent);
     const scope = ownWt ? wtScope(acc, r.cwd) : 0;
     if (!ownWt) acc.written.push(acc.ev.length);
@@ -1595,6 +1696,7 @@ function scanRecords(records: Iterable<Any>, acc: Acc, agent: number): void {
         if (typeof cmd === "string" && cmd.includes("git commit")) commitToolIds.add(b.id);
         if (typeof cmd === "string" && gitListingOnly(cmd)) listingToolIds.add(b.id);
         if (b.id) calls.set(b.id, { at: ts, kind: typeof cmd === "string" ? waitKind(cmd) : 0, name: String(b.name ?? ""), bg: !!(b.input && typeof b.input === "object" && b.input.run_in_background) });
+        if (kindRow !== undefined) acc.kinds[kindRow]! |= kindBit(callKind(String(b.name ?? ""), cmd));
       } else if (t === "user" && b.type === "tool_result") {
         // Hashes are taken from ANY tool_result, not only after `git commit`: a commit is often made by
         // a script (checks + commit + push), and the hash surfaces in its output. False anchors (old
@@ -1667,6 +1769,7 @@ export function parseSessionFile(file: string): Session {
     first_refs: acc.first_refs ?? [],
     first_urls: acc.first_urls,
     usage: acc.usage,
+    ...kindsOf(acc),
     models: acc.models,
     title: acc.title,
     title_refs: refsIn(acc.title),
@@ -1680,6 +1783,9 @@ export function parseSessionFile(file: string): Session {
     routine: acc.n_human < 3 && !acc.prlinks.length && !acc.commits.length,
   };
 }
+
+/** The kinds of the session's responses' calls (Session.call_kinds): absent — no response with calls. */
+const kindsOf = (acc: Acc): Pick<Session, "call_kinds"> => (acc.kinds.some(Boolean) ? { call_kinds: acc.kinds } : {});
 
 /** The session's wait calls (by start) and whether its tool results tell a wait for the user's approval apart. */
 const callsOf = (acc: Acc): Pick<Session, "calls" | "perm"> => ({ ...(acc.calls.length ? { calls: acc.calls.sort(byTs) } : {}), ...(acc.perm !== null ? { perm: acc.perm } : {}) });
@@ -1720,6 +1826,7 @@ export function parseCodexFile(file: string): Session {
   const commitCalls = new Set<string>();
   const listingCalls = new Set<string>();
   const waitCalls = new Map<string, [number, number]>(); // call_id → (start, wait kind)
+  let callKinds = 0; // the kinds of the calls since the last response's tokens: the response's calls come before them
   for (const r of jsonlRecords(file)) {
     const t = r.type;
     const p: Any = r.payload && typeof r.payload === "object" ? r.payload : {};
@@ -1761,6 +1868,8 @@ export function parseCodexFile(file: string): Session {
         const uidx = acc.usage.length;
         acc.mids.set(rid, uidx);
         acc.usage.push([rid.slice(-12), acc.models.indexOf(m), Math.max(0, Math.trunc(u.input_tokens || 0) - cached), Math.trunc(u.output_tokens || 0), Math.trunc(u.cache_write_input_tokens || 0), 0, cached, 0]);
+        acc.kinds.push(callKinds);
+        callKinds = 0;
         acc.ev.push([ts, "", 0, "", uidx]);
       }
       continue;
@@ -1774,6 +1883,7 @@ export function parseCodexFile(file: string): Session {
       if (pt === "function_call" && gitListingOnly(codexCommand(inp))) listingCalls.add(p.call_id);
       const kind = pt === "function_call" ? waitKind(codexCommand(inp)) : 0;
       if (kind && p.call_id) waitCalls.set(p.call_id, [ts, kind]);
+      callKinds |= kindBit(callKind(String(p.name ?? ""), pt === "function_call" ? codexCommand(inp) : ""));
       acc.ev.push([ts, "", 0, "", -1]);
     } else if (pt === "custom_tool_call_output" || pt === "function_call_output") {
       const txt = codexText(p.output);
@@ -1797,6 +1907,7 @@ export function parseCodexFile(file: string): Session {
     first_refs: acc.first_refs ?? [],
     first_urls: acc.first_urls,
     usage: acc.usage,
+    ...kindsOf(acc),
     models: acc.models,
     title: "",
     title_refs: [],
@@ -1879,6 +1990,7 @@ export function parseCloudFile(file: string): Session {
     first_refs: acc.first_refs ?? [],
     first_urls: acc.first_urls,
     usage: acc.usage,
+    ...kindsOf(acc),
     models: acc.models,
     title: acc.title,
     title_refs: refsIn(acc.title),
@@ -2465,6 +2577,9 @@ export interface Fact {
   tail?: number; // turns with context larger than TAIL_CTX — the most expensive
   preamble?: number; // context of the first top-level turn of the earliest session — the price of rules and tools
   ctx_end?: number; // context of the last top-level turn of the latest session
+  kinds?: Record<CallKind, number>; // the turns by kind (CALL_KINDS, turnKinds): a turn of several — an equal share each
+  rewrites?: number; // turns that rewrote the cache after a pause longer than its TTL (cacheRewrites)
+  rewrite_usd?: number; // their cache write, $ — by a shared PR's share, like the tokens
   prs: number[];
   commits: number;
   diff: number;
@@ -2557,6 +2672,36 @@ function prevOfSameAgent(ev: Any[][]): number[] {
     last.set(agent, i);
     return prev;
   });
+}
+
+/** Cache TTLs, s: a write to the 5-minute cache (cw5) and to the 1-hour one (cw1). */
+const TTL_5M = 300;
+const TTL_1H = 3600;
+
+/**
+ * Turns that rewrote the cache after a pause (#664): since the previous turn of the same agent more time passed than
+ * the TTL of the cache the response writes — 5 minutes or an hour, by its cache_creation (cw5, cw1), — the cache
+ * expired, and the context is written again at the price of a write instead of a read. The pause — between the turns'
+ * requests: a request goes after the agent's record before the turn (a tool result, a prompt), and the cache's TTL
+ * runs from the previous request. Index in ev of such a turn's first record → the rewritten tokens [cw5, cw1].
+ */
+export function cacheRewrites(s: Pick<Session, "ev" | "usage">, prev = prevOfSameAgent(s.ev)): Map<number, [number, number]> {
+  const out = new Map<number, [number, number]>();
+  const lastReq = new Map<number, number>(); // agent → its previous turn's request
+  s.ev.forEach((e, i) => {
+    const u = e.length > 4 && e[4] >= 0 ? s.usage?.[e[4]] : undefined;
+    if (!u) return;
+    const agent: number = e[5] ?? 0;
+    const j = prev[i]!;
+    const req: number = j >= 0 ? s.ev[j]![0] : e[0];
+    const was = lastReq.get(agent);
+    lastReq.set(agent, req);
+    if (was === undefined) return;
+    const cw5 = req - was > TTL_5M ? u[4] : 0;
+    const cw1 = req - was > TTL_1H ? u[5] : 0;
+    if (cw5 + cw1 > 0) out.set(i, [cw5, cw1]);
+  });
+  return out;
 }
 
 /**
@@ -2682,6 +2827,9 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
   let steps = 0;
   let stepsAgents = 0;
   let tail = 0;
+  const kinds = noKinds(); // the turns by kind and the cache rewrites after a pause — the flow's overhead (#664)
+  let rewrites = 0;
+  let rewriteUsd = 0.0;
   let preamble: number | null = null;
   let preAt: number | null = null;
   let ctxEnd: number | null = null;
@@ -2945,8 +3093,10 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     const ivBy = new Map<string, [number, number][]>(); // the same intervals by agent key — into the marker
     const ivAgent = new Map<number, [number, number][]>(); // the same by agent number — for its wait calls
     const sessAgents = new Set<number>();
-    const sessUsage: [Any[], number, boolean][] = []; // (usage record, share, whether a subagent) for linked model responses
+    // (usage record, share, whether a subagent, its calls' kinds, the rewritten cache) for linked model responses
+    const sessUsage: [Any[], number, boolean, number, [number, number] | undefined][] = [];
     const sUsage = s.usage ?? [];
+    const rewritten = cacheRewrites(s, prev);
     const sModels = s.models ?? [];
     for (let i = 0; i < ev.length; i++) {
       const e = ev[i]!;
@@ -2955,7 +3105,7 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
       const k = next[i]!;
       if (human && !w && k >= 0 && attributed[k]! && ev[k]![0] - ts <= gap) prompts++;
       if (!w) continue;
-      if (e.length > 4 && e[4] >= 0 && e[4] < sUsage.length) sessUsage.push([sUsage[e[4]]!, w, e[5] > 0]);
+      if (e.length > 4 && e[4] >= 0 && e[4] < sUsage.length) sessUsage.push([sUsage[e[4]]!, w, e[5] > 0, s.call_kinds?.[e[4]] ?? 0, rewritten.get(i)]);
       if (e[5] > 0) sessAgents.add(e[5]);
       prompts += human;
       sFirst = sFirst === null ? ts : sFirst;
@@ -2992,7 +3142,7 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     weightedTotal += sessW;
     let sFirstTop: number | null = null; // context of the session's first and last top-level turns
     let sLastTop: number | null = null;
-    for (const [u, w, sub] of sessUsage) {
+    for (const [u, w, sub, mask, rw] of sessUsage) {
       if (seenMids.has(u[0])) continue; // a resumed session copies the history — don't count twice
       seenMids.add(u[0]);
       const model: string = u[1] < sModels.length ? sModels[u[1]]! : "?";
@@ -3006,6 +3156,13 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
         sLastTop = ctx;
       }
       if (ctx > TAIL_CTX) tail++;
+      // a turn's kinds — whole for each task, like the turn; the rewrite's $ — by the share, like the tokens
+      const ks = turnKinds(mask);
+      for (const k of ks) kinds[k] += 1 / ks.length;
+      if (rw) {
+        rewrites++;
+        rewriteUsd += (usageCost(model, [0, 0, rw[0], rw[1], 0], !!u[7]) ?? 0) * w;
+      }
       tok.in += vals[0] * w;
       tok.out += vals[1] * w;
       tok.cw += (vals[2] + vals[3]) * w;
@@ -3063,6 +3220,9 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     steps += p.steps || 0;
     stepsAgents += p.steps_agents || 0;
     tail += p.tail || 0;
+    for (const k of CALL_KINDS) kinds[k] += p.kinds?.[k] || 0;
+    rewrites += p.rewrites || 0;
+    rewriteUsd += p.rewrite_usd || 0;
     if (p.preamble !== undefined && pFirst !== null && (preAt === null || pFirst < preAt)) (preAt = pFirst), (preamble = p.preamble);
     if (p.ctx_end !== undefined && pLast !== null && (endAt === null || pLast > endAt)) (endAt = pLast), (ctxEnd = p.ctx_end);
     details.push({ sid: p.session, src: "cloud", start: pFirst ?? 0, hours: p.h, prompts: p.prompts || 0, rules: { "cloud part": 1 }, branches: {} });
@@ -3106,6 +3266,9 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     steps,
     steps_agents: stepsAgents,
     tail,
+    kinds: roundKinds(kinds),
+    rewrites,
+    rewrite_usd: round2(rewriteUsd),
     ...(preamble !== null ? { preamble } : {}),
     ...(ctxEnd !== null ? { ctx_end: ctxEnd } : {}),
     prs: prObjs.map((p) => p.number),
@@ -3132,6 +3295,9 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
   if (waits) res.waits = waits;
   return res;
 }
+
+/** Turns by kind to a tenth — the actual's, as its marker and cloud part keep them. */
+const roundKinds = (k: Record<CallKind, number>): Record<CallKind, number> => ({ work: round1(k.work), flow: round1(k.flow), harness: round1(k.harness), checks: round1(k.checks) });
 
 /** {task: seconds} → [{issue, h}] by task number; less than 0.01 h isn't shown. */
 function hoursByIssue(m: Map<number, number>): { issue: number; h: number }[] {
@@ -3163,6 +3329,16 @@ function stepsTxt(res: Fact, language = locale.projectLanguage()): string {
   const n = res.steps ?? 0;
   const share = n ? Math.round(((res.tail ?? 0) / n) * 100) : 0;
   return locale.fill(locale.names(language).est.fact.steps, { n, agents: res.agents ?? 0, agentSteps: res.steps_agents ?? 0, preamble: k(res.preamble), end: k(res.ctx_end), tail: TAIL_CTX / 1000, share });
+}
+
+/**
+ * "Overhead: flow turns 30, harness 12, checks 15 of 250; cache rewrites after a pause 4 — $2.10." — the turns of the
+ * flow's overhead and the $ of the cache rewrites (#664), whole turns.
+ */
+function overheadTxt(res: Fact, language = locale.projectLanguage()): string {
+  const k = res.kinds ?? noKinds();
+  const m = (v: number) => String(Math.round(v));
+  return locale.fill(locale.names(language).est.fact.overhead, { flow: m(k.flow), harness: m(k.harness), checks: m(k.checks), n: res.steps ?? 0, rewrites: res.rewrites ?? 0, usd: (res.rewrite_usd ?? 0).toFixed(2) });
 }
 
 /** "Waits: CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 15." — whole minutes. */
@@ -3311,6 +3487,7 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
   for (const sid of res.cloud_missing ?? []) text += locale.fill(n.est.fact.cloudMissing, { sid });
   if (res.tok) text += "\n" + tokensTxt(res, language);
   if (res.steps) text += "\n" + stepsTxt(res, language);
+  if (res.steps && res.kinds) text += "\n" + overheadTxt(res, language);
   if (res.waits) text += "\n" + waitsTxt(res.waits, language);
   const marker: Record<string, unknown> = { v: 1, h, manual, wall: res.wall, cov: res.cov, sessions: res.sessions, prompts: res.prompts, agents: res.agents ?? 0, prs: res.prs, commits: res.commits, diff: res.diff, cause };
   if (res.waits) marker.waits = res.waits; // minutes: est history and the dashboard show them and their medians
@@ -3320,6 +3497,7 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
     if (res.models) marker.models = res.models;
   }
   if (res.steps) Object.assign(marker, { steps: res.steps, steps_agents: res.steps_agents ?? 0, tail: res.tail ?? 0, preamble: res.preamble ?? null, ctx_end: res.ctx_end ?? null });
+  if (res.steps && res.kinds) Object.assign(marker, { kinds: res.kinds, rewrites: res.rewrites ?? 0, rewrite_usd: res.rewrite_usd ?? 0 });
   if (res.type) marker.type = res.type; // type from the branch by the <type>/N-slug convention
   if (res.shared?.length) {
     const sh: Record<string, number[]> = {};
@@ -3389,6 +3567,7 @@ function cloudOwnPart(number: number, session: string, gap: number): CloudPart |
     tail: res.tail ?? 0,
     ...(res.preamble !== undefined ? { preamble: res.preamble } : {}),
     ...(res.ctx_end !== undefined ? { ctx_end: res.ctx_end } : {}),
+    ...(res.kinds ? { kinds: res.kinds, rewrites: res.rewrites ?? 0, rewrite_usd: res.rewrite_usd ?? 0 } : {}),
   };
 }
 
@@ -3790,6 +3969,7 @@ function printFact(repo: Repo, res: Fact, est: number | null): void {
     console.log(`actual: ${fmtH(res.h)} h active in ${agentsTxt(res, "en")}${raw} (${estTxt}); ${res.sessions} sess., ${res.prompts} prompts, wall ${fmtH(res.wall, 1)} h, coverage ${res.cov}`);
   }
   if (res.tok) console.log(tokensTxt(res, "en"));
+  if (res.steps && res.kinds) console.log(overheadTxt(res, "en"));
   if (res.waits) console.log(waitsTxt(res.waits, "en"));
   // a wait for the user's approval is told apart by the permission decision on a tool result (Claude Code); without it
   // the wait is inside the call's time (#518)
@@ -4547,6 +4727,10 @@ export interface Period {
   models: Record<string, number>; // $ by model from the price list
   unpriced: string[]; // models without a price
   steps: number; // turns — model responses, one per message.id
+  kinds: Record<CallKind, { steps: number; usd: number }>; // the turns and their $ by kind (turnKinds): work and the
+  // overhead around it — the flow, the harness, checks; a turn of several kinds — an equal share to each
+  rewrites: number; // turns that rewrote the cache after a pause longer than its TTL (cacheRewrites)
+  rewrite_usd: number; // their cache write, $
   agents: number; // subagents with records in the period
   prompts: number; // human prompts
 }
@@ -4563,11 +4747,13 @@ export function periodSummary(sessions: Session[], prs: PR[], since: number, unt
   const seen = new Set<string>();
   const all: [number, number][] = [];
   const byModel = new Map<string, number | null>();
-  const res: Period = { since, until, sessions: 0, prs: 0, h: 0, machine: 0, tok: 0, out: 0, usd: null, models: {}, unpriced: [], steps: 0, agents: 0, prompts: 0 };
+  const kinds = Object.fromEntries(CALL_KINDS.map((k) => [k, { steps: 0, usd: 0 }])) as Period["kinds"];
+  const res: Period = { since, until, sessions: 0, prs: 0, h: 0, machine: 0, tok: 0, out: 0, usd: null, models: {}, unpriced: [], steps: 0, kinds, rewrites: 0, rewrite_usd: 0, agents: 0, prompts: 0 };
   const inside = (t: number) => t >= since && t < until;
   for (const s of sessions) {
     const ev = s.ev;
     const prevOf = prevOfSameAgent(ev);
+    const rewritten = cacheRewrites(s, prevOf); // by the previous turn, even one before the period
     const agents = new Set<number>();
     const own: [number, number][] = [];
     let touched = false;
@@ -4591,6 +4777,16 @@ export function periodSummary(sessions: Session[], prs: PR[], since: number, unt
       const c = usageCost(model, vals, !!u[7]);
       const was = byModel.has(model) ? byModel.get(model)! : 0;
       byModel.set(model, c === null || was === null ? null : was + c);
+      const ks = turnKinds(s.call_kinds?.[e[4]]);
+      for (const k of ks) {
+        res.kinds[k].steps += 1 / ks.length;
+        res.kinds[k].usd += (c ?? 0) / ks.length;
+      }
+      const rw = rewritten.get(i);
+      if (rw) {
+        res.rewrites++;
+        res.rewrite_usd += usageCost(model, [0, 0, rw[0], rw[1], 0], !!u[7]) ?? 0;
+      }
     }
     if (touched) res.sessions++;
     res.agents += agents.size;
@@ -4609,6 +4805,11 @@ export function periodSummary(sessions: Session[], prs: PR[], since: number, unt
   res.prs = prs.filter((p) => p.mergedAt !== null && inside(p.mergedAt)).length;
   return res;
 }
+
+/** Turn kinds in the period table. */
+const KIND_LABEL: Record<CallKind, string> = { work: "work", flow: "flow", harness: "harness", checks: "check" };
+const KINDS_NOTE =
+  "Turn kinds: flow — the flow's scripts, gh, git, CI waits; harness — the app's tools, ToolSearch; check — lint, typecheck, tests; work — the rest; a turn of several kinds — an equal share to each. A cache rewrite — a turn after a pause longer than the TTL of its cache write (5 min or 1 h).";
 
 /** Period table: totals, also per merged PR; for two periods the "after / before" ratio; then the $ share by model. */
 export function periodTable(ps: Period[]): string[] {
@@ -4630,6 +4831,10 @@ export function periodTable(ps: Period[]): string[] {
     return v === null || !p.prs ? null : v / p.prs;
   };
   type Line = [string, (p: Period) => number | null, (v: number) => string];
+  // $ by kind and of the rewrites — while some model has a price, as the cost
+  const kindSteps = (k: CallKind) => (p: Period) => p.kinds[k].steps;
+  const kindUsd = (k: CallKind) => (p: Period) => (p.usd === null ? null : p.kinds[k].usd);
+  const rewriteUsd = (p: Period) => (p.usd === null ? null : p.rewrite_usd);
   const lines: (Line | string)[] = [
     ["sessions", (p) => p.sessions, int],
     ["merged PRs", (p) => p.prs, int],
@@ -4640,6 +4845,10 @@ export function periodTable(ps: Period[]): string[] {
     ["output, K", (p) => p.out, thou],
     ["cost, $", (p) => p.usd, usd],
     ["turns", (p) => p.steps, int],
+    ...CALL_KINDS.map((k): Line => [`  ${KIND_LABEL[k]} turns`, kindSteps(k), int]),
+    ...CALL_KINDS.map((k): Line => [`  ${KIND_LABEL[k]} turns, $`, kindUsd(k), usd]),
+    ["cache rewrites after a pause > TTL", (p) => p.rewrites, int],
+    ["  their cache write, $", rewriteUsd, usd],
     ["subagents", (p) => p.agents, int],
     ["human prompts", (p) => p.prompts, int],
     "per merged PR:",
@@ -4649,6 +4858,10 @@ export function periodTable(ps: Period[]): string[] {
     ["  output, K", perPr((p) => p.out), thou],
     ["  cost, $", perPr((p) => p.usd), usd],
     ["  turns", perPr((p) => p.steps), one],
+    ...CALL_KINDS.map((k): Line => [`    ${KIND_LABEL[k]} turns`, perPr(kindSteps(k)), one]),
+    ...CALL_KINDS.map((k): Line => [`    ${KIND_LABEL[k]} turns, $`, perPr(kindUsd(k)), usd]),
+    ["  cache rewrites", perPr((p) => p.rewrites), one],
+    ["    their cache write, $", perPr(rewriteUsd), usd],
     ["  subagents", perPr((p) => p.agents), one],
     ["  human prompts", perPr((p) => p.prompts), one],
     ["$ per 1M tokens", (p) => (p.usd !== null && p.tok ? p.usd / (p.tok / 1e6) : null), usd],
@@ -4673,6 +4886,7 @@ export function periodTable(ps: Period[]): string[] {
     out.push(`$ by model ${heads[i]}: ${shares.length ? sharesTxt(shares) : "—"}${unpriced}`);
   });
   out.push(`${TARIFF_NOTE}; $ per 1M tokens — the rate shift.`);
+  out.push(KINDS_NOTE);
   return out;
 }
 
@@ -4744,7 +4958,8 @@ Examples:
   est backtest --all-repos`,
   period: `est period --since DATE [--until DATE] [--since DATE [--until DATE]] [--repo o/r] [--gap 30]
 
-All of the repo's sessions over the period: hours, tokens, cost; two periods — side by side, «after / before».
+All of the repo's sessions over the period: hours, tokens, cost, turns by kind (work, the flow's overhead, the harness,
+checks) and cache rewrites after a pause; two periods — side by side, «after / before».
 
 Examples:
   est period --since 2026-09-01
