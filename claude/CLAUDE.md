@@ -29,9 +29,8 @@ every project, whatever its `CLAUDE.md`.
   (`startup|resume|clear`): `check --hook` — the machine (canon, skills, hook)
   and the project's flow with its mode and language (`AGENTS.md`, "First step
   of a session") into the start of the context: a thin project's lag —
-  `update` in the session's task, a copy — the canon twice and its move task,
-  no flow — install it; a
-  session with a pinned task (a resume after the app restarted) gets the wait
+  `update` in the session's task, no flow — install it; a session with a
+  pinned task (a resume after the app restarted) gets the wait
   to restart — `github task resume` with the session id from the hook's input.
   The hook always exits 0. No hook output in context — run `check` by hand.
   The hook also writes the agent's Bash environment to `$CLAUDE_ENV_FILE`: zsh

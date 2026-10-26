@@ -286,18 +286,8 @@ describe("Файлы флоу не игнорируются git проекта �
     expect(install().code).toBe(0);
     expect(gitignore()).toBe("CLAUDE.md\n.claude/\nvendor/\n\n# elves:begin — flow files git would otherwise ignore; set by `bunx @miroshnik/elves install`, don't edit by hand\n!/.claude/\n/.claude/*\n!/.claude/settings.json\n# elves:end\n");
     expect(ignored()).toEqual([]);
-    // исключение хука — не исключение копии флоу: check не зовёт проект отставшим
+    // исключение хука — свой блок тонкого проекта: check не зовёт проект отставшим
     expect(elves(sb, ["check"]).code).toBe(0);
-  });
-
-  // страховка от перегиба: исключения симлинков копии в .claude/rules — по-прежнему исключения копии, update их уберёт
-  it("исключения .gitignore для симлинков копии в .claude/rules check называет исключениями копии", () => {
-    install();
-    const block = "# elves:begin — flow files git would otherwise ignore; set by `bunx github:miroshnik/elves install`, don't edit by hand\n!/.claude/\n/.claude/*\n!/.claude/rules/\n# elves:end\n";
-    writeTree(proj, { ".gitignore": `.claude/\n\n${block}` });
-    const r = elves(sb, ["check"]);
-    expect(r.code).toBe(1);
-    expect(r.stdout).toContain("  ~ .gitignore — the flow copy's exceptions — update removes them\n");
   });
 
   /** Шапка блока прошлой версии — по-русски; маркеры begin и end у него те же: по ним установка его находит. */
@@ -359,10 +349,6 @@ describe("Проверки проекта идут очередью машины
   const pkgFile = () => path.join(proj, "package.json");
   const scripts = () => JSON.parse(read(pkgFile())).scripts;
   const slot = (cmd: string) => `. .agents/slot.sh && ${cmd}`;
-  /** Обёртка копии флоу прошлых установок: её slot.sh. */
-  const copySlot = (cmd: string) => `. .agents/skills/slot/scripts/slot.sh && ${cmd}`;
-  /** Обёртка ещё раньше: команда — строкой-аргументом slot.ts копии. */
-  const slotString = (cmd: string, runtime = "bun --no-env-file") => `${runtime} .agents/skills/slot/scripts/slot.ts '${cmd}'`;
   /** elves песочницы — bin этого клона: шим зовёт `elves slot` из PATH, как из node_modules/.bin проекта. */
   const elvesOnPath = () => symlinkSync(BIN, path.join(sb.bin, "elves"));
 
@@ -434,48 +420,6 @@ describe("Проверки проекта идут очередью машины
   });
 
   /**
-   * Копия флоу подключала свой slot.sh; ещё раньше установки передавали команду slot.ts строкой — через node в проекте на
-   * Node, через bun без отключения env-файлов, через bun с ним: knip такую команду не видит.
-   */
-  it("обёртка прошлой установки — slot.sh копии или команда строкой у slot.ts через node или bun — переписывается, команда та же", () => {
-    const quoted = `printf '%s' "it's"`;
-    writeTree(proj, {
-      "package.json": JSON.stringify({
-        scripts: { test: slotString("vitest run", "node"), lint: slotString("eslint .", "bun"), typecheck: slotString(quoted.replaceAll("'", "'\\''")), "test:e2e": copySlot("playwright test") },
-      }),
-    });
-    install();
-    expect(scripts()).toEqual({ test: slot("vitest run"), lint: slot("eslint ."), typecheck: slot(quoted), "test:e2e": slot("playwright test") });
-  });
-
-  /**
-   * Скрипты spec копии флоу шли по её пути (`bun .agents/skills/spec/scripts/<скрипт>.ts`), репортёр knip для `report`
-   * харнесса — тоже; в тонком проекте их даёт пакет: `bun --no-env-file node_modules/.bin/elves <скрипт>`, как в CI
-   * (#596), репортёр — файлом пакета.
-   */
-  it("скрипты копии флоу — bun .agents/skills/spec/scripts/<скрипт>.ts — переписываются на bun --no-env-file node_modules/.bin/elves <скрипт>, репортёр knip — на файл пакета", () => {
-    writeTree(proj, {
-      "package.json": JSON.stringify({
-        scripts: {
-          "spec:doc": "bun --no-env-file .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
-          "spec:claims": "bun .agents/skills/spec/scripts/spec-claims.ts --entries tests/entries.ts",
-          "test:spec": copySlot("bun test tests/standards && bun --no-env-file ./.agents/skills/spec/scripts/spec-diff.ts --base origin/main"),
-          knip: "knip --reporter json --reporter .agents/skills/spec/scripts/knip-hints.cjs > .knip.json",
-        },
-      }),
-    });
-    const r = install();
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("package.json — the flow copy's scripts through the package (bun --no-env-file node_modules/.bin/elves <script>): spec:doc, spec:claims, test:spec, knip");
-    expect(scripts()).toEqual({
-      "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.xml --strict",
-      "spec:claims": "bun --no-env-file node_modules/.bin/elves spec-claims --entries tests/entries.ts",
-      "test:spec": slot("bun test tests/standards && bun --no-env-file node_modules/.bin/elves spec-diff --base origin/main"),
-      knip: "knip --reporter json --reporter node_modules/@miroshnik/elves/skills/spec/scripts/knip-hints.cjs > .knip.json",
-    });
-  });
-
-  /**
    * `bun` читает bin пакета сам, мимо шебанга: без `--no-env-file` Bun подгрузил бы env-файлы рабочего каталога, и
    * скрипт отдал бы их ключи дальше — `spec-break` проверяемой команде, `spec-run` и `spec-publish` — `gh` и `git`
    * (tests/standards/scripts/no-env-file, #596). Скрипт `package.json` идёт как у npm: `sh -c` в корне проекта,
@@ -484,7 +428,7 @@ describe("Проверки проекта идут очередью машины
   it("скрипт spec из package.json тонкого проекта не видит ключей env-файлов рабочего каталога", () => {
     const probe = `sh -c 'echo "[$ELVES_DOTENV|$ELVES_DOTENV_LOCAL]" >> probe.txt; read x < f.txt; [ "$x" = ok ]'`;
     writeTree(proj, {
-      "package.json": JSON.stringify({ scripts: { "spec:break": `bun --no-env-file .agents/skills/spec/scripts/spec-break.ts --file f.txt --find ok --replace no -- ${probe}` } }),
+      "package.json": JSON.stringify({ scripts: { "spec:break": `bun --no-env-file node_modules/.bin/elves spec-break --file f.txt --find ok --replace no -- ${probe}` } }),
       "f.txt": "ok\n",
       ".env": "ELVES_DOTENV=dotenv\n",
       ".env.local": "ELVES_DOTENV_LOCAL=prod-key\n",
@@ -510,13 +454,12 @@ describe("Проверки проекта идут очередью машины
     const markers: [Record<string, string>, string?][] = [[{ ".yarnrc.yml": "nodeLinker: node-modules\n" }], [{}, "yarn@4.9.1"]];
     for (const [files, packageManager] of markers) {
       rmSync(path.join(proj, ".yarnrc.yml"), { force: true });
-      const copy = "bun .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml";
-      writeTree(proj, { ...files, "package.json": JSON.stringify({ packageManager, scripts: { test: "vitest run", lint: slot("eslint ."), typecheck: slotString("tsc"), "test:e2e": "elves slot 'playwright test'", "spec:doc": copy } }) });
+      const specDoc = `${PACKAGE_BUNX} spec-doc .spec-report.xml`;
+      writeTree(proj, { ...files, "package.json": JSON.stringify({ packageManager, scripts: { test: "vitest run", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
       install();
       expect(scripts()).toEqual({
         test: yarnSlot("vitest run"),
         lint: yarnSlot("eslint ."),
-        typecheck: yarnSlot("tsc"),
         "test:e2e": yarnSlot("playwright test"),
         "spec:doc": `${PACKAGE_BUNX} spec-doc .spec-report.xml`,
       });
@@ -530,7 +473,7 @@ describe("Проверки проекта идут очередью машины
   it("check называет обёртку прошлой установки несоответствием, update переписывает её", () => {
     writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", test: "vitest run" } }) });
     install();
-    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: slotString("vitest run") } }) });
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: "elves slot 'vitest run'" } }) });
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
     expect(c.stdout).toMatch(/~ package\.json — [^\n]*previous install — knip doesn't see the command[^\n]*\btest\b/);

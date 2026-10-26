@@ -236,10 +236,6 @@
     }
   },
   "updateCommit": "флоу Elves {version}",
-  "updateTask": "Обновить флоу Elves",
-  "formerly": {
-    "updateTask": "Обновить флоу ai-dev"
-  },
   "standardIssue": "Стандарт ·",
   "autoAnswer": "✅ авто",
   "lastLine": {

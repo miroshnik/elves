@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import locale from "../../../skills/github/scripts/locale.ts";
-import { bareClone, copyInstall, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, FLOW_SKILLS, loadedAtStart, npmPackage, REPO, sandbox, snapshot, toFormer, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { bareClone, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, npmPackage, REPO, sandbox, snapshot, toFormer, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
@@ -67,15 +67,11 @@ const MODE_AUTO = "  tasks: entirely by itself\n  language: en\n";
 // первая строка check в клоне Elves: сверять установку не с чем
 const ABSENT = "Elves in the project: not installed — an Elves clone, the canon is at its root\n";
 
-// скрипт скилла github в копии флоу — проекта (от корня проекта) и машины (от домашнего каталога)
-const GITHUB = ".agents/skills/github/scripts/github.ts";
-// хвост хука: переезд копии — своя задача, отставший тонкий проект — задача сессии, машину — сама сессия
-const PROJECT_COPY = "The project keeps a copy of the flow — moving it to a thin project is a task of its own, not in a task session";
+// хвост хука: отставший тонкий проект — задача сессии, машину — сама сессия
 const PROJECT_BEHIND = "The project's flow is behind — update in the session's task";
 const MACHINE_BEHIND = "The machine is behind — update -g";
-// строки check: тонкий проект отстал — обновление в задаче сессии; копия — переезд своей задачей
+// строка check: тонкий проект отстал — обновление в задаче сессии
 const UPDATE_HERE = "Update in this session's task — @miroshnik/elves in package.json and the lockfile, a few lines: bunx @miroshnik/elves update";
-const MOVE_TASK = "Move in a task of its own, not in this session's task: bunx @miroshnik/elves update";
 
 const writePkg = (fields: Record<string, unknown>) => writeFileSync(path.join(sb.proj, "package.json"), JSON.stringify({ name: "x", private: true, ...fields }, null, 2) + "\n");
 // шим очереди убран — тонкий проект отстал без смены версии
@@ -263,358 +259,6 @@ describe("Тонкий проект сверяется с версией пак�
     expect(elves(sb, ["update"]).code).toBe(0);
     for (const f of files) expect(read(f)).not.toContain("npx");
     expect(elves(sb, ["check"]).code).toBe(0);
-  });
-});
-
-/**
- * Проект с копией флоу прошлого релиза (до #558) переезжает на тонкий: копия, её симлинки и исключения уходят, импорты
- * харнесса и пути CI ведут в пакет. Переезд — тысячи удалённых строк, правка тестов и CI: это своя задача, одна на
- * проект, а не ветка задачи сессии.
- */
-describe("Проект с копией флоу переезжает на тонкий проект", () => {
-  /** Название постоянное, на языке проекта: открытую задачу `task new` второй раз не заводит — отказывает с её номером. */
-  it("check проекта с копией флоу печатает задачу переезда на тонкий проект — своей задачей, одной на проект; check ничего не меняет", () => {
-    copyInstall(sb.proj, { language: "ru" });
-    const before = snapshot(sb.proj);
-    const r = elves(sb, ["check"], { bin: v2.bin });
-    expect(r.code).toBe(1);
-    expect(r.stdout).toStartWith("Elves in the project: a copy of the flow (installed v2026.10.05) — move it to a thin project: @miroshnik/elves 2026.1016.0 in devDependencies, the canon and the skills on the machine\n");
-    const skills = FLOW_SKILLS.join(", ");
-    for (const line of [
-      "  - .claude/rules/elves.md\n",
-      "  - .claude/rules/elves-claude.md\n",
-      `  - .agents/skills/ — the flow's skills: ${skills}\n`,
-      `  - .claude/skills/ — the symlinks to them: ${skills}\n`,
-      "  - .agents/elves/\n",
-      "  ~ .agents/elves.json\n",
-      "  + .agents/slot.sh\n",
-      "  ~ AGENTS.md\n",
-    ]) {
-      expect(r.stdout).toContain(line);
-    }
-    expect(r.stdout).toContain(`\n${MOVE_TASK}\n`);
-    expect(r.stdout).toMatch(/\nThe task — one per project, an open one is named by the refusal: bun --no-env-file \S+\/skills\/github\/scripts\/github\.ts task new --title "Обновить флоу Elves" --branch-type chore\n/);
-    expect(snapshot(sb.proj)).toEqual(before);
-  });
-
-  /**
-   * Строка выходит ровно тогда, когда в проекте копия, — её скрипт github может не знать печатаемых флагов
-   * (`--branch-type` — с v2026.10.11). Команда — скриптом машины, иначе пакета, которым идёт check: тот же релиз. Без
-   * GitHub задачу не завести — команда доходит до поиска репозитория, а не падает на флаге.
-   */
-  it("копия проекта до `--branch-type`: команда задачи переезда из `check` — скриптом github, который знает её флаги, а не копией", () => {
-    copyInstall(sb.proj);
-    writeTree(sb.proj, { [GITHUB]: "console.error(\"Unknown option '--branch-type'\");\nprocess.exit(2);\n" });
-    const run = () => {
-      const command = /bun --no-env-file (\S+) task new --title "Update the Elves flow" --branch-type chore\n/.exec(elves(sb, ["check"], { bin: newer.bin }).stdout);
-      const r = spawnSync("sh", ["-c", command![0]], { cwd: sb.proj, env: sb.env, encoding: "utf8" });
-      return { script: realpathSync(path.resolve(sb.proj, command![1]!)), stderr: r.stderr };
-    };
-    const pkg = run();
-    expect(pkg.script).toBe(realpathSync(path.join(newer.dir, "skills/github/scripts/github.ts")));
-    expect(pkg.stderr).toContain("couldn't determine the repository");
-    mkdirSync(path.join(sb.home, ".claude"));
-    elves(sb, ["install", "-g"], { bin: newer.bin });
-    const machine = run();
-    expect(machine.script).toBe(realpathSync(path.join(sb.home, GITHUB)));
-    expect(machine.stderr).toContain("couldn't determine the repository");
-  });
-
-  /**
-   * Переезд целиком: копия, её симлинки и исключения .gitignore уходят, свой скилл проекта остаётся, манифест — только
-   * режим, язык и env; импорты харнесса и github в тестах и конфигах — из пакета, скрипты копии в CI и package.json —
-   * через пакет; версия пакета — в package.json и bun.lock; что ещё называет `.agents` (исключение линтера) — строкой.
-   */
-  it("update в проекте с копией переводит его на тонкий: копия, симлинки и исключения .gitignore удалены, импорты harness и пути CI переписаны", () => {
-    bunProject();
-    const env = { http: { web: 3000 } };
-    copyInstall(sb.proj, { auto: true, language: "ru", env });
-    writeTree(sb.proj, {
-      ".gitignore": `node_modules/\nCLAUDE.md\n\n# elves:begin — flow files git would otherwise ignore; set by \`bunx github:miroshnik/elves install\`, don't edit by hand\n!/.agents/elves/claude/CLAUDE.md\n# elves:end\n`,
-      ".agents/skills/mine/SKILL.md": "свой скилл проекта\n",
-      "package.json": JSON.stringify(
-        {
-          ...JSON.parse(read(path.join(sb.proj, "package.json"))),
-          scripts: {
-            test: ". .agents/skills/slot/scripts/slot.sh && bun test",
-            "spec:doc": "bun --no-env-file .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
-          },
-        },
-        null,
-        2,
-      ) + "\n",
-      "tests/capabilities/orders/orders.test.ts": 'import { describe, it } from "bun:test";\nimport { invariant } from "../../../.agents/skills/spec/scripts/harness.ts";\nimport { projectCommands } from "../../../.agents/skills/github/scripts/github.ts";\n',
-      "eslint.config.js": 'import elves from "./.agents/skills/spec/scripts/eslint-config.ts";\n\nexport default [{ ignores: [".agents/**"] }, ...elves];\n',
-      "README.md": ".agents/   # флоу Elves: манифест elves.json и шим очереди slot.sh\n",
-      ".dockerignore": ".agents\n",
-      "docs/flow.md": "see .agents/skills/spec/SKILL.md\n",
-      "scripts/slot-shim.ts": "const SLOT_COMMAND = /^\\. \\.agents\\/slot\\.sh && (.+)$/;\nconst MANIFEST = /\\.agents\\/elves\\.json/;\n",
-      ".github/workflows/ci.yml": [
-        "jobs:",
-        "  tests:",
-        "    steps:",
-        "      - run: bun install --frozen-lockfile",
-        "      - run: bun --no-env-file .agents/skills/spec/scripts/spec-diff.ts --base origin/main >> \"$GITHUB_STEP_SUMMARY\"",
-        "      - run: npx knip --reporter json --reporter .agents/skills/spec/scripts/knip-hints.cjs > .knip.json",
-        "",
-      ].join("\n"),
-    });
-    mkdirSync(path.join(sb.proj, ".claude/skills/mine"), { recursive: true });
-    const repo = gitRepo(sb.proj, { init: false });
-    repo.commit({}, "chore: копия флоу");
-    const u = elves(sb, ["update"], { bin: v2.bin, env: registry.env });
-    expect(u.stderr).toBe("");
-    expect(u.code).toBe(0);
-    // копия ушла, своё — осталось
-    for (const rel of [".agents/elves", ".claude/rules", ...FLOW_SKILLS.flatMap((s) => [`.agents/skills/${s}`, `.claude/skills/${s}`])]) expect(lstatSync(path.join(sb.proj, rel), { throwIfNoEntry: false })).toBeUndefined();
-    expect(read(path.join(sb.proj, ".agents/skills/mine/SKILL.md"))).toBe("свой скилл проекта\n");
-    expect(existsSync(path.join(sb.proj, ".claude/skills/mine"))).toBe(true);
-    expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: true, language: "ru", env });
-    expect(read(path.join(sb.proj, ".gitignore"))).toBe("node_modules/\nCLAUDE.md\n");
-    expect(read(path.join(sb.proj, "AGENTS.md"))).toContain("`~/.agents/elves/AGENTS.md`");
-    expect(read(path.join(sb.proj, ".agents/slot.sh"))).toContain("elves slot --for $$");
-    // тесты, конфиги, CI и скрипты — через пакет
-    const pkg = JSON.parse(read(path.join(sb.proj, "package.json")));
-    expect(pkg.scripts).toEqual({ test: ". .agents/slot.sh && bun test", "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.xml --strict" });
-    expect(pkg.devDependencies).toEqual({ "@miroshnik/elves": V2 });
-    expect(read(path.join(sb.proj, "bun.lock"))).toContain(`"@miroshnik/elves@${V2}"`);
-    expect(read(path.join(sb.proj, "tests/capabilities/orders/orders.test.ts"))).toBe('import { describe, it } from "bun:test";\nimport { invariant } from "@miroshnik/elves/spec/harness";\nimport { projectCommands } from "@miroshnik/elves/github";\n');
-    expect(read(path.join(sb.proj, "eslint.config.js"))).toStartWith('import elves from "@miroshnik/elves/spec/eslint-config";\n');
-    const ci = read(path.join(sb.proj, ".github/workflows/ci.yml"));
-    expect(ci).toContain("      - run: bun --no-env-file node_modules/.bin/elves spec-diff --base origin/main >> \"$GITHUB_STEP_SUMMARY\"\n");
-    expect(ci).toContain("--reporter node_modules/@miroshnik/elves/skills/spec/scripts/knip-hints.cjs > .knip.json\n");
-    // исключение линтера для копии больше не нужно — строка с файлом и номером
-    expect(u.stdout).toContain("Still naming .agents — the flow copy is gone");
-    expect(u.stdout).toContain('  eslint.config.js:3: export default [{ ignores: [".agents/**"] }, ...elves];\n');
-    // путь шима и манифеста в регулярном выражении — не остаток копии
-    expect(u.stdout).not.toContain("slot-shim.ts");
-    // каталог .agents/ без пути внутрь — описание, ignore-файл сборки — не остаток; путь в скилл флоу — остаток
-    expect(u.stdout).not.toContain("README.md:");
-    expect(u.stdout).not.toContain(".dockerignore:");
-    expect(u.stdout).toContain("  docs/flow.md:1: see .agents/skills/spec/SKILL.md\n");
-    // git add подсказки берёт и удаления копии: после коммита рабочее дерево чистое
-    const add = /\n {2}(git add -A -- [^&\n]+)&& git commit -m "chore\(agents\): флоу Elves v2026\.10\.16"\n/.exec(u.stdout)?.[1] ?? "";
-    expect(add).toContain(".agents/elves");
-    expect(u.stdout).toContain("Commit the move into the update task's branch:");
-    execFileSync("sh", ["-c", add], { cwd: sb.proj, env: sb.env });
-    expect({ unstaged: git(sb.proj, "diff", "--name-only"), untracked: git(sb.proj, "ls-files", "--others", "--exclude-standard") }).toEqual({ unstaged: "", untracked: "" });
-    const c = elves(sb, ["check"], { bin: v2.bin });
-    expect(c).toMatchObject({ code: 0, stdout: expect.stringContaining("in the project: up to date (v2026.10.16)") });
-  });
-
-  /**
-   * Джобы `spec-publish` и `spec-diff` из `ci.md` прошлых релизов зависимостей проекта не ставят (#597):
-   * `node_modules/.bin/elves` там нет — скрипт копии идёт пакетом версии проекта через bunx, как во фрагментах `ci.md`.
-   * Джоба, где шаг ставит зависимости, — форма `package.json`; где установку не узнать (локальное действие, составное
-   * действие), — форма без зависимостей, она работает и с ними, и строка `!` для правки руками.
-   */
-  const BUNX = `bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)"`;
-  /** update проекта с копией и workflow из строк; шаги run джоб workflow после переезда. */
-  function moveCi(workflow: string[], files: Record<string, string> = {}) {
-    copyInstall(sb.proj);
-    writeTree(sb.proj, { ".github/workflows/ci.yml": workflow.join("\n") + "\n", ...files });
-    gitRepo(sb.proj, { init: false }).commit({}, "chore: копия флоу");
-    const u = elves(sb, ["update"]);
-    const { jobs } = Bun.YAML.parse(read(path.join(sb.proj, ".github/workflows/ci.yml"))) as { jobs: Record<string, { steps: { run?: string }[] }> };
-    return { u, runs: Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, job.steps.flatMap((s) => s.run ?? [])])) };
-  }
-
-  it("update проекта с копией: скрипт копии в джобе без установки зависимостей — пакет версии проекта через bunx", () => {
-    const { u, runs } = moveCi([
-      "jobs:",
-      "  spec-publish:",
-      "    runs-on: ubuntu-latest",
-      "    steps:",
-      "      - uses: actions/checkout@v4",
-      "      - uses: oven-sh/setup-bun@v2",
-      '      - run: bun --no-env-file .agents/skills/spec/scripts/spec-publish.ts --source "$MERGE_SHA"',
-      "  spec-diff:",
-      "    steps:",
-      "      - run: |",
-      '          bun .agents/skills/spec/scripts/spec-diff.ts --base "origin/${{ github.base_ref }}" --full >> "$GITHUB_STEP_SUMMARY"',
-    ]);
-    expect(u.code).toBe(0);
-    expect(runs).toEqual({
-      "spec-publish": [`${BUNX} spec-publish --source "$MERGE_SHA"`],
-      "spec-diff": [`${BUNX} spec-diff --base "origin/\${{ github.base_ref }}" --full >> "$GITHUB_STEP_SUMMARY"\n`],
-    });
-    expect(u.stderr).not.toContain("ci.yml");
-  });
-
-  it("update проекта с копией: скрипт копии в джобе с установкой зависимостей — bun --no-env-file node_modules/.bin/elves", () => {
-    const { u, runs } = moveCi([
-      "jobs:",
-      "  spec:",
-      "    steps:",
-      "      - run: bun install --frozen-lockfile",
-      "      - run: bun --no-env-file .agents/skills/spec/scripts/spec-diff.ts --base origin/main",
-      "  docs:",
-      "    steps:",
-      "      - run: |",
-      "          npm ci",
-      "          bun .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml",
-      "  publish:",
-      "    steps:",
-      "      - run: npm i -g wrangler",
-      "      - run: bun .agents/skills/spec/scripts/spec-publish.ts",
-    ]);
-    expect(u.code).toBe(0);
-    expect(runs).toEqual({
-      spec: ["bun install --frozen-lockfile", "bun --no-env-file node_modules/.bin/elves spec-diff --base origin/main"],
-      docs: ["npm ci\nbun --no-env-file node_modules/.bin/elves spec-doc .spec-report.xml\n"],
-      // глобальная установка зависимостей проекта не ставит
-      publish: ["npm i -g wrangler", `${BUNX} spec-publish`],
-    });
-    expect(u.stderr).not.toContain("ci.yml");
-  });
-
-  /**
-   * На Yarn 2+ с PnP `yarn install` не кладёт `node_modules/.bin`, а bin `.ts` Yarn 2+ запускает Node-ом при любом
-   * `nodeLinker` (#608): скрипт копии в любой джобе — пакет через bunx, форма package.json проекта; строки `!` нет —
-   * эта форма верна, ставит джоба зависимости или нет.
-   */
-  it("переезд с копии на Yarn 2+ с PnP — джоба CI с установкой зависимостей запускает скрипт пакета", () => {
-    const { u, runs } = moveCi(
-      [
-        "jobs:",
-        "  spec:",
-        "    steps:",
-        "      - run: yarn install --immutable",
-        "      - run: bun --no-env-file .agents/skills/spec/scripts/spec-diff.ts --base origin/main",
-        "  docs:",
-        "    steps:",
-        "      - uses: ./.github/actions/setup",
-        "      - run: bun .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml",
-      ],
-      { "package.json": JSON.stringify({ name: "x", private: true, packageManager: "yarn@4.9.1" }, null, 2) + "\n", ".yarnrc.yml": "nodeLinker: pnp\n" },
-    );
-    expect(u.code).toBe(0);
-    expect(runs).toEqual({ spec: ["yarn install --immutable", `${BUNX} spec-diff --base origin/main`], docs: [`${BUNX} spec-doc .spec-report.xml`] });
-    expect(u.stderr).not.toContain("ci.yml");
-  });
-
-  it("джоба, где установку зависимостей не узнать, — строка ! с файлом и джобой для правки руками", () => {
-    const action = ".github/actions/spec/action.yml";
-    const { u, runs } = moveCi(
-      [
-        "jobs:",
-        "  spec:",
-        "    steps:",
-        "      - uses: ./.github/actions/setup",
-        "      - run: bun .agents/skills/spec/scripts/spec-diff.ts --base origin/main",
-      ],
-      { [action]: ["runs:", "  using: composite", "  steps:", "    - run: bun .agents/skills/spec/scripts/spec-doc.ts", "      shell: bash", ""].join("\n") },
-    );
-    expect(u.code).toBe(0);
-    expect(runs).toEqual({ spec: [`${BUNX} spec-diff --base origin/main`] });
-    expect(read(path.join(sb.proj, action))).toContain(`    - run: ${BUNX} spec-doc\n`);
-    const unknown = "— whether the job installs the project's dependencies is unknown";
-    expect(u.stderr).toContain(`!! .github/workflows/ci.yml, job spec ${unknown}`);
-    expect(u.stderr).toContain(`!! ${action} ${unknown}`);
-  });
-
-  /** Копия до списка скиллов в манифесте: свои скиллы флоу узнаёт по скиллам Elves. */
-  it("копия без списка скиллов в манифесте — уходят скиллы, которые есть у Elves; свой скилл проекта остаётся", () => {
-    copyInstall(sb.proj);
-    editManifest(sb.proj, { skills: undefined });
-    writeTree(sb.proj, { ".agents/skills/mine/SKILL.md": "свой\n" });
-    expect(elves(sb, ["update"]).code).toBe(0);
-    expect(readdirSync(path.join(sb.proj, ".agents/skills"))).toEqual(["mine"]);
-    expect(readdirSync(path.join(sb.proj, ".claude"))).toEqual(["settings.json"]);
-  });
-
-  /**
-   * Переезд четырёх проектов (#620) упёрся в одни хвосты: скрипт поднятия стека и обёртка e2e звали task-env копии,
-   * тест мёртвого кода импортировал репортёр knip копии ради его `file`. Пакет даёт обоим своё — команду `elves task-env`
-   * и экспорт репортёра, — и `update` переводит их сам: после него в проекте не остаётся путей в копию.
-   */
-  it("update проекта с копией переводит вызов task-env и импорт knip-hints.cjs копии на пакет: скрипт зовёт elves task-env, тест — экспорт @miroshnik/elves/spec/knip-hints; check после него — без «!»", () => {
-    copyInstall(sb.proj);
-    const DEAD_CODE = "tests/dead-code.test.ts";
-    writeTree(sb.proj, {
-      "scripts/dev.sh": "#!/bin/sh\nset -e\nbun .agents/skills/task-env/scripts/task-env.ts up\nexec next dev\n",
-      [DEAD_CODE]: [
-        'import { describe, it } from "bun:test";',
-        'import knipHints from "../.agents/skills/spec/scripts/knip-hints.cjs";',
-        'import { deadCode } from "../.agents/skills/spec/scripts/harness.ts";',
-        "",
-        'describe("No dead code", () => deadCode(it, { root: ".", args: ["--reporter", knipHints.file] }));',
-        "",
-      ].join("\n"),
-    });
-    gitRepo(sb.proj, { init: false }).commit({}, "chore: копия флоу");
-    expect(elves(sb, ["check"]).stdout).not.toContain("  ! ");
-    const u = elves(sb, ["update"]);
-    expect(u.code).toBe(0);
-    // чего по тексту не узнать — списком для задачи переезда
-    expect(u.stdout).toContain("\nBy hand in the move's task:\n  - a project's check that knows the queue wrapper by the copy's path");
-    expect(read(path.join(sb.proj, "scripts/dev.sh"))).toBe("#!/bin/sh\nset -e\nbun --no-env-file node_modules/.bin/elves task-env up\nexec next dev\n");
-    const test = read(path.join(sb.proj, DEAD_CODE));
-    expect(test).toContain('\nimport knipHints from "@miroshnik/elves/spec/knip-hints";\nimport { deadCode } from "@miroshnik/elves/spec/harness";\n');
-    const c = elves(sb, ["check"]);
-    expect({ ...c }).toMatchObject({ code: 0, stdout: expect.not.stringContaining("  ! ") });
-  });
-
-  /** Формы, в которых проекты звали скрипты копии: `bun` и `node`, с флагами рантайма и без, путь с `./` и без. */
-  it("update переписывает скрипт пакета из копии в известных формах — bun и node, с флагами и без — в package.json, shell-скрипте и workflow на elves <скрипт>", () => {
-    const RUN = "bun --no-env-file node_modules/.bin/elves";
-    const { u, runs } = moveCi(["jobs:", "  spec:", "    steps:", "      - run: npm ci", "      - run: node .agents/skills/spec/scripts/spec-diff.ts --base origin/main"], {
-      "package.json":
-        JSON.stringify(
-          {
-            name: "x",
-            private: true,
-            scripts: {
-              "spec:doc": "node .agents/skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
-              "spec:shard": "node --experimental-strip-types --no-warnings .agents/skills/spec/scripts/spec-shard.ts 1/4",
-              dev: "node --run predev && bun ./.agents/skills/task-env/scripts/task-env.ts up && next dev",
-              e2e: "bun --no-env-file .agents/skills/task-env/scripts/task-env.ts e2e -- playwright test",
-            },
-          },
-          null,
-          2,
-        ) + "\n",
-      "scripts/e2e.sh": '#!/usr/bin/env bash\nexec node .agents/skills/task-env/scripts/task-env.ts e2e -- "$@"\n',
-    });
-    expect(u.code).toBe(0);
-    expect(JSON.parse(read(path.join(sb.proj, "package.json"))).scripts).toEqual({
-      "spec:doc": `${RUN} spec-doc .spec-report.xml --strict`,
-      "spec:shard": `${RUN} spec-shard 1/4`,
-      dev: `node --run predev && ${RUN} task-env up && next dev`,
-      e2e: `${RUN} task-env e2e -- playwright test`,
-    });
-    expect(read(path.join(sb.proj, "scripts/e2e.sh"))).toBe(`#!/usr/bin/env bash\nexec ${RUN} task-env e2e -- "$@"\n`);
-    expect(runs).toEqual({ spec: ["npm ci", `${RUN} spec-diff --base origin/main`] });
-  });
-
-  /**
-   * Чего `update` переписать не умеет — путь в копию в массиве аргументов, импорт канона копии, — `check` называет
-   * строкой `!` с файлом и номером строки: иначе после переезда он пишет «up to date», а проверки проекта красные.
-   * Своё у тонкого проекта — манифест, шим, канон и скиллы машины, свой скилл проекта, исключение `.agents/**` — не
-   * ссылка в копию.
-   */
-  it("ссылка на файл копии, которую update не переписал, — строка «!» в check с файлом и номером строки; код check прежний", () => {
-    elves(sb, ["install"]);
-    writeTree(sb.proj, {
-      "tests/compose.test.ts": 'import { spawnSync } from "node:child_process";\n\nconst r = spawnSync("bun", [".agents/skills/task-env/scripts/task-env.ts", "check"]);\n',
-      "CLAUDE.md": "@.agents/elves/AGENTS.md\n",
-      ".agents/skills/mine/SKILL.md": "свой скилл проекта\n",
-      "docs/own.md": [
-        "- `.agents/elves.json` и `. .agents/slot.sh && bun test`",
-        "- `bun ~/.agents/skills/github/scripts/github.ts task show 1`, `$HOME/.agents/elves/AGENTS.md`",
-        "- `bun .agents/skills/mine/scripts/x.ts`",
-        "- `ignores: [\".agents/**\"]`",
-        "",
-      ].join("\n"),
-    });
-    gitRepo(sb.proj, { init: false }).commit({}, "feat: свои файлы");
-    const c = elves(sb, ["check"]);
-    expect({ ...c }).toMatchObject({ code: 0, stdout: expect.stringContaining("in the project: up to date") });
-    const marks = c.stdout.split("\n").filter((l) => l.startsWith("  ! "));
-    expect(marks.map((l) => l.split(" — ")[0])).toEqual(["  ! CLAUDE.md:1", "  ! tests/compose.test.ts:3"]);
-    expect(marks[1]).toContain('spawnSync("bun", [".agents/skills/task-env/scripts/task-env.ts", "check"])');
-    expect(elves(sb, ["update"]).code).toBe(0);
-    expect(elves(sb, ["check"]).stdout.split("\n").filter((l) => l.startsWith("  ! "))).toEqual(marks);
   });
 });
 
@@ -1884,13 +1528,6 @@ describe("В начале сессии Claude Code проверка идёт с�
     return { code: r.status, stdout: r.stdout };
   }
 
-  // двойная загрузка канона: строка хука, хвост и задача переезда — задача обновления проекта на его языке
-  const TWICE = "  canon loaded twice: the machine's rules ~/.claude/rules/elves.md, ~/.claude/rules/elves-claude.md and the project's copy .claude/rules/elves.md, .claude/rules/elves-claude.md — Claude Code reads both on every turn until the project moves to the thin project: its update, in a task of its own\n";
-  const TWICE_TAIL = "The canon loads twice — the machine's rules and the project's copy: recommend the project's move to the thin project and ask whether to queue its update task (task new above); work by the current flow.";
-  const MOVE_TASK = /\nThe task — one per project, an open one is named by the refusal: bun --no-env-file \S+ task new --title "Обновить флоу Elves" --branch-type chore\n/g;
-  // файлы с текстом канона, которые Claude Code грузит на старте сессии в проекте
-  const loadedCanon = () => loadedAtStart(sb.home, sb.proj, sb.tmp).filter((p) => read(p) === read(path.join(REPO, "AGENTS.md")));
-
   // bunx песочницы отдаёт пакет bin: `bunx … github:miroshnik/elves <команда>` → `bun <bin> <команда>`
   function bunxServes(bin: string) {
     rmSync(path.join(sb.bin, "bunx"), { force: true });
@@ -1924,67 +1561,19 @@ describe("В начале сессии Claude Code проверка идёт с�
     expect(`${project}${machine}${hook}`).not.toContain("ai-dev");
   });
 
-  /**
-   * Машина — скиллы в ~/.agents, ветку задачи её обновление не трогает; переезд копии — тысячи строк и правка тестов, своя
-   * задача; подъём версии тонкого проекта — несколько строк, задача сессии.
-   */
-  it("хук: в проекте копия флоу — рекомендовать переезд и спросить, ставить ли его задачу в очередь; тонкий проект отстал — update в задаче сессии; отстала только машина — update -g в сессии", () => {
+  /** Машина — скиллы в ~/.agents, ветку задачи её обновление не трогает; подъём версии проекта — несколько строк, задача сессии. */
+  it("хук: тонкий проект отстал — update в задаче сессии; отстала только машина — update -g в сессии", () => {
     elves(sb, ["install", "-g"]);
-    copyInstall(sb.proj);
     bunxServes(newer.bin);
-    const both = runHook().stdout;
-    expect(both).toContain(`${PROJECT_COPY}: recommend it to the user and ask whether to queue its task (task new above): yes — a background executor (the github skill, «Dispatcher»); work by the current flow.`);
-    expect(both).toContain(MACHINE_BEHIND);
-    expect(both).not.toContain(PROJECT_BEHIND);
     elves(sb, ["install"], { bin: newer.bin });
     dropShim();
     const thin = runHook().stdout;
     expect(thin).toContain(`${PROJECT_BEHIND}: it bumps the package version in package.json and the lockfile; tell the user what changed, commit it with the task.`);
-    expect(thin).not.toContain(PROJECT_COPY);
     expect(thin).not.toContain("task new");
     elves(sb, ["install"], { bin: newer.bin });
     const machine = runHook().stdout;
     expect(machine).toContain(`${MACHINE_BEHIND}, tell the user what changed (update lists it), re-read what was updated.`);
     expect(machine).not.toContain(PROJECT_BEHIND);
-  });
-
-  /**
-   * Переезд на тонкий проект (#557): машина грузит канон из `~/.claude/rules`, а проект ещё держит копию в
-   * `.claude/rules` — Claude Code читает обе, на каждом ходу. На время переезда это допустимо (ответ на вопрос задачи):
-   * хук называет двойную загрузку и задачу проекта, чей `update` переводит его на тонкий проект, — одной строкой и тогда,
-   * когда задачу уже назвал отставший флоу проекта.
-   */
-  it("хук в проекте с копией флоу называет двойную загрузку канона и задачу переезда", () => {
-    elves(sb, ["install", "-g"]);
-    copyInstall(sb.proj, { language: "ru" });
-    bunxServes(base.bin);
-    expect(loadedCanon()).toHaveLength(2);
-    const r = runHook();
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain(`\n${TWICE}`);
-    expect(r.stdout.match(MOVE_TASK)).toHaveLength(1);
-    expect(r.stdout).toContain(TWICE_TAIL);
-    expect(r.stdout).toContain(PROJECT_COPY);
-    bunxServes(newer.bin);
-    const behind = runHook().stdout;
-    expect(behind).toContain(TWICE);
-    expect(behind).toContain(PROJECT_COPY);
-    expect(behind.match(MOVE_TASK)).toHaveLength(1);
-  });
-
-  // страховка от перегиба: канон в контексте один раз — строки нет
-  it("машина без канона или проект без копии — хук двойной загрузки не называет", () => {
-    elves(sb, ["install", "-g"]);
-    copyInstall(sb.proj);
-    bunxServes(base.bin);
-    rmSync(path.join(sb.home, ".claude/rules"), { recursive: true });
-    expect(loadedCanon()).toHaveLength(1);
-    expect(runHook().stdout).not.toMatch(/canon loaded twice|canon loads twice/);
-    elves(sb, ["install", "-g"]);
-    // переезд на тонкий проект: копии больше нет
-    elves(sb, ["install"]);
-    expect(loadedCanon()).toHaveLength(1);
-    expect(runHook().stdout).not.toMatch(/canon loaded twice|canon loads twice/);
   });
 
   it("в git-репозитории без флоу вывод хука зовёт поставить его в проект; вне git-репозитория строки про проект нет", () => {
@@ -2031,7 +1620,6 @@ describe("В начале сессии Claude Code проверка идёт с�
     expect(r.stdout).toContain("❌ .agents/ — .gitignore:1 «.agents/»");
     expect(r.stdout).toContain("Fix in this session's task: bunx @miroshnik/elves update — adds exceptions to .gitignore");
     expect(r.stdout).toContain("Git ignores flow files — update adds exceptions to .gitignore, committed with the update");
-    expect(r.stdout).not.toContain(PROJECT_COPY);
     expect(r.stdout).not.toContain(MACHINE_BEHIND);
   });
 
@@ -2046,7 +1634,6 @@ describe("В начале сессии Claude Code проверка идёт с�
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(COMPOSE_VIOLATION);
     expect(r.stdout).toContain("The compose file breaks task isolation — each ❌ line names the rule and the service (the task-env skill); fixing it is a task of its own in the project.");
-    expect(r.stdout).not.toContain(PROJECT_COPY);
     expect(r.stdout).not.toContain(PROJECT_BEHIND);
     expect(r.stdout).not.toContain(MACHINE_BEHIND);
     composeFile("services:\n  db:\n    image: postgres\n");
@@ -2124,17 +1711,6 @@ describe("В начале сессии Claude Code проверка идёт с�
       expect(elves(sb, ["check", "--hook"], { env: { CLAUDE_CODE_SESSION_ID: SESSION } }).stdout).toContain(`\nfake-machine task resume ${SESSION}\n`);
     });
 
-    it("скилл github — машины, а нет его на машине — копии проекта", () => {
-      elves(sb, ["install"]);
-      fakeGithub(sb.proj, "fake-project");
-      expect(elves(sb, ["check", "--hook"], { input }).stdout).toContain(`\nfake-project task resume ${SESSION}\n`);
-      elves(sb, ["install", "-g"]);
-      fakeGithub(sb.home, "fake-machine");
-      const out = elves(sb, ["check", "--hook"], { input }).stdout;
-      expect(out).toContain(`\nfake-machine task resume ${SESSION}\n`);
-      expect(out).not.toContain("fake-project");
-    });
-
     // в облачной сессии Projects недоступны (403): task resume там отказывает, и строка ! шумела бы на каждом старте
     it("облачная сессия: скилл github не зовётся — Projects там недоступны", () => {
       elves(sb, ["install", "-g"]);
@@ -2176,27 +1752,26 @@ describe("Прежние имена флоу (ai-dev): update переносит
   const FORMER = "the flow's former name (ai-dev) — update moves it";
   const gone = (root: string, rel: string) => lstatSync(path.join(root, rel), { throwIfNoEntry: false }) === undefined;
 
-  it("update переводит установку под прежним именем на тонкий проект: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json, канон и правила ai-dev уходят", () => {
+  it("update переводит установку под прежним именем: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json", () => {
     const env = { http: { web: 3000 } };
-    copyInstall(sb.proj, { auto: true, language: "ru", env });
+    elves(sb, ["install", "--auto", "--lang", "ru"]);
+    editManifest(sb.proj, { env });
     toFormer(sb.proj);
     const before = snapshot(sb.proj);
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
-    for (const line of ["  - .claude/rules/ai-dev.md\n", "  - .claude/rules/ai-dev-claude.md\n", "  - .agents/ai-dev/\n", "  + .agents/elves.json\n", `  - .agents/ai-dev.json — ${FORMER}\n`]) expect(c.stdout).toContain(line);
-    expect(c.stdout).toContain(`\n${MOVE_TASK}\n`);
+    for (const line of ["  + .agents/elves.json\n", `  - .agents/ai-dev.json — ${FORMER}\n`]) expect(c.stdout).toContain(line);
     expect(snapshot(sb.proj)).toEqual(before);
     expect(elves(sb, ["update"]).code).toBe(0);
     expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: true, language: "ru", env });
-    for (const rel of [".agents/ai-dev.json", ".agents/ai-dev", ".agents/skills", ".claude/rules"]) expect(gone(sb.proj, rel)).toBe(true);
-    expect(readdirSync(path.join(sb.proj, ".claude"))).toEqual(["settings.json"]);
+    expect(gone(sb.proj, ".agents/ai-dev.json")).toBe(true);
     expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringContaining("in the project: up to date") });
   });
 
   it("update заменяет блоки ai-dev в AGENTS.md и .gitignore блоками elves — второго блока нет", () => {
     const own = "# Проект\n\nСвои правила проекта.\n";
     writeFileSync(path.join(sb.proj, "AGENTS.md"), own);
-    copyInstall(sb.proj);
+    elves(sb, ["install"]);
     const copyBlock = ["# elves:begin — flow files git would otherwise ignore; set by `bunx github:miroshnik/elves install`, don't edit by hand", "!/.agents/", "/.agents/*", "!/.agents/elves/", "!/.agents/elves.json", "!/.agents/skills/", "# elves:end"].join("\n");
     writeFileSync(path.join(sb.proj, ".gitignore"), `node_modules/\n.agents/\n\n${copyBlock}\n`);
     toFormer(sb.proj);
