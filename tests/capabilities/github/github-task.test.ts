@@ -4268,6 +4268,54 @@ describe("Выпуск пачки — один PR в main", () => {
  * не знала — после выпуска она завела бы новую пачку из любых готовых задач, и диспетчер остановился, только не
  * запуская её; worktree исполнителей пачки ждали следующего запуска очереди, которого не было.
  */
+/**
+ * Метки решений задач пачки (#733): в пачке четыре исполнителя влили PR без `pr labels`, диспетчер заметил это после
+ * выпуска. Шаг не зависит от памяти исполнителя: `pr premerge` не вливает PR без меток решений, которые он меняет, а
+ * выпуск сверяет метки задач пачки с файлами их PR и ставит недостающие до PR выпуска.
+ */
+describe("PR в пачку вливается только с метками решений, выпуск ставит недостающие", () => {
+  const EXPORT_TEST = "tests/capabilities/export/export.test.ts";
+
+  it("PR задачи в пачку меняет файл решения без pr labels — pr premerge отказывает с кодом 1 и называет команду pr labels", () => {
+    const { work, f, config, name } = started();
+    f.prs[300] = { ...batchPr(47, "feat/47-export", name), merged: false, files: [EXPORT_TEST] };
+    const held = premergeIn(f, work, config, 300);
+    expect(held.code).toBe(1);
+    expect(held.out).toMatch(
+      /^❌ don't merge: PR #300 changes decisions without their labels — #47: export; epic #45: export: bun --no-env-file \S+github\.ts pr labels 300, then pr premerge 300 again$/,
+    );
+    expect(prLabels(f, 300).code).toBe(0);
+    expect(issueLabels(f, 47)).toContain("export");
+    expect(premergeIn(f, work, config, 300).out).not.toContain("without their labels");
+  });
+
+  it("batch release: у задачи пачки нет метки решения, которое менял её PR, — метка ставится задаче и эпику, строка +", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    mergeIntoBatch(work, name, "fix/49-y", "fix.txt", "fix(github): поправка");
+    f.prs[300] = { ...batchPr(47, "feat/47-export", name), files: [EXPORT_TEST] };
+    f.prs[301] = batchPr(49, "fix/49-y", name);
+    const r = release(f, work, config);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines).toContain("+ #47: export");
+    expect(lines).toContain("+ epic #45: export");
+    expect(issueLabels(f, 47)).toContain("export");
+    expect(issueLabels(f, 49)).not.toContain("export");
+    // метки — до PR выпуска
+    expect(lines.indexOf("+ #47: export")).toBeLessThan(lines.findIndex((l) => l.startsWith("+ the release PR")));
+    // метки уже стоят — выпуск их не трогает
+    const again = started();
+    mergeIntoBatch(again.work, again.name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    again.f.prs[300] = { ...batchPr(47, "feat/47-export", again.name), files: [EXPORT_TEST] };
+    expect(prLabels(again.f, 300).code).toBe(0);
+    const before = again.f.mutations.length;
+    const quiet = release(again.f, again.work, again.config);
+    expect(quiet.out.split("\n").filter((l) => /^\+ (#|epic)/.test(l))).toEqual([]);
+    expect(again.f.mutations.length).toBe(before);
+  });
+});
+
 describe("Группа диспетчера — пачки только из выбранных задач", () => {
   /** Проект с пачками и группа из двух задач эпика; третья задача эпика готова, но вне группы. */
   function grouped() {
@@ -4388,14 +4436,15 @@ describe("Красный выпуск чинится в пачке", () => {
   /**
    * Выпуск пачки: задачи влиты в неё коммитами с «Refs #N» (PR — с 300-го, решение каждого — export у файла export.txt,
    * иначе своё), выпуск — следующим PR, его чек tests красный: упал тест решения export. `labels` — метки задачам ставит
-   * pr labels их PR в пачку; `files` — проект в main до пачки.
+   * pr labels их PR в пачку; без них PR задач решений не меняют (только свой файл): недостающие метки решений выпуск
+   * ставит сам (#733); `files` — проект в main до пачки.
    */
   function redRelease(o: { labels?: boolean; files?: Record<string, string>; tasks?: [number, string, string][]; prFiles?: string[][]; failed?: string } = {}) {
     const s = started(o.files);
     const tasks = o.tasks ?? TASKS;
     tasks.forEach(([n, branch, file], k) => {
       mergeIntoBatch(s.work, s.name, branch, file, `feat(github): задача ${n}\n\nRefs #${n}`);
-      s.f.prs[300 + k] = { ...batchPr(n, branch, s.name), files: o.prFiles?.[k] ?? [file === "export.txt" ? EXPORT_TEST : `tests/capabilities/t${n}/t${n}.test.ts`] };
+      s.f.prs[300 + k] = { ...batchPr(n, branch, s.name), files: o.prFiles?.[k] ?? (o.labels ? [file === "export.txt" ? EXPORT_TEST : `tests/capabilities/t${n}/t${n}.test.ts`] : [file]) };
     });
     if (o.labels) tasks.forEach((_, k) => expect(prLabels(s.f, 300 + k).code).toBe(0));
     expect(release(s.f, s.work, s.config).code).toBe(0);
