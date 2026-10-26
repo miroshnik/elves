@@ -331,6 +331,21 @@ dictionary — ❌, `fix` renames them keeping the ids
 after `--confirm`); a decision label with a marker in another language — its
 description is rewritten.
 
+No manifest at the checkout's root (the nearest directory up with `.git`),
+under the former name either — the language is unknown (#681): a fresh
+worktree of a project that keeps `.agents/` out of git got the `en` names and
+checked its `ru` project against them. The commands that write the canon's
+names to GitHub or check the project against them — `project check`, `project
+fix`, `task new`, `task answer`, `task status`, `task actualize`, `task close`,
+`pr labels`, `batch release` — refuse with code 2 before any request: the
+reason, and the way out — copy the manifest from the main checkout (the first
+line of `git worktree list`) or commit it there; a repository without Elves —
+`bunx @miroshnik/elves install --lang <language>`. Reading (`task show`, `task
+queue`, `task resume`, `pr premerge`) goes on: it parses every language's
+names; `task drop` writes none. The installer's `check` names the same: the
+package without the manifest — ❌ instead of «not installed», the manifest
+outside git — ❌, `update` puts it into its commit.
+
 1. The project is linked to the repository, it is the only one, its title =
    the repository name.
 2. Views `Board` (BOARD, columns by `Status`), `Table` (TABLE, grouped by
@@ -500,9 +515,9 @@ Here — what each one checks, sets and prints.
 Without `--body` the description is a skeleton in the project
 language: the scenarios and questions sections (an epic — only questions);
 `--type` and `task status` take a name in any language of the dictionary. A
-board in another language of the dictionary (the script runs outside the
-project's checkout, the language changed without `fix`) — the task is kept in
-the board's language. One `createIssue` mutation: the organization's issue type (in
+board in another language of the dictionary (the language changed without
+`fix`, the script runs from another project's checkout) — the task is kept in
+the board's language; no manifest — a refusal (section "What is checked"). One `createIssue` mutation: the organization's issue type (in
 a personal account an Epic gets the `epic` label, created if missing; Task and
 Bug get no label there), the project, the epic (sub-issue), the milestone by
 title among open ones, `Priority` in an organization (`Medium` by default).

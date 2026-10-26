@@ -28,8 +28,8 @@ follow Elves releases (tags `vYYYY.MM.DD`), a `--link` clone — `origin/main`;
 a release is the owner's step (`elves release`), I cut one only when asked.
 
 - **The machine is behind** — `update -g`. After an `update` I tell the user
-  briefly what changed (it lists the skipped releases) and re-read what was
-  updated: it applies, not what loaded at the start.
+  briefly what changed and re-read what was updated: it applies, not what
+  loaded at the start.
 - **The project is behind** (or git ignores flow files) — `update` in the
   task's branch: the package version.
 - **The project keeps a copy of the flow** — the move is a task of its own,
@@ -41,9 +41,9 @@ a release is the owner's step (`elves release`), I cut one only when asked.
 ## Language
 
 The flow is written in English; the agent works in the **project language**
-(`language` in `.agents/elves.json`, printed by `check`): talking with the
-user, issues, prompts to subagents, documents, commit and PR
-descriptions, `describe`/`it` names, decision docs — briefly. Always English:
+(`language` in `.agents/elves.json`, printed by `check`; none — `github` won't
+write): talking with the user, issues, prompts to subagents, documents, commit
+and PR descriptions, `describe`/`it` names, decision docs — briefly. Always English:
 code, identifiers, terms, conventional-commit type and scope. Names that
 scripts write to GitHub and parse back are exact — `locales/<language>.json`
 of the `github` skill; in `en`: sections `## Questions`, `## Scenarios`;
