@@ -106,9 +106,9 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 - **One GitHub Project per repository**, named after it, with all tasks;
   `project check` once per session, ❌ — `project fix`. `Status` I set
   **myself, immediately**: `task status`, `task close`, `task drop` (won't
-  do, duplicate). `Priority` (`Urgent` → `Low`, `Medium` by default) is
-  required on an open task. A milestone (an epic stage, a release) I close
-  with its last task.
+  do, duplicate). An organization's open task requires `Priority`
+  (`Urgent` → `Low`, `Medium` by default). A milestone (an epic stage, a
+  release) I close with its last task.
 
 ### Session and branch — one task
 

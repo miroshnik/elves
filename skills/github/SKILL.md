@@ -12,8 +12,7 @@ epic-refresh checks) and what each command below checks, sets and prints —
 `reference.md` next to this file.
 The script `scripts/github.ts` checks the project
 against the canon, fixes what the API can, and does each task step in one
-command; the agent goes through the UI steps and asks for confirmation on
-anything destructive. Syntax and a summary of a command —
+command. Syntax and a summary of a command —
 `github <command> --help`. Editing an existing task (Priority, links) and
 milestones — `reference.md`, "Manual commands".
 
@@ -60,6 +59,7 @@ gaps — `reference.md`, "Project check and fix".
 bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" --branch-type <type> [--body-file F | --body "…"] [--type Task|Bug|Epic] \
     [--epic N] [--milestone "…"] [--blocked-by N,N] [--priority Urgent|High|Medium|Low] \
     [--labels <decision>,<kind>:<new decision>,<label>] [--repo owner/repo]
+    # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
 bun --no-env-file <skill dir>/scripts/github.ts task show <N>
 bun --no-env-file <skill dir>/scripts/github.ts task answer <N> <k> "<answer>" [--auto]
 bun --no-env-file <skill dir>/scripts/github.ts task status <N> "In progress" [--branch <type>/<N>-<slug>]   # Backlog | In progress | Done
