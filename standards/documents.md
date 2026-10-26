@@ -121,7 +121,7 @@
 из нескольких документов тест называет по первому в порядке путей, а не в порядке файловой системы: имя теста —
 утверждение спеки, на macOS и в CI оно одно.
 
-Правило языка проекта — `language` манифеста, без поля — `ru`, без манифеста — `en` — в том же модуле, и установщик
+Правило языка проекта — `language` манифеста, без поля и без манифеста — `en` — в том же модуле, и установщик
 берёт язык им же. Своё правило у установщика разошлось бы с правилом скриптов молча — стандарт держит, что его нет.
 
 Отвергнуто: русские названия таблицей в каноне или цитатами в справочниках — кириллица в документах флоу, и та же
@@ -172,12 +172,11 @@
 (`skills/github/locales`), а комментарии — по-английски, как документы флоу, поэтому кириллицы в коде скриптов нет
 вовсе: файл сверяется целиком, с комментариями.
 
-<details><summary>✅ 32 теста</summary>
+<details><summary>✅ 30 тестов</summary>
 
 - ✅ реестр «код скриптов скиллов и установщика — skills/*/scripts и bin» не пуст
 - ✅ реестр «код скриптов скиллов и установщика — skills/*/scripts и bin» находит bin/elves.ts, skills/github/scripts/github.ts, skills/est/scripts/est.ts, skills/spec/scripts/harness.ts
 - ✅ нарушитель не проходит: комментарий по-русски
-- ✅ в bin/ai-dev.ts нет кириллицы
 - ✅ в bin/elves.ts нет кириллицы
 - ✅ в skills/dashboard/scripts/dashboard.ts нет кириллицы
 - ✅ в skills/dashboard/scripts/sessions.ts нет кириллицы
@@ -197,7 +196,6 @@
 - ✅ в skills/spec/scripts/spec-claims.ts нет кириллицы
 - ✅ в skills/spec/scripts/spec-diff.ts нет кириллицы
 - ✅ в skills/spec/scripts/spec-doc.ts нет кириллицы
-- ✅ в skills/spec/scripts/spec-exceptions.ts нет кириллицы
 - ✅ в skills/spec/scripts/spec-publish.ts нет кириллицы
 - ✅ в skills/spec/scripts/spec-run.ts нет кириллицы
 - ✅ в skills/spec/scripts/spec-shard.ts нет кириллицы
@@ -215,7 +213,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 208 тестов</summary>
+<details><summary>✅ 205 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -278,7 +276,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «Refresh after #N, result:» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Refresh after #N, script: …» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Refresh» из skills/dashboard/SKILL.md печатает или пишет скрипт
-- ✅ цитату «Regrouped into topics» из skills/spec/migration.md печатает или пишет скрипт
 - ✅ цитату «Remaining: …» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Removed» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Sessions» из skills/dashboard/SKILL.md печатает или пишет скрипт
@@ -334,7 +331,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «exception: \<entry> (#N)» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «exception: \<key> (#N)» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «exceptions are \<element>.json files in the decision folder's exceptions/» из skills/spec/checks.md печатает или пишет скрипт
-- ✅ цитату «exceptions are one file per element in exceptions/, not exceptions.ts» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «exceptions in \<file>: \<rules> (#N)» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «exceptions with a rule belong to the folder's invariant rules» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «filed #M» из skills/github/reference.md печатает или пишет скрипт
@@ -353,7 +349,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «library \<m> is in containers \<c1, c2>» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «main tree … not fully checked — publishing skipped» из skills/spec/reference.md печатает или пишет скрипт
 - ✅ цитату «marks with a rule belong to the folder's invariant rules» из skills/spec/checks.md печатает или пишет скрипт
-- ✅ цитату «merge into the topic's label» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «merge» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «module \<m> is in container \<c>» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «move it to outside» из skills/spec/checks.md печатает или пишет скрипт
@@ -434,7 +429,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ### Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи
 
-<details><summary>✅ 362 теста</summary>
+<details><summary>✅ 357 тестов</summary>
 
 - ✅ у каждого языка те же ключи, что у en, и ни одного пустого названия
 - ✅ в en.json нет кириллицы
@@ -550,7 +545,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название fields.cost скрипты читают из словаря
 - ✅ название fields.estimate скрипты читают из словаря
 - ✅ название fields.tokens скрипты читают из словаря
-- ✅ название formerly.updateTask скрипты читают из словаря
 - ✅ название issueTypes.bug скрипты читают из словаря
 - ✅ название issueTypes.epic скрипты читают из словаря
 - ✅ название issueTypes.task скрипты читают из словаря
@@ -611,7 +605,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название queue.subagent скрипты читают из словаря
 - ✅ название queue.subagents скрипты читают из словаря
 - ✅ название queue.wait скрипты читают из словаря
-- ✅ название regroupTask скрипты читают из словаря
 - ✅ название release.lead скрипты читают из словаря
 - ✅ название release.title скрипты читают из словаря
 - ✅ название sections.questions скрипты читают из словаря
@@ -721,7 +714,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название spec.diff.partialReport скрипты читают из словаря
 - ✅ название spec.diff.registry скрипты читают из словаря
 - ✅ название spec.diff.registryNamed скрипты читают из словаря
-- ✅ название spec.diff.regrouped скрипты читают из словаря
 - ✅ название spec.diff.removed скрипты читают из словаря
 - ✅ название spec.diff.removedKind скрипты читают из словаря
 - ✅ название spec.diff.rule скрипты читают из словаря
@@ -758,7 +750,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название spec.harness.env.undeclared скрипты читают из словаря
 - ✅ название spec.harness.env.unread скрипты читают из словаря
 - ✅ название spec.harness.exception скрипты читают из словаря
-- ✅ название spec.harness.exceptionFiles скрипты читают из словаря
 - ✅ название spec.harness.exceptionJson скрипты читают из словаря
 - ✅ название spec.harness.exceptionRules скрипты читают из словаря
 - ✅ название spec.harness.good скрипты читают из словаря
@@ -796,7 +787,6 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ название subagentPrompt.epic скрипты читают из словаря
 - ✅ название subagentPrompt.task скрипты читают из словаря
 - ✅ название updateCommit скрипты читают из словаря
-- ✅ название updateTask скрипты читают из словаря
 - ✅ название views.board скрипты читают из словаря
 - ✅ название views.roadmap скрипты читают из словаря
 - ✅ название views.table скрипты читают из словаря
@@ -807,13 +797,13 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 
 ### Язык проекта у скриптов скиллов и у установщика — один модуль
 
-Язык проекта — `language` в `.agents/elves.json`, без поля — `ru`, без манифеста — `en`: скрипты скиллов и
+Язык проекта — `language` в `.agents/elves.json`, без поля и без манифеста — `en`: скрипты скиллов и
 установщик берут его одним модулем `skills/github/scripts/locale.ts` — правило в одном месте.
 
 <details><summary>✅ 2 теста</summary>
 
 - ✅ установщик берёт язык и код языка модулем locale скилла github, своего правила у него нет
-- ✅ манифест с языком — его язык, без поля — ru, битый — ru, без манифеста — en
+- ✅ манифест с языком — его язык, без поля, битый и без манифеста — en
 
 </details>
 
@@ -842,7 +832,7 @@ README читают первым, а правят последним: новый
 
 ### README называет всё, что ставит флоу, и не ссылается на то, чего нет
 
-<details><summary>✅ 95 тестов</summary>
+<details><summary>✅ 93 теста</summary>
 
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» не пуст
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» находит skills/spec, elves install, elves release, skills/spec/scripts/spec-break, skills/ci-wait/scripts/wait-ci, docs/pr-checks.md
@@ -857,7 +847,6 @@ README читают первым, а правят последним: новый
 - ✅ README: команда установщика spec-claims названа
 - ✅ README: команда установщика spec-diff названа
 - ✅ README: команда установщика spec-doc названа
-- ✅ README: команда установщика spec-exceptions названа
 - ✅ README: команда установщика spec-publish названа
 - ✅ README: команда установщика spec-run названа
 - ✅ README: команда установщика spec-shard названа
@@ -886,7 +875,6 @@ README читают первым, а правят последним: новый
 - ✅ README: скрипт spec-claims скилла spec назван
 - ✅ README: скрипт spec-diff скилла spec назван
 - ✅ README: скрипт spec-doc скилла spec назван
-- ✅ README: скрипт spec-exceptions скилла spec назван
 - ✅ README: скрипт spec-publish скилла spec назван
 - ✅ README: скрипт spec-run скилла spec назван
 - ✅ README: скрипт spec-shard скилла spec назван
@@ -993,7 +981,7 @@ README читают первым, а правят последним: новый
 
 ### Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 171 тест</summary>
+<details><summary>✅ 168 тестов</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -1106,7 +1094,6 @@ README читают первым, а правят последним: новый
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «Checks» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «Wiring into a repository» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «spec-doc» — есть такой раздел
-- ✅ skills/spec/SKILL.md: skills/spec/SKILL.md, «spec-exceptions» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/ci.md, «Shards by durations» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «Limitations to know about» — есть такой раздел
@@ -1116,7 +1103,6 @@ README читают первым, а правят последним: новый
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-break» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-diff output» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-doc output» — есть такой раздел
-- ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-exceptions» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-publish» — есть такой раздел
 - ✅ skills/spec/SKILL.md: skills/spec/reference.md, «spec-run» — есть такой раздел
 - ✅ skills/spec/canon.md: AGENTS.md, «Epic refresh on task close» — есть такой раздел
@@ -1150,7 +1136,6 @@ README читают первым, а правят последним: новый
 - ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «Override and compose files» — есть такой раздел
 - ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «Stacks of closed tasks» — есть такой раздел
 - ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «Taking a task's stacks down» — есть такой раздел
-- ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «The proxy before the rename» — есть такой раздел
 - ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «The proxy» — есть такой раздел
 - ✅ skills/task-env/SKILL.md: skills/task-env/reference.md, «What the compose file check reads» — есть такой раздел
 - ✅ skills/task-env/reference.md: skills/task-env/SKILL.md, «Docker and the sandbox» — есть такой раздел

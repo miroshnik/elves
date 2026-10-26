@@ -935,7 +935,7 @@
   "describes": [
    "Окружение Bash агента не настроено — об этом говорят check -g и хук"
   ],
-  "name": "`check -g` называет, если окружение Bash агента не настроено; метка хука прошлого релиза — тоже окружение"
+  "name": "`check -g` называет, если окружение Bash агента не настроено"
  },
  {
   "path": "tests/capabilities/elves/agent-shell.test.ts",
@@ -1110,7 +1110,7 @@
   "describes": [
    "Задача целиком без спроса — настройка проекта, по умолчанию «нет»"
   ],
-  "name": "клон со старым именем пакета — elves или ai-dev — узнаётся как клон"
+  "name": "клон со старым именем пакета — elves — узнаётся как клон"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
@@ -1251,13 +1251,6 @@
    "На машину (-g) — канон, скиллы и хук: тонкий проект берёт канон с машины"
   ],
   "name": "команда хука — bunx --silent github:miroshnik/elves check --hook, вывод с ошибками и запасной echo при сбое bunx"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "На машину (-g) — канон, скиллы и хук: тонкий проект берёт канон с машины"
-  ],
-  "name": "правила прошлой установки под прежним именем — ~/.agents/ai-dev, симлинки ~/.claude/rules/ai-dev*.md и файлов агентов на него — install -g переносит на новые имена; свой файл правил агента остаётся"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
@@ -1425,13 +1418,6 @@
   "describes": [
    "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
   ],
-  "name": "turbo.json пропускает переменные очереди только под прежними именами флоу — install и check называют их и строку с новыми"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
-  ],
   "name": "в проекте на Yarn 2+ скрипты пакета — через bunx, команда проверки — строкой у его slot: bin .ts Yarn запускает Node-ом, шим его shell не подключает"
  },
  {
@@ -1447,13 +1433,6 @@
    "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
   ],
   "name": "обёрнутый скрипт идёт как прежде: кавычки команды на месте, аргументы — в её конце"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
-  ],
-  "name": "обёртка прошлой установки — slot.sh копии или команда строкой у slot.ts через node или bun — переписывается, команда та же"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
@@ -1509,13 +1488,6 @@
   "describes": [
    "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
   ],
-  "name": "скрипты копии флоу — bun .agents/skills/spec/scripts/<скрипт>.ts — переписываются на bun --no-env-file node_modules/.bin/elves <скрипт>, репортёр knip — на файл пакета"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot"
-  ],
   "name": "установка оборачивает lint, typecheck, test и test:* в slot, build и watch — нет"
  },
  {
@@ -1531,13 +1503,6 @@
    "Файлы флоу не игнорируются git проекта — иначе их нет в коммите, чужом чекауте и CI"
   ],
   "name": "блок исключений копии прошлой версии с шапкой по-русски установка убирает — файлам тонкого проекта исключения не нужны"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "Файлы флоу не игнорируются git проекта — иначе их нет в коммите, чужом чекауте и CI"
-  ],
-  "name": "исключения .gitignore для симлинков копии в .claude/rules check называет исключениями копии"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
@@ -1563,44 +1528,37 @@
  {
   "path": "tests/capabilities/elves/install.test.ts",
   "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
+   "Язык работы агента — настройка проекта: по умолчанию en"
   ],
   "name": "--lang ru пишет language: ru, повторный install без флага его сохраняет, --lang=pt-BR меняет"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
   "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
+   "Язык работы агента — настройка проекта: по умолчанию en"
   ],
   "name": "--lang — флаг только install: у update и check он неизвестен"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
   "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
+   "Язык работы агента — настройка проекта: по умолчанию en"
   ],
   "name": "install -g язык не спрашивает и не хранит — в ~/.agents/elves.json поля language нет"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
   "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
+   "Язык работы агента — настройка проекта: по умолчанию en"
   ],
   "name": "без терминала и без флага вопроса нет — у новой установки в .agents/elves.json language: en"
  },
  {
   "path": "tests/capabilities/elves/install.test.ts",
   "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
+   "Язык работы агента — настройка проекта: по умолчанию en"
   ],
   "name": "не код языка, --lang без значения и --lang с -g — отказ с кодом 2, ничего не ставится"
- },
- {
-  "path": "tests/capabilities/elves/install.test.ts",
-  "describes": [
-   "Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru"
-  ],
-  "name": "установка прошлой версии без поля language — install без флага пишет ru"
  },
  {
   "path": "tests/capabilities/elves/release.test.ts",
@@ -1808,20 +1766,6 @@
  {
   "path": "tests/capabilities/elves/update.test.ts",
   "describes": [
-   "check проекта называет решения, не перегруппированные в темы, и задачу перегруппировки"
-  ],
-  "name": "check: все решения по темам — строки нет"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "check проекта называет решения, не перегруппированные в темы, и задачу перегруппировки"
-  ],
-  "name": "check: неперегруппированные решения — строка с их числом и командой task new для перегруппировки"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
    "check проекта с test:spec называет test, который повторяет стандарты и архитектуру"
   ],
   "name": "test называет все корни спеки — строки нет"
@@ -1987,14 +1931,6 @@
  {
   "path": "tests/capabilities/elves/update.test.ts",
   "describes": [
-   "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает",
-   "возобновлённая сессия узнаёт из хука, какое ожидание перезапустить"
-  ],
-  "name": "скилл github — машины, а нет его на машине — копии проекта"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
    "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
   ],
   "name": "bunx недоступен — код хука 0, в выводе — что проверка недоступна"
@@ -2005,13 +1941,6 @@
    "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
   ],
   "name": "check --hook: проверка недоступна — объяснение в stdout, код 0"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
-  ],
-  "name": "check --hook: строка перегруппировки — в начале контекста сессии"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2081,21 +2010,7 @@
   "describes": [
    "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
   ],
-  "name": "машина без канона или проект без копии — хук двойной загрузки не называет"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
-  ],
-  "name": "хук в проекте с копией флоу называет двойную загрузку канона и задачу переезда"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "В начале сессии Claude Code проверка идёт сама и старт сессии не срывает"
-  ],
-  "name": "хук: в проекте копия флоу — рекомендовать переезд и спросить, ставить ли его задачу в очередь; тонкий проект отстал — update в задаче сессии; отстала только машина — update -g в сессии"
+  "name": "хук: тонкий проект отстал — update в задаче сессии; отстала только машина — update -g в сессии"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2151,13 +2066,6 @@
   "describes": [
    "Версия пакета проекта и копия на машине следуют за релизами Elves, а не за main"
   ],
-  "name": "пускатель и релиз по разные стороны переименования флоу: тег релиза доходит и под прежним именем AI_DEV_RELEASE"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Версия пакета проекта и копия на машине следуют за релизами Elves, а не за main"
-  ],
   "name": "релизов ещё нет — пускатель перезапускается по SHA головы main: её файлы и SHA, без тега; версию пакета проекту не ставит"
  },
  {
@@ -2180,13 +2088,6 @@
    "Клон --link сверяется с origin/main, update подтягивает его, не трогая работу пользователя"
   ],
   "name": "git fetch не удался (нет сети, нет remote) — проверка недоступна, код 2"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Клон --link сверяется с origin/main, update подтягивает его, не трогая работу пользователя"
-  ],
-  "name": "origin клона --link на прежнем имени репозитория — check -g называет перенос, update -g переносит origin на miroshnik/elves"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2270,21 +2171,7 @@
   "describes": [
    "Клон --link сверяется с origin/main, update подтягивает его, не трогая работу пользователя"
   ],
-  "name": "поставлено прошлой версией — симлинк ~/.agents/ai-dev на клон, пути клона в манифесте нет: check находит клон по симлинку, update -g убирает симлинк и пишет путь"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Клон --link сверяется с origin/main, update подтягивает его, не трогая работу пользователя"
-  ],
   "name": "старая установка без SHA — check по git; update -g пишет SHA клона"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Клон --link сверяется с origin/main, update подтягивает его, не трогая работу пользователя"
-  ],
-  "name": "установщик клона по прежнему пути bin/ai-dev.ts — тот же установщик: update -g релиза до переименования ставит машине новый хук"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2312,21 +2199,7 @@
   "describes": [
    "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
   ],
-  "name": "update -g на машине со старым хуком оставляет один хук — с командой miroshnik/elves"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
-  ],
   "name": "поставлено из того же Elves — актуально, код 0"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart"
-  ],
-  "name": "поставлено прошлой версией с правилами на машине под прежним именем — отстаёт: в списке «- ~/.agents/ai-dev/» и «- ~/.claude/rules/ai-dev.md»; update -g переносит их на новые имена, после него check — актуально"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2408,135 +2281,9 @@
  {
   "path": "tests/capabilities/elves/update.test.ts",
   "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
+   "Симлинки переименования флоу на машине: update -g их снимает"
   ],
-  "name": "check -g называет переменные пользователя под прежним именем флоу — с новым именем; код не меняется"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "update -g переносит ~/.config/ai-dev в ~/.config/elves"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "update заменяет блоки ai-dev в AGENTS.md и .gitignore блоками elves — второго блока нет"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "update переводит установку под прежним именем на тонкий проект: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json, канон и правила ai-dev уходят"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "~/.config/ai-dev и ~/.config/elves оба есть — update -g их не сливает: предупреждение, что сделать; check -g — строка !, код 0"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "~/.config/ai-dev — симлинк на личный чекаут: update -g ставит тот же симлинк ~/.config/elves, переменная — прежняя или новая"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "прокси прошлого релиза работает под прежним именем — check -g называет его и команду, которая его заменит"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся"
-  ],
-  "name": "скрипты читают старый конфиг, пока его не перенёс update"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "check проекта с копией флоу печатает задачу переезда на тонкий проект — своей задачей, одной на проект; check ничего не меняет"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "update в проекте с копией переводит его на тонкий: копия, симлинки и исключения .gitignore удалены, импорты harness и пути CI переписаны"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "update переписывает скрипт пакета из копии в известных формах — bun и node, с флагами и без — в package.json, shell-скрипте и workflow на elves <скрипт>"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "update проекта с копией переводит вызов task-env и импорт knip-hints.cjs копии на пакет: скрипт зовёт elves task-env, тест — экспорт @miroshnik/elves/spec/knip-hints; check после него — без «!»"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "update проекта с копией: скрипт копии в джобе без установки зависимостей — пакет версии проекта через bunx"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "update проекта с копией: скрипт копии в джобе с установкой зависимостей — bun --no-env-file node_modules/.bin/elves"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "джоба, где установку зависимостей не узнать, — строка ! с файлом и джобой для правки руками"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "копия без списка скиллов в манифесте — уходят скиллы, которые есть у Elves; свой скилл проекта остаётся"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "копия проекта до `--branch-type`: команда задачи переезда из `check` — скриптом github, который знает её флаги, а не копией"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "переезд с копии на Yarn 2+ с PnP — джоба CI с установкой зависимостей запускает скрипт пакета"
- },
- {
-  "path": "tests/capabilities/elves/update.test.ts",
-  "describes": [
-   "Проект с копией флоу переезжает на тонкий проект"
-  ],
-  "name": "ссылка на файл копии, которую update не переписал, — строка «!» в check с файлом и номером строки; код check прежний"
+  "name": "update -g снимает симлинки ~/.config/ai-dev и ~/.claude/est — каталог под этим именем остаётся"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2571,7 +2318,7 @@
   "describes": [
    "Тонкий проект сверяется с версией пакета и обновляется в задаче сессии"
   ],
-  "name": "check называет язык проекта; установка прошлой версии без поля — ru, отставанием не считается"
+  "name": "check называет язык проекта"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -2599,7 +2346,7 @@
   "describes": [
    "Тонкий проект сверяется с версией пакета и обновляется в задаче сессии"
   ],
-  "name": "update язык сохраняет: language ru остаётся ru, у установки прошлой версии без поля — ru"
+  "name": "update язык сохраняет: language ru остаётся ru"
  },
  {
   "path": "tests/capabilities/elves/update.test.ts",
@@ -3011,13 +2758,6 @@
    "Облачная сессия считается по событиям, выгруженным из claude.ai"
   ],
   "name": "est cloud-import кладёт выгрузку в личный каталог по репозиторию; не выгрузка — ошибка"
- },
- {
-  "path": "tests/capabilities/est/estimate-and-actual.test.ts",
-  "describes": [
-   "Облачная сессия считается по событиям, выгруженным из claude.ai"
-  ],
-  "name": "est берёт каталог личной конфигурации ~/.config/elves, пока его нет — прежний ~/.config/ai-dev; ELVES_CONFIG_DIR, иначе прежняя AI_DEV_CONFIG_DIR"
  },
  {
   "path": "tests/capabilities/est/estimate-and-actual.test.ts",
@@ -4263,28 +4003,7 @@
   "describes": [
    "Канон проекта — на языке проекта из .agents/elves.json чекаута"
   ],
-  "name": "до update язык читается из прежнего манифеста .agents/ai-dev.json, а когда есть и .agents/elves.json — из нового"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Канон проекта — на языке проекта из .agents/elves.json чекаута"
-  ],
   "name": "доска на русском, а язык проекта en — check ❌ по представлениям, Status и полям; fix --confirm переименовывает с теми же id, задачи сохраняют статусы"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Канон проекта — на языке проекта из .agents/elves.json чекаута"
-  ],
-  "name": "проект без поля language в манифесте работает с русскими названиями, как раньше"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Мерж в основную ветку — только с зелёными обязательными чеками"
-  ],
-  "name": "project check узнаёт ruleset ai-dev своим, project fix переименовывает его в elves"
  },
  {
   "path": "tests/capabilities/github/github-project.test.ts",
@@ -4340,42 +4059,7 @@
   "describes": [
    "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
   ],
-  "name": "project check: имя раздела в двух темах — ○, лейбл не сливается"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "project check: лейбл бывшего решения, ставшего разделом темы, — ❌ со слиянием в лейбл темы"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "project fix --confirm: лейбл темы — на всех задачах с прежним лейблом, закрытых тоже, прежний удалён"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "project fix --confirm: у темы ещё нет лейбла — лейбл раздела переименовывается в лейбл темы, задачи сохраняют его"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
   "name": "метка без решения только на закрытых задачах — ❌, удаляется с --confirm"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "метка из списка, которую GitHub по имени уже не находит, не роняет загрузку состояния проекта: project check — строка ○ с её именем, fix её не сливает"
  },
  {
   "path": "tests/capabilities/github/github-project.test.ts",
@@ -4404,20 +4088,6 @@
    "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
   ],
   "name": "метка решения чужого цвета — fix перекрашивает в цвет вида"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "метка старого вида `вид:имя` без решения в main — fix так же переименовывает её в имя, задачи сохраняют её"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "метка старого вида `вид:имя` — fix переименовывает её в имя без --confirm, задачи сохраняют её"
  },
  {
   "path": "tests/capabilities/github/github-project.test.ts",
@@ -4467,13 +4137,6 @@
    "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
   ],
   "name": "решение в main без метки — ❌, fix создаёт метку с именем решения и цветом вида"
- },
- {
-  "path": "tests/capabilities/github/github-project.test.ts",
-  "describes": [
-   "Метки решений — имя решения без вида, вид — цветом; набор сверяется с деревом спеки и моделью в основной ветке"
-  ],
-  "name": "старая метка, чьё имя уже занято, — сливается с --confirm: задачи получают метку с именем, старая удаляется"
  },
  {
   "path": "tests/capabilities/github/github-project.test.ts",
@@ -4614,13 +4277,6 @@
    "pr labels ставит задаче метки решений по диффу PR, эпику — объединение"
   ],
   "name": "переименование файла в папке решения не даёт метку этого решения"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "pr labels ставит задаче метки решений по диффу PR, эпику — объединение"
-  ],
-  "name": "правка только `exceptions.ts` не даёт метку решения"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -5333,14 +4989,6 @@
    "ошибка до создания — задача не заводится наполовину"
   ],
   "name": "--epic указывает не на эпик"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "task new заводит задачу со всем сразу",
-   "ошибка до создания — задача не заводится наполовину"
-  ],
-  "name": "task new узнаёт открытую задачу обновления флоу со старым названием и второй не заводит"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -6312,28 +5960,7 @@
   "describes": [
    "task status берёт в работу одну задачу на сессию"
   ],
-  "name": "каталог конфигурации задаёт ELVES_CONFIG_DIR; прежняя AI_DEV_CONFIG_DIR из профиля владельца — запасная"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "task status берёт в работу одну задачу на сессию"
-  ],
-  "name": "каталог конфигурации — ~/.config/elves; пока его нет, а прежний ~/.config/ai-dev есть, — прежний: машина до update -g"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "task status берёт в работу одну задачу на сессию"
-  ],
   "name": "каталог конфигурации — чекаут git: закрепления в него не коммитятся — sessions/ закрыт своим .gitignore"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "task status берёт в работу одну задачу на сессию"
-  ],
-  "name": "каталога конфигурации ещё нет, а старый ~/.claude/est на месте — закрепление ложится в него: перенос est не сорван"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -6606,13 +6233,6 @@
   "describes": [
    "Задачи — на языке проекта из .agents/elves.json чекаута"
   ],
-  "name": "манифест без поля language — каркас на русском, как раньше"
- },
- {
-  "path": "tests/capabilities/github/github-task.test.ts",
-  "describes": [
-   "Задачи — на языке проекта из .agents/elves.json чекаута"
-  ],
   "name": "проект на en: task answer пишет ответ «**Answer:**», est не считает его в размер описания"
  },
  {
@@ -6879,13 +6499,6 @@
   "describes": [
    "Песочница агента не роняет очередь"
   ],
-  "name": "очередь видит билеты slot прошлого релиза в ai-dev/slots временного каталога"
- },
- {
-  "path": "tests/capabilities/slot/queue.test.ts",
-  "describes": [
-   "Песочница агента не роняет очередь"
-  ],
   "name": "прогон Claude Code вне песочницы ждёт прогоны в ней"
  },
  {
@@ -6922,13 +6535,6 @@
    "Скрипт package.json берёт слот своим shell, команда остаётся командой скрипта"
   ],
   "name": "shell скрипта убит, пока ждал, — его slot выходит, а не ждёт за мёртвого"
- },
- {
-  "path": "tests/capabilities/slot/queue.test.ts",
-  "describes": [
-   "Скрипт package.json берёт слот своим shell, команда остаётся командой скрипта"
-  ],
-  "name": "slot экспортирует ELVES_SLOT, ELVES_SLOT_CPUS и AI_DEV_SLOT, AI_DEV_SLOT_CPUS; вложенный вызов только с AI_DEV_SLOT своего слота не ждёт"
  },
  {
   "path": "tests/capabilities/slot/queue.test.ts",
@@ -7216,13 +6822,6 @@
    "Точка входа без теста — исключение с задачей, пока тест не появился"
   ],
   "name": "исключение на точку без теста — зелёное; точка, у которой тест появился, — «remove the exception»"
- },
- {
-  "path": "tests/capabilities/spec/spec-claims.test.ts",
-  "describes": [
-   "Точка входа без теста — исключение с задачей, пока тест не появился"
-  ],
-  "name": "исключения — каталог: файл вместо каталога — код 2 и подсказка переноса"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.parse-source.test.ts",
@@ -7549,62 +7148,6 @@
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
   "describes": [
-   "Перегруппировка в тему с именем прежнего решения — по разделам темы"
-  ],
-  "name": "прежнее решение, ставшее разделом своего имени в теме того же имени, — в сводке перегруппировки, а не вне списков"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка в тему с именем прежнего решения — по разделам темы"
-  ],
-  "name": "проверка харнесса раздела своего имени — перегруппирована, а не снята и добавлена"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка в тему с именем прежнего решения — по разделам темы"
-  ],
-  "name": "тема, сохранившая имя папки прежнего решения, показывает каждый переехавший в неё раздел как «папка → тема#раздел»"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка решений в темы — переезд, а не снятые и добавленные требования"
-  ],
-  "name": "отключение линта в файле, переехавшем в тему, — не новое исключение"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка решений в темы — переезд, а не снятые и добавленные требования"
-  ],
-  "name": "проверка харнесса решения, ставшего разделом темы, не снята и не добавлена"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка решений в темы — переезд, а не снятые и добавленные требования"
-  ],
-  "name": "раздел с другим именем, чем прежнее решение, — удалён и добавлен"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка решений в темы — переезд, а не снятые и добавленные требования"
-  ],
-  "name": "решения, ставшие разделами темы с прежними именами, — сводка перегруппировки, без удалённых и добавленных"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Перегруппировка решений в темы — переезд, а не снятые и добавленные требования"
-  ],
-  "name": "части стандарта на линте, переехавшие в раздел темы, — в сводке «Перегруппированы в темы», а не снятыми и добавленными"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
    "Переезд тестов в дерево — сводкой по папкам, а не тысячами «добавлен»"
   ],
   "name": "--worktree: перенос до коммита тоже сворачивается"
@@ -7698,7 +7241,7 @@
   "describes": [
    "Решения вне названий тестов — модель, исключения, проверки харнесса — видны в дельте спеки"
   ],
-  "name": "исключение из exceptions.ts и отключение линта в коде: добавленные и снятые"
+  "name": "исключение папки решения и отключение линта в коде: добавленные и снятые"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
@@ -7727,20 +7270,6 @@
    "Решения вне названий тестов — модель, исключения, проверки харнесса — видны в дельте спеки"
   ],
   "name": "отключение линта в копии флоу (`.agents/`, `.claude/`) — не исключение проекта, тот же файл вне копии — исключение"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Решения вне названий тестов — модель, исключения, проверки харнесса — видны в дельте спеки"
-  ],
-  "name": "перенос exceptions.ts в каталог — раздела «Исключения» нет"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Решения вне названий тестов — модель, исключения, проверки харнесса — видны в дельте спеки"
-  ],
-  "name": "перенос exceptions.ts подпапки в каталог папки решения — раздела «Исключения» нет"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
@@ -7811,13 +7340,6 @@
    "Снятые требования — первыми, потом изменённые и добавленные"
   ],
   "name": "удалённые идут первыми, потом изменённые, потом добавленные"
- },
- {
-  "path": "tests/capabilities/spec/spec-diff.test.ts",
-  "describes": [
-   "Списки PR — по теме и разделу"
-  ],
-  "name": "решение с тестовым файлом по имени папки — одна папка без раздела, и другие его файлы тоже"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
@@ -8321,13 +7843,6 @@
   "describes": [
    "Документация — на языке проекта"
   ],
-  "name": "манифест без поля language — установка прошлой версии: документация по-русски, как раньше"
- },
- {
-  "path": "tests/capabilities/spec/spec-doc.test.ts",
-  "describes": [
-   "Документация — на языке проекта"
-  ],
   "name": "проект без манифеста — на en: оглавление, разделы, счётчики и пометки тестов по-английски"
  },
  {
@@ -8575,56 +8090,7 @@
   "describes": [
    "Тема с разделами — страница на тему, разделы по имени"
   ],
-  "name": "решение с тестовым файлом по имени папки — тема из одного раздела"
- },
- {
-  "path": "tests/capabilities/spec/spec-doc.test.ts",
-  "describes": [
-   "Тема с разделами — страница на тему, разделы по имени"
-  ],
   "name": "страница темы начинается с её описания, затем разделы по имени — у каждого своё описание и утверждения"
- },
- {
-  "path": "tests/capabilities/spec/spec-doc.test.ts",
-  "describes": [
-   "Тема с разделами — страница на тему, разделы по имени"
-  ],
-  "name": "файл по имени папки в другом пакете на диске, без тестов в отчёте, — тоже тема из одного раздела"
- },
- {
-  "path": "tests/capabilities/spec/spec-exceptions.test.ts",
-  "describes": [
-   "Исключения проекта переезжают в каталог exceptions/ одной командой"
-  ],
-  "name": "exceptions.ts подпапки переезжает в exceptions/ папки решения — тест подпапки читает его через exceptionsIn()"
- },
- {
-  "path": "tests/capabilities/spec/spec-exceptions.test.ts",
-  "describes": [
-   "Исключения проекта переезжают в каталог exceptions/ одной командой"
-  ],
-  "name": "spec-exceptions переносит exceptions.ts в каталог — файл на исключение, старый удалён, импорт в тесте — exceptionsIn()"
- },
- {
-  "path": "tests/capabilities/spec/spec-exceptions.test.ts",
-  "describes": [
-   "Исключения проекта переезжают в каталог exceptions/ одной командой"
-  ],
-  "name": "повторный запуск — переносить нечего: код 0, файлы те же"
- },
- {
-  "path": "tests/capabilities/spec/spec-exceptions.test.ts",
-  "describes": [
-   "Исключения проекта переезжают в каталог exceptions/ одной командой"
-  ],
-  "name": "путь к exceptions.ts в package.json и workflow CI — на каталог"
- },
- {
-  "path": "tests/capabilities/spec/spec-exceptions.test.ts",
-  "describes": [
-   "Исключения проекта переезжают в каталог exceptions/ одной командой"
-  ],
-  "name": "ссылку, которую не переписать, команда называет — код 1"
  },
  {
   "path": "tests/capabilities/spec/spec-harness.architecture.test.ts",
@@ -9143,20 +8609,6 @@
    "Исключение с rule — к правилу инварианта папки: опечатка не выпадает из спеки молча"
   ],
   "name": "исключения с rule своих инвариантов и без rule — зелёные, как раньше"
- },
- {
-  "path": "tests/capabilities/spec/spec-harness.exceptions.test.ts",
-  "describes": [
-   "Исключения папки решения — файл на элемент: параллельные PR не правят один файл"
-  ],
-  "name": "exceptions.ts в папке решения — упавший тест с подсказкой команды переноса"
- },
- {
-  "path": "tests/capabilities/spec/spec-harness.exceptions.test.ts",
-  "describes": [
-   "Исключения папки решения — файл на элемент: параллельные PR не правят один файл"
-  ],
-  "name": "exceptions.ts подпапки — упавший тест с подсказкой переноса в exceptions/ папки решения"
  },
  {
   "path": "tests/capabilities/spec/spec-harness.exceptions.test.ts",
@@ -9966,20 +9418,6 @@
  {
   "path": "tests/capabilities/task-env/stacks.slow.test.ts",
   "describes": [
-   "Переход с прокси до переименования: `proxy up` занимает его порт, а в его сеть не входит"
-  ],
-  "name": "`proxy up` убирает прежний прокси, который держит порт: новый прокси — на том же порту"
- },
- {
-  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
-  "describes": [
-   "Переход с прокси до переименования: `proxy up` занимает его порт, а в его сеть не входит"
-  ],
-  "name": "proxy up поднимает прокси только в его сети — сеть ai-dev-proxy он не берёт, даже когда она есть на машине"
- },
- {
-  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
-  "describes": [
    "Прокси на машине раздаёт адреса *.localhost контейнерам по их меткам"
   ],
   "name": "API прокси называет хосты маршрутов по адресу `<имя прокси>.localhost` на его порту: контейнер стартовал — его хост есть, остановился — нет"
@@ -10187,13 +9625,6 @@
   "describes": [
    "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
   ],
-  "name": "task-env check не выделяет сеть ai-dev-proxy в compose-файле отдельной строкой — это внешняя сеть, как любая другая"
- },
- {
-  "path": "tests/capabilities/task-env/stacks.test.ts",
-  "describes": [
-   "task-env check называет каждое нарушение правил изоляции compose-файла строкой ❌ с правилом и сервисом"
-  ],
   "name": "абсолютный путь к коду в volumes и build — нарушение, ~ тоже; относительный путь, именованный том и ресурс машины (сокет Docker, /etc/localtime) — нет"
  },
  {
@@ -10274,13 +9705,6 @@
    "Имя проекта стеков и адресов — из репозитория, а не из каталога"
   ],
   "name": "имя проекта — из репозитория, а не из каталога worktree"
- },
- {
-  "path": "tests/capabilities/task-env/stacks.test.ts",
-  "describes": [
-   "Настройки проекта — `.agents/elves.json`; установка до `update` — `.agents/ai-dev.json`"
-  ],
-  "name": "`env.http` — из `.agents/elves.json`; пока его нет — из `.agents/ai-dev.json`; сообщение об ошибке называет прочитанный файл"
  },
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
@@ -10369,23 +9793,16 @@
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
   "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
+   "Прокси — `elves-proxy` на порту 80; настройки проекта — `.agents/elves.json`"
   ],
-  "name": "имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — прежняя AI_DEV_PROXY_PORT из профиля, без обеих — 80"
+  "name": "`env.http` — из `.agents/elves.json`; сообщение об ошибке называет файл"
  },
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
   "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
+   "Прокси — `elves-proxy` на порту 80; настройки проекта — `.agents/elves.json`"
   ],
-  "name": "новый прокси не создался — прежний остаётся на месте: его контейнер не удалён, код 2"
- },
- {
-  "path": "tests/capabilities/task-env/stacks.test.ts",
-  "describes": [
-   "Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока"
-  ],
-  "name": "прежний прокси — `ai-dev-proxy` только у прокси по умолчанию; у прокси с другим именем — `<имя>-former`: тестовый прокси не трогает прокси машины"
+  "name": "имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — 80"
  },
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
@@ -10777,13 +10194,6 @@
   "describes": [
    "Код установщика и скриптов скиллов — сообщения и комментарии — по-английски"
   ],
-  "name": "в bin/ai-dev.ts нет кириллицы"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Код установщика и скриптов скиллов — сообщения и комментарии — по-английски"
-  ],
   "name": "в bin/elves.ts нет кириллицы"
  },
  {
@@ -10911,13 +10321,6 @@
    "Код установщика и скриптов скиллов — сообщения и комментарии — по-английски"
   ],
   "name": "в skills/spec/scripts/spec-doc.ts нет кириллицы"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Код установщика и скриптов скиллов — сообщения и комментарии — по-английски"
-  ],
-  "name": "в skills/spec/scripts/spec-exceptions.ts нет кириллицы"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -11757,13 +11160,6 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
-  "name": "название formerly.updateTask скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
   "name": "название issueTypes.bug скрипты читают из словаря"
  },
  {
@@ -12178,13 +11574,6 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название queue.wait скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
-  "name": "название regroupTask скрипты читают из словаря"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -12954,13 +12343,6 @@
   "describes": [
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
-  "name": "название spec.diff.regrouped скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
   "name": "название spec.diff.removed скрипты читают из словаря"
  },
  {
@@ -13207,13 +12589,6 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название spec.harness.exception скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
-  "name": "название spec.harness.exceptionFiles скрипты читают из словаря"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -13473,13 +12848,6 @@
    "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
   ],
   "name": "название updateCommit скрипты читают из словаря"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Названия, которые пишут и разбирают скрипты, — в locales скилла github, у каждого языка одни ключи"
-  ],
-  "name": "название updateTask скрипты читают из словаря"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -13997,13 +13365,6 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
-  "name": "цитату «Regrouped into topics» из skills/spec/migration.md печатает или пишет скрипт"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
-  ],
   "name": "цитату «Remaining: …» из skills/dashboard/SKILL.md печатает или пишет скрипт"
  },
  {
@@ -14389,13 +13750,6 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
-  "name": "цитату «exceptions are one file per element in exceptions/, not exceptions.ts» из skills/spec/SKILL.md печатает или пишет скрипт"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
-  ],
   "name": "цитату «exceptions in <file>: <rules> (#N)» из skills/spec/checks.md печатает или пишет скрипт"
  },
  {
@@ -14516,13 +13870,6 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «marks with a rule belong to the folder's invariant rules» из skills/spec/checks.md печатает или пишет скрипт"
- },
- {
-  "path": "tests/standards/documents/flow-english.test.ts",
-  "describes": [
-   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
-  ],
-  "name": "цитату «merge into the topic's label» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -15201,7 +14548,7 @@
   "describes": [
    "Язык проекта у скриптов скиллов и у установщика — один модуль"
   ],
-  "name": "манифест с языком — его язык, без поля — ru, битый — ru, без манифеста — en"
+  "name": "манифест с языком — его язык, без поля, битый и без манифеста — en"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
@@ -15335,13 +14682,6 @@
    "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
   ],
   "name": "README: команда установщика spec-doc названа"
- },
- {
-  "path": "tests/standards/documents/readme.test.ts",
-  "describes": [
-   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
-  ],
-  "name": "README: команда установщика spec-exceptions названа"
  },
  {
   "path": "tests/standards/documents/readme.test.ts",
@@ -15783,13 +15123,6 @@
    "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
   ],
   "name": "README: скрипт spec-doc скилла spec назван"
- },
- {
-  "path": "tests/standards/documents/readme.test.ts",
-  "describes": [
-   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
-  ],
-  "name": "README: скрипт spec-exceptions скилла spec назван"
  },
  {
   "path": "tests/standards/documents/readme.test.ts",
@@ -16771,13 +16104,6 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "skills/spec/SKILL.md: skills/spec/SKILL.md, «spec-exceptions» — есть такой раздел"
- },
- {
-  "path": "tests/standards/documents/section-refs.test.ts",
-  "describes": [
-   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
-  ],
   "name": "skills/spec/SKILL.md: skills/spec/ci.md, «Batches» — есть такой раздел"
  },
  {
@@ -16835,13 +16161,6 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "skills/spec/SKILL.md: skills/spec/reference.md, «spec-doc output» — есть такой раздел"
- },
- {
-  "path": "tests/standards/documents/section-refs.test.ts",
-  "describes": [
-   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
-  ],
-  "name": "skills/spec/SKILL.md: skills/spec/reference.md, «spec-exceptions» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
@@ -17073,13 +16392,6 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "skills/task-env/SKILL.md: skills/task-env/reference.md, «Taking a task's stacks down» — есть такой раздел"
- },
- {
-  "path": "tests/standards/documents/section-refs.test.ts",
-  "describes": [
-   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
-  ],
-  "name": "skills/task-env/SKILL.md: skills/task-env/reference.md, «The proxy before the rename» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
@@ -17457,13 +16769,6 @@
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
   ],
-  "name": "elves spec-exceptions --help и -h — синтаксис с примером, код 0, без сети и изменений"
- },
- {
-  "path": "tests/standards/scripts/cli-help.test.ts",
-  "describes": [
-   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
-  ],
   "name": "elves spec-publish --help и -h — синтаксис с примером, код 0, без сети и изменений"
  },
  {
@@ -17765,13 +17070,6 @@
   "describes": [
    "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
   ],
-  "name": "spec-exceptions --help и -h — синтаксис с примером, код 0, без сети и изменений"
- },
- {
-  "path": "tests/standards/scripts/cli-help.test.ts",
-  "describes": [
-   "Скрипты флоу отвечают на --help и -h: синтаксис с примером, код 0, без сети и без изменений"
-  ],
   "name": "spec-publish --help и -h — синтаксис с примером, код 0, без сети и изменений"
  },
  {
@@ -18033,15 +17331,7 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
-   "примеры"
-  ],
-  "name": "без прежнего каталога машина до update -g потеряла бы конфигурацию — нарушение"
- },
- {
-  "path": "tests/standards/scripts/config-dir.test.ts",
-  "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves",
    "примеры"
   ],
   "name": "комментарий и текст справки (~/.config/elves, $ELVES_CONFIG_DIR) — не обращение к каталогу"
@@ -18049,7 +17339,7 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves",
    "примеры"
   ],
   "name": "переменная в скобках (env[\"ELVES_CONFIG_DIR\"]) — то же правило, чисто"
@@ -18057,7 +17347,7 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves",
    "примеры"
   ],
   "name": "правило есть, а рядом второй путь к каталогу — нарушение со строкой"
@@ -18065,7 +17355,7 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves",
    "примеры"
   ],
   "name": "правило с окружением и домашним каталогом под любым именем — чисто"
@@ -18073,7 +17363,7 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev",
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves",
    "примеры"
   ],
   "name": "пустая переменная — тоже каталог по умолчанию: `??` вместо `||` — нарушение"
@@ -18081,63 +17371,56 @@
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
-  "name": "skills/est/scripts/est.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves, до переноса — ~/.config/ai-dev"
+  "name": "skills/est/scripts/est.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
-  "name": "skills/github/scripts/github.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves, до переноса — ~/.config/ai-dev"
+  "name": "skills/github/scripts/github.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
-  "name": "skills/slot/scripts/slot.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves, до переноса — ~/.config/ai-dev"
+  "name": "skills/slot/scripts/slot.ts берёт каталог из ELVES_CONFIG_DIR, иначе ~/.config/elves"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
   "name": "вне охвата: bin/elves.ts"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
-  ],
-  "name": "нарушитель не проходит: скрипт с прежним выражением — не видит ни новую переменную, ни новый каталог"
- },
- {
-  "path": "tests/standards/scripts/config-dir.test.ts",
-  "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
   "name": "нарушитель не проходит: скрипт со своим путём каталога личной конфигурации"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
   "name": "нарушитель не проходит: скрипт читает ELVES_CONFIG_DIR, а каталог по умолчанию у него свой"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
   "name": "реестр «скрипты скиллов и установщик, которым нужен каталог личной конфигурации» находит skills/est/scripts/est.ts, skills/github/scripts/github.ts, skills/slot/scripts/slot.ts, bin/elves.ts"
  },
  {
   "path": "tests/standards/scripts/config-dir.test.ts",
   "describes": [
-   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves, а до переноса — из прежнего ~/.config/ai-dev"
+   "Каждый скрипт, которому нужен каталог личной конфигурации, берёт его из ELVES_CONFIG_DIR, иначе ~/.config/elves"
   ],
   "name": "реестр «скрипты скиллов и установщик, которым нужен каталог личной конфигурации» не пуст"
  },
@@ -18174,13 +17457,6 @@
   "describes": [
    "Файл исключений папки решения распознаётся одинаково в spec и github"
   ],
-  "name": "spec/spec-exceptions распознаёт файл исключений правилом exceptionFile, без своего"
- },
- {
-  "path": "tests/standards/scripts/exception-files.test.ts",
-  "describes": [
-   "Файл исключений папки решения распознаётся одинаково в spec и github"
-  ],
   "name": "spec/speclib распознаёт файл исключений по таблице путей"
  },
  {
@@ -18188,7 +17464,7 @@
   "describes": [
    "Файл исключений папки решения распознаётся одинаково в spec и github"
   ],
-  "name": "нарушитель не проходит: pr labels до стандарта: прежний файл — только exceptions.ts"
+  "name": "нарушитель не проходит: pr labels до стандарта: каталог — любой файл на глубине папки"
  },
  {
   "path": "tests/standards/scripts/exception-files.test.ts",
@@ -18202,7 +17478,7 @@
   "describes": [
    "Файл исключений папки решения распознаётся одинаково в spec и github"
   ],
-  "name": "реестр «скрипты, распознающие файлы исключений» находит github/github, spec/harness, spec/spec-diff, spec/spec-exceptions, spec/speclib"
+  "name": "реестр «скрипты, распознающие файлы исключений» находит github/github, spec/harness, spec/spec-diff, spec/speclib"
  },
  {
   "path": "tests/standards/scripts/exception-files.test.ts",
@@ -18216,21 +17492,14 @@
   "describes": [
    "Файл исключений папки решения распознаётся одинаково в spec и github"
   ],
-  "name": "таблица ловит расхождения pr labels до стандарта: не JSON, раздел, прежний файл не .ts, подпапка, скрытый файл"
+  "name": "таблица ловит расхождения pr labels до стандарта: не JSON, раздел, подпапка, скрытый файл"
  },
  {
   "path": "tests/standards/scripts/exception-files.test.ts",
   "describes": [
    "Файл исключений папки решения распознаётся одинаково в spec и github"
   ],
-  "name": "файл исключений раздела харнесс, spec-diff, spec-exceptions и pr labels узнают одинаково"
- },
- {
-  "path": "tests/standards/scripts/no-env-file.test.ts",
-  "describes": [
-   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
-  ],
-  "name": "bin/ai-dev.ts печатает и запускает скрипты флоу с --no-env-file"
+  "name": "файл исключений раздела харнесс, spec-diff и pr labels узнают одинаково"
  },
  {
   "path": "tests/standards/scripts/no-env-file.test.ts",
@@ -18377,13 +17646,6 @@
   "describes": [
    "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
   ],
-  "name": "skills/spec/scripts/spec-exceptions.ts печатает и запускает скрипты флоу с --no-env-file"
- },
- {
-  "path": "tests/standards/scripts/no-env-file.test.ts",
-  "describes": [
-   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
-  ],
   "name": "skills/spec/scripts/spec-publish.ts печатает и запускает скрипты флоу с --no-env-file"
  },
  {
@@ -18441,13 +17703,6 @@
    "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
   ],
   "name": "в README.md скрипты скиллов вызываются с --no-env-file"
- },
- {
-  "path": "tests/standards/scripts/no-env-file.test.ts",
-  "describes": [
-   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
-  ],
-  "name": "в bin/ai-dev.ts bin пакета под bun вызывается с --no-env-file"
  },
  {
   "path": "tests/standards/scripts/no-env-file.test.ts",
@@ -18909,13 +18164,6 @@
   "describes": [
    "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
   ],
-  "name": "в skills/spec/scripts/spec-exceptions.ts bin пакета под bun вызывается с --no-env-file"
- },
- {
-  "path": "tests/standards/scripts/no-env-file.test.ts",
-  "describes": [
-   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
-  ],
   "name": "в skills/spec/scripts/spec-publish.ts bin пакета под bun вызывается с --no-env-file"
  },
  {
@@ -19112,7 +18360,7 @@
   "describes": [
    "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
   ],
-  "name": "справка скрипта пакета elves <скрипт> --help и подсказка харнесса называют форму запуска, которая на Yarn 2+ с PnP находит bin пакета"
+  "name": "справка скрипта пакета elves <скрипт> --help называет форму запуска, которая на Yarn 2+ с PnP находит bin пакета"
  },
  {
   "path": "tests/standards/scripts/no-env-file.test.ts",
@@ -19124,350 +18372,49 @@
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
-  "name": "README.md · **Before the rename to Elves** — README называет прежние имена установки и их перенос"
+  "name": "в bin/elves.ts старого имени нет"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
-  "name": "bin/ai-dev.ts — установщик под прежним путём: update -g релиза до переименования запускает его в клоне --link"
+  "name": "нарушитель не проходит: скрипт читает прежний манифест"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
-  "name": "bin/elves.ts · FORMER — имена установки до переименования — манифест, канон, правила, блоки AGENTS.md и .gitignore, каталог конфигурации, переменные AI_DEV_*"
+  "name": "нарушитель не проходит: справочник называет прежний каталог"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
-  "name": "bin/elves.ts · HELP — справка check и update называет прежние имена, которые update переносит, а check -g называет"
+  "name": "нарушитель не проходит: установщик называет старое имя вне симлинков переименования"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "bin/elves.ts · LEGACY_SOURCE — прежнее имя репозитория miroshnik/ai-dev — в хуке SessionStart, имени пакета клона и origin клона --link"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/est/reference.md · the former `~/.config/ai-dev` — справочник называет прежний каталог реестра репозиториев"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/est/scripts/est.ts · EST_DIR — каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/locales/en.json · formerly.updateTask — название задачи обновления флоу до переименования"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/locales/ru.json · formerly.updateTask — название задачи обновления флоу до переименования"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/reference.md · the former `.agents/ai-dev.json` — справочник называет прежний манифест, из которого читается язык"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/reference.md · under the flow's former name `ai-dev` — справочник называет ruleset под прежним именем"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/scripts/github.ts · FORMER_RULESET — ruleset ai-dev, поставленный project fix до переименования"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/scripts/github.ts · configDir — каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/github/scripts/locale.ts · manifestOf — язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/slot/SKILL.md · **The flow's former name.** — описание скилла называет прежние переменные очереди"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/slot/SKILL.md · the tickets of an earlier release's slot — описание скилла называет прежнее место билетов"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/slot/scripts/slot.ts · FORMER_ENV — переменные очереди AI_DEV_SLOT и AI_DEV_SLOT_CPUS проектов и slot прошлого релиза"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/slot/scripts/slot.ts · FORMER_TEMP — билеты slot прошлого релиза в ai-dev/slots временного каталога"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/slot/scripts/slot.ts · places — каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/SKILL.md · **Before the rename** — описание скилла называет прокси до переименования"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/SKILL.md · an install from before the rename — описание скилла называет прежний файл настроек"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/SKILL.md · its name before the rename — описание скилла называет AI_DEV_PROXY_PORT"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/reference.md · ## The proxy before the rename — справочник описывает переход с прокси ai-dev-proxy"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/scripts/task-env.ts · FORMER_PROXY — контейнер прокси ai-dev-proxy, который держит порт, — proxy up его удаляет"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/scripts/task-env.ts · HELP — справка proxy up называет прокси ai-dev-proxy, которого он заменяет"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/scripts/task-env.ts · manifestOf — настройки стека из .agents/ai-dev.json, пока update его не перенёс"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "skills/task-env/scripts/task-env.ts · proxyPort — порт прокси из AI_DEV_PROXY_PORT профиля владельца"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "нарушитель не проходит: место с тестом, которого нет"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "нарушитель не проходит: место, где старого имени уже нет"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Место реестра имён для перехода живо: старое имя в нём есть, тест перехода — тоже"
-  ],
-  "name": "реестр «места реестра имён для перехода» не пуст"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в README.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в bin/ai-dev.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в bin/elves.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/est/reference.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/est/scripts/est.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/github/locales/en.json старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/github/locales/ru.json старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/github/reference.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/github/scripts/github.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/github/scripts/locale.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/slot/SKILL.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/slot/scripts/slot.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/task-env/SKILL.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/task-env/reference.md старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "в skills/task-env/scripts/task-env.ts старое имя — только в местах реестра"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "нарушитель не проходит: скрипт читает прежний манифест в новой функции, мимо своей константы"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
-  ],
-  "name": "нарушитель не проходит: справочник называет прежний каталог вне абзаца о переходе"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
   "name": "нарушитель не проходит: файл скилла под прежним именем"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
-  "name": "реестр «файлы флоу со старым именем — bin, skills, канон, docs, README.md, package.json» находит bin/ai-dev.ts, bin/elves.ts, README.md, skills/github/locales/en.json, skills/task-env/SKILL.md"
+  "name": "реестр «файлы флоу со старым именем — bin, skills, канон, docs, README.md, package.json» находит bin/elves.ts"
  },
  {
   "path": "tests/standards/scripts/old-name.test.ts",
   "describes": [
-   "Старое имя ai-dev в файлах флоу — только в местах реестра имён для перехода"
+   "Старого имени ai-dev в файлах флоу нет"
   ],
   "name": "реестр «файлы флоу со старым именем — bin, skills, канон, docs, README.md, package.json» не пуст"
  },
@@ -19477,27 +18424,6 @@
    "примеры"
   ],
   "name": "old-name не читает файлы, которые git игнорирует: сгенерированный docs/spec не делает стандарт красным"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "примеры"
-  ],
-  "name": "место документа — абзац с фразой или раздел под заголовком; в JSON — путь ключа; файл под старым именем — место целиком"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "примеры"
-  ],
-  "name": "место кода — объявление верхнего уровня с его комментарием; комментарий перед импортами — место header"
- },
- {
-  "path": "tests/standards/scripts/old-name.test.ts",
-  "describes": [
-   "примеры"
-  ],
-  "name": "старое имя вне реестра роняет проверку"
  },
  {
   "path": "tests/standards/scripts/origin-repo.test.ts",
@@ -19726,51 +18652,51 @@
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
   "name": "skills/github/scripts/locale.ts: манифест проекта — по таблице правила"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
   "name": "skills/task-env/scripts/task-env.ts: манифест проекта — по таблице правила"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
-  "name": "нарушитель не проходит: batchProject до стандарта: без прежнего имени манифеста"
+  "name": "нарушитель не проходит: batchProject до стандарта: битый и не объект — без ошибки"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
   "name": "нарушитель не проходит: readManifest установщика до стандарта: JSON как есть, без ошибки"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
   "name": "реестр «скрипты скиллов с ответом на «что в манифесте проекта»» находит skills/github/scripts/locale.ts, skills/task-env/scripts/task-env.ts"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
   "name": "реестр «скрипты скиллов с ответом на «что в манифесте проекта»» не пуст"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
   "describes": [
-   "Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой"
+   "Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой"
   ],
-  "name": "таблица ловит расхождения копий до стандарта: прежний манифест у batchProject, не объект и битый файл у readManifest"
+  "name": "таблица ловит расхождения копий до стандарта: не объект и битый файл у batchProject и readManifest"
  },
  {
   "path": "tests/standards/scripts/project-manifest.test.ts",
@@ -20599,13 +19525,6 @@
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
   "name": "tests/capabilities/spec/spec-doc.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
- },
- {
-  "path": "tests/standards/tests/spawn-timeout.test.ts",
-  "describes": [
-   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
-  ],
-  "name": "tests/capabilities/spec/spec-exceptions.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/tests/spawn-timeout.test.ts",
