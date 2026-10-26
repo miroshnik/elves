@@ -527,8 +527,10 @@ lacks it; the epic's `Priority` is raised to the subtask's if the subtask is
 more urgent. Everything is checked before creating — an error (code 2) doesn't
 leave a half-made task: `--epic` is an open epic, the milestone exists, the
 blockers exist (closed ones are skipped), there is no open task with the same
-title, the type is enabled, `Priority` is one of the options; in a personal
-account `--priority` is an error. `--labels` — the task's labels in the same
+title, the type is enabled, `Priority` is one of the options. A personal
+account keeps neither `Priority` nor the Task and Bug types: `--priority` and
+`--type Task|Bug` are taken alike — the task is created, a `○` line says what
+isn't kept (#682). `--labels` — the task's labels in the same
 mutation: a decision from the default branch — by name (`billing`), a new
 decision — `kind:name` (`capability:export`, the label is `export`, the line
 «new decision»: it will appear in the task's PR); no decision
