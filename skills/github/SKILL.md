@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task start`, `task show` (not `gh issue view`) and `task answer` (not `gh issue edit`); `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
+description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task start`, `task show` (not `gh issue view`), `task answer` and `task edit` (not `gh issue edit`); `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
 allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-url *)
 ---
 
@@ -38,7 +38,7 @@ types — `admin:org`.
 | Session start, before working with tasks | `project check` — once per session |
 | `check` gave ❌ | `project fix` → UI steps → confirmations → `check` again |
 | Repository without a project | `project fix`: links the owner's project of the same name, otherwise copies the template, otherwise creates one |
-| Cloud session | `task show`, `task answer`, `task new` — REST, no project (`docs/cloud-sessions.md`); others — code 2 |
+| Cloud session | `task show`, `task answer`, `task edit`, `task new` — REST, no project (`docs/cloud-sessions.md`); others — code 2 |
 
 Codes: `0` — everything per the canon (for `fix` — and no steps left), `1` —
 there are ❌, steps or errors, `2` — a call or access error, or a cloud session.
@@ -62,6 +62,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" --branch-
     # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
 bun --no-env-file <skill dir>/scripts/github.ts task show <N>
 bun --no-env-file <skill dir>/scripts/github.ts task answer <N> <k> "<answer>" [--auto]
+bun --no-env-file <skill dir>/scripts/github.ts task edit <N> --replace|--add|--check …   # --help
 bun --no-env-file <skill dir>/scripts/github.ts task start <N> --branch <type>/<N>-<slug>
 bun --no-env-file <skill dir>/scripts/github.ts task status <N> "In progress" [--branch <type>/<N>-<slug>]   # Backlog | In progress | Done
 bun --no-env-file <skill dir>/scripts/github.ts task drop <N> [--duplicate-of M]
@@ -81,6 +82,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new --branch-type <type>` — it sets the estimate itself (an epic isn't estimated: its estimate is the sum of its subtasks, `reference.md`) |
 | Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work; then In progress, the branch renamed, the estimate if missing, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
 | An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
+| Editing the description | `task edit N`, not `--body-file` |
 | Branch committed — the tail | `task finish N` in the background (a subagent — `--timeout 240`, code 5 — again): push, PR, labels, CI, `premerge`; code 4 — `gh pr merge <PR> --rebase` as a separate call, then `task finish N` in the background: the deploy, the refresh prompt (code 4 — its subagent in the background; after its answer — `task finish N`), `task close`; other codes — its `Next:` |
 | PR merged by hand | `task actualize N` with `wait-ci.sh merged <PR>` in the background, the subagent, then `task close N` |
 | Task closed without a PR | `task actualize N`, the subagent; then `task close N` |
@@ -103,9 +105,8 @@ What the agent gets wrong without the details (all of them — `reference.md`,
   name, it must exist. The `questions` label — `task new` itself, when the
   description has a question without ✅. Everything is checked before
   creating: an error (code 2) leaves no half-made task.
-- **`task answer`** — not a rewrite of the description by hand
-  (`gh issue edit --body-file`); a question that already has ✅ is refused — a
-  changed answer is edited by hand.
+- **`task answer`** — a question with ✅ is refused: a changed answer — `task
+  edit --replace`.
 - **`task status`** — In progress pins the task to the session: a second
   task is refused (code 2) with «queue #M?» and its executor's prompt; an
   executor's handed-out task isn't pinned; a mistaken pin — a human deletes
@@ -194,8 +195,8 @@ full SHA and a merge that deploys — `docs/pr-checks.md`.
   owner`. The agent doesn't widen its own permission settings.
 - **After such a merge `gh pr view` isn't needed:** the merge SHA is taken by
   `wait-ci.sh merged <N>`, `task close <N>` reads the PR itself; a read still
-  needed — a narrow `gh pr view <N> --json state` as a separate call; after a
-  refusal I don't repeat the command or get the same thing in another form.
+  needed — a narrow `gh pr view <N> --json state` as a separate call; refused —
+  not repeated, not in another form.
 - **Right after a PR merge — I delete what was merged entirely, without
   asking** (a `github task close` step): the checkout moves off the merged
   branch to `origin/main` detached, the local and remote branches, the task's
@@ -203,6 +204,5 @@ full SHA and a merge that deploys — `docs/pr-checks.md`.
   `git cherry origin/main <branch>`, not `git branch --merged`. Others'
   branches, worktrees of live sessions, unmerged work — never. The next task —
   not in this session.
-- `gh pr merge --delete-branch` from a worktree doesn't delete the local branch
-  — this isn't a merge error: I check `gh pr view <N> --json state`, I don't
-  repeat the merge.
+- `gh pr merge --delete-branch` from a worktree leaves the local branch — not
+  a merge error: `gh pr view <N> --json state`, no repeated merge.
