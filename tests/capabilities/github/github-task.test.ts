@@ -4209,17 +4209,17 @@ describe("Красный выпуск чинится в пачке", () => {
    * иначе своё), выпуск — следующим PR, его чек tests красный: упал тест решения export. `labels` — метки задачам ставит
    * pr labels их PR в пачку; `files` — проект в main до пачки.
    */
-  function redRelease(o: { labels?: boolean; files?: Record<string, string>; tasks?: [number, string, string][] } = {}) {
+  function redRelease(o: { labels?: boolean; files?: Record<string, string>; tasks?: [number, string, string][]; prFiles?: string[][]; failed?: string } = {}) {
     const s = started(o.files);
     const tasks = o.tasks ?? TASKS;
     tasks.forEach(([n, branch, file], k) => {
       mergeIntoBatch(s.work, s.name, branch, file, `feat(github): задача ${n}\n\nRefs #${n}`);
-      s.f.prs[300 + k] = { ...batchPr(n, branch, s.name), files: [file === "export.txt" ? EXPORT_TEST : `tests/capabilities/t${n}/t${n}.test.ts`] };
+      s.f.prs[300 + k] = { ...batchPr(n, branch, s.name), files: o.prFiles?.[k] ?? [file === "export.txt" ? EXPORT_TEST : `tests/capabilities/t${n}/t${n}.test.ts`] };
     });
     if (o.labels) tasks.forEach((_, k) => expect(prLabels(s.f, 300 + k).code).toBe(0));
     expect(release(s.f, s.work, s.config).code).toBe(0);
     const pr = 300 + tasks.length;
-    Object.assign(s.f.prs[pr]!, { checks: { tests: "FAILURE" }, logs: { tests: bunLog(EXPORT_TEST) } });
+    Object.assign(s.f.prs[pr]!, { checks: { tests: "FAILURE" }, logs: { tests: bunLog(o.failed ?? EXPORT_TEST) } });
     return { ...s, pr };
   }
 
@@ -4245,6 +4245,30 @@ describe("Красный выпуск чинится в пачке", () => {
     // ни бисекта, ни второго PR выпуска
     expect(lines.filter((l) => l.startsWith("bisect"))).toEqual([]);
     expect(posted(f)).toHaveLength(1);
+  });
+
+  /** Тема export с разделами (#689): метка — у темы, раздел своей не имеет; упал тест раздела csv. */
+  const CSV_TEST = "tests/capabilities/export/csv.test.ts";
+
+  it("batch release: из двух задач с лейблом темы упавшего теста виновна та, чей PR менял файлы его раздела", () => {
+    // обе задачи меняют тему export — обе с её меткой; раздел csv — только #49
+    const { work, f, config } = redRelease({ labels: true, failed: CSV_TEST, prFiles: [["tests/capabilities/export/json.test.ts"], ["tests/capabilities/export/csv.md", CSV_TEST]] });
+    expect(issueLabels(f, 47)).toContain("export");
+    expect(issueLabels(f, 49)).toContain("export");
+    const lines = release(f, work, config).out.split("\n");
+    expect(lines).toContain(
+      `guilty: #49 «${f.issue(49).title}» — the label export — the failed files' decision export; of #47, #49 only its PR #301 into the batch changed the section's files tests/capabilities/export/csv.*`,
+    );
+    expect(lines.filter((l) => l.startsWith("bisect") || l.startsWith("! bisect"))).toEqual([]);
+  });
+
+  it("batch release: файлы раздела не меняла ни одна задача — бисект по границам задач, как сейчас", () => {
+    const { work, f, config } = redRelease({ labels: true, failed: CSV_TEST, prFiles: [["tests/capabilities/export/json.test.ts"], ["tests/capabilities/export/export.md"]] });
+    const lines = release(f, work, config).out.split("\n");
+    expect(lines).toContain("○ the section's files tests/capabilities/export/csv.* — no PR into the batch of #47, #49 changed them");
+    expect(lines).toContain("○ the failed files' decision export — the labels of #47, #49: not one task — no guilty task by the labels");
+    expect(lines).toContainEqual(expect.stringMatching(/^bisect: \S+ over origin\/main \([0-9a-f]{7}\) — 2 task blocks: #47 \(1 commit\), #49 \(1 commit\)$/));
+    expect(lines.filter((l) => l.startsWith("guilty"))).toEqual([]);
   });
 
   it("без однозначной метки бисект по границам задач называет первую красную", () => {

@@ -3292,7 +3292,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
   const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
   if (release && batch && checks?.state === "red") {
-    for (const line of fixSteps(slug, batch, release, checks, redRelease(io, slug, batch, recent.base, release, openInto(recent, batch), checks, false), false)) io.out(line);
+    for (const line of fixSteps(slug, batch, release, checks, redRelease(io, slug, batch, recent.base, release, recent, checks, false), false)) io.out(line);
   } else if (releasing !== null) {
     io.out(
       `Next: the release of ${batch} is open — PR #${releasing} https://github.com/${slug}/pull/${releasing}: no new executors till its merge, ` +
@@ -3452,10 +3452,10 @@ interface Guilty {
 /**
  * The guilty task by the labels (#650): the failed files' decisions — `decisionsOfFiles`, the rule of `pr labels`, a
  * code file's module from the release head's model — against the decision labels of the release's tasks: `pr labels`
- * of each task's PR into the batch set them (it doesn't label from the release PR). One task holds them — it; none or
- * several — null and an `○` line: the bisect decides.
+ * of each task's PR into the batch set them (it doesn't label from the release PR). One task holds them — it; several —
+ * the one whose PR changed the failed test's section (`guiltyBySection`); otherwise null and an `○` line: the bisect decides.
  */
-function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], files: string[]): Guilty | null {
+function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], files: string[], prsOf: (task: number) => number[]): Guilty | null {
   const changed = files.map((p) => ({ path: p, changeType: "MODIFIED", additions: 1, deletions: 1 }));
   const modules = files.some((f) => f.split("/")[0] !== "tests") ? modulesAt(io, slug, sha, "the release head") : {};
   const decisions = [...decisionsOfFiles(changed, modules).changed.keys()];
@@ -3465,7 +3465,36 @@ function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], file
   const holders = issues.filter((i) => held(i).length);
   const what = `the failed files' ${decisions.length > 1 ? "decisions" : "decision"} ${decisions.join(", ")}`;
   if (holders.length === 1) return { number: holders[0]!.number, why: `the label ${held(holders[0]!).join(", ")} — ${what}` };
+  if (holders.length > 1) {
+    const bySection = guiltyBySection(io, slug, holders, files, decisions, prsOf);
+    if (bySection) return { number: bySection.number, why: `the label ${held(holders.find((i) => i.number === bySection.number)!).join(", ")} — ${what}; ${bySection.why}` };
+  }
   io.out(`○ ${what} — ${holders.length ? `the labels of ${holders.map((i) => `#${i.number}`).join(", ")}: not one task` : "no task of the release has the label"} — ${none}`);
+  return null;
+}
+
+/**
+ * Several tasks hold the label of a failed test's topic (#689: a section has no label of its own, its changes label the
+ * topic) — the guilty one of them is the task whose PR into the batch changed the files of the failed test's section,
+ * `tests/<root>/<topic>/<section>.*`. A failed file not a section's (the topic's own, deeper, a code file), none or
+ * several such tasks — null and an `○` line: the bisect decides.
+ */
+function guiltyBySection(io: Io, slug: string, holders: Issue[], files: string[], decisions: string[], prsOf: (task: number) => number[]): Guilty | null {
+  const dirs = new Set<string>(DECISION_KINDS.map((k) => DECISIONS[k].dir));
+  const prefixes = new Set<string>();
+  for (const f of files) {
+    const [root, dir, topic, name, ...rest] = f.split("/");
+    const section = name?.split(".")[0];
+    if (root === "tests" && dirs.has(dir!) && decisions.includes(topic!) && !rest.length && section && section !== topic) prefixes.add(`tests/${dir}/${topic}/${section}.`);
+  }
+  if (!prefixes.size) return null;
+  const shown = [...prefixes].map((p) => `${p}*`).join(", ");
+  const changed = holders.filter((i) => prsOf(i.number).some((n) => loadPrChange(io, slug, n).files.some((f) => [...prefixes].some((p) => f.path.startsWith(p)))));
+  if (changed.length === 1) {
+    const pr = prsOf(changed[0]!.number).map((n) => `#${n}`).join(", ");
+    return { number: changed[0]!.number, why: `of ${holders.map((i) => `#${i.number}`).join(", ")} only its PR ${pr} into the batch changed the section's files ${shown}` };
+  }
+  io.out(`○ the section's files ${shown} — ${changed.length ? `changed by the PRs of ${changed.map((i) => `#${i.number}`).join(", ")}: not one task` : `no PR into the batch of ${holders.map((i) => `#${i.number}`).join(", ")} changed them`}`);
   return null;
 }
 
@@ -3562,9 +3591,9 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
  * decisions (`guiltyByLabels`), otherwise the bisect (`bisectRelease`) — `batch release`'s; the queue (`bisect` false)
  * names that command. Prints its lines.
  */
-function redRelease(io: Io, slug: string, batch: string, base: string, release: PrRef, into: Any[], checks: ReleaseChecks, bisect: boolean): { fixing: PrRef | null; guilty: (Guilty & { issue: Issue }) | null } {
+function redRelease(io: Io, slug: string, batch: string, base: string, release: PrRef, prs: Recent, checks: ReleaseChecks, bisect: boolean): { fixing: PrRef | null; guilty: (Guilty & { issue: Issue }) | null } {
   const tasks = prTasks(release);
-  const fixing = into.map(prRef).find((p) => p.state === "OPEN" && prTasks(p).some((n) => tasks.includes(n))) ?? null;
+  const fixing = openInto(prs, batch).map(prRef).find((p) => p.state === "OPEN" && prTasks(p).some((n) => tasks.includes(n))) ?? null;
   if (fixing) {
     io.out(`○ the fix PR #${fixing.number} (${prTasks(fixing).map((n) => `#${n}`).join(", ")}) into ${batch} is open — its executor goes on; after its merge the release's full run goes again on PR #${release.number}`);
     return { fixing, guilty: null };
@@ -3574,7 +3603,10 @@ function redRelease(io: Io, slug: string, batch: string, base: string, release: 
     if (issues.length < 2) return issues.length ? { number: tasks[0]!, why: "the release's only task" } : null;
     const files = failedFilesOf(io, slug, checks.failed);
     io.out(files.length ? `○ the failed checks' logs name ${files.join(", ")}` : `○ the failed checks' logs name no file`);
-    return guiltyByLabels(io, slug, release.sha, issues, files) ?? (bisect ? bisectRelease(io, slug, batch, base, tasks, files, checks.red) : null);
+    // a task's PRs merged into the batch — whose changed a failed test's section (#689)
+    const merged = batchTasks(prs, batch);
+    const prsOf = (n: number) => merged.filter((m) => m.tasks.includes(n)).map((m) => m.pr);
+    return guiltyByLabels(io, slug, release.sha, issues, files, prsOf) ?? (bisect ? bisectRelease(io, slug, batch, base, tasks, files, checks.red) : null);
   };
   const guilty = named();
   if (!guilty) return { fixing: null, guilty: null };
@@ -3670,7 +3702,7 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
     const checks = releaseChecks(io, slug, release);
     if (checks.state === "red") {
       io.out(`! the release PR ${link(release.number)} of ${batch} is red: ${checks.red.join(", ")}`);
-      const r = redRelease(io, slug, batch, base, release, openInto(prs, batch), checks, true);
+      const r = redRelease(io, slug, batch, base, release, prs, checks, true);
       for (const line of fixSteps(slug, batch, release, checks, r, true)) io.out(line);
       return 0;
     }
