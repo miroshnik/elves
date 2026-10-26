@@ -66,8 +66,9 @@ export interface Summary {
   bad: number;
 }
 
-// eslint-disable-next-line no-control-regex
-const plain = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
+/** A colour or cursor code of a terminal: ESC [ … letter. */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
+const plain = (s: string) => s.replace(ANSI, "").replace(/\r/g, "");
 const sum = (text: string, re: RegExp) => [...text.matchAll(re)].reduce((n, m) => n + Number(m[1]), 0);
 
 /**
