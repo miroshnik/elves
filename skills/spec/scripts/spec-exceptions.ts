@@ -160,8 +160,8 @@ export async function main(argv: string[]): Promise<number> {
       console.error(`spec-exceptions: ${rel}: entry ${bad + 1} is not an exception { item, issue, reason }`);
       return 2;
     }
-    const folder = legacyOf(rel)!.folder;
-    const dir = `${folder}/${EXCEPTIONS_DIR}`;
+    const { folder, dir: inFolder } = legacyOf(rel)!;
+    const dir = `${folder}/${inFolder}`;
     const written: string[] = [];
     for (const e of list as Entry[]) {
       const body = json(e);
@@ -207,7 +207,7 @@ export async function main(argv: string[]): Promise<number> {
     for (const rel of moved) {
       const re = new RegExp(`(?<![\\w./-])${rel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w/-])`, "g");
       if (!re.test(text)) continue;
-      const dir = `${legacyOf(rel)!.folder}/${EXCEPTIONS_DIR}`;
+      const dir = `${legacyOf(rel)!.folder}/${legacyOf(rel)!.dir}`;
       text = text.replace(re, dir);
       out.push(`~ ${file}: ${rel} → ${dir}`);
     }

@@ -363,27 +363,48 @@ export function unmovedFiles(outFiles: string[], moved: Moved[], count: Map<stri
 }
 
 const outMark = (t: Test) => (L.classify(t.path)[0] === "out" ? ` ⚠️ ${N.spec.diff.outsideMark}` : "");
-const entry = (t: Test) => `- \`${L.folderOf(t)}\` · ${L.titleOf(t)}${outMark(t)}`;
+// decision folders of not-yet-regrouped decisions (a test file named after the folder) among the base and HEAD tests:
+// render sets it — a test of such a folder is in its one section, the folder's own
+let UNREGROUPED = new Set<string>();
+
+/**
+ * A test's place in the lists — its folder and, in a topic with sections (#685), the section after `#`, as in the
+ * spec-doc anchor: `tests/standards/routes#permissions`; the lists go by place.
+ */
+export function placeOf(t: Test): string {
+  const folder = L.decisionFolder(t.path);
+  const section = L.sectionOf(t.path, UNREGROUPED);
+  return folder === null || section === null || UNREGROUPED.has(folder) ? L.folderOf(t) : `${L.folderOf(t)}#${section}`;
+}
+
+/** The lists by place — topic and section; within a place — the order of the difference. */
+const byPlace = <T>(list: T[], test: (x: T) => Test): T[] =>
+  list
+    .map((x, i) => ({ x, i, p: placeOf(test(x)) }))
+    .sort((a, b) => (a.p < b.p ? -1 : a.p > b.p ? 1 : a.i - b.i))
+    .map((e) => e.x);
+
+const entry = (t: Test) => `- \`${placeOf(t)}\` · ${L.titleOf(t)}${outMark(t)}`;
 
 function changedEntry([o, n]: [Test, Test]): string {
   const md = (parts: string[]) => parts.map(L.mdText).join(" › ");
   if (sameDescribes(o, n)) {
     const prefix = n.describes.length ? md(n.describes) + " › " : "";
-    return `- \`${L.folderOf(n)}\` · ${prefix}~~${L.mdText(o.name)}~~ → ${L.mdText(n.name)}${outMark(n)}`;
+    return `- \`${placeOf(n)}\` · ${prefix}~~${L.mdText(o.name)}~~ → ${L.mdText(n.name)}${outMark(n)}`;
   }
   // both the describe and the name changed (or there was no describe) — the old name is struck through whole
-  if (o.name !== n.name || !o.describes.length) return `- \`${L.folderOf(n)}\` · ~~${L.titleOf(o)}~~ → ${L.titleOf(n)}${outMark(n)}`;
-  return `- \`${L.folderOf(n)}\` · ~~${md(o.describes)}~~ → ${md(n.describes)} › ${L.mdText(n.name)}${outMark(n)}`;
+  if (o.name !== n.name || !o.describes.length) return `- \`${placeOf(n)}\` · ~~${L.titleOf(o)}~~ → ${L.titleOf(n)}${outMark(n)}`;
+  return `- \`${placeOf(n)}\` · ~~${md(o.describes)}~~ → ${md(n.describes)} › ${L.mdText(n.name)}${outMark(n)}`;
 }
 
 /** Move summary: per folder — how many tests and from how many files outside the tree; per test — only in --json. */
 function movedLines(moved: Moved[]): string[] {
   const byFolder = new Map<string, { tests: number; files: Set<string> }>();
   for (const m of moved) {
-    const g = byFolder.get(L.folderOf(m.test)) ?? { tests: 0, files: new Set<string>() };
+    const g = byFolder.get(placeOf(m.test)) ?? { tests: 0, files: new Set<string>() };
     g.tests++;
     g.files.add(m.from);
-    byFolder.set(L.folderOf(m.test), g);
+    byFolder.set(placeOf(m.test), g);
   }
   const files = new Set(moved.map((m) => m.from)).size;
   const fileWord = (n: number) => locale.count(LANG, N.spec.diff.files, n);
@@ -553,7 +574,9 @@ async function decisionsAt(rev: string | null, top: string, prefix: string, chan
   const exceptions: string[] = [];
   for (const p of excPaths) {
     const rel = p.slice(prefix.length);
-    const { folder, legacy } = readable(rel)!;
+    const { folder: inFolder, section, legacy } = readable(rel)!;
+    // a section's exception (exceptions/<section>/) — the place as in the test lists
+    const folder = section ? `${inFolder}#${section}` : inFolder;
     if (!legacy) {
       const data = await loadData(files.get(rel) ?? "null", rel).catch(() => null);
       if (data && typeof data === "object") exceptions.push(exceptionLine(folder, data as ExceptionEntry));
@@ -647,7 +670,7 @@ function summaryLines(removed: Test[], changed: [Test, Test][], added: Test[], l
   type Row = { removed: number; changed: number; added: number; harness: number };
   const rows = new Map<string, Row>();
   const row = (t: Test) => {
-    const f = L.folderOf(t);
+    const f = placeOf(t);
     if (!rows.has(f)) rows.set(f, { removed: 0, changed: 0, added: 0, harness: 0 });
     return rows.get(f)!;
   };
@@ -707,8 +730,14 @@ export function render(
   added: Test[],
   outFiles: string[],
   moved: Moved[] = [],
-  opts: { limit?: number; harness?: Set<Test>; extra?: Set<Test>; note?: string; notStatements?: number } = {},
+  opts: { limit?: number; harness?: Set<Test>; extra?: Set<Test>; note?: string; notStatements?: number; files?: Iterable<string> } = {},
 ): string {
+  // `files` — all test files of the base and HEAD: a folder-named file the PR didn't touch still makes the folder one
+  // section
+  UNREGROUPED = L.unregroupedFolders(opts.files ?? [...removed, ...changed.flat(), ...added].map((t) => t.path));
+  removed = byPlace(removed, (t) => t);
+  changed = byPlace(changed, ([, n]) => n);
+  added = byPlace(added, (t) => t);
   const lines = [N.prSpecSection, "", locale.fill(N.spec.diff.base, { base: baseLabel }), ""];
   if (opts.note) lines.push(opts.note, "");
   if (!removed.length && !changed.length && !added.length && !outFiles.length && !moved.length) {
@@ -987,6 +1016,7 @@ export async function main(argv: string[]): Promise<number> {
   let checks: HarnessDescribe[];
   let sourced: Check[]; // harness calls in the head's sources: their describes aren't "report only"
   let notStatements: number;
+  let testFiles: string[]; // test files of the base and HEAD: which folders aren't regrouped yet
   try {
     const { top, root, prefix } = findRoot(v.root);
     const base = v["no-merge-base"] ? v.base : gitText(["merge-base", v.base, v.worktree ? "HEAD" : v.head], top).trim();
@@ -1034,6 +1064,7 @@ export async function main(argv: string[]): Promise<number> {
     const changedOut = outOfTreeFiles(base, v.head, top, prefix, v.worktree);
     const { pool, count, gone } = outOfTreePool(base, v.head, top, root, prefix, changedOut, v.worktree);
     ({ removed, changed, added, moved } = diff(baseTests, headTests, pool));
+    testFiles = [...baseTests, ...headTests].map((t) => t.path);
     notStatements = newNotStatements([...added, ...changed.map(([, n]) => n)], baseTests, LANG);
     outFiles = unmovedFiles(changedOut, moved, count, gone);
     // lint disables — only in changed code files: a removed or added exception is always in the PR diff
@@ -1072,7 +1103,14 @@ export async function main(argv: string[]): Promise<number> {
   const match = scenarios ? matchScenarios(scenarios, fresh, [...checks, ...reportedChecks(fresh, harness, sourced)], harness) : { found: [], extra: fresh };
 
   const label = v["no-merge-base"] ? v.base : `${v.base} (merge-base)`;
-  const shown = { limit, harness: v.report?.length ? harness : undefined, extra: scenarios ? new Set(match.extra) : undefined, note: harnessNote, notStatements };
+  const shown = {
+    limit,
+    harness: v.report?.length ? harness : undefined,
+    extra: scenarios ? new Set(match.extra) : undefined,
+    note: harnessNote,
+    notStatements,
+    files: testFiles,
+  };
   let text = v.json ? asJson(label, removed, changed, added, outFiles, moved, notStatements, unreported) : render(label, removed, changed, added, outFiles, moved, shown);
   if (v.json) {
     const j = JSON.parse(text);

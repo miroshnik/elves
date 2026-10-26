@@ -8,14 +8,15 @@
  * the registry (otherwise the format diverged or the registry is incomplete).
  *
  *   bun spec-claims.ts --entries <entries.json | entries.ts> [--journal .spec-journal] [--exceptions <directory>]
- *                      [--standard tests/standards/entry-points] [--report .spec-claims.xml]
+ *                      [--standard tests/standards/entry-points] [--section <name>] [--report .spec-claims.xml]
  *
  * The registry is a JSON array of strings or a project module (default — an array or a function that returns it): entry
- * points from the code, not a hand-written list. Exceptions — the standard folder's `exceptions/` directory, a file per
- * exception (`{ item, issue, reason }`): an entry point without a test, with a task, until a test appears; once it
- * appears — "remove the exception". The report is JUnit in the standard's folder (`spec-doc` puts it into the spec with
- * the description from the standard's `<folder>.md`). Codes: 0 — everything is claimed, 1 — there are unclaimed ones or
- * exception errors, 2 — a call error.
+ * points from the code, not a hand-written list. Exceptions — the standard folder's `exceptions/` directory (a topic's
+ * section — `exceptions/<section>/`), a file per exception (`{ item, issue, reason }`): an entry point without a test,
+ * with a task, until a test appears; once it appears — "remove the exception". The report is JUnit in the standard's
+ * folder (`spec-doc` puts it into the spec with the description from the standard's `<folder>.md`; with `--section` — a
+ * section of the topic `--standard` (#685), the description from `<section>.md`). Codes: 0 — everything is claimed,
+ * 1 — there are unclaimed ones or exception errors, 2 — a call error.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -28,7 +29,7 @@ import { exceptionFiles } from "./harness.ts";
 import type { Exception } from "./harness.ts";
 
 const USAGE =
-  "spec-claims --entries <entries.json | entries.ts> [--journal .spec-journal] [--exceptions tests/standards/entry-points/exceptions] [--standard tests/standards/entry-points] [--report .spec-claims.xml]";
+  "spec-claims --entries <entries.json | entries.ts> [--journal .spec-journal] [--exceptions tests/standards/entry-points/exceptions] [--standard tests/standards/entry-points] [--section <name>] [--report .spec-claims.xml]";
 /** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
@@ -101,6 +102,7 @@ export async function main(argv: string[]): Promise<number> {
         journal: { type: "string", default: ".spec-journal" },
         exceptions: { type: "string" },
         standard: { type: "string", default: "tests/standards/entry-points" },
+        section: { type: "string" },
         report: { type: "string", default: ".spec-claims.xml" },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -183,7 +185,8 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const standard = v.standard.replace(/\/+$/, "");
-  writeFileSync(v.report, junit(`${standard}/${path.posix.basename(standard)}.test.ts`, N.spec.claims.describe, cases));
+  // a section of a topic (#685) — its file `<section>.test.ts`: spec-doc shows it under the section with `<section>.md`
+  writeFileSync(v.report, junit(`${standard}/${v.section ?? path.posix.basename(standard)}.test.ts`, N.spec.claims.describe, cases));
   const unclaimed = entries.filter((id) => !excepted.has(id) && !claimed(id));
   const failed = cases.filter((c) => c.failure);
   console.error(

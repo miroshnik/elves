@@ -2,13 +2,17 @@
 /**
  * spec-doc — documentation from runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML from bun test): a section
  * per folder tests/capabilities/<name> ("What the system does"), tests/architecture/<name> ("What it's made of") and
- * tests/standards/<name> ("Which rules the code obeys"). A page is a story: the description <folder>.md next to the
- * tests under the heading (the first paragraph goes to the index, the md headings — under the folder heading), the main
- * file <name>.test.ts for all kinds (<name>.e2e.ts next to it — right after it; in a monorepo — also
- * <name>/<package>/<name>.test.ts; rule.test.ts — a hint to rename), a describe → a section with prose from its own
- * JSDoc, the section's tests collapsed into <details> with a counter. Sections go in the order of the main file, then
- * of the packages' main files by package name, the other files follow by path. The header of another file of the
- * folder doesn't go into the documentation — the script names the file, --strict gives code 1. No source — no prose.
+ * tests/standards/<name> ("Which rules the code obeys"). A folder is a topic with sections (#685): the page starts with
+ * the topic's description <topic>.md (the first paragraph goes to the index, the md headings — under the topic
+ * heading), then the sections by name — the files <section>.test.ts, <section>.<part>.test.ts, <section>.e2e.ts,
+ * <package>/<section>.test.ts — each with its <section>.md and its statements; the index lists the topics, their
+ * sections under them. A folder with a test file named after it isn't regrouped yet — a topic of one section, as
+ * before: the main file <name>.test.ts for all kinds (<name>.e2e.ts next to it — right after it; in a monorepo — also
+ * <name>/<package>/<name>.test.ts; rule.test.ts — a hint to rename), the other files of the folder in the same
+ * section. A describe → a heading with prose from its own JSDoc, its tests collapsed into <details> with a counter;
+ * describes go in the order of the section's main file, then of the packages' main files by package name, the other
+ * files follow by path. A test file's header doesn't go into the documentation — the script names the file, --strict
+ * gives code 1. No source — no prose.
  * tests/lib is skipped; tests outside the tree go to the "Outside the tree" section — that's a signal. A describe or it
  * name that isn't a statement in the project language — a warning line in stderr, without an exit code.
  *
@@ -57,10 +61,16 @@ function sectionTitle(kind: Kind): string {
   return N.spec.doc.standards;
 }
 
-// doc — prose paragraphs from JSDoc: for a group — the main file's header, for a describe from several files — in
-// file order (the main one first), a repeat once
+// doc — prose paragraphs from JSDoc: for a describe from several files — in file order (the main one first), a repeat
+// once
 type Node = { tests: Test[]; children: Map<string, Node>; doc: string[] };
-type Group = { kind: Kind; name: string; tests: Test[]; tree: Node; doc: string[]; testDocs: Map<string, string[]> };
+/** A topic's section — its files' tests (`<section>.test.ts`…), the description `<section>.md` and the describe tree. */
+type Section = { name: string; tests: Test[]; tree: Node; doc: string[]; testDocs: Map<string, string[]> };
+/**
+ * A topic — a decision folder: the description `<topic>.md` and sections by name (#685). A folder with a test file
+ * named after it isn't regrouped yet (`regrouped: false`) — a topic of one section, the folder's own, as before.
+ */
+type Group = { kind: Kind; name: string; tests: Test[]; doc: string[]; regrouped: boolean; sections: Map<string, Section> };
 
 /** A number and the word form in the project language: "2 tests". */
 const count = (forms: Plural, n: number): string => locale.count(LANG, forms, n);
@@ -105,31 +115,46 @@ const newNode = (): Node => ({ tests: [], children: new Map(), doc: [] });
 const testKey = (t: Test): string => JSON.stringify([...t.describes, t.name]);
 
 /**
- * The folder's main file (`<name>.test.ts`, `<name>.e2e.ts`…) — it holds the story, the page starts with it. Its name
- * is the folder name for all kinds: one rule instead of a special `rule.test.ts` for a standard. It lies in the folder
- * root or in a monorepo package subfolder (`<name>/<package>/<name>.test.ts`: a package has its own runner, but the
- * decision is one); not deeper.
+ * The section's main file (`<section>.test.ts`, `<section>.e2e.ts`…) — it holds the story, the section starts with it.
+ * In a folder not regrouped yet the section is the folder's own, its main file is named after the folder: one rule
+ * for all kinds instead of a special `rule.test.ts` for a standard. It lies in the folder root or in a monorepo
+ * package subfolder (`<topic>/<package>/<section>.test.ts`: a package has its own runner, but the decision is one);
+ * not deeper.
  * → the package ("" — the folder root) and whether these are unit statements (`.test.*`); not the main one — null.
  */
-function mainOf(file: string): { pkg: string; unit: boolean } | null {
-  const [kind, name] = L.classify(file);
-  if (!KINDS.includes(kind) || name === null) return null;
+function mainOf(file: string, section: string): { pkg: string; unit: boolean } | null {
+  if (L.decisionFolder(file) === null) return null;
   const inner = file.split("/").slice(3);
   const base = inner.at(-1)!.split(".");
-  if (inner.length > 2 || base[0] !== name) return null;
+  if (inner.length > 2 || base[0] !== section) return null;
   return { pkg: inner.length === 2 ? inner[0]! : "", unit: base[1] === "test" };
 }
 
-const isMain = (file: string): boolean => mainOf(file) !== null;
+/**
+ * A file's place in the section's story — the sort key: the main file in the folder root, then the subfolders' main
+ * files by package name, then the rest; for the main one — first `<section>.test.*` (unit statements), then another
+ * `<section>.*` (`.e2e.ts`): alphabetically e2e would come first. Within a place — by path.
+ */
+function mainRank(file: string, section: string): string {
+  const m = mainOf(file, section);
+  return (m ? "0" + m.pkg + "\0" + (m.unit ? "0" : "1") : "1") + "\0" + file;
+}
 
 /**
- * A file's place in the folder's story — the sort key: the main file in the folder root, then the subfolders' main
- * files by package name, then the rest; for the main one — first `<name>.test.*` (unit statements), then another
- * `<name>.*` (`.e2e.ts`): alphabetically e2e would come first. Within a place — by path.
+ * Test files named after their folder on disk — in the folder root and package subfolders: a report without the
+ * folder-named file (another package's run) doesn't turn a not-yet-regrouped folder into a topic of sections.
  */
-function mainRank(file: string): string {
-  const m = mainOf(file);
-  return (m ? "0" + m.pkg + "\0" + (m.unit ? "0" : "1") : "1") + "\0" + file;
+function folderNamedOnDisk(root: string, folder: string): boolean {
+  const files = (rel: string) => {
+    try {
+      return readdirSync(path.join(root, rel), { withFileTypes: true });
+    } catch {
+      return [];
+    }
+  };
+  return files(folder).some((e) =>
+    e.isDirectory() ? files(`${folder}/${e.name}`).some((f) => L.isFolderNamed(`${folder}/${e.name}/${f.name}`)) : L.isFolderNamed(`${folder}/${e.name}`),
+  );
 }
 
 /** The former main file of a standard, `rule.*` right in the folder: no longer the main one — it must be renamed. */
@@ -139,14 +164,25 @@ function isLegacyMain(file: string): boolean {
   return (kind === "standard" || kind === "architecture") && name !== "rule" && parts.length === 4 && parts[3]!.split(".")[0] === "rule";
 }
 
-/** → groups by (kind, name), tests outside the tree by file, tests/lib files. */
-export function build(tests: Test[]): { groups: Map<string, Group>; out: Map<string, Test[]>; libFiles: Set<string> } {
+/**
+ * → groups by (kind, name) with sections, tests outside the tree by file, tests/lib files. `root` — the project on
+ * disk: a folder-named test file there, not in the report, also keeps the folder not regrouped.
+ */
+export function build(tests: Test[], root?: string): { groups: Map<string, Group>; out: Map<string, Test[]>; libFiles: Set<string> } {
   const groups = new Map<string, Group>();
   const out = new Map<string, Test[]>();
   const libFiles = new Set<string>();
-  // the folder's main file first — the order of its describes is the order of the story; then the packages' main
+  const unregrouped = L.unregroupedFolders(tests.map((t) => t.path));
+  if (root !== undefined) {
+    for (const t of tests) {
+      const folder = L.decisionFolder(t.path);
+      if (folder !== null && !unregrouped.has(folder) && folderNamedOnDisk(root, folder)) unregrouped.add(folder);
+    }
+  }
+  const sectionOf = (file: string): string => L.sectionOf(file, unregrouped) ?? "";
+  // the section's main file first — the order of its describes is the order of the story; then the packages' main
   // files, then files by path; within a file — the report order (declaration order)
-  const rank = (t: Test): string => mainRank(t.path);
+  const rank = (t: Test): string => mainRank(t.path, sectionOf(t.path));
   const sorted = [...tests].sort((a, b) => (rank(a) < rank(b) ? -1 : rank(a) > rank(b) ? 1 : 0));
   for (const t of sorted) {
     const [kind, name] = L.classify(t.path);
@@ -160,10 +196,15 @@ export function build(tests: Test[]): { groups: Map<string, Group>; out: Map<str
       continue;
     }
     const gk = kind + "/" + name;
-    if (!groups.has(gk)) groups.set(gk, { kind, name, tests: [], tree: newNode(), doc: [], testDocs: new Map() });
+    const regrouped = !unregrouped.has(L.decisionFolder(t.path)!);
+    if (!groups.has(gk)) groups.set(gk, { kind, name, tests: [], doc: [], regrouped, sections: new Map() });
     const g = groups.get(gk)!;
     g.tests.push(t);
-    let node = g.tree;
+    const sn = sectionOf(t.path);
+    if (!g.sections.has(sn)) g.sections.set(sn, { name: sn, tests: [], tree: newNode(), doc: [], testDocs: new Map() });
+    const s = g.sections.get(sn)!;
+    s.tests.push(t);
+    let node = s.tree;
     for (const d of t.describes) {
       if (!node.children.has(d)) node.children.set(d, newNode());
       node = node.children.get(d)!;
@@ -176,32 +217,6 @@ export function build(tests: Test[]): { groups: Map<string, Group>; out: Map<str
 const addOnce = (list: string[], text: string): void => {
   if (text && !list.includes(text)) list.push(text);
 };
-
-/**
- * The folder's main file we expect when the report doesn't have it: `<folder>.test.ts`; for a folder with package
- * subfolders — or `<package>/<folder>.test.ts`.
- */
-function mainPath(g: Group): string {
-  const folder = `${L.TESTS}/${SUBDIR[g.kind]}/${g.name}`;
-  const packages = g.tests.some((t) => t.path.split("/").length > 4);
-  return `${folder}/${g.name}.test.ts` + (packages ? ` or ${folder}/<package>/${g.name}.test.ts` : "");
-}
-
-/** The group has a main file: in the report or on disk — in the folder root or in a package subfolder. */
-function hasMain(g: Group, root: string): boolean {
-  if (g.tests.some((t) => isMain(t.path))) return true;
-  const folder = `${L.TESTS}/${SUBDIR[g.kind]}/${g.name}`;
-  const files = (rel: string) => {
-    try {
-      return readdirSync(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      return [];
-    }
-  };
-  return files(folder).some((e) =>
-    e.isDirectory() ? files(`${folder}/${e.name}`).some((f) => L.isTestFile(f.name) && isMain(`${folder}/${e.name}/${f.name}`)) : L.isTestFile(e.name) && isMain(`${folder}/${e.name}`),
-  );
-}
 
 /** describe and it names that aren't statements — per file, without repeats. */
 function badNames(groups: Map<string, Group>): [string, string][] {
@@ -220,35 +235,49 @@ function badNames(groups: Map<string, Group>): [string, string][] {
   return out;
 }
 
-/** The decision's description — `<folder>.md` next to the folder's tests, the path from the root. */
-export const descriptionPath =(g: { kind: Kind; name: string }): string => `${L.TESTS}/${SUBDIR[g.kind]}/${g.name}/${g.name}.md`;
+/**
+ * The description — `<topic>.md` next to the folder's tests, the path from the root; a section's — `<section>.md`
+ * there (a file, not a heading in `<topic>.md`: parallel tasks don't conflict in one file).
+ */
+export const descriptionPath = (g: { kind: Kind; name: string }, section?: string): string =>
+  `${L.TESTS}/${SUBDIR[g.kind]}/${g.name}/${section ?? g.name}.md`;
+
+/** The sections of a topic with their own heading and description: of a regrouped one — all, by name. */
+const ownSections = (g: Group): Section[] => (g.regrouped ? [...g.sections.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) : []);
+
+/** The description file's text into `doc`; no file — false. */
+function readDescription(root: string, rel: string, doc: string[]): boolean {
+  try {
+    const text = readFileSync(path.join(root, rel), "utf8").trim();
+    if (text) doc.push(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
- * The group's prose: the intro — `<folder>.md` (why, the reason, what was rejected), describe and it — their JSDoc from
- * the sources (reports don't carry comments). A describe without tests in the report (a name from it.each with
- * substitution) loses its prose. Returns files missing on disk (they're without prose), folders without a description,
- * test files with a header — the story is written in one place, a file header doesn't go into the documentation —
- * former main `rule.*` files that must be renamed, and those whose prose can't be taken: the parser didn't parse the
- * file, or a test with JSDoc has a name that can't be computed statically.
+ * The group's prose: the intro — `<topic>.md` (why, the reason, what was rejected), a section's — `<section>.md`,
+ * describe and it — their JSDoc from the sources (reports don't carry comments). A describe without tests in the report
+ * (a name from it.each with substitution) loses its prose. Returns files missing on disk (they're without prose),
+ * topics and sections without a description, test files with a header — the story is written in one place, a file
+ * header doesn't go into the documentation — former main `rule.*` files that must be renamed, and those whose prose
+ * can't be taken: the parser didn't parse the file, or a test with JSDoc has a name that can't be computed statically.
  */
 export function attachDocs(
   groups: Map<string, Group>,
   root: string,
-): { missing: string[]; headers: string[]; legacy: string[]; undescribed: string[]; unread: string[] } {
+): { missing: string[]; headers: [string, string][]; legacy: string[]; undescribed: string[]; unread: string[] } {
   const missing: string[] = [];
   const unread: string[] = [];
-  const headers: string[] = [];
+  const headers: [string, string][] = [];
   const legacy: string[] = [];
   const undescribed: string[] = [];
   for (const g of groups.values()) {
-    try {
-      const text = readFileSync(path.join(root, descriptionPath(g)), "utf8").trim();
-      if (text) g.doc.push(text);
-    } catch {
-      undescribed.push(descriptionPath(g));
-    }
+    if (!readDescription(root, descriptionPath(g), g.doc)) undescribed.push(descriptionPath(g));
+    for (const s of ownSections(g)) if (!readDescription(root, descriptionPath(g, s.name), s.doc)) undescribed.push(descriptionPath(g, s.name));
     // file order — as in build: the main one first
-    for (const file of [...new Set(g.tests.map((t) => t.path))]) {
+    for (const s of g.sections.values()) for (const file of [...new Set(s.tests.map((t) => t.path))]) {
       if (isLegacyMain(file)) legacy.push(file);
       let source: string;
       try {
@@ -266,15 +295,15 @@ export function attachDocs(
       }
       const { docs } = scan;
       for (const u of scan.unnamed) if (u.doc) unread.push(`${file}:${u.line}: the ${u.kind} name can't be computed statically (${u.name}) — JSDoc prose not taken`);
-      if (docs.file) headers.push(file);
+      if (docs.file) headers.push([file, descriptionPath(g, g.regrouped ? s.name : undefined)]);
       for (const [key, text] of docs.describes) {
-        let node: Node | undefined = g.tree;
+        let node: Node | undefined = s.tree;
         for (const d of JSON.parse(key) as string[]) node = node?.children.get(d);
         if (node) addOnce(node.doc, text);
       }
       for (const [key, text] of docs.tests) {
-        if (!g.testDocs.has(key)) g.testDocs.set(key, []);
-        addOnce(g.testDocs.get(key)!, text);
+        if (!s.testDocs.has(key)) s.testDocs.set(key, []);
+        addOnce(s.testDocs.get(key)!, text);
       }
     }
   }
@@ -377,26 +406,26 @@ function pushDoc(lines: string[], doc: string[]): void {
  * opened by a click. There are skipped or failing ones — they're in the summary line, the block is open.
  * A test's prose — a quote inside the list item: the list stays dense, the test line stays one line.
  */
-function renderTests(g: Group, tests: Test[], lines: string[]): void {
+function renderTests(s: Section, tests: Test[], lines: string[]): void {
   if (!tests.length) return;
   const problems = problemsLine(tests);
   const icon = tests.some((t) => t.status === "failed") ? ICON.failed : problems ? ICON.skipped : ICON.passed;
   lines.push(`<details${problems ? " open" : ""}><summary>${icon} ${countsLine(tests)}</summary>`, "");
   for (const t of tests) {
     lines.push(testLine(t));
-    const doc = g.testDocs.get(testKey(t));
+    const doc = s.testDocs.get(testKey(t));
     if (doc?.length) lines.push(...doc.join("\n\n").split("\n").map((l) => (l ? "  > " + l : "  >")));
     lines.push(...metaLines(t));
   }
   lines.push("", "</details>", "");
 }
 
-function renderNode(g: Group, node: Node, level: number, lines: string[]): void {
-  renderTests(g, node.tests, lines);
+function renderNode(s: Section, node: Node, level: number, lines: string[]): void {
+  renderTests(s, node.tests, lines);
   for (const [name, child] of node.children) {
     lines.push(heading(level, L.mdText(name)), "");
     pushDoc(lines, child.doc);
-    renderNode(g, child, level + 1, lines);
+    renderNode(s, child, level + 1, lines);
   }
 }
 
@@ -416,30 +445,54 @@ function shiftHeadings(text: string, level: number): string {
 }
 
 /**
- * The group heading at level `level`, the description under it, describes — deeper. There's no "section · path ·
- * counter" line: the section and the path follow from the convention, the status is visible at each test.
+ * The topic heading at level `level`, its description under it, then the sections by name — each with its heading,
+ * its description and its describes deeper; a topic not regrouped yet — its one section's describes right under the
+ * description, as before. There's no "section · path · counter" line: the section and the path follow from the
+ * convention, the status is visible at each test.
  */
 function renderGroup(g: Group, level: number): string {
   const lines = [heading(level, g.name), ""];
   pushDoc(lines, g.doc.map((d) => shiftHeadings(d, level)));
-  renderNode(g, g.tree, level + 1, lines);
+  if (!g.regrouped) for (const s of g.sections.values()) renderNode(s, s.tree, level + 1, lines);
+  for (const s of ownSections(g)) {
+    lines.push(heading(level + 1, s.name), "");
+    pushDoc(lines, s.doc.map((d) => shiftHeadings(d, level + 1)));
+    renderNode(s, s.tree, level + 2, lines);
+  }
   return lines.join("\n").trimEnd() + "\n";
 }
 
 /**
- * The first paragraph of the group's description (not a heading, a diagram or a table) as one line — the description
- * in the index.
+ * The first paragraph of a description (not a heading, a diagram or a table) as one line — the description in the
+ * index.
  */
-function summaryOf(g: Group): string {
-  const first = (g.doc[0] ?? "").split("\n\n").find((p) => p.trim() && !/^(#{1,6}\s|```|~~~|\|)/.test(p.trim())) ?? "";
+function summaryOf(doc: string[]): string {
+  const first = (doc[0] ?? "").split("\n\n").find((p) => p.trim() && !/^(#{1,6}\s|```|~~~|\|)/.test(p.trim())) ?? "";
   return first.split("\n").map((l) => l.trim()).filter(Boolean).join(" ");
 }
 
-function indexLine(g: Group): string {
-  const summary = summaryOf(g);
-  const problems = problemsLine(g.tests);
+/** The description and the skipped and failing counters for an index line: " — text (1 skipped)". */
+function indexText(doc: string[], tests: Test[]): string {
+  const summary = summaryOf(doc);
+  const problems = problemsLine(tests);
   const text = summary && problems ? `${summary} (${problems})` : summary || problems;
-  return `- [${g.name}](${SUBDIR[g.kind]}/${g.name}.md)` + (text ? ` — ${text}` : "");
+  return text ? ` — ${text}` : "";
+}
+
+/** A heading's anchor on GitHub: lowercase, punctuation dropped, spaces — hyphens. */
+const anchor = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .replace(/\s/g, "-");
+
+/** The topic in the index with the first paragraph of its description, its sections under it — each with its own. */
+function indexLines(g: Group): string[] {
+  const page = `${SUBDIR[g.kind]}/${g.name}.md`;
+  return [
+    `- [${g.name}](${page})` + indexText(g.doc, g.tests),
+    ...ownSections(g).map((s) => `  - [${s.name}](${page}#${anchor(s.name)})` + indexText(s.doc, s.tests)),
+  ];
 }
 
 function groupNames(groups: Map<string, Group>, kind: Kind): string[] {
@@ -468,7 +521,7 @@ function renderIndex(groups: Map<string, Group>, out: Map<string, Test[]>, model
     lines.push("", `## ${sectionTitle(kind)}`, "");
     if (page) lines.push(`- [${N.spec.c4.title}](${ARCH_PAGE}) — ${C4.modelSummary(model, LANG)}`);
     if (!names.length && !page) lines.push(N.spec.doc.none);
-    for (const n of names) lines.push(indexLine(groups.get(kind + "/" + n)!));
+    for (const n of names) lines.push(...indexLines(groups.get(kind + "/" + n)!));
   }
   lines.push(...outSection(out));
   return lines.join("\n") + "\n";
@@ -479,7 +532,7 @@ function renderArchitecture(groups: Map<string, Group>, model: Model): string {
   const lines = [N.spec.doc.mark, ...C4.architecturePage(model, 1, LANG), `## ${N.spec.doc.rules}`, ""];
   const names = groupNames(groups, "architecture");
   if (!names.length) lines.push(N.spec.doc.none);
-  for (const n of names) lines.push(indexLine(groups.get("architecture/" + n)!));
+  for (const n of names) lines.push(...indexLines(groups.get("architecture/" + n)!));
   return lines.join("\n") + "\n";
 }
 
@@ -588,28 +641,31 @@ function embedMarks(groups: Map<string, Group>, model: Model | null): string[] {
   const problems: string[] = [];
   for (const g of groups.values()) {
     const files = new Set(g.tests.map((t) => t.path));
-    g.doc = g.doc.map((d) => {
-      // a scenario — by id among this folder's tests: the diagram is in the story, it's no longer under the test
-      const withSequences = d.replace(SEQUENCE_MARK, (line, id: string) => {
-        const hit = [...META].find(([k, m]) => m.id === id && m.sequence && files.has(k.split("\0")[0]!));
-        if (!hit) {
-          problems.push(`mark <!-- spec: sequence-${id} --> in ${descriptionPath(g)}: no scenario ${id} in the folder's tests`);
-          return line;
+    const embed = (doc: string[], at: string) =>
+      doc.map((d) => {
+        // a scenario — by id among this folder's tests: the diagram is in the story, it's no longer under the test
+        const withSequences = d.replace(SEQUENCE_MARK, (line, id: string) => {
+          const hit = [...META].find(([k, m]) => m.id === id && m.sequence && files.has(k.split("\0")[0]!));
+          if (!hit) {
+            problems.push(`mark <!-- spec: sequence-${id} --> in ${at}: no scenario ${id} in the folder's tests`);
+            return line;
+          }
+          PLACED.add(hit[0]);
+          return sequenceLines(hit[1].sequence!).join("\n");
+        });
+        const { text, bad } = C4.embed(withSequences, model, LANG);
+        for (const b of bad) {
+          const mark = `<!-- spec: ${b.mark} -->`;
+          problems.push(
+            b.missing === "model"
+              ? `mark ${mark} in ${at}: no model ${MODEL}`
+              : `unknown mark ${mark} in ${at} — available: ${[...Object.keys(C4.MARKS), "sequence-<id>"].join(", ")}`,
+          );
         }
-        PLACED.add(hit[0]);
-        return sequenceLines(hit[1].sequence!).join("\n");
+        return text;
       });
-      const { text, bad } = C4.embed(withSequences, model, LANG);
-      for (const b of bad) {
-        const mark = `<!-- spec: ${b.mark} -->`;
-        problems.push(
-          b.missing === "model"
-            ? `mark ${mark} in ${descriptionPath(g)}: no model ${MODEL}`
-            : `unknown mark ${mark} in ${descriptionPath(g)} — available: ${[...Object.keys(C4.MARKS), "sequence-<id>"].join(", ")}`,
-        );
-      }
-      return text;
-    });
+    g.doc = embed(g.doc, descriptionPath(g));
+    for (const s of ownSections(g)) s.doc = embed(s.doc, descriptionPath(g, s.name));
   }
   return problems;
 }
@@ -695,9 +751,8 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   META = loadMeta(path.resolve(root, values.meta ?? ".spec-meta"));
-  const { groups, out, libFiles } = build(tests);
+  const { groups, out, libFiles } = build(tests, root);
   const { missing, headers, legacy, undescribed, unread } = attachDocs(groups, root);
-  const noMain = [...groups.values()].filter((g) => !hasMain(g, root)).map(mainPath);
   // a name that isn't a statement — a warning: the rule stays, the PR isn't red because of it (#447)
   const names = badNames(groups);
   const leftovers = leftoverNames(root);
@@ -724,19 +779,15 @@ export async function main(argv: string[]): Promise<number> {
   if (missing.length) console.error(`spec-doc: no sources (${missing.length}) — JSDoc prose not taken: ${missing.join(", ")}`);
   for (const m of unread) console.error(`spec-doc: ${m}`);
   for (const file of undescribed) console.error(`spec-doc: no description ${file} — why, the reason, the rejected options`);
-  for (const file of noMain) console.error(`spec-doc: no main file ${file} — its describe blocks open the page`);
   for (const [name, file] of names) console.error(`spec-doc: warning: the name isn't a statement in the project language (${LANG}): «${name}» (${file})`);
   for (const at of leftovers) console.error(`spec-doc: warning: ${at} isn't read — names aren't exceptions any more, delete it`);
-  for (const file of headers) {
-    const [kind, name] = L.classify(file);
-    console.error(`spec-doc: a file header doesn't go into the documentation — move it to ${descriptionPath({ kind, name: name! })}: ${file}`);
-  }
+  for (const [file, to] of headers) console.error(`spec-doc: a file header doesn't go into the documentation — move it to ${to}: ${file}`);
   for (const file of legacy) {
     const base = path.posix.basename(file);
     console.error(`spec-doc: the folder's main file is ${L.classify(file)[1]}${base.slice("rule".length)}, not ${base} — rename: ${file}`);
   }
   for (const m of marks) console.error(`spec-doc: ${m}`);
-  return (out.size || headers.length || legacy.length || undescribed.length || noMain.length || marks.length) && values.strict ? 1 : 0;
+  return (out.size || headers.length || legacy.length || undescribed.length || marks.length) && values.strict ? 1 : 0;
 }
 
 if (import.meta.main) {
