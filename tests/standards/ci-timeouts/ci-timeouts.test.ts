@@ -1,11 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { invariant } from "../../../skills/spec/scripts/harness.ts";
+import { documentsOf, FRAGMENT_FILES, readFragmentFile } from "../../lib/yaml-fragments.ts";
 
-const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WORKFLOWS = ".github/workflows";
 const CI = `${WORKFLOWS}/ci.yml`;
 
@@ -29,10 +26,10 @@ interface JobItem {
   key: string;
 }
 
-/** Шаг, который ставит пакеты: файл, job, имя шага (или первая строка `run`) и его `timeout-minutes`. */
+/** Шаг, который ставит пакеты: файл, путь job (`jobs.<id>`, у списка шагов — `steps`), имя шага (или первая строка `run`) и его `timeout-minutes`. */
 interface StepItem {
   file: string;
-  job: string;
+  where: string;
   step: string;
   timeout: unknown;
   key: string;
@@ -45,27 +42,50 @@ interface StepItem {
 const INSTALL =
   /\b(?:apt-get|apt|dnf|yum|apk|zypper|brew|choco|snap)\s+(?:-\S+\s+)*(?:install|update|upgrade|add)\b|\b(?:bun|npm|pnpm|yarn)\s+(?:install|i|ci|add)\b|\bpip3?\s+install\b|\bplaywright\s+install\b/;
 
-/** Job workflow по тексту; якоря YAML раскрыты — шаг под псевдонимом стоит в своей job целиком. */
-const jobsOf = (text: string): Record<string, Job> => (Bun.YAML.parse(text) as { jobs?: Record<string, Job> } | null)?.jobs ?? {};
+/**
+ * Job документа YAML; якоря раскрыты — шаг под псевдонимом стоит в своей job целиком. Фрагмент — список шагов, без
+ * `jobs:` — одна безымянная job `steps`: правило шага без правила job. Job без тела — заглушка фрагмента («… шаги как
+ * выше»), не job.
+ */
+function jobsOf(text: string): { where: string; job: Job; whole: boolean }[] {
+  const doc = Bun.YAML.parse(text) as { jobs?: Record<string, Job | null> } | Step[] | null;
+  if (Array.isArray(doc)) return [{ where: "steps", job: { steps: doc }, whole: false }];
+  return Object.entries(doc?.jobs ?? {}).flatMap(([name, j]) => (j ? [{ where: `jobs.${name}`, job: j, whole: true }] : []));
+}
+
+/** С номером по порядку — одинаковые ключи одного файла. */
+function numbered<T extends { key: string }>(items: T[]): T[] {
+  const seen = new Map<string, number>();
+  return items.map((x) => {
+    const n = (seen.get(x.key) ?? 0) + 1;
+    seen.set(x.key, n);
+    return n > 1 ? { ...x, key: `${x.key} (${n})` } : x;
+  });
+}
 
 const jobItems = (file: string, text: string): JobItem[] =>
-  Object.entries(jobsOf(text)).map(([job, j]) => ({ file, job, timeout: j["timeout-minutes"], key: `${file} jobs.${job}` }));
-
-/** Шаги установки пакетов; одинаковые в одной job — с номером по порядку. */
-function installSteps(file: string, text: string): StepItem[] {
-  const seen = new Map<string, number>();
-  return Object.entries(jobsOf(text)).flatMap(([job, j]) =>
-    (j.steps ?? [])
-      .filter((s) => typeof s.run === "string" && INSTALL.test(s.run))
-      .map((s) => {
-        const step = s.name ?? s.run!.trim().split("\n")[0]!;
-        const base = `${file} jobs.${job} «${step}»`;
-        const n = (seen.get(base) ?? 0) + 1;
-        seen.set(base, n);
-        return { file, job, step, timeout: s["timeout-minutes"], key: n > 1 ? `${base} (${n})` : base };
-      }),
+  numbered(
+    documentsOf(file, text).flatMap((d) =>
+      jobsOf(d.text)
+        .filter((j) => j.whole)
+        .map(({ where, job }) => ({ file, job: where.slice("jobs.".length), timeout: job["timeout-minutes"], key: `${file} ${where}` })),
+    ),
   );
-}
+
+/** Шаги установки пакетов. */
+const installSteps = (file: string, text: string): StepItem[] =>
+  numbered(
+    documentsOf(file, text).flatMap((d) =>
+      jobsOf(d.text).flatMap(({ where, job }) =>
+        (job.steps ?? [])
+          .filter((s) => typeof s?.run === "string" && INSTALL.test(s.run))
+          .map((s) => {
+            const step = s.name ?? s.run!.trim().split("\n")[0]!;
+            return { file, where, step, timeout: s["timeout-minutes"], key: `${file} ${where} «${step}»` };
+          }),
+      ),
+    ),
+  );
 
 /** Предел задан: минут больше нуля или выражение `${{ … }}`. */
 const bounded = (t: unknown): boolean => (typeof t === "number" && t > 0) || (typeof t === "string" && /^\$\{\{.*\}\}$/.test(t.trim()));
@@ -77,7 +97,7 @@ function jobViolation(j: JobItem): string | null {
 
 function stepViolation(s: StepItem): string | null {
   if (bounded(s.timeout)) return null;
-  return `${s.file} jobs.${s.job}: шаг «${s.step}» ставит пакеты из сети без своего timeout-minutes — зависшее зеркало держит его до предела job`;
+  return `${s.file} ${s.where}: шаг «${s.step}» ставит пакеты из сети без своего timeout-minutes — зависшее зеркало держит его до предела job`;
 }
 
 /** Проверка элемента реестра: нарушение — ошибка с его текстом. */
@@ -88,24 +108,28 @@ function throwing<T>(violation: (x: T) => string | null): (x: T) => void {
   };
 }
 
-const read = (file: string): string => readFileSync(path.join(ROOT, file), "utf8");
-const FILES = readdirSync(path.join(ROOT, WORKFLOWS))
-  .filter((f) => /\.ya?ml$/.test(f))
-  .sort()
-  .map((f) => `${WORKFLOWS}/${f}`);
+const JOBS = FRAGMENT_FILES.flatMap((f) => jobItems(f, readFragmentFile(f)));
+const STEPS = FRAGMENT_FILES.flatMap((f) => installSteps(f, readFragmentFile(f)));
+const SPEC_CI = "skills/spec/ci.md";
 
 const ZSH_662 = "      - name: zsh\n        run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }\n";
 
-describe("Шаг, который ставит пакеты из сети, ограничен по времени: зависшее зеркало apt не держит прогон часами", () => {
+describe("Шаг, который ставит пакеты из сети, ограничен по времени и во фрагментах CI, которые копируют проекты: зависшее зеркало apt не держит прогон часами", () => {
   invariant(it, {
-    registry: "шаги установки пакетов в .github/workflows",
-    items: FILES.flatMap((f) => installSteps(f, read(f))),
+    registry: "шаги установки пакетов в .github/workflows и YAML-фрагментах skills/**/*.md и docs/*.md",
+    items: STEPS,
     key: (s) => s.key,
     name: (s) => `${s.key} ограничен по времени`,
     check: throwing(stepViolation),
     violator: { name: "шаг zsh прогона PR #662", item: installSteps("ci.yml", `jobs:\n  tests:\n    timeout-minutes: 20\n    steps:\n${ZSH_662}`)[0]! },
     // шаги окружения полного набора: выпавший из разбора ушёл бы из реестра молча
-    includes: [`${CI} jobs.tests «zsh»`, `${CI} jobs.tests «bun install --frozen-lockfile»`],
+    // и фрагмента, который проект копирует как есть
+    includes: [
+      `${CI} jobs.tests «zsh»`,
+      `${CI} jobs.tests «bun install --frozen-lockfile»`,
+      `${SPEC_CI} jobs.unit «pnpm install --frozen-lockfile»`,
+      `${SPEC_CI} jobs.e2e «pnpm exec playwright install --with-deps»`,
+    ],
   });
 
   describe("примеры", () => {
@@ -132,6 +156,19 @@ describe("Шаг, который ставит пакеты из сети, огр
       ]);
     });
 
+    it("фрагмент в Markdown — блок ```yaml; список шагов без jobs: — шаги без job, заглушка job без тела — не job", () => {
+      const md =
+        "# CI\n\n```yaml\n      - run: pnpm install\n```\n\n```yaml\njobs:\n  unit:\n    # … шаги как выше\n  e2e:\n    steps:\n      - run: pnpm install\n```\n";
+      expect(installSteps("docs/x.md", md).map((s) => s.key)).toEqual(["docs/x.md steps «pnpm install»", "docs/x.md jobs.e2e «pnpm install»"]);
+      expect(jobItems("docs/x.md", md).map((j) => j.key)).toEqual(["docs/x.md jobs.e2e"]);
+      expect(stepViolation(installSteps("docs/x.md", md)[0]!)).toStartWith("docs/x.md steps: шаг «pnpm install» ставит пакеты из сети без своего timeout-minutes");
+    });
+
+    it("одинаковые шаги одного файла в разных блоках различает номер", () => {
+      const job = "```yaml\njobs:\n  unit:\n    steps:\n      - run: pnpm install\n```\n";
+      expect(installSteps("docs/x.md", job + "\n" + job).map((s) => s.key)).toEqual(["docs/x.md jobs.unit «pnpm install»", "docs/x.md jobs.unit «pnpm install» (2)"]);
+    });
+
     it("предел — минут больше нуля или выражение; ноль и текст — не предел", () => {
       expect([5, "${{ inputs.timeout }}", 0, "5", undefined].map(bounded)).toEqual([true, true, false, false, false]);
     });
@@ -140,13 +177,13 @@ describe("Шаг, который ставит пакеты из сети, огр
 
 describe("Каждая job ограничена по времени: зависший шаг не держит прогон до 6 часов, предела GitHub по умолчанию", () => {
   invariant(it, {
-    registry: "job в .github/workflows",
-    items: FILES.flatMap((f) => jobItems(f, read(f))),
+    registry: "job в .github/workflows и YAML-фрагментах skills/**/*.md и docs/*.md",
+    items: JOBS,
     key: (j) => j.key,
     name: (j) => `${j.key} ограничена по времени`,
     check: throwing(jobViolation),
     violator: { name: "job tests прогона PR #662", item: jobItems("ci.yml", "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n")[0]! },
-    includes: [`${CI} jobs.tests`, `${CI} jobs.spec-publish`, `${WORKFLOWS}/npm.yml jobs.publish`],
+    includes: [`${CI} jobs.tests`, `${CI} jobs.spec-publish`, `${WORKFLOWS}/npm.yml jobs.publish`, `${SPEC_CI} jobs.e2e`, "docs/ci-concurrency.md jobs.deploy-dev"],
   });
 
   it("пример: job без предела — ошибка с файлом и job", () => {

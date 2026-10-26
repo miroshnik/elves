@@ -1,6 +1,7 @@
 /**
  * Документы YAML, которые проекты копируют: workflow Elves и YAML-фрагменты справочников и скиллов. Общий реестр
- * мест для проверок фрагментов CI (`tests/standards/ci-concurrency`, `tests/standards/artifact-hidden-files`).
+ * мест для проверок фрагментов CI (`tests/standards/ci-concurrency`, `tests/standards/artifact-hidden-files`,
+ * `tests/standards/ci-timeouts`).
  * Не спека — в документацию не попадает.
  */
 import { readdirSync, readFileSync } from "node:fs";

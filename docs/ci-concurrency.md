@@ -68,6 +68,7 @@ concurrency:
   queue: max
 jobs:
   deploy-dev:
+    timeout-minutes: 30          # a hung deploy step doesn't hold the queue for 6 hours
     concurrency:
       group: deploy-dev          # environment = queue, shared by all workflows
       queue: max                 # the next deploy doesn't evict a pending one
