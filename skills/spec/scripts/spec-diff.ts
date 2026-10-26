@@ -347,6 +347,7 @@ export function diff(
   baseTests: Test[],
   headTests: Test[],
   pool: Test[] = [],
+  files: { base: Iterable<string>; head: Iterable<string> } = { base: [], head: [] },
 ): { removed: Test[]; changed: [Test, Test][]; added: Test[]; moved: Moved[] } {
   const b = new Map<string, Test>();
   const h = new Map<string, Test>();
@@ -376,8 +377,10 @@ export function diff(
   // 0b) regrouping into topics (#685): a test of a decision not regrouped at the base, with the same describe and name
   // in a section of the same root named after that decision — the section keeps the former name — moved with its file,
   // not removed and added. An exact match again: a test renamed in the move is honestly "changed" or "added".
-  const flatBase = L.unregroupedFolders(baseTests.map((t) => t.path));
-  const flatHead = L.unregroupedFolders(headTests.map((t) => t.path));
+  // Not regrouped — by the revision's files, as in regroupMap (#746): a lint standard's folder-named file has only
+  // examples(it, …), no static tests
+  const flatBase = L.unregroupedFolders([...baseTests.map((t) => t.path), ...files.base]);
+  const flatHead = L.unregroupedFolders([...headTests.map((t) => t.path), ...files.head]);
   const regroupKey = (folder: string, t: Test) => JSON.stringify([path.posix.dirname(folder), path.posix.basename(folder), t.describes, t.name]);
   const former = new Map<string, Test[]>();
   for (const r of removed) {
@@ -665,6 +668,25 @@ function exceptionLine(folder: string, e: ExceptionEntry): string {
 }
 const CODE = /\.[cm]?[jt]sx?$/;
 
+/**
+ * `git diff --name-status -M -z`: every path the diff names — both sides of a rename, so the base reads the file at its
+ * former path — and the renames, former path → new.
+ */
+export function changedFiles(out: string): { paths: string[]; renames: Map<string, string> } {
+  const f = out.split("\0");
+  const paths: string[] = [];
+  const renames = new Map<string, string>();
+  for (let i = 0; i < f.length && f[i]; ) {
+    const st = f[i++]!;
+    if (st[0] === "R" || st[0] === "C") {
+      const [from, to] = [f[i++]!, f[i++]!];
+      paths.push(from, to);
+      if (st[0] === "R") renames.set(from, to);
+    } else paths.push(f[i++]!);
+  }
+  return { paths, renames };
+}
+
 /** Files at a revision (null — the working tree) by paths from the git root: path without the prefix → text. */
 function readFiles(rev: string | null, top: string, prefix: string, paths: string[]): Map<string, string> {
   if (rev !== null) return filesAtRev(rev, top, prefix, paths);
@@ -691,6 +713,7 @@ async function decisionsAt(
   checks: Check[],
   place: (file: string) => string,
   regrouped: ReadonlyMap<string, string> = new Map(),
+  movedCode: ReadonlyMap<string, string> = new Map(),
 ): Promise<Decisions> {
   const listed = rev !== null ? gitText(["ls-tree", "-r", "--name-only", "-z", rev, "--", prefix + L.TESTS], top).split("\0") : [];
   const excPaths =
@@ -718,7 +741,8 @@ async function decisionsAt(
     const rel = p.slice(prefix.length);
     const text = files.get(rel);
     if (!text || !text.includes("eslint-disable")) continue;
-    for (const d of disablesIn(rel, text)) exceptions.push(`\`${rel}\` · ${d.rules.join(", ") || N.spec.lint.allRules} — ${d.description || N.spec.lint.noReason}`);
+    const named = movedCode.get(rel) ?? rel;
+    for (const d of disablesIn(rel, text)) exceptions.push(`\`${named}\` · ${d.rules.join(", ") || N.spec.lint.allRules} — ${d.description || N.spec.lint.noReason}`);
   }
   return { model: modelFacts(model), exceptions: exceptions.sort(), checks: checkFacts(checks, place) };
 }
@@ -1233,8 +1257,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     const changedOut = outOfTreeFiles(base, v.head, top, prefix, v.worktree);
     const { pool, count, gone } = outOfTreePool(base, v.head, top, root, prefix, changedOut, v.worktree);
-    ({ removed, changed, added, moved } = diff(baseTests, headTests, pool));
-    testFiles = { base: baseTests.map((t) => t.path), head: headTests.map((t) => t.path) };
+    testFiles = { base: [...baseTests.map((t) => t.path), ...baseFiles.keys()], head: [...headTests.map((t) => t.path), ...headFiles.keys()] };
+    ({ removed, changed, added, moved } = diff(baseTests, headTests, pool, testFiles));
     setFlat(testFiles); // scenarios are matched by place before render
     // checks by place, as the tests: a decision regrouped into a topic keeps its checks
     const regrouped = regroupMap(baseFiles.keys(), headFiles.keys());
@@ -1245,15 +1269,21 @@ export async function main(argv: string[]): Promise<number> {
     notStatements = newNotStatements([...added, ...changed.map(([, n]) => n)], baseTests, LANG);
     outFiles = unmovedFiles(changedOut, moved, count, gone);
     // lint disables — only in changed code files: a removed or added exception is always in the PR diff
-    const changedAll = (
+    const status = changedFiles(
       v.worktree
-        ? gitText(["diff", "--name-only", "-z", base, "--", "."], top) + gitText(["ls-files", "--others", "--exclude-standard", "-z", "--", "."], top)
-        : gitText(["diff", "--name-only", "-z", base, v.head, "--", "."], top)
-    )
-      .split("\0")
-      .filter((f) => f.startsWith(prefix) && CODE.test(f) && !FLOW_COPY.test(f.slice(prefix.length)));
+        ? gitText(["diff", "--name-status", "-M", "-z", base, "--", "."], top)
+        : gitText(["diff", "--name-status", "-M", "-z", base, v.head, "--", "."], top),
+    );
+    const untracked = v.worktree ? gitText(["ls-files", "--others", "--exclude-standard", "-z", "--", "."], top).split("\0") : [];
+    const changedAll = [...status.paths, ...untracked].filter((f) => f.startsWith(prefix) && CODE.test(f) && !FLOW_COPY.test(f.slice(prefix.length)));
+    // a file regrouped into a topic keeps its lint disables (#746): the base names them by the file's HEAD path
+    const movedCode = new Map<string, string>();
+    for (const [from, to] of status.renames) {
+      const folder = L.decisionFolder(from.slice(prefix.length));
+      if (folder && regrouped.has(folder) && from.startsWith(prefix) && to.startsWith(prefix)) movedCode.set(from.slice(prefix.length), to.slice(prefix.length));
+    }
     decisionData = {
-      base: await decisionsAt(base, top, prefix, changedAll, baseScan.checks, basePlace, regrouped),
+      base: await decisionsAt(base, top, prefix, changedAll, baseScan.checks, basePlace, regrouped, movedCode),
       head: await decisionsAt(v.worktree ? null : v.head, top, prefix, changedAll, headScan.checks, headPlace),
     };
     decisions = decisionLines(decisionData.base, decisionData.head, limit);
