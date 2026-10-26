@@ -574,6 +574,12 @@ describe("Сценарии задачи сверяются с тестами PR"
     expect(j.scenarios[0].tests.map((t: { folder: string }) => t.folder)).toEqual(["tests/capabilities/billing", "tests/capabilities/cabinet"]);
   });
 
+  // пример раздела в блоке кода в контексте задачи сверка брала за сам раздел (#717)
+  it("раздел «## Сценарии» в блоке кода — пример в тексте задачи, а не её сценарии", () => {
+    const j = prefixed("## Контекст\n\n```markdown\n## Сценарии\n\n- пример из текста\n```\n\n## Сценарии\n\n- выставляется за месяц\n");
+    expect(j.scenarios.map((s: { scenario: string }) => s.scenario)).toEqual(["выставляется за месяц"]);
+  });
+
   it("в задаче нет раздела «## Сценарии» — сверка говорит об этом, а не молчит", () => {
     const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
     repo.commit({ [BILLING]: ts(`it("x", () => {}); it("новое", () => {});`), "issue.md": "## Контекст\n\nбез сценариев\n" });
