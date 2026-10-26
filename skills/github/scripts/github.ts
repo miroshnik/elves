@@ -340,9 +340,10 @@ export interface State {
   labels: Label[];
   /**
    * Tasks of labels that merge into another one, open and closed, by label id: an old `kind:name` label into an already
-   * taken name, a section's label into its topic's.
+   * taken name, a section's label into its topic's. null — the list still returns the label, but `label(name:)` no longer
+   * finds it (deleted a moment ago, #735): nothing to merge, check names it with an ○ line.
    */
-  labelIssues: Record<string, { id: string; number: number }[]>;
+  labelIssues: Record<string, { id: string; number: number }[] | null>;
   decisions: Decisions;
   /** An empty repository (no default branch) — null. */
   merge: Merge | null;
@@ -948,7 +949,16 @@ function mergedIssues(io: Io, slug: string, labels: Label[], d: Decisions): Stat
   const [owner, name] = slug.split("/") as [string, string];
   const seen = new Set(labels.filter((l) => !legacyDecision(l.name)).map((l) => l.name));
   const out: State["labelIssues"] = {};
-  const load = (l: Label) => (out[l.id] = pages<{ id: string; number: number }>((after) => graphql(io, Q.LabelIssues, { owner, name, label: l.name, after }).repository.label.issues));
+  // a label the list still returns but `label(name:)` no longer finds (null — deleted a moment ago, #735) — null, not a throw
+  const load = (l: Label) => {
+    let gone = false;
+    const issues = pages<{ id: string; number: number }>((after) => {
+      const label = graphql(io, Q.LabelIssues, { owner, name, label: l.name, after }).repository.label;
+      gone ||= !label;
+      return label?.issues ?? { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] };
+    });
+    out[l.id] = gone ? null : issues;
+  };
   const want = decisionsByName(d);
   for (const l of labels) {
     const old = legacyDecision(l.name);
@@ -1380,6 +1390,7 @@ export function analyze(s: State): Check[] {
   const unsure = (kinds: DecisionKind[]) => !!d.modelError && kinds.includes("architecture");
   const taken = new Map(s.labels.filter((l) => !legacyDecision(l.name)).map((l) => [l.name, l]));
   const orphans: { label: Label; kinds: DecisionKind[] }[] = [];
+  const gone = (l: Label) => `label ${q(l.name)}: in the label list, but GitHub no longer finds it by name — deleted a moment ago? not merged, check again`;
   const dimensions = new Map<string, string[]>();
   for (const l of s.labels) {
     const old = legacyDecision(l.name);
@@ -1389,6 +1400,10 @@ export function analyze(s: State): Check[] {
     if (!into) {
       taken.set(old.name, { ...l, ...to });
       labels(`label ${q(l.name)} of the old form \`kind:name\``, api(`rename label ${q(l.name)} → ${q(old.name)} (tasks keep it)`, { op: "UpdateLabel", input: { id: l.id, ...to } }));
+      continue;
+    }
+    if (s.labelIssues[l.id] === null) {
+      labels.note(gone(l));
       continue;
     }
     const issues = s.labelIssues[l.id] ?? [];
@@ -1443,6 +1458,10 @@ export function analyze(s: State): Check[] {
       const to = decisionLabel(topic, want.get(topic)!);
       taken.set(topic, { ...l, ...to });
       labels(what, { kind: "confirm", text: `rename label ${q(l.name)} → ${q(topic)} (tasks keep it)`, mutations: [{ op: "UpdateLabel", input: { id: l.id, ...to } }] });
+      continue;
+    }
+    if (s.labelIssues[l.id] === null) {
+      labels.note(gone(l));
       continue;
     }
     const issues = s.labelIssues[l.id] ?? [];
