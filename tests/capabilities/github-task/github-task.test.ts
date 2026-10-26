@@ -3606,7 +3606,7 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(lines[0]).not.toContain("зелёный CI");
     // CI не ждать: PR в пачку его не запускает — ворота у него проверки перед коммитом и pr premerge
     const wait = lines.find((l) => l.startsWith("- CI не жди"))!;
-    expect(wait).toContain("проверки перед коммитом по канону (`lint`, `typecheck`, `test:spec`, затронутые тесты — `docs/testing.md`) и `pr premerge`");
+    expect(wait).toContain("проверки перед коммитом по канону (`elves precommit --base origin/<ветка пачки>`: `lint`, `typecheck`, `test:spec`, затронутые тесты — `docs/testing.md`) и `pr premerge`");
     expect(wait).toContain("после его кода 0 — `gh pr merge <PR> --rebase` без ожидания CI");
     // ни ожидания CI, ни актуализации, ни task close — кроме задачи без PR: она не в пачке, её закрывает исполнитель
     expect(lines.filter((l) => l.includes("wait-ci.sh"))).toEqual([]);
