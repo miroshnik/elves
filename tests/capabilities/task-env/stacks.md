@@ -223,7 +223,7 @@ up`; отставанием флоу это не считается.
 `bun --no-env-file node_modules/.bin/elves task-env up` — версия task-env та же, что у харнесса и CI проекта, справка —
 под строкой запуска пакета. Отвергнуто: путь к файлу скилла в `node_modules/@miroshnik/elves/skills/…` — ломается, когда
 пакет не поднят в корень `node_modules`; путь от `import.meta.resolve("@miroshnik/elves/package.json")` — у каждого
-проекта свой обход вместо одной команды. Переезд с копии (`update`, capability `elves#install`) переписывает вызов сам.
+проекта свой обход вместо одной команды.
 
 ## Проверено на машине (2026-10-13)
 

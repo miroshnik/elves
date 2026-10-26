@@ -202,15 +202,6 @@ describe("task new заводит задачу со всем сразу", () => 
       const f = new FakeGitHub(REC);
       refused(f, ["--title", f.issue(49).title], "an open task with this title already exists: #49");
     });
-    /**
-     * Задачу обновления флоу проекта до переименования в Elves (#544) звали «Обновить флоу ai-dev»: это та же задача —
-     * check печатает task new с новым названием, и открытая задача со старым его останавливает, второй в проекте нет.
-     */
-    it("task new узнаёт открытую задачу обновления флоу со старым названием и второй не заводит", () => {
-      const f = new FakeGitHub(REC);
-      f.issue(49).title = "Обновить флоу ai-dev";
-      refused(f, ["--title", "Обновить флоу Elves"], "an open task with this title already exists: #49 («Обновить флоу ai-dev» — its title before the flow's rename)");
-    });
     it("в личном аккаунте чужое значение --priority — ошибка, как в организации", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--priority", "P1"], "--priority: Urgent, High, Medium, Low"));
     it("блокера нет в репозитории", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--blocked-by", "999"], "no issue #999 in miroshnik/elves"));
     it("проекта нет — сначала project fix", () => {

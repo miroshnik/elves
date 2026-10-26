@@ -60,9 +60,6 @@ about 1 s); without zsh `apt-get update` and its install add about 6 s.
   (Projects are closed there). An environment without Bun or zsh all the same
   — `check` names it with a `cloud environment:` line and the command, which
   the session runs itself.
-- **A project with a copy of the flow** loads the canon twice in the cloud —
-  the copy's `.claude/rules` and the setup script's — until its move to the
-  thin project; a copy gets no project hook, nothing names it.
 
 **What is visible at the start** — checked from inside a cloud session
 (2026-10-17, Claude Code 2.1.302, #610), which itself started without the

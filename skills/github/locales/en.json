@@ -236,10 +236,6 @@
     }
   },
   "updateCommit": "Elves flow {version}",
-  "updateTask": "Update the Elves flow",
-  "formerly": {
-    "updateTask": "Update the ai-dev flow"
-  },
   "standardIssue": "Standard ·",
   "autoAnswer": "✅ auto",
   "lastLine": {

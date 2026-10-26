@@ -2134,13 +2134,6 @@ export interface NewTask {
 export const taskTemplate = (type: string): string =>
   type === N.issueTypes.epic ? `${N.sections.questions}\n` : `${N.sections.scenarios}\n\n${N.sections.questions}\n`;
 
-/**
- * Titles of the same task as `title`: itself and, for the project's flow update task (`updateTask` of a dictionary
- * language), its title before the flow's rename (`formerly.updateTask`) — an open update task of an earlier release is
- * the same task (#544).
- */
-const sameTitles = (title: string): string[] => [title, ...locale.everyNames().filter((n) => n.updateTask === title).map((n) => n.formerly.updateTask)];
-
 export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const [owner, name] = slug.split("/");
   // the cloud (#603): the repository's REST without the project — what it can't set, a line for a local session names
@@ -2192,11 +2185,9 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   if (o.milestone && !milestone) throw new GhError(`no open milestone ${q(o.milestone)}`);
   // `search/issues` in the cloud is 403 («sessions are bound to their configured repositories») — a listing of the open ones
   const openIssues: Any[] | null = cloud ? restList(io, `repos/${slug}/issues?state=open`).filter((i) => !i.pull_request) : null;
-  for (const same of sameTitles(title)) {
-    const found: Any[] = openIssues ?? graphql(io, Q.IssueSearch, { q: `repo:${slug} is:issue is:open in:title "${same.replaceAll('"', "")}"` }).search.nodes;
-    const dup = found.find((x) => x?.title === same);
-    if (dup) throw new GhError(`an open task with this title already exists: #${dup.number}${same === title ? "" : ` (${q(same)} — its title before the flow's rename)`}`);
-  }
+  const found: Any[] = openIssues ?? graphql(io, Q.IssueSearch, { q: `repo:${slug} is:issue is:open in:title "${title.replaceAll('"', "")}"` }).search.nodes;
+  const dup = found.find((x) => x?.title === title);
+  if (dup) throw new GhError(`an open task with this title already exists: #${dup.number}`);
   const wanted = [...new Set(o.labels ?? [])];
   // open questions in the description — the questions label: the dashboard and the queue find the task by it
   const open = questionItems(o.body).filter((x) => !x.answered).map((x) => x.k);

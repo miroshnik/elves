@@ -26,8 +26,8 @@
  * --for $$`): the ticket carries the script's shell, not this process, and the queue variables are printed for the shell
  * to export — the command runs as a plain command of the script, visible to tools that read package.json (knip).
  *
- * Runs under Bun (`bun slot.ts`), only node: APIs. A project without a copy of the flow runs it from its package as
- * `elves slot` (bin/elves.ts imports `main` and `HELP`): the queue starts only when this file is the entry point.
+ * Runs under Bun (`bun slot.ts`), only node: APIs. A project runs it from its package as `elves slot` (bin/elves.ts
+ * imports `main` and `HELP`): the queue starts only when this file is the entry point.
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

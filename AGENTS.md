@@ -35,9 +35,6 @@ a release is the owner's step (`elves release`), I cut one only when asked.
   loaded at the start.
 - **The project is behind** (or git ignores flow files) — `update` in the
   task's branch: the package version.
-- **The project keeps a copy of the flow** — the move is a task of its own,
-  one per project (`check` prints its `github task new`): I recommend it and
-  ask whether to queue it.
 - **`update` refused or the check unavailable** — I don't fix the clone; I
   work by the current flow and say so.
 

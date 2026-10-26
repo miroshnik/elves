@@ -45,10 +45,9 @@ interface Place {
 }
 
 const CONFIG_DIR = "каталог личной конфигурации до переименования — AI_DEV_CONFIG_DIR и ~/.config/ai-dev, пока update -g его не перенёс";
-const MOVE = "update › update переводит установку под прежним именем на тонкий проект: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json, канон и правила ai-dev уходят";
+const MOVE = "update › update переводит установку под прежним именем: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json";
 const RULESET = "github-project › project check узнаёт ruleset ai-dev своим, project fix переименовывает его в elves";
 const LANGUAGE = "github-project › до update язык читается из прежнего манифеста .agents/ai-dev.json, а когда есть и .agents/elves.json — из нового";
-const UPDATE_TASK = "github-task › task new узнаёт открытую задачу обновления флоу со старым названием и второй не заводит";
 const SLOT_ENV = "slot › slot экспортирует ELVES_SLOT, ELVES_SLOT_CPUS и AI_DEV_SLOT, AI_DEV_SLOT_CPUS; вложенный вызов только с AI_DEV_SLOT своего слота не ждёт";
 const SLOT_TEMP = "slot › очередь видит билеты slot прошлого релиза в ai-dev/slots временного каталога";
 const PROXY = "task-env › `proxy up` убирает прежний прокси, который держит порт: новый прокси — на том же порту";
@@ -83,8 +82,6 @@ const PLACES: readonly Place[] = [
   { file: "skills/github/reference.md", at: "under the flow's former name `ai-dev`", reads: "справочник называет ruleset под прежним именем", test: RULESET },
   { file: "skills/github/scripts/locale.ts", at: "manifestOf", reads: "язык проекта из манифеста .agents/ai-dev.json, пока update его не перенёс", test: LANGUAGE },
   { file: "skills/github/reference.md", at: "the former `.agents/ai-dev.json`", reads: "справочник называет прежний манифест, из которого читается язык", test: LANGUAGE },
-  { file: "skills/github/locales/en.json", at: "formerly.updateTask", reads: "название задачи обновления флоу до переименования", test: UPDATE_TASK },
-  { file: "skills/github/locales/ru.json", at: "formerly.updateTask", reads: "название задачи обновления флоу до переименования", test: UPDATE_TASK },
   // est
   { file: "skills/est/scripts/est.ts", at: "EST_DIR", reads: CONFIG_DIR, test: "config-dir" },
   { file: "skills/est/reference.md", at: "the former `~/.config/ai-dev`", reads: "справочник называет прежний каталог реестра репозиториев", test: "config-dir" },
@@ -298,7 +295,7 @@ describe("Старое имя ai-dev в файлах флоу — только �
       { name: "справочник называет прежний каталог вне абзаца о переходе", item: source("README.md", "**Before the rename to Elves** — `~/.config/ai-dev`.\n\nPrices — `~/.config/ai-dev/prices.json`.\n") },
       { name: "файл скилла под прежним именем", item: source("skills/x/scripts/ai-dev.ts", "export {};\n") },
     ],
-    includes: ["bin/ai-dev.ts", "bin/elves.ts", "README.md", "skills/github/locales/en.json", "skills/task-env/SKILL.md"],
+    includes: ["bin/ai-dev.ts", "bin/elves.ts", "README.md", "skills/task-env/SKILL.md"],
   });
 });
 
