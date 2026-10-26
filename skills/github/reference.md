@@ -848,7 +848,14 @@ aren't on `main`, ignoring run time and position in the file) — code `1` with
 them. A red check on the default branch's last commit — a check-run (the last
 run of each name: `failure`, `timed_out`, `startup_failure`; a cancelled one
 isn't red) or a host status (`failure`, `error`) — the same code `3` before
-checking the merge; checks not read — an `○` line, the check goes on. The spec
+checking the merge; checks not read — an `○` line, the check goes on. The
+base's checks are its own runs (#732): a check-run of another branch's run on
+the same SHA (its check suite's `head_branch` — a batch branch pushed at the
+tip of `main`) and a red run that started after every cancelled run of its
+check suite had finished (an aggregate like `ci-ok` of a superseded run; a
+fail-fast job started before them and stays red) aren't red — an `○` line
+each, not counted; `wait-ci.sh merged` likewise waits only for the runs of
+the PR's base. The spec
 publish job (`spec-publish`, `<job> / spec-publish`) isn't a check of `main`:
 red, it is an `○` line and not counted (#443). With
 code `3` the session doesn't merge and doesn't fix it in its PR: one bug for

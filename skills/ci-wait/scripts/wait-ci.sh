@@ -115,11 +115,18 @@ CHECK_STATES='def check_states:
                          else "fail" end) })
   | group_by(.name) | map(min_by(.bucket as $b | ["fail", "cancel", "pending", "skipping", "pass"] | index($b)));'
 ran='[]'
+# checks <sha> <branch> — the checks of that branch's runs only (merged: the PR's base, #732): an Actions run of another
+# branch on the same SHA (a batch branch pushed at the tip of main, its run cancelled by the next push) and its
+# check-runs aren't the branch's checks. A run without head_branch and checks of other apps — counted.
 checks() {
   local statuses runs wruns
   statuses=$(gh api "repos/{owner}/{repo}/commits/$1/status" 2>&1) || { out=$statuses; return 1; }
   runs=$(gh api "repos/{owner}/{repo}/commits/$1/check-runs?per_page=100" 2>&1) || { out=$runs; return 1; }
   wruns=$(gh api "repos/{owner}/{repo}/actions/runs?head_sha=$1&per_page=100" 2>&1) || { out=$wruns; return 1; }
+  wruns=$(jq -c --arg b "${2:-}" '(.workflow_runs // []) as $all
+    | [$all[] | select($b != "" and .head_branch != null and .head_branch != $b)] as $other
+    | .workflow_runs = ($all - $other) | .foreign = [$other[].check_suite_id]' <<<"$wruns")
+  runs=$(jq -c --argjson w "$wruns" '.check_runs = [(.check_runs // [])[] | select(.check_suite.id as $id | $w.foreign | index($id) | not)]' <<<"$runs")
   ran=$(jq -c '[(.workflow_runs // [])[].path] | unique' <<<"$wruns")
   out=$(jq -n --argjson s "$statuses" --argjson r "$runs" --argjson w "$wruns" --arg ctx "$context" --arg publish "$SPEC_PUBLISH" "$CHECK_STATES"'
     [ $s.statuses[] | { name: .context,
@@ -265,7 +272,7 @@ case "$mode" in
   merged)
     [[ "$target" =~ ^[0-9]+$ ]] || finish "ERROR PR number expected, got: $target" 3
     : "${interval:=20}" "${timeout:=1200}"
-    label="merge#$target"; merge_sha=""
+    label="merge#$target"; merge_sha=""; merge_base=""
     poll() {
       local pull
       if [ -z "$merge_sha" ]; then
@@ -274,9 +281,10 @@ case "$mode" in
         [ "$(jq -r .merged <<<"$pull")" == true ] || { out="PR #$target not merged (state $(jq -r .state <<<"$pull")) — nothing to wait for"; return 2; }
         # the SHA of our own merge — from the PR: with parallel merges git rev-parse origin/main returns someone else's commit
         merge_sha=$(jq -r .merge_commit_sha <<<"$pull")
+        merge_base=$(jq -r .base.ref <<<"$pull")
         label="${context:-merge#$target}@${merge_sha:0:7}"
       fi
-      checks "$merge_sha"
+      checks "$merge_sha" "$merge_base"
     }
     ;;
   issue)
