@@ -10,12 +10,19 @@ examples — `task-env <command> --help`.
 | what | value |
 |---|---|
 | compose files | the project's (`compose.yaml` … `docker-compose.yml`, Compose's names), its override file (`compose.override.yml` … — Compose takes none of them by itself once `-f` is given) and the task's override on Compose's stdin (`-f -`) |
-| up | `up --detach --wait --build --remove-orphans`: built images are the worktree's code, `--wait` returns when services are running and healthy (at most 300 s) |
+| up | `up --no-start --build --remove-orphans`, `docker network connect <proxy> <container>` for each `env.http` container, then `up --detach --wait --build --remove-orphans`: built images are the worktree's code, `--wait` returns when services are running and healthy (at most 300 s) |
 
-**The override** is the only thing the script adds and it isn't a file: the proxy's labels and network for the
-`env.http` services (below, section "Labels of a task stack's service"), nothing to the others — a database isn't published.
-A `compose.override.yaml` would be the project's own, and `check` would name its external network. The proxy creates
+**The override** is the only thing the script adds and it isn't a file: the proxy's labels for the `env.http`
+services (below, section "Labels of a task stack's service"), nothing to the others — a database isn't published. A
+`compose.override.yaml` would be the project's own, and `check` would name its external network. The proxy creates
 the network, so `up` starts the proxy first if it isn't running (as `proxy up`); a running one isn't touched.
+
+**The proxy's network — by `docker network connect`, not the override.** Compose gives a service in each of its
+networks the alias of its short name and won't drop it (`aliases: []` keeps it); in the proxy's network two stacks'
+same-named services would both answer `storage`, and a neighbour inside the stack would reach the other stack by
+chance. Connected by hand, a container is named in the proxy's network only by its container name
+`<stack>-<service>-<n>`, and the short name stays in the stack's own networks. The connect goes between creating and
+starting: Traefik sees the network on the start event, and the next `up` doesn't recreate the container.
 
 ## Taking a task's stacks down
 
@@ -136,13 +143,13 @@ touches the machine's proxy.
 ## Labels of a task stack's service
 
 The task stack's override (not the project's compose file) gives each HTTP
-service the labels and the proxy network; `proxyLabels` of the script builds
-them, `up` and `e2e` pass them to Compose on stdin:
+service the labels; `proxyLabels` of the script builds them, `up` and `e2e`
+pass them to Compose on stdin and join the service to the proxy network
+themselves (above, "The proxy's network"):
 
 ```yaml
 services:
   web:
-    networks: [default, elves-proxy]
     labels:
       traefik.enable: "true"
       traefik.docker.network: elves-proxy
@@ -150,13 +157,11 @@ services:
       traefik.http.routers.<stack>-web.entrypoints: web
       traefik.http.routers.<stack>-web.service: <stack>-web
       traefik.http.services.<stack>-web.loadbalancer.server.port: "3000"
-networks:
-  elves-proxy:
-    external: true
 ```
 
-The override is the script's, not the project's: a compose file that writes
-it by hand shares the proxy's network as `external`, and `check` names it.
+The override and the network are the script's, not the project's: a compose
+file that joins the proxy's network by hand shares it as `external`, and
+`check` names it.
 
 - `<stack>` — the stack's Compose project: `<project>-<N>`, `<project>-<N>-e2e`,
   `<project>` without a task. The router and the service are named
@@ -169,8 +174,8 @@ it by hand shares the proxy's network as `external`, and `check` names it.
   host is parsed by `taskAddress`, its URL with the proxy's port — `addressUrl`.
 - The port — the service's HTTP port inside the container; nothing is
   published on the host.
-- The network is `external`: the proxy creates it, so `proxy up` goes before
-  the task stack — `up` and `e2e` start it themselves.
+- The proxy creates the network, so `proxy up` goes before the task stack —
+  `up` and `e2e` start it themselves.
 - `traefik.docker.network` — the network the proxy reaches the service
   through: the service is in its own networks too, and the label names the
   proxy's one, so the pick doesn't depend on the provider's default network.
@@ -178,9 +183,8 @@ it by hand shares the proxy's network as `external`, and `check` names it.
   first" of its networks in Go's map order — a random one per configuration,
   and a stack in its `default` and the proxy's network would answer or not by
   chance.
-- Networks: the service's own as Compose normalized them (one without
-  `networks` is in `default`) plus the proxy's — listed networks replace the
-  implicit `default`, and a key with null keeps the project's aliases.
+- Networks: the service's own, as in the compose file, plus the proxy's —
+  joined by `docker network connect` without the service's alias.
 
 ## What the compose file check reads
 
