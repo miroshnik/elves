@@ -80,7 +80,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | Moment | Action |
 |---|---|
 | New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new --branch-type <type>` — it sets the estimate itself (an epic isn't estimated: its estimate is the sum of its subtasks, `reference.md`) |
-| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work; then In progress, the branch renamed, the estimate if missing, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
+| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work (restart: `--resume`); then In progress, the branch renamed, the estimate if missing, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
 | An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
 | Editing the description | `task edit N`, not `--body-file` |
 | Branch committed — the tail | `task finish N` in the background (a subagent — `--timeout 240`, code 5 — again): push, PR, labels, CI, `premerge`; code 4 — `gh pr merge <PR> --rebase` as a separate call, then `task finish N` in the background: the deploy, the refresh prompt (code 4 — its subagent in the background; after its answer — `task finish N`), `task close`; other codes — its `Next:` |
