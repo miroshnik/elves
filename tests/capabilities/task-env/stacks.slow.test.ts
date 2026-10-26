@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 
-import { composeEnv, formerProxyName, proxyHosts, proxyLabels } from "../../../skills/task-env/scripts/task-env.ts";
+import { composeEnv, proxyHosts, proxyLabels } from "../../../skills/task-env/scripts/task-env.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { calls, COMPOSE, FAKE_GH, proxyGet, run, SCRIPT, untilAnswer } from "../../lib/task-env.ts";
@@ -18,8 +18,7 @@ const dockerUp = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"],
 
 /**
  * Свой прокси теста рядом с рабочим: своё имя (проект Compose и сеть) и порт, который выдаёт Docker, — рабочий прокси
- * машины на 80 тест не трогает; прежний прокси у прокси теста — свой, `<имя>-former` (`formerProxyName`), а не прокси
- * машины до переименования. Окружение — с переменными compose-файла прокси: тест зовёт `docker compose -f` и сам.
+ * машины на 80 тест не трогает. Окружение — с переменными compose-файла прокси: тест зовёт `docker compose -f` и сам.
  */
 const NAME = `elves-proxy-test-${process.pid}`;
 const proxyEnv = composeEnv({ ...process.env, ELVES_PROXY: NAME, ELVES_PROXY_PORT: "0" });
@@ -473,60 +472,5 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).toMatch(new RegExp(`^○ stack ${PROJECT}-9: its containers are from \\S*/other — another project, left\n$`));
     expect(services(`${PROJECT}-9`)).toEqual(["db"]);
-  });
-});
-
-describe.skipIf(!dockerUp && !process.env.CI)("Переход с прокси до переименования: `proxy up` занимает его порт, а в его сеть не входит", () => {
-  /** Свой прокси теста; его прежний — `<имя>-former` (`formerProxyName`): прокси машины до переименования тест не трогает. */
-  const NEW = `${NAME}-move`;
-  const env = { ...process.env, ELVES_PROXY: NEW };
-  const FORMER = formerProxyName(env);
-  let port = "";
-  let up: { code: number | string; out: string } = { code: 0, out: "" };
-
-  const dockerOut = (...args: string[]) => {
-    const r = run("docker", args, env);
-    if (r.status !== 0) throw new Error(`docker ${args.join(" ")}: ${r.stderr.trim()}`);
-    return r.stdout.trim();
-  };
-  /** Контейнер сервиса проекта Compose — его id. */
-  const container = (project: string, service: string) =>
-    dockerOut("ps", "--all", "--quiet", "--filter", `label=com.docker.compose.project=${project}`, "--filter", `label=com.docker.compose.service=${service}`);
-  const networksOf = (id: string) => Object.keys(JSON.parse(dockerOut("inspect", "--format", "{{json .NetworkSettings.Networks}}", id)) as object).sort();
-
-  beforeAll(() => {
-    dockerOut("pull", "--quiet", WHOAMI);
-    // порт, свободный на машине, — прежний прокси занимает его явно, как прокси до переименования порт 80: порт, который
-    // Docker выдал сам, Docker 29 второму контейнеру отдаёт молча — тот запускается без публикации
-    const free = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
-    port = String(free.port);
-    free.stop(true);
-    // прежний прокси: проект Compose с сервисом traefik и сетью с его именем — из файла на stdin, compose-файл скилла
-    // тест не трогает
-    const former = { services: { traefik: { image: WHOAMI, ports: [`127.0.0.1:${port}:80`], networks: ["proxy"] } }, networks: { proxy: { name: FORMER } } };
-    const made = spawnSync("docker", ["compose", "-p", FORMER, "-f", "-", "up", "--detach", "--wait", "--quiet-pull"], { input: JSON.stringify(former), encoding: "utf8", env });
-    if (exitOf(made) !== 0) throw new Error(`docker compose -p ${FORMER} up: ${made.stderr.trim()}`);
-    const r = run("bun", [SCRIPT, "proxy", "up"], { ...env, ELVES_PROXY_PORT: port });
-    up = { code: exitOf(r), out: r.stdout + r.stderr };
-  }, 300_000);
-  afterAll(() => {
-    run("bun", [SCRIPT, "proxy", "down"], env);
-    run("docker", ["compose", "-p", FORMER, "down", "--remove-orphans"], env);
-    run("docker", ["network", "rm", FORMER], env);
-  });
-
-  it("`proxy up` убирает прежний прокси, который держит порт: новый прокси — на том же порту", () => {
-    expect(up.code, up.out).toBe(0);
-    expect(up.out).toContain(`proxy ${FORMER}: removed — the proxy before the rename; ${NEW} takes its port\n`);
-    expect(container(FORMER, "traefik")).toBe("");
-    expect(dockerOut("port", container(NEW, "traefik"), "80/tcp")).toBe(`127.0.0.1:${port}`);
-  });
-
-  it("proxy up поднимает прокси только в его сети — сеть ai-dev-proxy он не берёт, даже когда она есть на машине", () => {
-    expect(up.code, up.out).toBe(0);
-    expect(dockerOut("network", "ls", "--quiet", "--filter", `name=^${FORMER}$`)).not.toBe("");
-    expect(networksOf(container(NEW, "traefik"))).toEqual([NEW]);
-    expect(up.out).toContain(`proxy ${NEW}: running — `);
-    expect(up.out).toContain(`(network ${NEW})\n`);
   });
 });

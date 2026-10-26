@@ -114,32 +114,6 @@ router is named after the proxy: a test proxy sees the labels of the
 machine's one, and routers of one name with different rules Traefik would
 drop.
 
-## The proxy before the rename
-
-Before the rename of the flow (ai-dev → Elves) the proxy was the Compose
-project `ai-dev-proxy` with the network of that name. `proxy up` — and `up`,
-which starts a proxy that isn't running — takes its place:
-
-- **its container goes** — it holds the port; the new one is created first
-  (the image pulled), so a failed pull leaves the former proxy serving:
-  `proxy ai-dev-proxy: removed — the proxy before the rename; elves-proxy
-  takes its port`;
-- **its network isn't joined** — the proxy is in its own network only, even
-  with `ai-dev-proxy` on the machine; a stack brought up before the rename,
-  left in `ai-dev-proxy` alone, gets its addresses back by `up` again: the
-  override puts its HTTP services into `elves-proxy`;
-- **`check`** holds a network `ai-dev-proxy` written in a project's compose
-  file (`networks: [default, ai-dev-proxy]`, `external: true`) to the rule of
-  any external network; the fix — remove it, `up` adds the proxy's network
-  itself;
-- **the port** — `ELVES_PROXY_PORT`, unset — `AI_DEV_PROXY_PORT` of the
-  profile; **the settings** — `.agents/elves.json`, before `update` moves it
-  — `.agents/ai-dev.json`.
-
-The former proxy is `ai-dev-proxy` only for the proxy of the default name;
-a proxy of another name (a test's) has `<name>-former`, so a test never
-touches the machine's proxy.
-
 ## Labels of a task stack's service
 
 The task stack's override (not the project's compose file) gives each HTTP

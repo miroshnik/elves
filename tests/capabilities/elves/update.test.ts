@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import locale from "../../../skills/github/scripts/locale.ts";
-import { bareClone, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, npmPackage, REPO, sandbox, snapshot, toFormer, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { bareClone, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
@@ -251,7 +251,7 @@ describe("Тонкий проект сверяется с версией пак�
     for (const f of files) {
       const text = read(f);
       expect(text).toContain("`bunx @miroshnik/elves install`");
-      writeFileSync(f, text.replace("`bunx @miroshnik/elves install`", "`npx -y github:miroshnik/ai-dev install`"));
+      writeFileSync(f, text.replace("`bunx @miroshnik/elves install`", "`npx -y github:miroshnik/elves install`"));
     }
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
@@ -785,30 +785,13 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 
-  it("поставлено прошлой версией с правилами на машине под прежним именем — отстаёт: в списке «- ~/.agents/ai-dev/» и «- ~/.claude/rules/ai-dev.md»; update -g переносит их на новые имена, после него check — актуально", () => {
-    elves(sb, ["install", "-g"]);
-    mkdirSync(path.join(sb.home, ".agents/ai-dev"), { recursive: true });
-    writeFileSync(path.join(sb.home, ".agents/ai-dev/AGENTS.md"), "старый канон\n");
-    mkdirSync(path.join(sb.home, ".claude/rules"), { recursive: true });
-    symlinkSync("../../.agents/ai-dev/AGENTS.md", path.join(sb.home, ".claude/rules/ai-dev.md"));
-    const r = elves(sb, ["check", "-g"]);
-    expect(r.code).toBe(1);
-    expect(r.stdout).toContain("- ~/.agents/ai-dev/");
-    expect(r.stdout).toContain("- ~/.claude/rules/ai-dev.md");
-    expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(existsSync(path.join(sb.home, ".agents/ai-dev"))).toBe(false);
-    expect(lstatSync(path.join(sb.home, ".claude/rules/ai-dev.md"), { throwIfNoEntry: false })).toBeUndefined();
-    expect(read(path.join(sb.home, ".claude/rules/elves.md"))).toBe(read(path.join(REPO, "AGENTS.md")));
-    expect(elves(sb, ["check", "-g"]).code).toBe(0);
-  });
-
   /** Хук прошлой версии — с запасным текстом по-русски: check -g сверяет хук целиком, update -g узнаёт свой по команде. */
   it("хук прошлой версии с запасным текстом по-русски — отстаёт; update -g заменяет его, а не ставит второй; после него check — актуально", () => {
     elves(sb, ["install", "-g"]);
     const file = path.join(sb.home, ".claude/settings.json");
     const hooks = () => JSON.parse(read(file)).hooks.SessionStart.flatMap((g: { hooks: { command: string }[] }) => g.hooks);
     const settings = JSON.parse(read(file));
-    settings.hooks.SessionStart[0].hooks[0].command = 'npx -y --loglevel=error github:miroshnik/ai-dev check --hook 2>&1 || echo "ai-dev check недоступен (код $?): работай по текущему флоу и скажи об этом"';
+    settings.hooks.SessionStart[0].hooks[0].command = 'npx -y --loglevel=error github:miroshnik/elves check --hook 2>&1 || echo "elves check недоступен (код $?): работай по текущему флоу и скажи об этом"';
     writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
     const r = elves(sb, ["check", "-g"]);
     expect(r.code).toBe(1);
@@ -817,24 +800,6 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(hooks()).toHaveLength(1);
     expect(hooks()[0].command).toContain("github:miroshnik/elves check --hook");
     expect(hooks()[0].command).not.toMatch(/\p{Script=Cyrillic}/u);
-    expect(elves(sb, ["check", "-g"]).code).toBe(0);
-  });
-
-  /**
-   * Хук до переименования в Elves (#544) — с адресом miroshnik/ai-dev: GitHub его перенаправляет, хук работает и до
-   * update; update -g узнаёт его своим и меняет на новый, а не ставит второй — иначе каждая сессия проверяла бы флоу дважды.
-   */
-  it("update -g на машине со старым хуком оставляет один хук — с командой miroshnik/elves", () => {
-    elves(sb, ["install", "-g"]);
-    const file = path.join(sb.home, ".claude/settings.json");
-    const hooks = () => JSON.parse(read(file)).hooks.SessionStart.flatMap((g: { hooks: { command: string }[] }) => g.hooks);
-    const settings = JSON.parse(read(file));
-    settings.hooks.SessionStart[0].hooks[0].command = 'bunx --silent github:miroshnik/ai-dev check --hook 2>&1 || echo "ai-dev check unavailable (exit $?): work by the current flow and say so"';
-    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-    expect(elves(sb, ["check", "-g"]).code).toBe(1);
-    expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(hooks()).toHaveLength(1);
-    expect(hooks()[0].command).toStartWith("bunx --silent github:miroshnik/elves check --hook 2>&1 || ");
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 
@@ -1063,33 +1028,6 @@ describe("Версия пакета проекта и копия на машин
     writePkg({});
     expect(r.run(["install", "--no-auto"]).code).toBe(0);
     expect(JSON.parse(read(manifest(sb.proj))).auto).toBe(false);
-    expect(pinned()).toBe("2026.1005.0");
-  });
-
-  /**
-   * Флоу переименован (#545), а пускатель в кеше bunx — как его первый запуск: пускатель до переименования передаёт тег
-   * релиза в AI_DEV_RELEASE, а релиз до переименования, который запустил новый пускатель, читает только её.
-   */
-  it("пускатель и релиз по разные стороны переименования флоу: тег релиза доходит и под прежним именем AI_DEV_RELEASE", () => {
-    const r = withReleases();
-    const sha = r.release("v2026.10.05");
-    const release = path.join(sb.tmp, "bunx", sha, "node_modules/elves/bin/elves.ts");
-    const edit = (file: string, from: string, to: string) => {
-      const text = read(file);
-      expect(text).toContain(from);
-      writeFileSync(file, text.replace(from, to));
-    };
-    // пускатель прошлого релиза — только прежнее имя
-    const launcher = read(r.bin);
-    edit(r.bin, 'for (const name of ["ELVES_RELEASE", FORMER.release])', "for (const name of [FORMER.release])");
-    writePkg({});
-    expect(r.run(["install"]).code).toBe(0);
-    expect(pinned()).toBe("2026.1005.0");
-    // релиз прошлого релиза — читает только прежнее имя
-    writeFileSync(r.bin, launcher);
-    edit(release, "process.env.ELVES_RELEASE || process.env[FORMER.release]", "process.env[FORMER.release]");
-    writePkg({});
-    expect(r.run(["install"]).code).toBe(0);
     expect(pinned()).toBe("2026.1005.0");
   });
 
@@ -1337,7 +1275,6 @@ describe("Клон --link сверяется с origin/main, update подтяг
     const sha = up.repo.commit({ "AGENTS.md": read(path.join(up.dir, "AGENTS.md")) + RULE, "skills/fresh/SKILL.md": "---\nname: fresh\n---\n" });
     expect(elves(sb, ["update", "-g"]).code).toBe(0);
     expect(git(clone, "rev-parse", "HEAD")).toBe(sha);
-    expect(existsSync(path.join(sb.home, ".agents/ai-dev"))).toBe(false);
     expect(realpathSync(path.join(sb.home, ".agents/skills/fresh"))).toBe(realpathSync(path.join(clone, "skills/fresh")));
     expect(realpathSync(path.join(sb.home, ".claude/skills/fresh"))).toBe(realpathSync(path.join(clone, "skills/fresh")));
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
@@ -1416,22 +1353,6 @@ describe("Клон --link сверяется с origin/main, update подтяг
     expect(JSON.parse(read(manifest(sb.home))).sha).toBe(sha);
   });
 
-  it("поставлено прошлой версией — симлинк ~/.agents/ai-dev на клон, пути клона в манифесте нет: check находит клон по симлинку, update -g убирает симлинк и пишет путь", () => {
-    const { clone } = linkedClone();
-    const m = JSON.parse(read(manifest(sb.home)));
-    delete m.clone;
-    writeFileSync(manifest(sb.home), JSON.stringify(m, null, 2) + "\n");
-    symlinkSync(clone, path.join(sb.home, ".agents/ai-dev"));
-    const r = elves(sb, ["check", "-g"]);
-    expect(r.code).toBe(1);
-    expect(r.stdout).toContain(`clone ${clone}`);
-    expect(r.stdout).toContain("- ~/.agents/ai-dev — the flow's former name (ai-dev) — update moves it\n");
-    expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(lstatSync(path.join(sb.home, ".agents/ai-dev"), { throwIfNoEntry: false })).toBeUndefined();
-    expect(realpathSync(JSON.parse(read(manifest(sb.home))).clone)).toBe(realpathSync(clone));
-    expect(elves(sb, ["check", "-g"]).code).toBe(0);
-  });
-
   it("update -g: в клоне изменения в отслеживаемых файлах — отказ с причиной, код 1, клон не тронут", () => {
     const { up, clone } = linkedClone();
     up.repo.commit({ "AGENTS.md": "новое\n" });
@@ -1470,44 +1391,6 @@ describe("Клон --link сверяется с origin/main, update подтяг
     const r = elves(sb, ["check", "-g"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("check unavailable");
-  });
-
-  /**
-   * Репозиторий переименован в elves (#544): клон, склонированный по прежнему имени, тянет по перенаправлению GitHub,
-   * но скиллы узнают репозиторий по origin, а GraphQL по прежнему имени может его не найти. update -g переносит origin
-   * на новое имя в том же виде URL, check -g называет перенос — переход без ручных шагов.
-   */
-  it("origin клона --link на прежнем имени репозитория — check -g называет перенос, update -g переносит origin на miroshnik/elves", () => {
-    const { up, clone } = linkedClone();
-    // GitHub песочницы — каталог: оба имени ведут в upstream, как перенаправление GitHub
-    const github = path.join(sb.tmp, "github");
-    mkdirSync(github);
-    for (const name of ["ai-dev.git", "elves.git"]) symlinkSync(up.dir, path.join(github, name));
-    writeFileSync(path.join(sb.home, ".gitconfig"), `[url "${github}/"]\n\tinsteadOf = https://github.com/miroshnik/\n`);
-    git(clone, "remote", "set-url", "origin", "https://github.com/miroshnik/ai-dev.git");
-    const c = elves(sb, ["check", "-g"]);
-    expect(c.code).toBe(1);
-    expect(c.stdout).toContain(" — origin https://github.com/miroshnik/ai-dev.git → https://github.com/miroshnik/elves.git: the repository is renamed\n");
-    expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(git(clone, "config", "remote.origin.url")).toBe("https://github.com/miroshnik/elves.git");
-    expect(elves(sb, ["check", "-g"]).code).toBe(0);
-  });
-
-  /**
-   * update -g релиза до переименования (#544) подтягивает клон и запускает его установщик по прежнему пути
-   * `bin/ai-dev.ts`: это тот же установщик — машина получает ссылки и хук версии клона, а не ошибку «нет файла».
-   */
-  it("установщик клона по прежнему пути bin/ai-dev.ts — тот же установщик: update -g релиза до переименования ставит машине новый хук", () => {
-    const { clone } = linkedClone();
-    const file = path.join(sb.home, ".claude/settings.json");
-    const settings = JSON.parse(read(file));
-    settings.hooks.SessionStart[0].hooks[0].command = 'bunx --silent github:miroshnik/ai-dev check --hook 2>&1 || echo "ai-dev check unavailable (exit $?): work by the current flow and say so"';
-    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-    expect(elves(sb, ["install", "-g", "--link"], { bin: path.join(clone, "bin/ai-dev.ts") }).code).toBe(0);
-    const hooks: { command: string }[] = JSON.parse(read(file)).hooks.SessionStart.flatMap((g: { hooks: { command: string }[] }) => g.hooks);
-    expect(hooks).toHaveLength(1);
-    expect(hooks[0]!.command).toStartWith("bunx --silent github:miroshnik/elves check --hook 2>&1 || ");
-    expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 });
 
@@ -1742,148 +1625,32 @@ describe("В начале сессии Claude Code проверка идёт с�
 });
 
 /**
- * Флоу переименован в Elves (#545): установка прошлого релиза носит прежние имена — манифест `.agents/ai-dev.json`,
- * канон `.agents/ai-dev/`, правила `.claude/rules/ai-dev*.md`, блоки `ai-dev` в AGENTS.md и .gitignore, на машине —
- * `~/.agents/ai-dev.json` и каталог личной конфигурации `~/.config/ai-dev`. `update` переносит их в новые без ручных
- * шагов и заменяет блоки, а не добавляет вторые; скрипты до него читают прежние; `check` называет, что осталось под
- * прежним именем, и как перейти.
+ * От переименования флоу в Elves (#544, #545) на машине остались симлинки совместимости `~/.config/ai-dev` → `elves`
+ * и `~/.claude/est` → `~/.config/ai-dev`: их больше никто не читает, `update -g` их снимает. Каталог или файл под
+ * этими именами — не флоу: он остаётся.
  */
-describe("Прежние имена флоу (ai-dev): update переносит их в новые, скрипты до него читают прежние, check называет оставшиеся", () => {
-  const FORMER = "the flow's former name (ai-dev) — update moves it";
-  const gone = (root: string, rel: string) => lstatSync(path.join(root, rel), { throwIfNoEntry: false }) === undefined;
+describe("Симлинки переименования флоу на машине: update -g их снимает", () => {
+  const gone = (rel: string) => lstatSync(path.join(sb.home, rel), { throwIfNoEntry: false }) === undefined;
 
-  it("update переводит установку под прежним именем: режим, язык и env из .agents/ai-dev.json — в .agents/elves.json", () => {
-    const env = { http: { web: 3000 } };
-    elves(sb, ["install", "--auto", "--lang", "ru"]);
-    editManifest(sb.proj, { env });
-    toFormer(sb.proj);
-    const before = snapshot(sb.proj);
-    const c = elves(sb, ["check"]);
-    expect(c.code).toBe(1);
-    for (const line of ["  + .agents/elves.json\n", `  - .agents/ai-dev.json — ${FORMER}\n`]) expect(c.stdout).toContain(line);
-    expect(snapshot(sb.proj)).toEqual(before);
-    expect(elves(sb, ["update"]).code).toBe(0);
-    expect(JSON.parse(read(manifest(sb.proj)))).toEqual({ auto: true, language: "ru", env });
-    expect(gone(sb.proj, ".agents/ai-dev.json")).toBe(true);
-    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringContaining("in the project: up to date") });
-  });
-
-  it("update заменяет блоки ai-dev в AGENTS.md и .gitignore блоками elves — второго блока нет", () => {
-    const own = "# Проект\n\nСвои правила проекта.\n";
-    writeFileSync(path.join(sb.proj, "AGENTS.md"), own);
-    elves(sb, ["install"]);
-    const copyBlock = ["# elves:begin — flow files git would otherwise ignore; set by `bunx github:miroshnik/elves install`, don't edit by hand", "!/.agents/", "/.agents/*", "!/.agents/elves/", "!/.agents/elves.json", "!/.agents/skills/", "# elves:end"].join("\n");
-    writeFileSync(path.join(sb.proj, ".gitignore"), `node_modules/\n.agents/\n\n${copyBlock}\n`);
-    toFormer(sb.proj);
-    const [agents, gitignore] = [path.join(sb.proj, "AGENTS.md"), path.join(sb.proj, ".gitignore")];
-    expect(read(agents)).toContain("<!-- ai-dev:begin");
-    expect(read(gitignore)).toContain("!/.agents/ai-dev/");
-    const c = elves(sb, ["check"]);
-    expect(c.stdout).toContain("  ~ AGENTS.md — the block under the flow's former name (ai-dev:begin) — update replaces it\n");
-    expect(c.stdout).toContain("  ~ .gitignore — the block under the flow's former name (ai-dev:begin) — update replaces it\n");
-    const blocks = () => ({ agents: read(agents).match(/<!-- [\w-]+:begin/g), gitignore: read(gitignore).match(/^# [\w-]+:begin/gm) });
-    expect(elves(sb, ["update"]).code).toBe(0);
-    expect(blocks()).toEqual({ agents: ["<!-- elves:begin"], gitignore: ["# elves:begin"] });
-    expect(read(agents)).toContain("Shared rules — `~/.agents/elves/AGENTS.md`");
-    expect(read(agents)).toEndWith(`-->\n\n${own}`);
-    expect(read(gitignore)).toStartWith("node_modules/\n.agents/\n\n# elves:begin");
-    expect(read(gitignore)).toContain("\n!/.agents/elves.json\n!/.agents/slot.sh\n");
-    expect(read(gitignore)).not.toContain("ai-dev");
-    expect(elves(sb, ["check"]).code).toBe(0);
-    // прежний блок рядом с новым — его остатки: update оставляет один
-    writeFileSync(agents, read(agents).replace(own, `<!-- ai-dev:begin — прежний -->\nстарая ссылка\n<!-- ai-dev:end -->\n\n${own}`));
-    expect(elves(sb, ["check"]).code).toBe(1);
-    expect(elves(sb, ["update"]).code).toBe(0);
-    expect(blocks().agents).toEqual(["<!-- elves:begin"]);
-    expect(read(agents)).toEndWith(`-->\n\n${own}`);
-  });
-
-  it("update -g переносит ~/.config/ai-dev в ~/.config/elves", () => {
+  it("update -g снимает симлинки ~/.config/ai-dev и ~/.claude/est — каталог под этим именем остаётся", () => {
     mkdirSync(path.join(sb.home, ".claude"));
     elves(sb, ["install", "-g"]);
-    toFormer(sb.home);
-    const [from, to] = [path.join(sb.home, ".config/ai-dev"), path.join(sb.home, ".config/elves")];
-    writeTree(from, { "repos.json": '{ "acme/shop": {} }\n', "sessions/s-1": "acme/shop#42\n" });
-    const config = snapshot(from);
+    const config = path.join(sb.home, ".config/elves");
+    writeTree(config, { "repos.json": '{ "acme/shop": {} }\n' });
+    const before = snapshot(config);
+    symlinkSync("elves", path.join(sb.home, ".config/ai-dev"));
+    symlinkSync(path.join(sb.home, ".config/ai-dev"), path.join(sb.home, ".claude/est"));
     const c = elves(sb, ["check", "-g"]);
     expect(c.code).toBe(1);
-    expect(c.stdout).toContain(`  ~ ~/.config/ai-dev/ — ${FORMER} to ~/.config/elves\n`);
-    expect(c.stdout).toContain(`  - ~/.agents/ai-dev.json — ${FORMER}\n`);
-    expect(c.stdout).toContain("Update: bunx @miroshnik/elves update -g\n");
+    for (const line of ["  - ~/.config/ai-dev\n", "  - ~/.claude/est\n"]) expect(c.stdout).toContain(line);
     expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(snapshot(to)).toEqual(config);
-    // скрипты прошлых релизов — копии ещё не обновлённых проектов — смотрят в тот же каталог
-    expect(readlinkSync(from)).toBe("elves");
-    expect([gone(sb.home, ".agents/ai-dev.json"), gone(sb.home, ".agents/elves.json")]).toEqual([true, false]);
+    expect([gone(".config/ai-dev"), gone(".claude/est")]).toEqual([true, true]);
+    expect(snapshot(config)).toEqual(before);
     expect(elves(sb, ["check", "-g"])).toMatchObject({ code: 0, stdout: expect.stringContaining("on the machine: up to date") });
+    writeTree(path.join(sb.home, ".claude/est"), { "repos.json": "{}\n" });
     expect(elves(sb, ["update", "-g"]).code).toBe(0);
-    expect(snapshot(to)).toEqual(config);
-  });
-
-  it("~/.config/ai-dev — симлинк на личный чекаут: update -g ставит тот же симлинк ~/.config/elves, переменная — прежняя или новая", () => {
-    mkdirSync(path.join(sb.home, ".claude"));
-    const priv = path.join(sb.tmp, "private");
-    writeTree(priv, { "repos.json": "{}\n" });
-    expect(elves(sb, ["install", "-g"], { env: { ELVES_PRIVATE: priv } }).code).toBe(0);
-    expect(readlinkSync(path.join(sb.home, ".config/elves"))).toBe(priv);
-    rmSync(path.join(sb.home, ".config/elves"));
-    symlinkSync(priv, path.join(sb.home, ".config/ai-dev"));
-    // профиль владельца до переименования — AI_DEV_PRIVATE
-    expect(elves(sb, ["update", "-g"], { env: { AI_DEV_PRIVATE: priv } }).code).toBe(0);
-    expect(readlinkSync(path.join(sb.home, ".config/elves"))).toBe(priv);
-    expect(readlinkSync(path.join(sb.home, ".config/ai-dev"))).toBe("elves");
-    expect(elves(sb, ["check", "-g"], { env: { ELVES_PRIVATE: priv } }).code).toBe(0);
-  });
-
-  it("~/.config/ai-dev и ~/.config/elves оба есть — update -g их не сливает: предупреждение, что сделать; check -g — строка !, код 0", () => {
-    mkdirSync(path.join(sb.home, ".claude"));
-    elves(sb, ["install", "-g"]);
-    writeTree(path.join(sb.home, ".config/ai-dev"), { "repos.json": "{}\n" });
-    writeTree(path.join(sb.home, ".config/elves"), { "prices.json": "{}\n" });
-    const c = elves(sb, ["check", "-g"]);
-    expect(c.code).toBe(0);
-    expect(c.stdout).toContain(
-      "  ! ~/.config/ai-dev — ~/.config/ai-dev and ~/.config/elves both exist — move what ~/.config/ai-dev has into ~/.config/elves yourself and replace it with a symlink: ln -sfn elves ~/.config/ai-dev\n",
-    );
-    const u = elves(sb, ["update", "-g"]);
-    expect(u.code).toBe(0);
-    expect(u.stderr).toContain("!! ~/.config/ai-dev and ~/.config/elves both exist");
-    expect(snapshot(path.join(sb.home, ".config"))).toEqual({ "ai-dev/": "", "ai-dev/repos.json": "{}\n", "elves/": "", "elves/prices.json": "{}\n" });
-  });
-
-  it("скрипты читают старый конфиг, пока его не перенёс update", () => {
-    elves(sb, ["install", "--auto", "--lang", "ru"]);
-    toFormer(sb.proj);
-    mkdirSync(path.join(sb.home, ".config/ai-dev"), { recursive: true });
-    // установщик: режим и язык проекта — из прежнего манифеста
-    expect(elves(sb, ["check"]).stdout).toEndWith("  tasks: entirely by itself\n  language: ru\n");
-    // скилл github: язык названий проекта
-    expect(locale.projectLanguage(sb.proj)).toBe("ru");
-    // скилл est: каталог личной конфигурации машины до update -g — прежний
-    const est = path.join(REPO, "skills/est/scripts/est.ts");
-    const dir = spawnSync(process.execPath, ["--no-env-file", "-e", `const { EST_DIR } = await import(${JSON.stringify(est)}); console.log(EST_DIR)`], { cwd: sb.proj, env: sb.env, encoding: "utf8" });
-    expect(dir.stdout.trim()).toBe(path.join(sb.home, ".config/ai-dev"));
-  });
-
-  it("check -g называет переменные пользователя под прежним именем флоу — с новым именем; код не меняется", () => {
-    mkdirSync(path.join(sb.home, ".claude"));
-    elves(sb, ["install", "-g"]);
-    const r = elves(sb, ["check", "-g"], { env: { AI_DEV_CONFIG_DIR: path.join(sb.tmp, "config"), AI_DEV_PROXY_PORT: "8080" } });
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("  AI_DEV_CONFIG_DIR: the flow's former name — rename it to ELVES_CONFIG_DIR where it is set (the shell profile)\n");
-    expect(r.stdout).toContain("  AI_DEV_PROXY_PORT: the flow's former name — rename it to ELVES_PROXY_PORT where it is set (the shell profile)\n");
-    expect(elves(sb, ["check", "-g"]).stdout).not.toContain("former name");
-  });
-
-  it("прокси прошлого релиза работает под прежним именем — check -g называет его и команду, которая его заменит", () => {
-    mkdirSync(path.join(sb.home, ".claude"));
-    elves(sb, ["install", "-g"]);
-    // docker песочницы: работает только проект Compose прежнего прокси
-    const script = ["#!/bin/sh", 'case "$*" in *com.docker.compose.project=ai-dev-proxy*) echo running ;; *) echo exited ;; esac'].join("\n");
-    writeFileSync(path.join(sb.bin, "docker"), script + "\n", { mode: 0o755 });
-    const r = elves(sb, ["check", "-g"]);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("  proxy *.localhost: running under the flow's former name (ai-dev-proxy) — replace it: bun --no-env-file ~/.agents/skills/task-env/scripts/task-env.ts proxy up\n");
+    expect(snapshot(path.join(sb.home, ".claude/est"))).toEqual({ "repos.json": "{}\n" });
+    expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 });
 

@@ -45,7 +45,6 @@ async function readers(): Promise<Reader[]> {
 }
 
 const NEW = ".agents/elves.json";
-const OLD = ".agents/ai-dev.json";
 
 /** Строка таблицы: файлы манифеста в корне и ответ — файл, поля, ошибка. */
 interface Row {
@@ -58,10 +57,7 @@ interface Row {
 const TABLE: Row[] = [
   { files: {}, want: "нет файла · {}", why: "манифеста нет" },
   { files: { [NEW]: '{"language":"en","batch":true}' }, want: `${NEW} · {"language":"en","batch":true}`, why: "манифест установки" },
-  { files: { [OLD]: '{"language":"ru"}' }, want: `${OLD} · {"language":"ru"}`, why: "установка до переименования — прежний манифест до update" },
-  { files: { [NEW]: '{"language":"en"}', [OLD]: '{"language":"ru"}' }, want: `${NEW} · {"language":"en"}`, why: "есть оба — новый" },
   { files: { [NEW]: "{" }, want: `${NEW} · {} · ошибка`, why: "не JSON" },
-  { files: { [NEW]: "{", [OLD]: '{"language":"ru"}' }, want: `${NEW} · {} · ошибка`, why: "битый новый — прежний за него не отвечает" },
   { files: { [NEW]: "null" }, want: `${NEW} · {} · ошибка`, why: "JSON, но не объект" },
   { files: { [NEW]: "[1]" }, want: `${NEW} · {} · ошибка`, why: "массив — не объект" },
 ];
@@ -87,7 +83,7 @@ function mismatches(read: Read): string[] {
   });
 }
 
-// копии до стандарта: batchProject github (#648) не знал прежнего имени, readManifest установщика отдавал JSON как есть
+// копии до стандарта: batchProject github (#648) не называл ошибку, readManifest установщика отдавал JSON как есть
 const parse = (root: string, file: string) => JSON.parse(readFileSync(path.join(root, file), "utf8"));
 const newOnly: Read = (root) => {
   if (!existsSync(path.join(root, NEW))) return { file: null, fields: {} };
@@ -98,7 +94,7 @@ const newOnly: Read = (root) => {
   }
 };
 const asIs: Read = (root) => {
-  const file = [NEW, OLD].find((f) => existsSync(path.join(root, f)));
+  const file = existsSync(path.join(root, NEW)) ? NEW : undefined;
   try {
     return { file: file ?? null, fields: file ? parse(root, file) : {} };
   } catch {
@@ -108,7 +104,7 @@ const asIs: Read = (root) => {
 
 const registry = await readers();
 
-describe("Манифест проекта читает одна функция: .agents/elves.json, до update — .agents/ai-dev.json; не объект — без полей, с ошибкой", () => {
+describe("Манифест проекта читает одна функция: .agents/elves.json; не объект — без полей, с ошибкой", () => {
   invariant(it, {
     registry: "скрипты скиллов с ответом на «что в манифесте проекта»",
     items: registry,
@@ -120,28 +116,18 @@ describe("Манифест проекта читает одна функция: 
       if (wrong.length) throw new Error(`${r.file}: manifestOf расходится с правилом:\n${wrong.join("\n")}`);
     },
     violator: [
-      { name: "batchProject до стандарта: без прежнего имени манифеста", item: { file: "skills/github/scripts/github.ts batchProject", read: newOnly } },
+      { name: "batchProject до стандарта: битый и не объект — без ошибки", item: { file: "skills/github/scripts/github.ts batchProject", read: newOnly } },
       { name: "readManifest установщика до стандарта: JSON как есть, без ошибки", item: { file: "bin/elves.ts readManifest", read: asIs } },
     ],
   });
 
-  it("таблица ловит расхождения копий до стандарта: прежний манифест у batchProject, не объект и битый файл у readManifest", () => {
-    expect([...mismatches(newOnly), ...mismatches(asIs)].map((m) => m.slice(0, m.indexOf(": ")))).toEqual([
-      `${OLD} {"language":"ru"}`,
-      `${NEW} {`,
-      `${NEW} { + ${OLD} {"language":"ru"}`,
-      `${NEW} null`,
-      `${NEW} [1]`,
-      `${NEW} {`,
-      `${NEW} { + ${OLD} {"language":"ru"}`,
-      `${NEW} null`,
-      `${NEW} [1]`,
-    ]);
+  it("таблица ловит расхождения копий до стандарта: не объект и битый файл у batchProject и readManifest", () => {
+    expect([...mismatches(newOnly), ...mismatches(asIs)].map((m) => m.slice(0, m.indexOf(": ")))).toEqual([`${NEW} {`, `${NEW} null`, `${NEW} [1]`, `${NEW} {`, `${NEW} null`, `${NEW} [1]`]);
   });
 });
 
 // файл манифеста в коде: имя строкой (целиком или концом пути) и константы установщика и копий
-const NAMES = /["'`/](?:elves|ai-dev)\.json["'`]|\b(?:MANIFESTS?|FORMER_MANIFEST)\b|\bFORMER\.manifest\b/;
+const NAMES = /["'`/]elves\.json["'`]|\bMANIFESTS?\b/;
 
 /** Код файла без тел `manifestOf` — там разбор на своём месте; строки — на прежних номерах. */
 function outsideReader(f: SourceFile): string {
@@ -176,7 +162,7 @@ const ownParses = (f: SourceFile) => declarations(outsideReader(f)).filter((d) =
 describe("Скрипт флоу не разбирает манифест мимо manifestOf", () => {
   invariant(it, {
     registry: "скрипты флоу, которые называют файл манифеста",
-    items: sources(ROOT, ["bin", "skills"]).filter((f) => /elves\.json|ai-dev\.json|MANIFEST/.test(f.text) && NAMES.test(codeOnly(f.text, f.file))),
+    items: sources(ROOT, ["bin", "skills"]).filter((f) => /elves\.json|MANIFEST/.test(f.text) && NAMES.test(codeOnly(f.text, f.file))),
     key: (f) => f.file,
     includes: [OWNER, COPY, "bin/elves.ts"],
     name: (f) => `${f.file}: манифест разбирает только manifestOf`,
@@ -189,7 +175,7 @@ describe("Скрипт флоу не разбирает манифест мим�
         name: "установщик разбирает манифест сам",
         item: source(
           "bin/elves.ts",
-          'function readManifest(root: string): Manifest {\n  const file = [MANIFEST, FORMER.manifest].map((f) => path.join(root, f)).find((f) => existsSync(f));\n  try {\n    return file ? JSON.parse(readFileSync(file, "utf8")) : {};\n  } catch {\n    return {};\n  }\n}\n',
+          'function readManifest(root: string): Manifest {\n  const file = path.join(root, MANIFEST);\n  try {\n    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};\n  } catch {\n    return {};\n  }\n}\n',
         ),
       },
       {

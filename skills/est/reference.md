@@ -10,9 +10,7 @@ linking details. What to run and when — `SKILL.md`; syntax and flags —
 
 The repository registry (which ones exist, where they live locally, the project
 number) is a personal file `~/.config/elves/repos.json` (or
-`$ELVES_CONFIG_DIR/repos.json`; the old `~/.claude/est` moves by itself; until
-`update -g` moves it, the former `~/.config/ai-dev`), not
-part of the skill; the format is described at the top of `est.ts`. Without a
+`$ELVES_CONFIG_DIR/repos.json`), not part of the skill; the format is described at the top of `est.ts`. Without a
 registry entry the script determines the repo from `git remote origin`, and the
 project from its link to the repository.
 

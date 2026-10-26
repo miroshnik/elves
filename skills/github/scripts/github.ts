@@ -36,7 +36,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -128,11 +128,6 @@ export const DEFAULT_TEMPLATE = "miroshnik/6";
  * require the branch to be up to date (strict is off): the next PR's CI shows that two green PRs are incompatible.
  */
 export const RULESET = "elves";
-/**
- * The name `RULESET` had before the flow was renamed to Elves: a repository set up by an earlier fix has its ruleset
- * under it. Check finds it as its own (`RULESET` first), fix renames it with the same edit — not a second ruleset.
- */
-const FORMER_RULESET = "ai-dev";
 /** A required check is green on each of this many last merged PRs with checks. */
 export const STABLE_PRS = 10;
 /** The repository admin role (`repositoryRoleDatabaseId`) bypasses the ruleset: direct push, `gh pr merge --admin`. */
@@ -309,7 +304,6 @@ interface Head {
 }
 interface Ruleset {
   id: string;
-  /** `RULESET`, or `FORMER_RULESET` until fix renames it. */
   name: string;
   enforcement: string;
   include: string[];
@@ -324,7 +318,7 @@ export interface Merge {
   unavailable: string | null;
   /** Active rules with required checks: a ruleset of any level and classic branch protection. */
   rules: { source: string; contexts: string[] }[];
-  /** Our own ruleset — this repository's `RULESET` (otherwise `FORMER_RULESET`), in any state. */
+  /** Our own ruleset — this repository's `RULESET`, in any state. */
   own: Ruleset | null;
   /** The last `STABLE_PRS` merged PRs with checks, oldest to newest. */
   merged: Head[];
@@ -906,7 +900,7 @@ function loadMerge(io: Io, slug: string): Merge | null {
   });
   if (bp?.requiredStatusCheckContexts?.length) rules.push({ source: "branch protection", contexts: bp.requiredStatusCheckContexts });
   const sets: Any[] = r.rulesets?.nodes ?? [];
-  const o = sets.find((x) => x?.name === RULESET) ?? sets.find((x) => x?.name === FORMER_RULESET);
+  const o = sets.find((x) => x?.name === RULESET);
   const osc = o ? ((o.rules?.nodes ?? []).map(statusChecks).find(Boolean) ?? { strict: false, contexts: [] }) : null;
   return {
     branch: b.name,
@@ -1437,11 +1431,8 @@ function analyzeMerge(m: Merge, repositoryId: string, merge: ((text: string, ...
     return merge(`no rule with required checks: a branch with a red check can be merged`, step);
   }
   const want = [...new Set([...own.contexts.filter((c) => !gone(c)), ...stable])].sort();
-  // the input carries `name: RULESET` — the same edit renames a ruleset under the former name
-  const named = own.name === RULESET ? q(RULESET) : `${q(own.name)} → ${q(RULESET)}`;
-  const step: Step = { kind: "api", text: `ruleset ${named}: default branch, required ${list(want) || "—"}, bypass — admin`, mutations: [{ op: "UpdateRuleset", input: { repositoryRulesetId: own.id, ...rulesetInput(want) } }] };
+  const step: Step = { kind: "api", text: `ruleset ${q(RULESET)}: default branch, required ${list(want) || "—"}, bypass — admin`, mutations: [{ op: "UpdateRuleset", input: { repositoryRulesetId: own.id, ...rulesetInput(want) } }] };
   const why: string[] = [];
-  if (own.name !== RULESET) why.push(`ruleset ${q(own.name)} — the flow's former name: fix renames it to ${q(RULESET)}`);
   if (own.enforcement !== "ACTIVE") why.push(`ruleset ${q(own.name)} — ${own.enforcement}, not in effect`);
   if (!own.include.includes("~DEFAULT_BRANCH")) why.push(`ruleset ${q(own.name)} is not on the default branch: ${own.include.join(", ") || "—"}`);
   if (own.strict) why.push(`ruleset ${q(own.name)}: strict is on — GitHub won't merge a branch that fell behind`);
@@ -1734,20 +1725,11 @@ function ensureItem(io: Io, ctx: TaskCtx, i: Pick<Issue, "id" | "number" | "item
 /**
  * The personal configuration directory — `ELVES_CONFIG_DIR`, otherwise `~/.config/elves`: one expression for all
  * scripts (the Elves `scripts#config-dir` standard) rather than a shared module — github imports no other skill
- * (tests/standards/scripts/skill-imports). The flow's former names are read for the transition: `AI_DEV_CONFIG_DIR` — a
- * variable the owner may have set in the profile; `~/.config/ai-dev` — the directory of a machine before `update -g`
- * moved it, while the new one doesn't exist; a clean machine gets the new one. est
- * moves the old `~/.claude/est` into the directory only while the directory doesn't exist (est.ts, `ensureConfigDir`):
- * creating it here first would leave est without its registry and prices. Before the move the configuration is the
- * old directory: the pins move along with it.
+ * (tests/standards/scripts/skill-imports).
  */
 function configDir(env: Io["env"]): string {
   const home = env["HOME"] || os.homedir();
-  const dir = env["ELVES_CONFIG_DIR"] || env["AI_DEV_CONFIG_DIR"] || [path.join(home, ".config", "elves"), path.join(home, ".config", "ai-dev")].find((d) => existsSync(d)) || path.join(home, ".config", "elves");
-  if (existsSync(dir)) return dir;
-  const legacy = path.join(home, ".claude", "est");
-  // lstat: a symlink in place of the old directory — the move has already happened
-  return lstatSync(legacy, { throwIfNoEntry: false })?.isDirectory() ? legacy : dir;
+  return env["ELVES_CONFIG_DIR"] || path.join(home, ".config", "elves");
 }
 
 /** The session pin file — `<config directory>/sessions/<session id>`; the session isn't identified — null. */

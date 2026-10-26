@@ -33,10 +33,7 @@
  * another. The defaults live only here: the script passes both to the compose file explicitly (`composeEnv`), the file
  * has none (`${…:?}`); `check -g` of the installer imports `proxyName`.
  *
- * The rename of the flow to Elves renamed the proxy: `FORMER_PROXY` → `PROXY`. `proxy up` takes the former proxy's
- * place — removes its container, which holds the port — but not its network: the proxy is in its own network only, and
- * `check` holds a hand-written former network to the rule of any external one (#564). A task stack's service names the
- * proxy's network by a label (`proxyLabels`).
+ * The proxy is in its own network only. A task stack's service names the proxy's network by a label (`proxyLabels`).
  *
  * The proxy's API (Traefik `/api/http/routers`) answers on its port by the host `<name>.localhost`: `proxyHosts` reads
  * the hosts of its routes, `taskAddress` tells a task's address among them — the dashboard shows a task's services by
@@ -111,8 +108,7 @@ Examples:
   "proxy up": `task-env proxy up
 
 Starts the machine's proxy (Traefik) or brings it to the skill's compose file and waits until it is healthy; port 80 busy
-— another one in ELVES_PROXY_PORT. The proxy before the rename (ai-dev-proxy) holds the port — its container removed;
-stacks brought up before the rename get their addresses back by task-env up.
+— another one in ELVES_PROXY_PORT.
 
 Examples:
   task-env proxy up`,
@@ -160,30 +156,11 @@ export const ENTRY_POINT = "web";
 /** The proxy's default name: the installer and other scripts import it; the compose file has no default of its own. */
 export const PROXY = "elves-proxy";
 
-/**
- * The proxy's default name before the rename of the flow (ai-dev → Elves), read for the transition (#545): `proxy up`
- * removes its container, which holds the port, `check -g` of the installer names a proxy left under this name. Its
- * network the proxy no longer joins (#564).
- */
-export const FORMER_PROXY = "ai-dev-proxy";
-
 /** The proxy's name — its Compose project and network; `check -g` of the installer looks for it by this function. */
 export const proxyName = (env: NodeJS.ProcessEnv = process.env) => env.ELVES_PROXY || PROXY;
 
-/**
- * The former proxy `proxy up` replaces: of the default proxy — `FORMER_PROXY`, of a proxy with another name (a test's
- * one) — `<name>-former`, so a test's proxy never touches the machine's former proxy.
- */
-export const formerProxyName = (env: NodeJS.ProcessEnv = process.env) => {
-  const name = proxyName(env);
-  return name === PROXY ? FORMER_PROXY : `${name}-former`;
-};
-
-/**
- * The proxy's port on 127.0.0.1. AI_DEV_PROXY_PORT — the variable before the rename (#545): a profile set it when port
- * 80 was busy, and the proxy keeps that port until the profile is edited.
- */
-export const proxyPort = (env: NodeJS.ProcessEnv = process.env) => env.ELVES_PROXY_PORT || env.AI_DEV_PROXY_PORT || "80";
+/** The proxy's port on 127.0.0.1. */
+export const proxyPort = (env: NodeJS.ProcessEnv = process.env) => env.ELVES_PROXY_PORT || "80";
 
 /**
  * The environment of the proxy's compose file: the name and the port are passed explicitly — the file has no defaults
@@ -371,29 +348,14 @@ function status(env: NodeJS.ProcessEnv): Result {
   return { code: 0, out: `proxy ${name}: running — ${addressUrl("<service>.<N>.<project>.localhost", proxyPort(env))} on 127.0.0.1, routes by container labels (network ${name})` };
 }
 
-/**
- * `proxy up`: the proxy brought to the compose file and healthy, in its own network only. The proxy before the rename
- * (#545) holds the port: its container is removed once the new one is created (a failed pull leaves the former proxy
- * serving). Its network the proxy doesn't join (#564): stacks left only in it get their addresses back by `up`.
- */
+/** `proxy up`: the proxy brought to the compose file and healthy, in its own network only. */
 function up(env: NodeJS.ProcessEnv): Result {
-  const name = proxyName(env);
-  const former = formerProxyName(env);
-  const out: string[] = [];
-  const fail = (reason: string) => ({ code: 2, out: [...out, `proxy ${name}: not started — ${reason}${hint(reason, env)}`].join("\n") });
-  const old = proxyContainers(former, "{{.ID}}", env);
-  if (typeof old === "string") return fail(old);
-  if (old.length) {
-    const created = compose(["up", "--no-start", "--quiet-pull"], env);
-    if (created.error || created.status !== 0) return fail(why(created));
-    const rm = spawnSync("docker", ["rm", "--force", ...old], { encoding: "utf8", env });
-    if (rm.error || rm.status !== 0) return fail(`the proxy before the rename, ${former}, not removed: ${why(rm)}`);
-    out.push(`proxy ${former}: removed — the proxy before the rename; ${name} takes its port`);
-  }
   const r = compose(["up", "--detach", "--wait", "--quiet-pull"], env);
-  if (r.error || r.status !== 0) return fail(why(r));
-  const s = status(env);
-  return { code: s.code, out: [...out, s.out].join("\n") };
+  if (r.error || r.status !== 0) {
+    const reason = why(r);
+    return { code: 2, out: `proxy ${proxyName(env)}: not started — ${reason}${hint(reason, env)}` };
+  }
+  return status(env);
 }
 
 function down(env: NodeJS.ProcessEnv): Result {
@@ -650,14 +612,12 @@ export function stackOf(project: string, task: number | undefined, e2e = false):
 const varOf = (service: string, suffix: string | number) => `TASK_ENV_${service.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_${suffix}`;
 
 /**
- * The project's settings file at `root`: `.agents/elves.json`; an install from before the rename has
- * `.agents/ai-dev.json` until `update` moves it — read then (#545). Not JSON or not an object — no fields, `error` says
- * why. A copy of `manifestOf` of the github skill: task-env imports no other skill (tests/standards/scripts/skill-imports), the
+ * The project's settings file at `root`: `.agents/elves.json`. Not JSON or not an object — no fields, `error` says why. A copy of `manifestOf` of the github skill: task-env imports no other skill (tests/standards/scripts/skill-imports), the
  * copy answers by the same table (tests/standards/scripts/project-manifest).
  */
 export function manifestOf(root: string): { file: string | null; fields: Record<string, unknown>; error?: string } {
-  const file = [".agents/elves.json", ".agents/ai-dev.json"].find((f) => existsSync(path.join(root, f)));
-  if (!file) return { file: null, fields: {} };
+  const file = ".agents/elves.json";
+  if (!existsSync(path.join(root, file))) return { file: null, fields: {} };
   try {
     const value: unknown = JSON.parse(readFileSync(path.join(root, file), "utf8"));
     return value && typeof value === "object" && !Array.isArray(value) ? { file, fields: value as Record<string, unknown> } : { file, fields: {}, error: "not a JSON object" };

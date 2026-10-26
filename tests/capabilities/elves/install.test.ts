@@ -150,10 +150,10 @@ describe("В проект — тонкий флоу: версия пакета, 
   /** Блок прошлой версии — по-русски; маркеры begin и end у него те же: по ним установка его находит и заменяет. */
   it("блок прошлой версии по-русски в AGENTS.md проекта установка заменяет английским, а не ставит второй", () => {
     const old = [
-      "<!-- ai-dev:begin — ставит `npx -y github:miroshnik/ai-dev install`, руками не править -->",
-      "Общие правила — `.agents/ai-dev/AGENTS.md`: прочитай до начала работы (справочники — `.agents/ai-dev/docs/`).",
+      "<!-- elves:begin — ставит `npx -y github:miroshnik/elves install`, руками не править -->",
+      "Общие правила — `.agents/elves/AGENTS.md`: прочитай до начала работы (справочники — `.agents/elves/docs/`).",
       "Скиллы — `.agents/skills/`.",
-      "<!-- ai-dev:end -->",
+      "<!-- elves:end -->",
     ].join("\n");
     writeFileSync(path.join(proj, "AGENTS.md"), `${old}\n\n# Проект\n\nСвои правила.\n`);
     install();
@@ -292,7 +292,7 @@ describe("Файлы флоу не игнорируются git проекта �
 
   /** Шапка блока прошлой версии — по-русски; маркеры begin и end у него те же: по ним установка его находит. */
   it("блок исключений копии прошлой версии с шапкой по-русски установка убирает — файлам тонкого проекта исключения не нужны", () => {
-    const old = ["# ai-dev:begin — файлы флоу, которые иначе игнорирует git; ставит `npx -y github:miroshnik/ai-dev install`, руками не править", "!/.agents/ai-dev/claude/CLAUDE.md", "# ai-dev:end"].join("\n");
+    const old = ["# elves:begin — файлы флоу, которые иначе игнорирует git; ставит `npx -y github:miroshnik/elves install`, руками не править", "!/.agents/elves/claude/CLAUDE.md", "# elves:end"].join("\n");
     writeTree(proj, { ".gitignore": `node_modules/\nCLAUDE.md\n\n${old}\n` });
     expect(install().code).toBe(0);
     expect(gitignore()).toBe("node_modules/\nCLAUDE.md\n");
@@ -569,23 +569,6 @@ describe("Проверки проекта идут очередью машины
   });
 
   /**
-   * До переименования флоу (#545) переменные очереди назывались AI_DEV_SLOT и AI_DEV_SLOT_CPUS: slot пока экспортирует
-   * и их, поэтому turbo.json с прежними именами работает, но конфиг раннера, переведённый на новое имя, его не получит.
-   * Готовая строка добавляет новые имена и оставляет прежние — их ещё читают конфиги раннеров проекта.
-   */
-  it("turbo.json пропускает переменные очереди только под прежними именами флоу — install и check называют их и строку с новыми", () => {
-    writeTree(proj, {
-      "package.json": JSON.stringify({ scripts: { test: "turbo run test" } }),
-      "turbo.json": `{ "globalPassThroughEnv": ["AI_DEV_SLOT", "AI_DEV_SLOT_CPUS"] }\n`,
-    });
-    const line = `! turbo.json — turbo.json passes the queue variables only under the flow's former names AI_DEV_SLOT, AI_DEV_SLOT_CPUS — runner configs and nested scripts in slot that read ELVES_SLOT, ELVES_SLOT_CPUS don't get them — put at its root "globalPassThroughEnv": ["AI_DEV_SLOT", "AI_DEV_SLOT_CPUS", "ELVES_SLOT", "ELVES_SLOT_CPUS"]`;
-    expect(install().stderr).toContain(`!${line}\n`);
-    const c = elves(sb, ["check"]);
-    expect(c.code).toBe(0);
-    expect(c.stdout).toContain(`  ${line}\n`);
-  });
-
-  /**
    * Подъём стека — тяжёлая работа машины (capability `task-env#stacks`): `task-env up` ждёт очередь до здоровья
    * контейнеров, а свой `docker compose up` скрипта — нет. В шим его не обернуть: шим держит слот, пока идёт скрипт, а
    * `docker compose up` без `-d` идёт до Ctrl+C. Поэтому install и check называют скрипт с заменой, отставанием это не
@@ -698,7 +681,7 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(readlinkSync(path.join(home, ".claude/skills/spec"))).toBe("../../.agents/skills/spec");
     expect(read(path.join(home, ".claude/settings.json"))).toContain("check --hook");
     // агентов, которых на машине нет, установка не заводит
-    for (const p of [".agents/ai-dev", ".codex", ".gemini", ".copilot", ".config/opencode", ".config/amp"]) expect(gone(path.join(home, p))).toBe(true);
+    for (const p of [".codex", ".gemini", ".copilot", ".config/opencode", ".config/amp"]) expect(gone(path.join(home, p))).toBe(true);
     expect(existsSync(path.join(proj, ".agents"))).toBe(false);
   });
 
@@ -716,22 +699,6 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(r.stdout).toContain("~/.gemini/GEMINI.md — the user's own rules: left as is; the canon — ~/.agents/elves/AGENTS.md\n");
     expect(install(["-g"]).code).toBe(0);
     expect(read(path.join(home, ".gemini/GEMINI.md"))).toBe("мои правила\n");
-  });
-
-  it("правила прошлой установки под прежним именем — ~/.agents/ai-dev, симлинки ~/.claude/rules/ai-dev*.md и файлов агентов на него — install -g переносит на новые имена; свой файл правил агента остаётся", () => {
-    writeTree(home, { ".agents/ai-dev/AGENTS.md": "старый канон\n", ".agents/ai-dev/claude/CLAUDE.md": "старый\n", ".gemini/GEMINI.md": "мои правила\n" });
-    mkdirSync(path.join(home, ".claude/rules"), { recursive: true });
-    symlinkSync("../../.agents/ai-dev/AGENTS.md", path.join(home, ".claude/rules/ai-dev.md"));
-    symlinkSync("../../.agents/ai-dev/claude/CLAUDE.md", path.join(home, ".claude/rules/ai-dev-claude.md"));
-    mkdirSync(path.join(home, ".codex"));
-    symlinkSync("../.agents/ai-dev/AGENTS.md", path.join(home, ".codex/AGENTS.md"));
-    expect(install(["-g"]).code).toBe(0);
-    for (const p of [".agents/ai-dev", ".claude/rules/ai-dev.md", ".claude/rules/ai-dev-claude.md"]) expect(gone(path.join(home, p))).toBe(true);
-    expect(read(path.join(home, ".claude/rules/elves.md"))).toBe(read(path.join(REPO, "AGENTS.md")));
-    expect(read(path.join(home, ".claude/rules/elves-claude.md"))).toBe(read(path.join(REPO, "claude/CLAUDE.md")));
-    expect(readlinkSync(path.join(home, ".codex/AGENTS.md"))).toBe("../.agents/elves/AGENTS.md");
-    expect(read(path.join(home, ".gemini/GEMINI.md"))).toBe("мои правила\n");
-    expect(read(path.join(home, ".agents/elves.json"))).toContain('"skills"');
   });
 
   /**
@@ -766,7 +733,7 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(read(path.join(home, ".claude/CLAUDE.md"))).toBe("мои заметки\n");
   });
 
-  // клон — копия пакета в песочнице: установка --link правит origin клона (переименование #544), настоящий не трогаем
+  // клон — копия пакета в песочнице, настоящий не трогаем
   it("--link из клона — канон и скиллы машины — симлинки на клон, правка в клоне видна сразу; путь клона — в ~/.agents/elves.json", () => {
     mkdirSync(path.join(home, ".claude"));
     const clone = elvesPackage(path.join(tmp, "clone"));
@@ -776,7 +743,6 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(realpathSync(path.join(home, ".claude/rules/elves-claude.md"))).toBe(realpathSync(path.join(clone.dir, "claude/CLAUDE.md")));
     expect(realpathSync(path.join(home, ".agents/skills/spec"))).toBe(realpathSync(path.join(clone.dir, "skills/spec")));
     expect(realpathSync(path.join(home, ".claude/skills/spec"))).toBe(realpathSync(path.join(clone.dir, "skills/spec")));
-    expect(gone(path.join(home, ".agents/ai-dev"))).toBe(true);
     expect(realpathSync(JSON.parse(read(path.join(home, ".agents/elves.json"))).clone)).toBe(realpathSync(clone.dir));
     writeFileSync(path.join(clone.dir, "AGENTS.md"), "правка в клоне\n");
     expect(read(path.join(home, ".claude/rules/elves.md"))).toBe("правка в клоне\n");
@@ -832,7 +798,7 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
 
   /** Хук прошлой версии — с запасным текстом по-русски: установка узнаёт свой хук по команде `check --hook`. */
   it("хук прошлой версии с запасным текстом по-русски install -g заменяет, а не ставит второй", () => {
-    const command = 'npx -y --loglevel=error github:miroshnik/ai-dev check --hook 2>&1 || echo "ai-dev check недоступен (код $?): работай по текущему флоу и скажи об этом"';
+    const command = 'npx -y --loglevel=error github:miroshnik/elves check --hook 2>&1 || echo "elves check недоступен (код $?): работай по текущему флоу и скажи об этом"';
     const old = { matcher: "startup|resume|clear", hooks: [{ type: "command", command, timeout: 60 }] };
     writeTree(home, { ".claude/settings.json": JSON.stringify({ hooks: { SessionStart: [old] } }) });
     expect(install(["-g"]).code).toBe(0);
@@ -1139,12 +1105,12 @@ describe("Задача целиком без спроса — настройка
   });
 
   /**
-   * Пакет — `@miroshnik/elves` (#556), до него назывался по репозиторию: `elves`, а до переименования в Elves (#544) —
-   * `ai-dev`. Клон или ветка, ещё не получившие новое имя, — тот же клон: флоу в него не ставится, check не зовёт его
+   * Пакет — `@miroshnik/elves` (#556), до него назывался по репозиторию: `elves`. Клон или ветка, ещё не получившие
+   * новое имя, — тот же клон: флоу в него не ставится, check не зовёт его
    * отставшим.
    */
-  it("клон со старым именем пакета — elves или ai-dev — узнаётся как клон", () => {
-    for (const name of ["elves", "ai-dev"]) {
+  it("клон со старым именем пакета — elves — узнаётся как клон", () => {
+    for (const name of ["elves"]) {
       const clone = bareClone(path.join(tmp, `clone-${name}`), name);
       expect(install(["--auto", "--lang", "ru"], clone).code).toBe(0);
       expect(manifest(clone)).toEqual({ auto: true, language: "ru" });

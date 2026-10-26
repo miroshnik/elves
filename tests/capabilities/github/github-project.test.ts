@@ -32,17 +32,13 @@ const temp: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of temp.splice(0)) cleanup();
 });
-/**
- * Чекаут проекта во временном каталоге: манифест `.agents/elves.json` с этим содержимым (null — без манифеста);
- * `former` — ещё и прежний `.agents/ai-dev.json`, как у установки до переименования флоу, пока её не перенёс update.
- */
-function checkout(manifest: string | null, former: string | null = null): string {
+/** Чекаут проекта во временном каталоге: манифест `.agents/elves.json` с этим содержимым (null — без манифеста). */
+function checkout(manifest: string | null): string {
   const { dir, cleanup } = tmpDir();
   temp.push(cleanup);
   mkdirSync(path.join(dir, ".git"));
   mkdirSync(path.join(dir, ".agents"));
   if (manifest !== null) writeFileSync(path.join(dir, ".agents/elves.json"), manifest);
-  if (former !== null) writeFileSync(path.join(dir, ".agents/ai-dev.json"), former);
   return dir;
 }
 const EN = '{ "language": "en" }\n';
@@ -723,24 +719,6 @@ describe("Мерж в основную ветку — только с зелён
     expect(check(g).code).toBe(0);
   });
 
-  it("project check узнаёт ruleset ai-dev своим, project fix переименовывает его в elves", () => {
-    // репозиторий, настроенный fix до переименования флоу: свой ruleset — под прежним именем, в остальном по канону
-    const f = fake();
-    Object.assign(f.merge.rulesets[0]!, { id: "RRS_ai-dev", name: "ai-dev" });
-    const r = check(f);
-    expect(r.code).toBe(1);
-    expect(marks(r.out).Merge).toBe("❌");
-    expect(r.out.split("\n").filter((l) => l.startsWith("   · "))).toEqual(["   · ruleset «ai-dev» — the flow's former name: fix renames it to «elves»"]);
-    const x = fix(f);
-    expect(x.code).toBe(0);
-    // та же правка UpdateRuleset того же ruleset, а не второй рядом
-    expect(ops(f)).toEqual(["UpdateRuleset"]);
-    expect(byOp(f, "UpdateRuleset").map((u) => [u.repositoryRulesetId, u.name])).toEqual([["RRS_ai-dev", "elves"]]);
-    expect(x.out).toContain("+ ruleset «ai-dev» → «elves»: default branch, required «tests», bypass — admin");
-    expect(f.merge.rulesets.map((s) => [s.id, s.name])).toEqual([["RRS_ai-dev", "elves"]]);
-    expect(check(f).code).toBe(0);
-  });
-
   it("у влитых PR нет общего зелёного чека — ➖: обязательным делать нечего", () => {
     const f = bare();
     f.merge.merged = [
@@ -838,7 +816,7 @@ function openIssueId(n: number): string {
 /**
  * Канон проекта — на языке проекта: варианты Status, поля, представления и типы issue называет словарь
  * `skills/github/locales/<язык>.json` по `language` в `.agents/elves.json` чекаута, из которого зовут скрипт (канон,
- * «Language»); пока update не перенёс манифест установки до переименования флоу — в прежнем `.agents/ai-dev.json`. Язык сменили — check показывает расхождение, fix переименовывает с теми же id: значения задач и цель
+ * «Language»). Язык сменили — check показывает расхождение, fix переименовывает с теми же id: значения задач и цель
  * «Item closed» сохраняются (#366, вопрос 1).
  */
 describe("Канон проекта — на языке проекта из .agents/elves.json чекаута", () => {
@@ -880,13 +858,6 @@ describe("Канон проекта — на языке проекта из .age
     const r = check(fake(), REPO, checkout('{ "language": "ru" }\n'));
     expect(r.code).toBe(0);
     expect(r.out).toContain("✅ Status: Бэклог → В работе → Готово");
-  });
-
-  it("до update язык читается из прежнего манифеста .agents/ai-dev.json, а когда есть и .agents/elves.json — из нового", () => {
-    const former = check(fake(), REPO, checkout(null, '{ "language": "ru" }\n'));
-    expect(former.code).toBe(0);
-    expect(former.out).toContain("✅ Status: Бэклог → В работе → Готово");
-    expect(marks(check(fake(), REPO, checkout(EN, '{ "language": "ru" }\n')).out)).toMatchObject({ Status: "❌", Fields: "❌" });
   });
 });
 

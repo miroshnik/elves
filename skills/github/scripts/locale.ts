@@ -4,8 +4,7 @@
  * doesn't depend on them; the installer in `bin/` imports it from its own package.
  *
  * The language is `language` in `.agents/elves.json` of the project root (the nearest directory up with `.git`,
- * otherwise the directory itself), until `update` moves it — in the former manifest (`manifestOf`, the one reader of
- * the manifest): no field or no manifest — `en` for reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names
+ * otherwise the directory itself; `manifestOf`, the one reader of the manifest): no field or no manifest — `en` for reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names
  * are `locales/<language>.json`, the same keys for each language; no dictionary for the language — `en`. Scripts write in the project language and parse the names of any dictionary language (`everyNames`):
  * a project that changed its language and tasks of other repositories are read without knowing their language.
  *
@@ -490,15 +489,14 @@ export interface ManifestRead {
 }
 
 /**
- * The install manifest at `root` — the project root, the home directory for the machine: `.agents/elves.json`, until
- * `update` moves it — the manifest of an install made before the flow was renamed to Elves, `.agents/ai-dev.json`. Not
+ * The install manifest at `root` — the project root, the home directory for the machine: `.agents/elves.json`. Not
  * JSON or not an object — no fields, `error` says why. The one reader of the manifest for the installer and the skills
  * (tests/standards/scripts/project-manifest); task-env imports no other skill (tests/standards/scripts/skill-imports) and keeps a copy
  * that answers by the same table.
  */
 export function manifestOf(root: string): ManifestRead {
-  const file = [".agents/elves.json", ".agents/ai-dev.json"].find((f) => existsSync(path.join(root, f)));
-  if (!file) return { file: null, fields: {} };
+  const file = ".agents/elves.json";
+  if (!existsSync(path.join(root, file))) return { file: null, fields: {} };
   try {
     const value: unknown = JSON.parse(readFileSync(path.join(root, file), "utf8"));
     return value && typeof value === "object" && !Array.isArray(value) ? { file, fields: value as Record<string, unknown> } : { file, fields: {}, error: "not a JSON object" };
@@ -517,8 +515,7 @@ function projectLanguage(dir: string = process.cwd()): string {
 }
 
 /**
- * Why the project language of `dir` is unknown — no manifest at the root of its checkout, under the former name either
- * (`manifestOf`; #681). `projectLanguage` answers `en` then, and reading is right with it — it parses the names of every
+ * Why the project language of `dir` is unknown — no manifest at the root of its checkout (`manifestOf`; #681). `projectLanguage` answers `en` then, and reading is right with it — it parses the names of every
  * dictionary language, — but a script that writes names to GitHub would write a wrong language's names in a project of
  * another one: a fresh worktree of a `ru` project, whose manifest wasn't in git, checked its project against the `en`
  * names. The text — where and what to do, one for the github skill's refusal and the installer's `check`; a manifest —

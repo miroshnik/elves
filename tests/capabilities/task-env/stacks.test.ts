@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
-import { composeEnv, FORMER_PROXY, formerProxyName, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
+import { composeEnv, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
 import { elves, sandbox, type Sandbox } from "../../lib/elves.ts";
 import { packageProject } from "../../lib/npm.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
@@ -192,32 +192,6 @@ describe("task-env check называет каждое нарушение пра
         "",
       ].join("\n"),
     );
-  });
-
-  it("task-env check не выделяет сеть ai-dev-proxy в compose-файле отдельной строкой — это внешняя сеть, как любая другая", () => {
-    // как в примере reference.md до переименования: сеть прокси в compose-файле руками
-    composeFile(
-      [
-        "services:",
-        "  web:",
-        "    image: app",
-        "    networks: [default, ai-dev-proxy]",
-        "  admin:",
-        "    image: app",
-        "    networks: [proxy]",
-        "networks:",
-        "  ai-dev-proxy:",
-        "    external: true",
-        "  proxy:",
-        "    external: true",
-        "    name: ai-dev-proxy",
-        "",
-      ].join("\n"),
-    );
-    const r = composeCheck();
-    expect(r.code).toBe(1);
-    const shared = "external: task stacks share it and reach each other's services; drop external";
-    expect(r.stdout).toBe([`❌ compose.yaml: network ai-dev-proxy (service web) — ${shared}`, `❌ compose.yaml: network proxy (service admin) — ${shared}`, ""].join("\n"));
   });
 
   it("абсолютный путь к коду в volumes и build — нарушение, ~ тоже; относительный путь, именованный том и ресурс машины (сокет Docker, /etc/localtime) — нет", () => {
@@ -499,21 +473,20 @@ describe("Адреса задачи и маршруты прокси — для 
 
   it("значения по умолчанию имени, порта и сети провайдера прокси — только в скрипте: compose-файл без них не собирается, `proxy up` передаёт их сам", () => {
     expect(readFileSync(COMPOSE, "utf8")).not.toMatch(/\$\{ELVES_PROXY\w*:-/);
-    // docker — подставной: пишет в журнал, с какими именем и портом прокси его позвали; контейнер прокси — «running»,
-    // прежнего прокси нет
+    // docker — подставной: пишет в журнал, с какими именем и портом прокси его позвали; контейнер прокси — «running»
     const { dir, cleanup } = tmpDir();
     try {
       const log = path.join(dir, "docker.log");
       const fake = `#!/bin/sh\necho "$ELVES_PROXY $ELVES_PROXY_PORT $1 $2" >> "${log}"\ncase "$*" in *"project=${PROXY} "*) echo running ;; esac\nexit 0\n`;
       writeFileSync(path.join(dir, "docker"), fake, { mode: 0o755 });
-      const up = run("bun", [SCRIPT, "proxy", "up"], { ...process.env, PATH: `${dir}:${process.env.PATH}`, ELVES_PROXY: "", ELVES_PROXY_PORT: "", AI_DEV_PROXY_PORT: "" });
+      const up = run("bun", [SCRIPT, "proxy", "up"], { ...process.env, PATH: `${dir}:${process.env.PATH}`, ELVES_PROXY: "", ELVES_PROXY_PORT: "" });
       expect(exitOf(up), up.stdout + up.stderr).toBe(0);
       expect(readFileSync(log, "utf8")).toContain(`${PROXY} 80 compose -f`);
     } finally {
       cleanup();
     }
     const config = (env: NodeJS.ProcessEnv) => spawnSync("docker", ["compose", "-f", COMPOSE, "config", "--format", "json"], { encoding: "utf8", env });
-    const bare = { ...process.env, ELVES_PROXY: "", ELVES_PROXY_PORT: "", AI_DEV_PROXY_PORT: "" };
+    const bare = { ...process.env, ELVES_PROXY: "", ELVES_PROXY_PORT: "" };
     const none = config(bare);
     expect(exitOf(none)).not.toBe(0);
     expect(none.stderr).toContain("required variable ELVES_PROXY");
@@ -529,70 +502,25 @@ describe("Адреса задачи и маршруты прокси — для 
   });
 });
 
-// ----------------------------------------------------------------------------
-// Переименование ai-dev → Elves: прокси, его переменные и настройки проекта
-// ----------------------------------------------------------------------------
-
-describe("Прокси после переименования — `elves-proxy`; прежние имя, порт и настройки читаются запасными, без срока", () => {
-  it("имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — прежняя AI_DEV_PROXY_PORT из профиля, без обеих — 80", () => {
+describe("Прокси — `elves-proxy` на порту 80; настройки проекта — `.agents/elves.json`", () => {
+  it("имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — 80", () => {
     expect(proxyName({})).toBe("elves-proxy");
     expect(proxyName({ ELVES_PROXY: "other-proxy" })).toBe("other-proxy");
     expect(proxyPort({})).toBe("80");
-    expect(proxyPort({ AI_DEV_PROXY_PORT: "8080" })).toBe("8080");
-    expect(proxyPort({ ELVES_PROXY_PORT: "8081", AI_DEV_PROXY_PORT: "8080" })).toBe("8081");
+    expect(proxyPort({ ELVES_PROXY_PORT: "8081" })).toBe("8081");
   });
 
-  it("прежний прокси — `ai-dev-proxy` только у прокси по умолчанию; у прокси с другим именем — `<имя>-former`: тестовый прокси не трогает прокси машины", () => {
-    expect(formerProxyName({})).toBe(FORMER_PROXY);
-    expect(FORMER_PROXY).toBe("ai-dev-proxy");
-    expect(formerProxyName({ ELVES_PROXY: "elves-proxy-test-1" })).toBe("elves-proxy-test-1-former");
-  });
-
-  /** docker — подставной: прежний прокси есть, новый не создаётся (образ не скачан); журнал — его вызовы. */
-  it("новый прокси не создался — прежний остаётся на месте: его контейнер не удалён, код 2", () => {
+  it("`env.http` — из `.agents/elves.json`; сообщение об ошибке называет файл", () => {
     const { dir, cleanup } = tmpDir();
     try {
-      const log = path.join(dir, "docker.log");
-      const fake = [
-        "#!/bin/sh",
-        `printf '%s\\n' "$*" >> "${log}"`,
-        'case "$*" in',
-        `  "ps --all --filter label=com.docker.compose.project=${FORMER_PROXY} "*) echo f0rmer1d ;;`,
-        '  *"up --no-start"*) echo "Error response from daemon: pull access denied for traefik" >&2; exit 1 ;;',
-        "esac",
-        "",
-      ].join("\n");
-      writeFileSync(path.join(dir, "docker"), fake, { mode: 0o755 });
-      const up = run("bun", [SCRIPT, "proxy", "up"], { ...process.env, PATH: `${dir}:${process.env.PATH}`, ELVES_PROXY: "", ELVES_PROXY_PORT: "", AI_DEV_PROXY_PORT: "" });
-      expect(exitOf(up), up.stdout + up.stderr).toBe(2);
-      expect(up.stderr).toContain(`proxy ${PROXY}: not started — Error response from daemon: pull access denied for traefik`);
-      const made = calls(log);
-      expect(made.some((c) => c.includes("up --no-start"))).toBe(true);
-      expect(made.filter((c) => c.startsWith("rm "))).toEqual([]);
+      expect(httpServices(dir)).toEqual({});
+      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: 8080 } } }) + "\n" });
+      expect(httpServices(dir)).toEqual({ api: 8080 });
+      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: "8080" } } }) + "\n" });
+      expect(httpServices(dir)).toStartWith("env.http of .agents/elves.json: ");
     } finally {
       cleanup();
     }
-  });
-});
-
-describe("Настройки проекта — `.agents/elves.json`; установка до `update` — `.agents/ai-dev.json`", () => {
-  let dir: { dir: string; cleanup: () => void };
-  beforeEach(() => (dir = tmpDir()));
-  afterEach(() => dir.cleanup());
-  const settings = (files: Record<string, unknown>) =>
-    writeTree(dir.dir, Object.fromEntries(Object.entries(files).map(([f, v]) => [f, typeof v === "string" ? v : JSON.stringify(v) + "\n"])));
-
-  it("`env.http` — из `.agents/elves.json`; пока его нет — из `.agents/ai-dev.json`; сообщение об ошибке называет прочитанный файл", () => {
-    expect(httpServices(dir.dir)).toEqual({});
-    settings({ ".agents/ai-dev.json": { env: { http: { web: 3000 } } } });
-    expect(httpServices(dir.dir)).toEqual({ web: 3000 });
-    settings({ ".agents/elves.json": { env: { http: { api: 8080 } } } });
-    expect(httpServices(dir.dir)).toEqual({ api: 8080 });
-    settings({ ".agents/elves.json": { env: { http: { api: "8080" } } } });
-    expect(httpServices(dir.dir)).toStartWith("env.http of .agents/elves.json: ");
-    spawnSync("rm", [path.join(dir.dir, ".agents/elves.json")]);
-    settings({ ".agents/ai-dev.json": "{" });
-    expect(httpServices(dir.dir)).toStartWith(".agents/ai-dev.json: ");
   });
 });
 
@@ -727,7 +655,7 @@ describe("Подъём стека задачи — тяжёлая работа �
   /** Своя очередь теста — в конфигурации и во временном каталоге: прогон самого теста в очереди машины не в счёт. */
   const env = (): NodeJS.ProcessEnv => {
     const e: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_CONFIG_DIR: path.join(project.dir, "config"), TMPDIR: path.join(project.dir, "tmp") };
-    for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "AI_DEV_SLOT", "AI_DEV_SLOT_CPUS", "AI_DEV_CONFIG_DIR", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) delete e[k];
+    for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) delete e[k];
     return e;
   };
   /** Фоном; stdout и stderr — в файлы рядом с журналом, тест читает их по ходу. */

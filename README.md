@@ -199,8 +199,6 @@ An agent's sandbox (Claude Code's Bash) doesn't let bunx write its cache `~/.bun
 
 **Personal configuration** — everything that depends on specific repositories (the registry for `est`, your own model prices, notes) — lives outside the flow, in `~/.config/elves`; another directory — the `ELVES_CONFIG_DIR` variable, read by all skill scripts. `ELVES_PRIVATE=<path>` with `install -g` makes `~/.config/elves` a symlink to a private checkout; with `ELVES_CONFIG_DIR` the symlink isn't needed — the variable points at the checkout itself.
 
-**Before the rename to Elves** an install had the names `ai-dev`: `.agents/ai-dev.json`, `.agents/ai-dev/`, `.claude/rules/ai-dev*.md`, `~/.config/ai-dev`, variables `AI_DEV_*`. `update` and `update -g` move them to the new names with the same contents, the skills' scripts read the former ones until then, and `check` names what is left with how to move it.
-
 </details>
 
 <details>
