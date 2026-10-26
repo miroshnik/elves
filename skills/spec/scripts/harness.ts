@@ -107,9 +107,11 @@ interface Outside {
 
 /**
  * A mark in the element's file — a comment, like `eslint-disable` for lint: `spec-outside(<decision>[/<rule>]): reason`
- * or `spec-exception(<decision>[/<rule>]) #N: reason`. The decision is the decision folder's name (`audit` —
- * `tests/standards/audit`): a file can be an element of registries of different folders, the mark names its own;
- * `rule` is the folder's invariant, without it — all of them.
+ * or `spec-exception(<decision>[/<rule>]) #N: reason`. The decision is a topic or one of its sections (#745): the topic
+ * folder's name (`pages` — `tests/standards/pages`) covers all its sections, a section's name (`routes` —
+ * `pages/routes.test.ts`) only the invariants of that section — the former decision's mark keeps working after the
+ * regrouping. A file can be an element of registries of different folders, the mark names its own; `rule` is the
+ * invariant's, without it — all of them.
  */
 export interface Mark {
   kind: "outside" | "exception";
@@ -447,7 +449,9 @@ function elementMarks<T>(it: It, spec: Invariant<T>, key: (item: T) => string, t
   const out = { outside: [] as Outside[], exceptions: [] as Exception[], skipped: [] as Mark[] };
   const folder = spec.fileOf && callerFolder();
   if (!folder) return out;
-  const decision = path.posix.basename(folder.rel);
+  // a topic's name — all its sections, a section's (the test file's name, as in exceptionsIn) — only its own
+  const topic = path.posix.basename(folder.rel);
+  const section = path.posix.basename(folder.file).split(".")[0]!;
   const byFile = new Map<string, string[]>();
   for (const item of spec.items) {
     const f = spec.fileOf!(item);
@@ -455,6 +459,7 @@ function elementMarks<T>(it: It, spec: Invariant<T>, key: (item: T) => string, t
   }
   const shared: string[] = [];
   const missing: string[] = [];
+  const unknown: string[] = [];
   for (const [file, keys] of byFile) {
     let text: string;
     try {
@@ -467,7 +472,17 @@ function elementMarks<T>(it: It, spec: Invariant<T>, key: (item: T) => string, t
     if (!text.includes("spec-")) continue;
     // an absolute path (built from a root) is shown from the repository root, like other hints
     const shown = path.isAbsolute(file) ? shownPath(file) : file;
-    const mine = marksIn(shown, text).filter((m) => m.decision === decision);
+    const all = marksIn(shown, text);
+    // a name no topic or section has — the mark is taken by nobody and the element silently turns red or stays out
+    const known = all.some((m) => m.decision !== topic && m.decision !== section) ? decisionNames(folder.base) : null;
+    for (const m of all) {
+      if (!known || known.has(m.decision) || m.decision === topic || m.decision === section) continue;
+      const at = `${m.file}:${m.line}`;
+      if (seen.has(`mark\0${at}`)) continue;
+      seen.add(`mark\0${at}`);
+      unknown.push(`${at}: spec-${m.kind}(${m.decision}) — no topic or section of tests/ is named «${m.decision}»: a topic's name takes the file out of all its sections, a section's — out of that section's invariants`);
+    }
+    const mine = all.filter((m) => m.decision === topic || m.decision === section);
     out.skipped.push(...mine.filter((m) => m.rule && m.rule !== spec.rule));
     const marks = mine.filter((m) => !m.rule || m.rule === spec.rule);
     if (!marks.length) continue;
@@ -490,7 +505,32 @@ function elementMarks<T>(it: It, spec: Invariant<T>, key: (item: T) => string, t
       throw new Error(missing.join("\n"));
     });
   }
+  if (unknown.length) {
+    it(locale.fill(localeNames().spec.harness.markNames, { tag }), () => {
+      throw new Error(unknown.join("\n"));
+    });
+  }
   return out;
+}
+
+const decisionNamesAt = new Map<string, Set<string>>();
+
+/**
+ * Names a mark may give in a project (`base` — the directory with `tests/`): topic folders `tests/<kind>/<name>` and
+ * sections — the first part of a test file's name inside them.
+ */
+function decisionNames(base: string): Set<string> {
+  let names = decisionNamesAt.get(base);
+  if (names) return names;
+  names = new Set<string>();
+  for (const f of filesUnder("tests", base)) {
+    if (!/\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/.test(f)) continue;
+    const parts = f.split("/");
+    if (parts.length > 3) names.add(parts[2]!);
+    names.add(path.posix.basename(f).split(".")[0]!);
+  }
+  decisionNamesAt.set(base, names);
+  return names;
 }
 
 /**

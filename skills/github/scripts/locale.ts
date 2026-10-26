@@ -295,6 +295,7 @@ interface SpecNames {
     violator: string;
     oneRecord: string;
     markOneElement: string;
+    markNames: string;
     elementFiles: string;
     outside: string;
     exception: string;
