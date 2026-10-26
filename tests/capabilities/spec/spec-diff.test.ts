@@ -195,6 +195,46 @@ describe("Списки PR — по теме и разделу", () => {
   });
 });
 
+describe("Перегруппировка решений в темы — переезд, а не снятые и добавленные требования", () => {
+  it("решения, ставшие разделами темы с прежними именами, — сводка перегруппировки, без удалённых и добавленных", () => {
+    const base = repo.commit({
+      [BILLING]: ts(`it("счёт выставляется", () => {});`),
+      "tests/capabilities/billing/vat.test.ts": ts(`it("НДС считается", () => {});`),
+      "tests/capabilities/refunds/refunds.test.ts": ts(`describe("Возврат", () => { it("деньги возвращаются", () => {}); });`),
+    });
+    repo.commit({
+      [BILLING]: null,
+      "tests/capabilities/billing/vat.test.ts": null,
+      "tests/capabilities/refunds/refunds.test.ts": null,
+      "tests/capabilities/payments/billing.test.ts": ts(`it("счёт выставляется", () => {});`),
+      "tests/capabilities/payments/billing.vat.test.ts": ts(`it("НДС считается", () => {});`),
+      "tests/capabilities/payments/refunds.test.ts": ts(`describe("Возврат", () => { it("деньги возвращаются", () => {}); });`),
+    });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
+    expect(out).toContain(
+      "**Перегруппированы в темы (3):** названия те же, раздел темы — прежнее решение.\n\n" +
+        "- `tests/capabilities/billing` → `tests/capabilities/payments#billing` — 2 теста\n" +
+        "- `tests/capabilities/refunds` → `tests/capabilities/payments#refunds` — 1 тест\n",
+    );
+  });
+
+  it("раздел с другим именем, чем прежнее решение, — удалён и добавлен", () => {
+    const base = repo.commit({ [BILLING]: ts(`it("счёт выставляется", () => {});`) });
+    repo.commit({ [BILLING]: null, "tests/capabilities/payments/invoices.test.ts": ts(`it("счёт выставляется", () => {});`) });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Удалены (1):**\n\n- `tests/capabilities/billing` · счёт выставляется\n");
+    expect(out).toContain("**Добавлены (1):**\n\n- `tests/capabilities/payments#invoices` · счёт выставляется\n");
+    expect(out).not.toContain("Перегруппированы");
+  });
+
+  it("проверка харнесса решения, ставшего разделом темы, не снята и не добавлена", () => {
+    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`), [DEAD]: ts(`deadCode(it, { root: "." });`) });
+    repo.commit({ [DEAD]: null, "tests/standards/code/dead-code.test.ts": ts(`deadCode(it, { root: "." });`) });
+    expect(diffFrom(base).stdout).not.toContain("Проверки харнесса");
+  });
+});
+
 /**
  * Файл в идентичность не входит: единица спеки — папка capability, тесты внутри неё можно перекладывать между
  * файлами.

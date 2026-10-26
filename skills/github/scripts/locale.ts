@@ -13,7 +13,7 @@
  * The dictionaries are static JSON imports, not a read of the `locales/` directory: the module is imported by the `spec`
  * harness, which a project's test loads under the project's runner — Playwright and Jest load it as CommonJS, where
  * `import.meta` and top-level `await` are syntax errors, and ESM under Node has no `__dirname`
- * (tests/standards/harness-load); a static import is resolved from the module itself by any loader. For the same
+ * (tests/standards/exports/harness-load); a static import is resolved from the module itself by any loader. For the same
  * runners — only erasable TypeScript and `node:` APIs, and `scripts/package.json` with `"type": "module"`: under Node a
  * project with `"type": "commonjs"` would otherwise load the copy as CommonJS.
  *
@@ -418,6 +418,7 @@ interface SpecNames {
     outsideMark: string;
     moved: string;
     movedFolder: string;
+    regrouped: string;
     files: Plural;
     summary: string;
     folder: string;
@@ -503,7 +504,7 @@ export interface ManifestRead {
  * The install manifest at `root` — the project root, the home directory for the machine: `.agents/elves.json`, until
  * `update` moves it — the manifest of an install made before the flow was renamed to Elves, `.agents/ai-dev.json`. Not
  * JSON or not an object — no fields, `error` says why. The one reader of the manifest for the installer and the skills
- * (tests/standards/project-manifest); task-env imports no other skill (tests/standards/skill-imports) and keeps a copy
+ * (tests/standards/scripts/project-manifest); task-env imports no other skill (tests/standards/scripts/skill-imports) and keeps a copy
  * that answers by the same table.
  */
 export function manifestOf(root: string): ManifestRead {
