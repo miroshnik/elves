@@ -19,32 +19,47 @@ check may be changed without agreement, but removing what people use — only
 by a decision in an issue; a standard without a check doesn't apply; code that
 no decision claims is dead and is deleted.
 
-- **A decision is the unit of the spec, a folder is its home.** One anatomy
-  for all kinds:
-  - `<folder>.md` — why and for whom, the reason and rejected alternatives;
-    the first paragraph is the description in the table of contents; a
+- **A decision is a topic with sections; the topic folder is its home.** A
+  topic is the subject decisions are about, a section — one statement about
+  it, as files in the topic folder, not a subfolder (a subfolder is a
+  monorepo package, below). One anatomy for all kinds:
+  ```
+  tests/<root>/<topic>/
+    <topic>.md                     why the subject; the first paragraph — the table of contents
+    <section>.md                   why the section: the reason, rejected alternatives
+    <section>.test.ts              the section's statements; also <section>.e2e.ts, <section>.<part>.test.ts
+    <package>/<section>.test.ts    monorepo (below)
+    exceptions/<section>/<element>.json
+  ```
+  - `<topic>.md` — the subject in one phrase in its first paragraph, then for
+    whom and why; `<section>.md` — the section's reason and rejected
+    alternatives. A section's prose is a file of its own, not a heading in
+    `<topic>.md`: parallel tasks don't conflict in one file (like exceptions —
+    a file per element), and `git mv` keeps its history. A
     `<!-- spec: … -->` marker puts a generated diagram (C4, sequence) into the
     story. Test files have no JSDoc headers;
-  - the main file `<folder>.test.ts` — the statements: the page's sections
-    follow the order of its `describe`s, the main one first; `<folder>.e2e.ts`
-    next to it comes right after it (the units open the page), then the other
-    `*.test.ts`, `*.e2e.ts`;
+  - `<section>.test.ts` — the section's statements: its part of the page
+    follows the order of the `describe`s; `<section>.e2e.ts` comes right
+    after it (the units open the part), then `<section>.<part>.*`;
+  - a topic of one section has the same anatomy — `<topic>.md` and a section
+    with a name of its own; a test file named after its folder
+    (`<name>/<name>.test.ts`) is a decision not regrouped yet;
   - the mechanism — in the same folder: an `eslint.ts` fragment, an ast-grep
     `rule.yml`. The project's tool configs (`eslint.config.*`, `sgconfig.yml`)
     only collect them from the tree (the harness's `collectEslint`) — a rule
     has one home;
-  - `exceptions/` — exceptions for elements without a file of their own, one
-    file per element (below).
-- **Monorepo — a package subfolder inside the decision folder:**
-  `tests/<kind>/<name>/<package>/`. A package has its own runner (aliases,
+  - `exceptions/<section>/` — exceptions for elements without a file of their
+    own, one file per element (below).
+- **Monorepo — a package subfolder inside the topic folder:**
+  `tests/<root>/<topic>/<package>/`. A package has its own runner (aliases,
   environment, plugins) — it takes `tests/*/*/<package>/`; a test right in the
-  decision folder, without a subfolder, is repository-wide (the root runner).
-  One decision — one page: the main file is `<folder>.test.ts` at the folder
-  root or in the package subfolder (`<package>/<folder>.test.ts`); the story
-  starts with the root's main file, then the packages' main files by package
-  name, then the other files. `<folder>.md` and `exceptions/` — one per
-  folder, at its root. Runners are launched from the repository root (Vitest
-  or Jest `projects`, `-c` with the package's config): the harness counts
+  topic folder, without a subfolder, is repository-wide (the root runner).
+  One topic — one page: a section's main file is `<section>.test.ts` at the
+  folder root or in the package subfolder (`<package>/<section>.test.ts`); a
+  section's story starts with the root's main file, then the packages' main
+  files by package name, then the other files. `<topic>.md`, `<section>.md`
+  and `exceptions/` — at the topic root. Runners are launched from the
+  repository root (Vitest or Jest `projects`, `-c` with the package's config): the harness counts
   element paths from cwd; it reads `exceptions/` relative to the test file
   and `fileOf` from the project root, and the exception path in the hint is
   from the repository root, even with the runner in the package directory.
@@ -52,20 +67,47 @@ no decision claims is dead and is deleted.
   encoded in the structure:
   ```
   tests/
-    capabilities/<name>/   what the system does: behavior — unit, integration, e2e
+    capabilities/<topic>/  what the system does: behavior — unit, integration, e2e
     architecture/          what it's made of: model.ts — C1 external systems (adapters,
                            hosts, environment keys, headers), C2 containers (links,
                            deploy configs), C3 modules and libraries (directory,
-                           purpose, API, what it depends on, packages); <name>/ —
+                           purpose, API, what it depends on, packages); <topic>/ —
                            checks over the model
-    standards/<name>/      which rules all code obeys: form conventions,
+    standards/<topic>/     which rules all code obeys: form conventions,
                            cross-cutting invariants and qualities
     lib/                   factories, database, helpers — not the spec, not in the docs
   ```
-  Flat, no subsystems; the folder name is the decision's identifier in
-  English. **One fact — one home:** a general rule ("every mutation writes an
-  audit record") goes in `standards/`, the behavior of the audit log itself —
-  in its own capability; the other capabilities say nothing about it.
+  **One fact — one home:** a general rule ("every mutation writes an audit
+  record") goes in `standards/`, the behavior of the audit log itself — in its
+  own capability; the other capabilities say nothing about it.
+- **The topic rule — one for every project:** the agent picks a topic by the
+  question the reader looks for it with; a project's topics are this rule
+  applied, not a list.
+  - `capabilities/` — "what can the system do in this area?": a topic is a
+    product area as the user names it, what they open or call as one whole —
+    an interface section, an API resource, a CLI program or skill, a
+    background job; a hint is the common prefix of the entry points
+    (`/invoices/*`; the subcommands of one CLI command). A section — a
+    scenario in the area: an operation, a screen, a command.
+  - `standards/` — "which rules does what I'm writing now obey?": a topic is
+    the kind of code element the rule applies to — forms, routes, migrations,
+    CI workflows, scripts, tests, documents; mechanically — the registry its
+    check walks ("registry + invariant"). A section — one rule for that kind.
+  - `architecture/` — the same for the model: a topic is the kind of model
+    element its check walks (modules, containers, external systems).
+
+  A new decision is a section of an existing topic whose subject covers it; a
+  new topic — only when no topic has that subject. The label comes with a new
+  topic, a section has none (the "Task tracking" section in `AGENTS.md`). A
+  topic is whole: the first paragraph of `<topic>.md` names its subject in one
+  phrase, and a section outside it belongs to another topic. A rule over
+  several kinds of elements — in the topic of the registry its check walks. A
+  quality (security, speed, accessibility) isn't a topic: "every route checks
+  permissions" is a section of the routes topic, the quality is a word in its
+  story. Names — in English, in the reader's words: a topic of a kind of
+  element — the plural (`forms`, `routes`, `workflows`), of a product area —
+  its user's name; a section — a short name of its statement, its own, not the
+  topic's; a section moved from a former decision keeps that decision's name.
 - **Decisions are functional and non-functional — both have a check.** A
   functional one (what the system does) is a capability. A non-functional one
   is architectural (the `architecture` model: what the system is made of) or a
@@ -73,7 +115,8 @@ no decision claims is dead and is deleted.
   performance, security, accessibility, reliability — is the same kind of
   decision with a check, not a wish in prose: a cross-cutting one ("every
   mutation writes an audit record", "every route checks permissions", "every
-  page passes axe") is a standard, "registry + invariant"; the budget of a
+  page passes axe") is a standard, "registry + invariant" — a section of the
+  topic of the elements it walks; the budget of a
   single capability ("search responds in under 300 ms") — in its capability,
   next to the behavior, checked by a load test that asserts the budget. A
   quality without a check isn't a decision.
@@ -149,14 +192,14 @@ no decision claims is dead and is deleted.
   and it stops being spec.
 - **Exceptions — with a ratchet:** for an element with its own file — a mark
   in it (`// spec-exception(<decision>) #N: reason`, outside scope —
-  `spec-outside`), otherwise in the decision folder's `exceptions/` directory,
-  one file per exception (`<element>.json`: the element, `#issue` and the
+  `spec-outside`), otherwise in the topic folder's `exceptions/<section>/`
+  directory, one file per exception (`<element>.json`: the element, `#issue` and the
   reason); an exception that no longer violates fails the check (`remove the
   mark in <file>`, `remove the exception: delete <file>`). The old `exceptions.ts` is migrated
   by `spec-exceptions`; the harness fails on it with a hint. Disabling lint in
   code — only with a rule and `-- #N reason` (`lintExceptions`); a blanket
   `eslint-disable` is forbidden, an unnecessary disable is a `lint` error.
-  Exceptions are visible on the decision's page — it's debt, not a secret. A
+  Exceptions are visible on the topic's page — it's debt, not a secret. A
   task to sort out a violator is a Task, not a Bug: a bug is wrong behavior
   for the user, while a violation of a standard in force is debt. A new check
   on existing code enters green right away: current violations — as
@@ -182,7 +225,7 @@ no decision claims is dead and is deleted.
   Rewrite an unclear name rather than explain it.
 - **Intent comes in through an issue:** we discuss the implementation and make
   decisions in the task (the questions section, comments). A code task gets at
-  creation its decision labels (the "Task tracking" section in `AGENTS.md`)
+  creation the labels of its topics (the "Task tracking" section in `AGENTS.md`)
   and the scenarios section: future `it` names (or "describe › it") as a list:
   from them the user sees the requirements before the code and can stop it.
   For a "registry + invariant" standard the harness generates the tests per
@@ -197,9 +240,9 @@ no decision claims is dead and is deleted.
   removed test names, changes to the architecture model, exceptions and
   registries. A removed test is a withdrawn requirement; that must be visible.
 - **Documentation is generated,** not written by hand: `spec-doc` builds a
-  page per decision (why — `<folder>.md`, what holds — `describe`, what checks
-  it — the tests, collapsed under the section; for a standard — the examples'
-  code and the exceptions), the architecture page from the model (C4 diagrams
+  page per topic (the subject — `<topic>.md`; a part per section: why —
+  `<section>.md`, what holds — `describe`, what checks it — the tests,
+  collapsed under it; for a standard — the examples' code and the exceptions), the architecture page from the model (C4 diagrams
   and the module table) and sequence diagrams from scenario traces.
   `docs/spec` isn't in `main`: after a merge CI publishes it to the `spec`
   branch (`spec-publish`); review goes by `spec-diff`. Product documents
@@ -211,9 +254,9 @@ no decision claims is dead and is deleted.
 - **Migrating an old spec** (OpenSpec, a technical specification) into
   decisions — the `migration.md` reference next to this file: an outcome for
   each requirement, check by breaking, removal categories, "the spec fell
-  behind the code".
+  behind the code"; regrouping flat decisions into topics — its last section.
 - **What's not here:** state markers and todos as a plan (the plan is in the
-  issue), ADRs (the reason is in the decision's `<folder>.md`), capability
+  issue), ADRs (the reason is in the section's `<section>.md`), capability
   registries, handwritten documentation of behavior and hand-drawn diagrams,
   Gherkin, mutation testing (noise from equivalent mutants, pressure towards
   tests of trifles), approval points other than the issue.

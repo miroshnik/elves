@@ -91,8 +91,8 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   skill runs them, not `gh issue view`/`edit`; how tasks, the project and
   milestones are organized — its `reference.md`.
 - **Types:** Task (one PR), Bug, Epic (a personal account — the `epic`
-  label). **Decision labels** — the decision's name, kind by color: a task
-  carries those of the decisions it introduces or changes, an epic — their
+  label). **Decision labels** — the topic's name, kind by color: a task
+  carries those of the topics it introduces or changes, an epic — their
   union.
 - **A big task is an epic** (prefix `<Prefix> · …`) **+ subtasks**
   (sub-issues); **dependencies only as GitHub links** (sub-issue, blocked
@@ -213,20 +213,20 @@ A project's spec is **decisions with a mechanical check**, functional and
 non-functional (a test, a lint rule, an architecture check).
 **No check — no decision; no decision — no code:** behavior without a check
 may change without agreement; code no decision claims is dead. A check is
-written before the code and is red first (acceptance), then holds the
-decision (regression); a decision changes through its check — first the
-check, red, then the code. Three roots of `tests/` by the reader's question:
-`capabilities/<name>` (what the system does), `architecture` (what it's made
-of — a model with checks), `standards/<name>` (code rules, cross-cutting
-qualities); a decision is a folder (`<folder>.md` — why, `<folder>.test.ts` —
-the statements). Exceptions — a mark in the element's file or a file in the
-folder's `exceptions/`, with an `#issue`, a reason and a ratchet. Test names
-are statements in the project language; a code task gets the scenarios
-section (future `it` names) before code. The PR body is `spec-diff` output;
-docs are generated (`spec-doc`) and published by CI to the `spec` branch. A
-recurring decision — a "Standard · …" issue and a rule in `tests/standards/`;
-repeats in a PR's files — fixed in it. The full canon and wiring — the `spec`
-skill (`canon.md`, `checks.md`).
+written before the code, red first (acceptance), then holds the decision
+(regression); a decision changes through its check: the check first, red,
+then the code. Three `tests/` roots by the reader's question:
+`capabilities` (what the system does), `architecture` (what it's made of),
+`standards` (code rules, qualities); a decision is a topic with sections
+(`<topic>.md` — the subject, `<section>.md` — why, `<section>.test.ts` —
+statements), a new rule — a section of the topic covering it.
+Exceptions — a mark in the element's file or an `exceptions/` file, with an
+`#issue`, a reason, a ratchet. Test names are statements in the project
+language; a code task gets the scenarios section (future `it` names) before
+code. The PR body is `spec-diff` output; docs — generated (`spec-doc`),
+published by CI to the `spec` branch. A recurring decision — a "Standard · …"
+issue, a rule in `tests/standards/`; repeats in a PR's files — fixed in it.
+The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
 
 ## Tests and code
 
@@ -294,7 +294,7 @@ skill (`canon.md`, `checks.md`).
 ## Project knowledge and handoff
 
 - **Shared — in Elves, project-specific — in the project's spec**
-  ("Specification — decisions"), the reason in the decision's `<folder>.md`;
+  ("Specification — decisions"), the reason in the section's `<section>.md`;
   neither shared nor checkable (operations, product documents) — the
   project's `docs/`. The project's `AGENTS.md` — the install block and how
   its mode differs. An agreement from chat goes there too, not into the
