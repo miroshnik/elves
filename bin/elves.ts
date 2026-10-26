@@ -270,8 +270,8 @@ without the agent's Bash environment, for a --link clone run from an Elves clone
 Claude Code 2.1.242+ (or no claude on PATH) with promptCacheTtl or subagentPromptCacheTtl not chosen by a setting or
 its variable — a prompt cache TTL line with the owner's command that sets the hour (docs/prompt-cache.md; the exit
 code stays the same).
---hook — the machine and the project at once for the Claude Code SessionStart hook: the exit code is always 0, errors
-go to the output; writes the agent's Bash environment to $CLAUDE_ENV_FILE — zsh without errors on a glob without matches
+--hook — the machine and the project at once for the Claude Code SessionStart hook: the exit code is always 0 (else
+Claude Code drops its output), errors go to the output and don't block the session, the hook's timeout is 60 s; writes the agent's Bash environment to $CLAUDE_ENV_FILE — zsh without errors on a glob without matches
 and on =word, timeout from bin/shims; a project with a copy of the canon next to the machine's rules — the canon loads
 twice: names it and the project's update task that moves it to the thin project.
 
