@@ -95,7 +95,9 @@ export interface Names {
     answers: string;
     commentAnswer: string;
     checks: string;
+    /** What may be changed — only through the file of edits, `task actualize --apply` (#669); `format` — its format, before the example. */
     scope: string;
+    format: string;
     comment: string;
     answer: string;
     linkWords: string;

@@ -225,7 +225,11 @@ texts of the epic and its open tasks, the PR files, the copies of links in
 text and the answers to open questions in comments the script found (named,
 not edited: a line may carry meaning, a comment's numbering may be its own),
 the checks by meaning 1, 3 and 5 — is printed by `task actualize <N>
---assignment`, the subagent's first call. No epic or no open tasks in it — the
+--assignment`, the subagent's first call. Its edits — one JSON file applied by
+`task actualize <N> --apply <file>`, no `gh` (#669: 27 turns a refresh, a
+`gh` call per edit): checked whole before any write — one that can't be done
+refuses the file, nothing changed — then applied all, with the report posted
+on the epic. No epic or no open tasks in it — the
 line `○ refresh not needed`, no subagent. Five checks:
 
 1. **Done is closed.** No open tasks that are already part of what shipped
@@ -263,8 +267,8 @@ line `○ refresh not needed`, no subagent. Five checks:
    forgotten.
 
 What was fixed — one comment on the epic, the history of decisions in one
-place; it is the subagent's last step, always: nothing to fix — «the block is
-current». The comment starts with «Refresh after #N, result:» in the project
+place; it is the subagent's last step, always — the `report` of its file,
+`--apply` posts it: nothing to fix — «the block is current». The comment starts with «Refresh after #N, result:» in the project
 language (`report` of the dictionary) — it is the end of the refresh for
 `task close`: until it, close refuses (#571: an executor closed its task while
 its refresh still ran in its worktree, the dispatcher's queue removed the
@@ -1216,7 +1220,22 @@ edited, the checks by meaning 1, 3 and 5 from section "Epic refresh on task
 close", what may be changed (only GitHub tasks; the task, the epic and their
 milestone are closed by `task close`), the result — always a comment on the
 epic «Refresh after #N, result: …», «the block is current» too (`task close`
-waits for it) — and the answer form. No epic, or no open tasks in the epic other than
+waits for it) — and the answer form. A PR's diff — its `git log -p` command
+(rebase-merged commits carry `Refs #N`), not `gh pr diff`.
+
+The edits — one file, `task actualize N --apply <file>` (#669), its format and
+an example in the assignment: JSON `{ "report": "…", "edits": [ … ] }`, each
+edit one action on the epic or its open task (`task`) — `replace` … `with`
+(`""` removes a copy of a link), `add` an `item` into a section, `check` an
+item, `answer` k with `text` (`auto`), `unblock` a blocker, `close` `done` or
+`not needed` (as `task drop`), `new` — a task of the epic (`branchType`,
+`body`; `epic: false` — outside it), its number in the report as `#new1`.
+Every edit is checked before any write — the description edits in order, each
+on the result of the previous one, as `task edit`; a shipped task, the epic's
+close, a missing text or question, a blocker that isn't there — the whole file
+is refused with each such edit named, nothing changed; a file without
+`report` — too. Then all are applied, the `questions` label goes from a task
+left without open questions, and the report is posted on the epic. No epic, or no open tasks in the epic other than
 this one — the line `○ refresh not needed`, no subagent. The order after the
 merge — fewer turns (measurement #285: the extra
 turns were `gh pr view` for the SHA and reading the wait result): in one turn,
