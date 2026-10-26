@@ -5818,26 +5818,59 @@ export const SPEC_PUBLISH = /^(?:.+ \/ )?spec-publish$/;
  * Red checks of the default branch's last commit — check-runs (the last run of each name) and hosting statuses;
  * `publish` — the red spec publish jobs, apart; `steps` — the failed step of a red GitHub Actions job by its name
  * (#699: a step without a test — install, network — names the bug by the check and the step).
+ * The base's checks are its own runs (#732): a check-run whose check suite is a run of another branch on the same SHA
+ * (a batch branch pushed at the tip of main) isn't the base's — `foreign`, with the branch; a suite without
+ * `head_branch` counts as the base's. A red run that started after every cancelled run of its suite had finished —
+ * an aggregate (`ci-ok` with `if: always()`) of a superseded run — isn't red either: `aggregates`; a job that failed
+ * while its siblings were cancelled (fail-fast) started before them and stays red.
  */
-function redChecksOf(io: Io, slug: string, base: string): { sha: string; names: string[]; publish: string[]; steps: Map<string, string> } {
+function redChecksOf(
+  io: Io,
+  slug: string,
+  base: string,
+): { sha: string; names: string[]; publish: string[]; steps: Map<string, string>; foreign: { name: string; branch: string }[]; aggregates: string[] } {
   const ref = encodeURIComponent(base);
-  const latest = new Map<string, Any>();
-  for (const r of restCall(io, ["api", `repos/${slug}/commits/${ref}/check-runs?per_page=100`]).check_runs ?? []) {
-    if (!latest.has(r.name) || latest.get(r.name).id < r.id) latest.set(r.name, r);
-  }
   const status = restCall(io, ["api", `repos/${slug}/commits/${ref}/status`]);
+  const sha = String(status.sha ?? "");
+  const branchOf = new Map<number, string>();
+  if (sha) {
+    try {
+      for (const x of restCall(io, ["api", `repos/${slug}/commits/${sha}/check-suites?per_page=100`]).check_suites ?? []) if (x.head_branch) branchOf.set(x.id, x.head_branch);
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+    }
+  }
+  const latest = new Map<string, Any>();
+  const others = new Map<string, Any>();
+  for (const r of restCall(io, ["api", `repos/${slug}/commits/${ref}/check-runs?per_page=100`]).check_runs ?? []) {
+    const branch = branchOf.get(r.check_suite?.id);
+    const into = branch && branch !== base ? others : latest;
+    if (!into.has(r.name) || into.get(r.name).id < r.id) into.set(r.name, r);
+  }
+  const isRed = (r: Any) => r.status === "completed" && RED_RUN.has(r.conclusion);
+  const foreign = [...others.values()]
+    .filter((r) => isRed(r) && !latest.has(r.name) && !SPEC_PUBLISH.test(r.name))
+    .map((r) => ({ name: r.name as string, branch: branchOf.get(r.check_suite.id)! }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const cancelledIn = (suite: unknown) => [...latest.values()].filter((c) => c.check_suite?.id === suite && c.status === "completed" && c.conclusion === "cancelled");
+  const aggregate = (r: Any) => {
+    const cancelled = r.check_suite?.id === undefined ? [] : cancelledIn(r.check_suite.id);
+    return !!r.started_at && cancelled.length > 0 && cancelled.every((c) => c.completed_at && Date.parse(c.completed_at) <= Date.parse(r.started_at));
+  };
+  const reds = [...latest.values()].filter(isRed);
+  const aggregates = reds.filter((r) => !SPEC_PUBLISH.test(r.name) && aggregate(r)).map((r) => r.name as string).sort();
   const names = [
-    ...[...latest.values()].filter((r) => r.status === "completed" && RED_RUN.has(r.conclusion)).map((r) => r.name as string),
+    ...reds.filter((r) => !aggregates.includes(r.name)).map((r) => r.name as string),
     ...(status.statuses ?? []).filter((x: Any) => RED_STATUS.has(x.state)).map((x: Any) => x.context as string),
   ];
   const red = [...new Set(names)].sort();
   const steps = new Map<string, string>();
-  for (const r of latest.values()) {
-    if (r.status !== "completed" || !RED_RUN.has(r.conclusion) || SPEC_PUBLISH.test(r.name) || r.app?.id !== ACTIONS_APP) continue;
+  for (const r of reds) {
+    if (aggregates.includes(r.name) || SPEC_PUBLISH.test(r.name) || r.app?.id !== ACTIONS_APP) continue;
     const step = failedStepOf(io, slug, r.id);
     if (step) steps.set(r.name, step);
   }
-  return { sha: String(status.sha ?? ""), names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)), steps };
+  return { sha, names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)), steps, foreign, aggregates };
 }
 
 /** The first failed step of a GitHub Actions job (its check-run id is the job's); not read — null, the bug goes by the check. */
@@ -6037,6 +6070,13 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   if (!batch) {
     try {
       const red = redChecksOf(io, slug, base);
+      for (const branch of new Set(red.foreign.map((x) => x.branch))) {
+        const runs = red.foreign.filter((x) => x.branch === branch);
+        io.out(`○ ${runs.map((x) => x.name).join(", ")} red on the last commit of ${base} (${red.sha.slice(0, 7)}) in a run of branch ${branch}, not of ${base}: not counted`);
+      }
+      if (red.aggregates.length) {
+        io.out(`○ ${red.aggregates.join(", ")} red on the last commit of ${base} (${red.sha.slice(0, 7)}) after cancelled jobs of its run — the verdict of a cancelled run, not a check of ${base}: not counted`);
+      }
       if (red.publish.length) {
         io.out(`○ ${red.publish.join(", ")} red on the last commit of ${base} (${red.sha.slice(0, 7)}) — publishing the documentation, not a check of ${base}: not counted`);
       }

@@ -86,6 +86,8 @@ const cancelled = (name: string) => run(name, "completed", "cancelled");
 const status = (context: string, state: string): Status => ({ context, state, target_url: "" });
 interface WorkflowRun {
   id: number; name: string; path: string; event: string; status: string; conclusion: string | null; check_suite_id: number; html_url: string;
+  /** Ветка прогона: нет — прогон не судит ветку (как у событий без ветки). */
+  head_branch?: string;
 }
 /** Прогон workflow `ci.yml` на SHA; его job — check-runs с тем же check suite (по умолчанию 1, как у `run`). */
 const wfRun = (conclusion: string | null, o: Partial<WorkflowRun> = {}): WorkflowRun => ({
@@ -462,6 +464,25 @@ describe("Коммит мержа ждут по номеру PR — SHA мерж
     const r = ciWait(["merged", "7"]);
     expect(r.code).toBe(3);
     expect(r.result).toStartWith("ERROR PR #7 not merged");
+  });
+
+  /** Ветка пачки, запушенная на вершине main (#732): её прогон на том же SHA отменён следующим пушем, агрегат красный. */
+  it("красный прогон другой ветки на SHA мержа не делает ожидание FAIL — ждут прогоны базы PR", () => {
+    write("pull", [{ state: "closed", merged: true, merge_commit_sha: MERGE, head: { sha: HEAD }, base: { ref: "main" } }]);
+    const batch = { check_suite_id: 2, head_branch: "batch/2026-10-26-1", event: "push" };
+    writeChecks([
+      {
+        runs: [ok("verify"), ok("ci-ok"), run("verify", "completed", "cancelled", 15368, 2), run("ci-ok", "completed", "failure", 15368, 2)],
+        workflowRuns: [wfRun("success", { head_branch: "main", event: "push" }), wfRun("failure", batch)],
+      },
+    ]);
+    const r = ciWait(["merged", "7"]);
+    expect([r.code, r.result]).toEqual([0, "PASS (2 checks)"]);
+    // прогон самой базы — как раньше: его красный чек — FAIL
+    write("pull", [{ state: "closed", merged: true, merge_commit_sha: MERGE, head: { sha: HEAD }, base: { ref: "batch/2026-10-26-1" } }]);
+    const own = ciWait(["merged", "7"]);
+    expect(own.code).toBe(1);
+    expect(own.result).toStartWith("FAIL ci-ok");
   });
 });
 
