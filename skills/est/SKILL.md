@@ -107,9 +107,10 @@ task to In progress, with its subagents but another task's executors), the rest
 by features (the PR's commits, the branch, `#N` in the session's name, first
 prompt or a subagent's
 assignment; reference.md, "Actual — how sessions are found"). It computes active
-hours — including subagents and workflows — and writes a comment of four lines:
+hours — including subagents and workflows — and writes a comment of five lines:
 the actual (sessions, prompts, subagents, wall clock, coverage), the model spend,
-turns with context and the waits — CI, after the merge, checks with the slot
+turns with context, the flow's overhead turns with the $ of cache rewrites, and
+the waits — CI, after the merge, checks with the slot
 queue, the rest (reference.md, "Actual — the comment", "Waits"), plus the fields
 «Actual, h», «Tokens, M», «Cost, $». Cost is the API equivalent at public rates,
 not money charged; a model outside the price list gives tokens without a price
@@ -172,7 +173,9 @@ est period --since 2026-08-01 --until 2026-09-05 --since 2026-09-05   # before t
 ```
 
 **$ is flow × model rate:** a model change changes $ per PR several-fold with
-the same flow; the flow's effect shows in tokens, output and hours per PR.
+the same flow; the flow's effect shows in tokens, output and hours per PR, and
+its overhead — in turns by kind and cache rewrites after a pause
+(reference.md, "Turn kinds and cache rewrites").
 Periods, columns and how to read them — reference.md, "Period summary".
 
 ## So the actual is found — linking work to the task

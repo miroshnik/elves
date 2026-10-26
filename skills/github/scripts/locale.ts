@@ -212,6 +212,8 @@ export interface Names {
       cost: string;
       unpriced: string;
       steps: string;
+      /** The flow's overhead in the actual (est, #664): turns {flow}, {harness}, {checks} of {n}; cache rewrites {rewrites}, $ {usd}. */
+      overhead: string;
       /** The actual's split by waits, minutes (est, #518): {ci}, {merged}, {checks}, {slot} — `waitsSlot` or empty, {rest}. */
       waits: string;
       waitsSlot: string;

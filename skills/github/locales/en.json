@@ -179,6 +179,7 @@
       "cost": "; cost at API rates ≈ ${usd}",
       "unpriced": "; no price (not in the price list): {models}",
       "steps": "Turns: {n} (subagents {agents}, their turns {agentSteps}), preamble {preamble}K, context at the end {end}K, turns with context > {tail}K — {share} %.",
+      "overhead": "Overhead: flow turns {flow}, harness {harness}, checks {checks} of {n}; cache rewrites after a pause {rewrites} — ${usd}.",
       "waits": "Waits: CI {ci} min · after the merge {merged} · checks {checks}{slot} · rest {rest}.",
       "waitsSlot": " (slot queue {slot})",
       "and": " and ",
