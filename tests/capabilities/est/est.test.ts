@@ -1102,6 +1102,27 @@ describe("Транскрипт Claude Code даёт привязки к зада
     expect(s.routine).toBe(false);
   });
 
+  // Claude Code пишет ответ субагента несколькими записями одного message.id, пока идёт поток: вход и кэш у них
+  // одинаковы, а output_tokens первой — частичный, итоговый — у последней (#660)
+  it("факт считает выход ответа субагента по его итоговой записи, а не по первой частичной", () => {
+    const sid = "66066066-0000-4000-8000-000000000660";
+    const file = path.join(dir, sid + ".jsonl");
+    writeFileSync(file, jsonl([{ type: "user", timestamp: "2026-09-01T10:00:00Z", cwd: "/repo", gitBranch: "feat/42-export", message: { role: "user", content: "#42 сделай экспорт" } }]));
+    const part = (sec: string, out: number, block: object) => ({
+      type: "assistant", timestamp: `2026-09-01T10:08:${sec}Z`, gitBranch: "feat/42-export",
+      message: { id: "msg_sub_0660", model: "claude-haiku-4-5-20251001", usage: { input_tokens: 10, output_tokens: out, cache_read_input_tokens: 1000 }, content: [block] },
+    });
+    mkdirSync(path.join(dir, sid, "subagents"), { recursive: true });
+    writeFileSync(path.join(dir, sid, "subagents", "agent-1.jsonl"), jsonl([
+      { type: "user", timestamp: "2026-09-01T10:07:00Z", gitBranch: "feat/42-export", message: { content: "Задача #42: проверь тесты" } },
+      part("00", 16, { type: "text", text: "проверяю" }),
+      part("05", 486, { type: "tool_use", id: "tu1", name: "Bash", input: { command: "bun test" } }),
+    ]));
+    const s = parseSessionFile(file);
+    expect(s.usage).toEqual([["msg_sub_0660", 0, 10, 486, 0, 0, 1000, 0]]);
+    expect(computeFact(stubRepo([s], []), 42, [], []).tok).toEqual({ in: 10, out: 486, cw: 0, cr: 1000, total: 1496 });
+  });
+
   /** Подсказка задачи у записей субагента по его заданию; ветка субагента — worktree без номера задачи. */
   const subHints = (task: string) => {
     const sid = "22222222-3333-4444-5555-666666666666";
