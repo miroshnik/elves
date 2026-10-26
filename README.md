@@ -262,7 +262,7 @@ Skills are installed onto the machine with the flow (`install -g`); the agent pi
 
 Checks and fixes the GitHub project and the default-branch rule, creates a task with all its fields in one command, shows a task with its epic, blockers, PR checks and open questions in one output and puts an answer at a question, before merging checks the PR's merge with a fresh `main` if it moved after CI, after merging does the epic refresh's mechanics and prints the subagent's prompt, and closes the task in one call — `est` actual, Done, epic and milestone, the task's Compose stacks and its merged branches removed — sets decision labels from the PR diff, names the wait a resumed session restarts for its task, and gives a dispatcher its queue — the ready tasks of an epic or a filter in order, each with the prompt of its executor, a background subagent; in a batch project the executors merge into the dispatcher's batch branch, and it reaches `main` by one release PR — one full CI run and one deploy.
 
-`github project check` · `github project fix` · `github task new | show | answer | status | drop | actualize | close | resume | queue` · `github batch release` · `github pr labels | premerge`
+`github project check` · `github project fix` · `github task new | show | answer | start | status | drop | actualize | close | resume | queue` · `github batch release` · `github pr labels | premerge`
 
 ### [`est`](skills/est/SKILL.md) — estimates from actuals
 
