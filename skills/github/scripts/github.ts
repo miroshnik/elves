@@ -2134,6 +2134,13 @@ const prTasks = (p: Any) => taskLinks(p).map((x) => x.number);
 /** The PR is the task's: its branch is the task branch, or its body has «Closes #N». */
 const prOfTask = (p: Any, number: number) => prTasks(p).includes(number);
 
+/**
+ * The task's PRs merged into a batch branch (#696): its branch or «Closes #N» — GitHub doesn't link a PR to a task by a
+ * merge into another branch. One condition for the queue (`batchPrOf`), the release's branches (`cmdTaskClose`) and
+ * what the release shipped (`shippedBy`).
+ */
+const mergedIntoBatch = (nodes: Any[], batch: string, number: number): Any[] => nodes.filter((p) => p.merged && p.baseRefName === batch && prOfTask(p, number));
+
 /** Open PRs into the branch — a live executor's into a batch branch. */
 const openInto = (recent: Recent, branch: string): Any[] => recent.nodes.filter((p) => p.state === "OPEN" && p.baseRefName === branch);
 
@@ -3149,8 +3156,7 @@ function recentPrs(io: Io, slug: string): Recent {
  * «Closes #N» — GitHub links a PR to a task only by a merge into the default branch. None — undefined.
  */
 function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Issue["prs"]) => number | undefined {
-  const merged = recent.nodes.filter((p) => p.merged && p.baseRefName === batch);
-  return (number, linked = []) => linked.find((p) => p.merged && p.base === batch)?.number ?? merged.find((p) => prOfTask(p, number))?.number;
+  return (number, linked = []) => linked.find((p) => p.merged && p.base === batch)?.number ?? mergedIntoBatch(recent.nodes, batch, number)[0]?.number;
 }
 
 /**
@@ -3162,8 +3168,9 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`).
  * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
- * doesn't hold. The batch's release (#649): nothing ready and every task in work merged into the batch — `Next:` names
- * `batch release`; its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
+ * doesn't hold. The batch's release (#649): nothing ready and every task of the batch merged into it — `Next:` names
+ * `batch release`, a task past the batch (a PR into the default branch, a cloud executor — #696) doesn't hold it;
+ * its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
  * names its guilty task by the labels and the fix (`redRelease`, `fixSteps`), the bisect — `batch release`'s. Before the queue —
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
  * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`); outside auto
@@ -3197,6 +3204,14 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const dispatched = dispatcherBatch(io, slug, recent, file);
   let batch = dispatched.batch;
   const inBatch = batch === null ? null : batchPrOf(recent, batch);
+  /** The task's PRs — linked and found among the recent ones by the task branch or «Closes #N»: their state and base. */
+  const prsOf = (i: Issue) => [
+    ...i.prs.map((p) => ({ number: p.number, state: p.state, merged: p.merged, base: p.base })),
+    ...recent.nodes.filter((p) => prOfTask(p, i.number)).map((p) => ({ number: p.number as number, state: p.state ?? "", merged: !!p.merged, base: p.baseRefName ?? "" })),
+  ];
+  const prBase = (i: Issue, pr: number) => prsOf(i).find((p) => p.number === pr)?.base;
+  /** A PR of the task open or merged into another branch than the batch's — the task goes past the batch (#696). */
+  const pastBatch = (i: Issue) => prsOf(i).some((p) => (p.state === "OPEN" || p.merged) && p.base !== batch);
   // the batch's release is open (#649) — no new executors till its merge: what merges into the batch now would change
   // the release its CI checked
   const release = batch === null ? undefined : releasePrOf(recent, batch);
@@ -3213,6 +3228,15 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const waiting: string[] = [];
   /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
   let settled = 0;
+  /**
+   * Of the tasks in work: the batch's live executors — the release waits for them (#696). Without a batch — all of them;
+   * with one — a task with an open PR into the batch, or handed out to an executor of the batch (a subagent, an app
+   * session) that is neither merged into it nor gone past it: a PR into another branch (the default one), a cloud
+   * executor, or In progress without a hand-out (the dispatcher's own task, another session's) don't hold the release.
+   */
+  let holding = 0;
+  /** Tasks in work past the batch — named by the release's `Next:` (#696). */
+  const past: string[] = [];
   for (const n of numbers.sort((a, b) => a - b)) {
     const i = loadIssue(io, slug, n);
     states.set(i.number, i.state);
@@ -3245,6 +3269,9 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       running.push(`= ${label} — ${work.join(", ")}`);
       // merged into the batch, no open PR of it: its executor is done, the task waits for the release
       if (merged !== undefined && pr === undefined) settled++;
+      else if (batch === null) holding++;
+      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && hand.executor !== "cloud" && !pastBatch(i)) holding++;
+      else past.push(`#${i.number}`);
       continue;
     }
     // a blocker merged into this batch's branch doesn't hold its task: the executor branches from the batch (#648); a
@@ -3304,11 +3331,11 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
         `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
     );
-  } else if (running.length > settled) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
+  } else if (holding || (!settled && running.length)) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
   else if (settled) {
     io.out(
-      `Next: the batch ${batch} is complete — nothing ready, every task in work is merged into it: its release — ${releaseCommand}, ` +
-        `once no executor of this session is still at work; ${SESSION_ARCHIVE}.`,
+      `Next: the batch ${batch} is complete — nothing ready, every task of the batch is merged into it: its release — ${releaseCommand}, ` +
+        `once no executor of the batch is still at work${past.length ? `; past the batch — ${past.join(", ")}: they don't hold the release` : ""}; ${SESSION_ARCHIVE}.`,
     );
   } else {
     io.out(
@@ -4359,9 +4386,7 @@ function shippedBy(io: Io, slug: string, issue: Issue): { prs: Issue["prs"]; rel
   const merged = linked.length ? linked : [...found!.prs, ...found!.batched].filter((p) => p.merged);
   const prs = merged.flatMap((p) => {
     if (!isBatchBranch(p.head)) return [p];
-    const own = batchPrs(io, slug, p.head)
-      .nodes.filter((x) => x.merged && x.baseRefName === p.head && prOfTask(x, issue.number))
-      .map((x) => ({ number: x.number as number, state: x.state ?? "", merged: true, head: x.headRefName ?? "", base: p.head }));
+    const own = mergedIntoBatch(batchPrs(io, slug, p.head).nodes, p.head, issue.number).map((x) => ({ number: x.number as number, state: x.state ?? "", merged: true, head: x.headRefName ?? "", base: p.head }));
     return own.length ? own : [p];
   });
   return { prs, released: merged.some((p) => !isBatchBranch(p.base)) };
@@ -4768,7 +4793,7 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
       const shipped = [...merged, ...more];
       const batches = new Map([...new Set(shipped.map((p) => p.head).filter(isBatchBranch))].map((b) => [b, batchPrs(io, slug, b)]));
       const ofTask = [...batches].flatMap(([b, prs]) =>
-        prs.nodes.filter((p) => p.merged && p.baseRefName === b && prOfTask(p, number)).map((p) => ({ number: p.number as number, head: p.headRefName as string, base: all.base })),
+        mergedIntoBatch(prs.nodes, b, number).map((p) => ({ number: p.number as number, head: p.headRefName as string, base: all.base })),
       );
       // …but not while a live executor's PR is into it: deleting a PR's base closes it or moves it into the default
       // branch past the dispatcher
@@ -6166,8 +6191,9 @@ dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+),
 kept in the marker; the assignment — the task branch from it and the PR into it, merged after the checks before a
 commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
 release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
-cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task in work merged
-into the batch — Next: names batch release; its release PR open — ready tasks are held (○), no new executors; red —
+cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task of the batch
+merged into it — Next: names batch release, a task past the batch (a PR into the default branch, a cloud executor)
+doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
 Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
 assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N; --cloud
 refused); released — a new batch, a released batch branch without an open PR into it is deleted (+).
