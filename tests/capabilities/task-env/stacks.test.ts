@@ -569,12 +569,14 @@ describe("Посреди ребейза и на отцеплённом HEAD в w
     git(proj, "worktree", "add", "-q", "-b", "feat/42-x", wt);
   });
 
-  function taskEnvIn(cwd: string, args: string[]) {
+  function taskEnvIn(cwd: string, args: string[], extra: Record<string, string> = {}) {
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_SLOT: "test", ...extra };
+    for (const k of ["ELVES_TASK", "ELVES_TASK_ENV_FAILED"]) if (!(k in extra)) delete env[k];
     const r = spawnSync(process.execPath, [SCRIPT, ...args], {
       cwd,
       encoding: "utf8",
       // внутри слота: подъём стека здесь не про очередь, и тест не встаёт в очередь машины
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_SLOT: "test" },
+      env,
     });
     return { code: exitOf(r), stdout: r.stdout, stderr: r.stderr };
   }
@@ -615,6 +617,29 @@ describe("Посреди ребейза и на отцеплённом HEAD в w
     expect(r.code).toBe(2);
     expect(r.stdout).toContain("has no task branch");
     expect(calls(log)).toEqual([]);
+  });
+
+  /** pr premerge проверяет слияние во временном worktree на отцеплённом HEAD и даёт номер задачи PR (#759). */
+  it("up на отцеплённом HEAD в worktree с ELVES_TASK поднимает стек задачи <project>-<N>", () => {
+    git(wt, "checkout", "-q", "--detach");
+    const r = taskEnvIn(wt, ["up"], { ELVES_TASK: "7" });
+    expect(r.stdout + r.stderr).not.toContain("has no task branch");
+    expect(calls(log).join("\n")).toContain("-p proj-7");
+  });
+
+  // страховка от перекоррекции #759: ELVES_TASK — для чекаута без ветки задачи, ветку он не перебивает
+  it("страховка от перекоррекции: ветка задачи важнее ELVES_TASK", () => {
+    taskEnvIn(wt, ["up"], { ELVES_TASK: "7" });
+    expect(calls(log).join("\n")).toContain("-p proj-42");
+    expect(calls(log).join("\n")).not.toContain("-p proj-7");
+  });
+
+  it("стек не поднялся — причина в файле ELVES_TASK_ENV_FAILED: pr premerge отличает «не смог проверить» от красной проверки", () => {
+    git(wt, "checkout", "-q", "--detach");
+    const file = path.join(project.dir, "failed");
+    const r = taskEnvIn(wt, ["up"], { ELVES_TASK_ENV_FAILED: file });
+    expect(r.code).toBe(2);
+    expect(readFileSync(file, "utf8")).toMatch(/^task-env up: the worktree .* has no task branch/);
   });
 
   it("в основном чекауте без ветки задачи up по-прежнему поднимает стек <project>", () => {

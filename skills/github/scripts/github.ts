@@ -184,8 +184,11 @@ export interface Io {
   env: Record<string, string | undefined>;
   /** A pause before re-reading (GitHub doesn't show additions right away); in tests — no waiting. */
   sleep?: (ms: number) => void;
-  /** A subprocess (`est`, `git` of `task close`) — an external edge: replaced in tests. */
-  run?: (cmd: string, args: string[], cwd?: string) => RunResult;
+  /**
+   * A subprocess (`est`, `git` of `task close`) — an external edge: replaced in tests; `env` — variables on top of the
+   * process's.
+   */
+  run?: (cmd: string, args: string[], cwd?: string, env?: Record<string, string>) => RunResult;
   /**
    * The project checkout: its language (`.agents/elves.json`) is the language of names, `task close` runs its git
    * steps in it; the current directory by default.
@@ -199,8 +202,8 @@ export interface RunResult {
   stderr: string;
 }
 
-export function realRun(cmd: string, args: string[], cwd?: string): RunResult {
-  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+export function realRun(cmd: string, args: string[], cwd?: string, env?: Record<string, string>): RunResult {
+  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
   return { status: r.error ? null : r.status, stdout: r.stdout ?? "", stderr: r.error ? String(r.error.message) : (r.stderr ?? "") };
 }
 
@@ -5624,6 +5627,14 @@ function missingPrLabels(io: Io, slug: string, number: number): string[] {
  */
 export const PREMERGE_SCRIPTS = ["typecheck", "test:spec"];
 /**
+ * The PR's task for task-env in the temporary worktree (#759) — a copy of `TASK_VAR` and `FAILED_VAR` of the task-env
+ * script: the github skill imports no other skill (tests/standards/scripts/skill-imports). `ELVES_TASK` — the number of the
+ * PR's branch: `up` on a detached HEAD takes that task's stack; `ELVES_TASK_ENV_FAILED` — the file a stack that didn't
+ * come up appends its reason to.
+ */
+const STACK_TASK_VAR = "ELVES_TASK";
+const STACK_FAILED_VAR = "ELVES_TASK_ENV_FAILED";
+/**
  * Spec roots whose checks `test:spec` runs — standards and architecture (the spec skill): there two green PRs break
  * main. A tree with them and without the script — premerge names what isn't checked on the merge, the project's
  * `check` (bin/elves.ts) requires the script (#442).
@@ -5728,10 +5739,10 @@ interface TreeRed {
 /**
  * A tree's check — `pr premerge` on the merge and on bare origin/<base>, the bisect of a red release at a boundary:
  * dependencies by its lockfile (`projectCommands`), then the steps — a project script with its arguments (the test
- * files; npm — after `--`) — in order, up to the first red one. `install` — its command and result, no lockfile — null;
- * failed — no step ran.
+ * files; npm — after `--`) — in order, up to the first red one, `env` — on top of the process's. `install` — its command
+ * and result, no lockfile — null; failed — no step ran.
  */
-function checkTree(io: Io, dir: string, steps: { script: string; args?: string[] }[]): { install: { cmd: string; result: RunResult } | null; ran: string[]; red: TreeRed | null } {
+function checkTree(io: Io, dir: string, steps: { script: string; args?: string[] }[], env?: Record<string, string>): { install: { cmd: string; result: RunResult } | null; ran: string[]; red: TreeRed | null } {
   const run = io.run ?? realRun;
   const cmds = projectCommands(dir);
   const install = cmds.install ? { cmd: cmds.install.join(" "), result: run(cmds.install[0]!, cmds.install.slice(1), dir) } : null;
@@ -5740,7 +5751,7 @@ function checkTree(io: Io, dir: string, steps: { script: string; args?: string[]
   for (const s of steps) {
     const args = s.args ?? [];
     const argv = [...cmds.run(s.script), ...(args.length && packageManager(dir).name === "npm" ? ["--"] : []), ...args];
-    const result = run(argv[0]!, argv.slice(1), dir);
+    const result = env ? run(argv[0]!, argv.slice(1), dir, env) : run(argv[0]!, argv.slice(1), dir);
     ran.push(s.script);
     if (result.status !== 0) return { install, ran, red: { script: s.script, cmd: argv.join(" "), result } };
   }
@@ -6109,6 +6120,18 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
 
   const ON_MERGE = "on the merge";
   type Red = TreeRed & { failed: string[] };
+  // the database of the PR's task stack (#759): the temporary worktree is on a detached HEAD, task-env takes the task
+  // from ELVES_TASK — the number of the PR's branch — and appends a stack that didn't come up to ELVES_TASK_ENV_FAILED
+  const task = taskBranch(String(pr.head?.ref ?? ""))?.issue;
+  const failedFile = path.join(mkdtempSync(path.join(os.tmpdir(), "elves-premerge-stack-")), "failed");
+  const stackEnv: Record<string, string> = { [STACK_FAILED_VAR]: failedFile, ...(task ? { [STACK_TASK_VAR]: String(task) } : {}) };
+  /** A stack that didn't come up during a check — its reasons; none — null. */
+  const stackFailed = () => (existsSync(failedFile) ? readFileSync(failedFile, "utf8").split("\n").filter(Boolean) : null);
+  const unchecked = (where: string, script: string, lines: string[]) => {
+    io.out(`❌ couldn't check: the stack of ${task ? `task #${task}` : "the PR's task (its branch has no task number)"} didn't come up for ${script} ${where} — ${lines.join("; ")}`);
+    io.out(`the red ${script} isn't counted against ${base} or the PR: bring the stack up (task-env up${task ? ` ${task}` : " <N>"}) and pr premerge ${number} again`);
+    return 2;
+  };
   /**
    * The tree's fast checks (`scripts` — those that exist) with dependencies from its lockfile, up to the first red one;
    * none — null.
@@ -6117,7 +6140,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     const defined = scriptsOf(dir);
     const present = scripts.filter((s) => defined[s]);
     if (!present.length) return null;
-    const { install, ran, red } = checkTree(io, dir, present.map((script) => ({ script })));
+    const { install, ran, red } = checkTree(io, dir, present.map((script) => ({ script })), stackEnv);
     if (install) {
       if (install.result.status !== 0) throw new GhError(`installing dependencies ${where} failed (${install.cmd}): ${tail(install.result, 5).join(" / ")}`);
       io.out(`+ dependencies${where === ON_MERGE ? "" : ` ${where}`}: ${install.cmd}`);
@@ -6127,57 +6150,65 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     return { ran, red: { ...red, failed } };
   };
   const breaks = (script: string) => `❌ don't merge: ${script} is red on the merge with origin/${base} — fix the root cause in the PR: rebase onto origin/${base}, edit, push --force-with-lease, ${recheck}`;
-  return inTempWorktree(io, "premerge", `origin/${base}`, (dir) => {
-    const short = (ref: string) => git(io, dir, "rev-parse", "--short=7", ref).stdout.trim();
-    // like GitHub's merge-ref; a rebase merge without conflicts gives the same tree. A temporary merge doesn't need the
-    // project's hooks
-    const merge = git(io, dir, "-c", "user.name=elves", "-c", "user.email=elves@localhost", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "--no-verify", "--no-edit", head);
-    if (merge.status !== 0) {
-      const files = git(io, dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
-      if (!files.length) throw new GhError(`git merge: ${merge.stderr.trim()}`);
-      io.out(`❌ don't merge: a merge conflict with origin/${base} — ${files.join(", ")}; rebase onto origin/${base}, push --force-with-lease, ${recheck}`);
-      return 1;
-    }
-    io.out(`+ merge of ${head.slice(0, 7)} with origin/${base} ${short("HEAD^1")} — no conflicts`);
-    // standards without test:spec don't stop the merge: the project's check holds the script, here — that they weren't run
-    const roots = specRoots(dir);
-    if (roots.length && !scriptsOf(dir)["test:spec"]) io.out(`○ ${roots.join(", ")} aren't checked on the merge: the merge's package.json has no test:spec script — the project's check names the line to add (bunx github:miroshnik/elves check)`);
-    const merged = checks(dir, ON_MERGE, PREMERGE_SCRIPTS);
-    if (!merged) {
-      io.out(`○ no fast checks: the merge's package.json has no ${PREMERGE_SCRIPTS.join(" or ")} scripts — step skipped`);
-      io.out(`✅ merge: the merge with origin/${base} has no conflicts`);
-      return 0;
-    }
-    const red = merged.red;
-    if (!red) {
-      io.out(`✅ merge: ${merged.ran.join(" and ")} ${merged.ran.length > 1 ? "are" : "is"} green on the merge with origin/${base}`);
-      return 0;
-    }
-    io.out(`${red.cmd} failed:`);
-    for (const l of (red.failed.length ? red.failed.slice(0, 20) : tail(red.result))) io.out(`  ${l.trim()}`);
+  try {
+    return inTempWorktree(io, "premerge", `origin/${base}`, (dir) => {
+      const short = (ref: string) => git(io, dir, "rev-parse", "--short=7", ref).stdout.trim();
+      // like GitHub's merge-ref; a rebase merge without conflicts gives the same tree. A temporary merge doesn't need the
+      // project's hooks
+      const merge = git(io, dir, "-c", "user.name=elves", "-c", "user.email=elves@localhost", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "--no-verify", "--no-edit", head);
+      if (merge.status !== 0) {
+        const files = git(io, dir, "diff", "--name-only", "--diff-filter=U").stdout.split("\n").filter(Boolean);
+        if (!files.length) throw new GhError(`git merge: ${merge.stderr.trim()}`);
+        io.out(`❌ don't merge: a merge conflict with origin/${base} — ${files.join(", ")}; rebase onto origin/${base}, push --force-with-lease, ${recheck}`);
+        return 1;
+      }
+      io.out(`+ merge of ${head.slice(0, 7)} with origin/${base} ${short("HEAD^1")} — no conflicts`);
+      // standards without test:spec don't stop the merge: the project's check holds the script, here — that they weren't run
+      const roots = specRoots(dir);
+      if (roots.length && !scriptsOf(dir)["test:spec"]) io.out(`○ ${roots.join(", ")} aren't checked on the merge: the merge's package.json has no test:spec script — the project's check names the line to add (bunx github:miroshnik/elves check)`);
+      const merged = checks(dir, ON_MERGE, PREMERGE_SCRIPTS);
+      if (!merged) {
+        io.out(`○ no fast checks: the merge's package.json has no ${PREMERGE_SCRIPTS.join(" or ")} scripts — step skipped`);
+        io.out(`✅ merge: the merge with origin/${base} has no conflicts`);
+        return 0;
+      }
+      const red = merged.red;
+      if (!red) {
+        io.out(`✅ merge: ${merged.ran.join(" and ")} ${merged.ran.length > 1 ? "are" : "is"} green on the merge with origin/${base}`);
+        return 0;
+      }
+      io.out(`${red.cmd} failed:`);
+      for (const l of (red.failed.length ? red.failed.slice(0, 20) : tail(red.result))) io.out(`  ${l.trim()}`);
+      const down = stackFailed();
+      if (down) return unchecked(ON_MERGE, red.script, down);
 
-    // a red merge — is bare main red by the same thing: then it's not this PR that breaks it
-    io.out(`checking bare origin/${base}: is it red by itself`);
-    const bare = inTempWorktree(io, "premerge", `origin/${base}`, (bareDir) => checks(bareDir, `on origin/${base}`, [red.script])?.red);
-    if (!bare) {
+      // a red merge — is bare main red by the same thing: then it's not this PR that breaks it
+      io.out(`checking bare origin/${base}: is it red by itself`);
+      const bare = inTempWorktree(io, "premerge", `origin/${base}`, (bareDir) => checks(bareDir, `on origin/${base}`, [red.script])?.red);
+      const bareDown = stackFailed();
+      if (bareDown) return unchecked(`on origin/${base}`, red.script, bareDown);
+      if (!bare) {
+        io.out(breaks(red.script));
+        return 1;
+      }
+      const onMain = new Set(bare.failed.map(failure));
+      const own = red.failed.filter((l) => !onMain.has(failure(l)));
+      // can't tell what failed — can't tell them apart: main is red, after its fix premerge checks the PR again
+      if (own.length && bare.failed.length) {
+        io.out(`${base} is red by itself, the PR breaks beyond it:`);
+        for (const l of own.slice(0, 20)) io.out(`  ${l}`);
+        io.out(breaks(red.script));
+        return 1;
+      }
+      const reason = `${red.script} is red on bare origin/${base} too, with the same failures`;
+      const code = mainRed(`${base} is red by itself: ${reason}`, reason, git(io, dir, "rev-parse", `origin/${base}`).stdout.trim(), [red.script], (names) => names.join(", "));
+      if (code !== null) return code;
       io.out(breaks(red.script));
       return 1;
-    }
-    const onMain = new Set(bare.failed.map(failure));
-    const own = red.failed.filter((l) => !onMain.has(failure(l)));
-    // can't tell what failed — can't tell them apart: main is red, after its fix premerge checks the PR again
-    if (own.length && bare.failed.length) {
-      io.out(`${base} is red by itself, the PR breaks beyond it:`);
-      for (const l of own.slice(0, 20)) io.out(`  ${l}`);
-      io.out(breaks(red.script));
-      return 1;
-    }
-    const reason = `${red.script} is red on bare origin/${base} too, with the same failures`;
-    const code = mainRed(`${base} is red by itself: ${reason}`, reason, git(io, dir, "rev-parse", `origin/${base}`).stdout.trim(), [red.script], (names) => names.join(", "));
-    if (code !== null) return code;
-    io.out(breaks(red.script));
-    return 1;
-  });
+    });
+  } finally {
+    rmSync(path.dirname(failedFile), { recursive: true, force: true });
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -6436,8 +6467,9 @@ Examples:
 
 Before gh pr merge, after ci-wait PASS: the default branch moved after the PR's CI — the PR head merged with it in a
 temporary worktree and ${PREMERGE_SCRIPTS.join(", then ")} from package.json (those that exist, as in CI). Code 0 —
-merge, 1 — don't merge (red, conflict), 2 — couldn't check, 3 — main is red by itself (the same check on bare main, a
-red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch runs no
+merge, 1 — don't merge (red, conflict), 2 — couldn't check (the stack of the PR's task didn't come up: the checks get
+ELVES_TASK — the number of the PR's branch — for task-env up on the detached HEAD), 3 — main is red by itself (the same
+check on bare main, a red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch runs no
 CI, so no ci-wait before it: the head on a fresh origin/<batch> — code 0 without checks (the checks before a commit
 checked this tree), the batch moved on — the fast checks on the merge with it. The
 batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's

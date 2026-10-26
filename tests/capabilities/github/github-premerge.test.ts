@@ -235,13 +235,13 @@ function fakeGh(
 
 /** Процессы: git и test:spec — настоящие, установка зависимостей — подменена; на test:spec снимок дерева слияния. */
 function processes() {
-  const calls: { cmd: string; args: string[]; cwd?: string }[] = [];
+  const calls: { cmd: string; args: string[]; cwd?: string; env?: Record<string, string> }[] = [];
   const seen: Record<string, string | null>[] = [];
-  const run = (cmd: string, args: string[], cwd?: string): RunResult => {
-    calls.push({ cmd, args, cwd });
+  const run = (cmd: string, args: string[], cwd?: string, env?: Record<string, string>): RunResult => {
+    calls.push({ cmd, args, cwd, ...(env ? { env } : {}) });
     if (cmd === "bun" && args[0] === "install") return { status: 0, stdout: "", stderr: "" };
     if (cmd === "bun" && args[0] === "run") seen.push(Object.fromEntries(["items.txt", "uses.txt"].map((f) => [f, existsSync(path.join(cwd!, f)) ? readFileSync(path.join(cwd!, f), "utf8") : null])));
-    return realRun(cmd, args, cwd);
+    return realRun(cmd, args, cwd, env);
   };
   // origin чекаута — bare-репозиторий …/miroshnik/elves.git: для скрипта он — репозиторий GitHub
   return { run: githubOrigin(run), calls, seen };
@@ -803,6 +803,45 @@ describe("pr premerge: проверить нельзя — ошибка, не «
     const r = premerge(fakeGh(p.head, { state: "closed" }).gh, p.work);
     expect(r.code).toBe(2);
     expect(r.err).toContain(`error: PR #${PR} is not open — nothing to merge`);
+  });
+});
+
+/**
+ * У проекта с тестами на своей базе в стеке задачи (task-env) `test:spec` поднимает стек `task-env up` (#759). Временный
+ * worktree слияния — на отцеплённом HEAD, без ветки задачи: без номера задачи `up` отказывал, тесты падали на
+ * подключении и с обеих сторон — и premerge отвечал «красная база». Проверкам на слиянии premerge даёт номер задачи из
+ * ветки PR (`ELVES_TASK`) и файл, куда task-env пишет неподнятый стек (`ELVES_TASK_ENV_FAILED`).
+ */
+describe("pr premerge: база стека задачи PR", () => {
+  const AFTER = "2026-10-02T10:20:00Z";
+  // test:spec проекта — тесты на базе стека: task-env up поднимает стек задачи ELVES_TASK; без номера — отказ в файл
+  // ELVES_TASK_ENV_FAILED, как у task-env, и тест падает на подключении
+  const STACK = `if [ -z "$ELVES_TASK" ]; then
+  [ -n "$ELVES_TASK_ENV_FAILED" ] && echo "task-env up: the worktree has no task branch" >> "$ELVES_TASK_ENV_FAILED"
+  echo "(fail) база > подключение к базе стека [1.0ms]" >&2; exit 1
+fi
+echo "(pass) база стека $ELVES_TASK"
+`;
+  const files = { "package.json": PKG({ "test:spec": "sh stack.sh" }), "stack.sh": STACK };
+
+  it("проверки на слиянии берут базу стека задачи PR", () => {
+    const p = project({ files, pr: { "uses.txt": "a\n" }, mainAfter: { "items.txt": "a\nb\nc\n" } });
+    const proc = processes();
+    const r = premerge(fakeGh(p.head, { moved: AFTER }).gh, p.work, proc.run);
+    expect(r.last, r.out).toBe("✅ merge: test:spec is green on the merge with origin/main");
+    expect(r.code).toBe(0);
+    expect(proc.calls.find((c) => c.cmd === "bun" && c.args[0] === "run")?.env?.ELVES_TASK).toBe("7");
+  });
+
+  it("база стека не поднялась — «не смог проверить», а не «красная база»", () => {
+    // ветка PR без номера задачи: стек задачи не поднять — тесты красные на слиянии
+    const p = project({ files, pr: { "uses.txt": "a\n" }, mainAfter: { "items.txt": "a\nb\nc\n" } });
+    const r = premerge(fakeGh(p.head, { moved: AFTER, ref: "experiment" }).gh, p.work);
+    expect(r.code, r.out).toBe(2);
+    expect(r.out).toContain("❌ couldn't check: the stack of the PR's task (its branch has no task number) didn't come up for test:spec on the merge — task-env up: the worktree has no task branch");
+    expect(r.out).not.toContain("is red by itself");
+    expect(r.out).not.toContain("checking bare origin/main");
+    expect(worktrees(p.work)).toHaveLength(1);
   });
 });
 

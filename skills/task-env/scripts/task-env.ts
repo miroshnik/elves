@@ -43,7 +43,7 @@
  * unsandboxed call — an `excludedCommands` entry for it doesn't take it out (SKILL.md, «Docker and the sandbox»).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,11 +58,12 @@ export const HELP: Record<string, string> = {
   up: `task-env up [<N>] [--profile <p>]...
 
 Brings the task's stack up — the Compose project <project>-<N> by the branch <type>/<N>-slug, <project> without a
-number (in the middle of a rebase — the branch being rebased; a linked worktree without a task branch is
-refused: give N) — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
+number (in the middle of a rebase — the branch being rebased; a linked worktree without a task branch — the task of
+ELVES_TASK=<N>, without it refused: give N) — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
 127.0.0.1; the HTTP addresses go to the compose file's interpolation in TASK_ENV_<SERVICE>_URL; --profile — Compose
 profiles. The bring-up takes a place in the machine queue (slot) until the containers are healthy. Code 0 — up, 1 — a
-service failed (its state and log), 2 — not tried.
+service failed (its state and log), 2 — not tried; not up — the reason is appended to the file of
+ELVES_TASK_ENV_FAILED, if given (pr premerge of the github skill: «couldn't check», not a red check).
 
 Examples:
   task-env up
@@ -879,7 +880,7 @@ function shown(addresses: Address[], withVar: boolean): string[] {
 function stackUp(project: Project, profiles: string[], env: NodeJS.ProcessEnv): number {
   const stack = stackOf(project.name, project.task);
   const r = inSlot(`up ${stack.name}`, () => upStack(project, stack, profiles, env));
-  if (r.code) return console.log(r.lines.join("\n")), r.code;
+  if (r.code) return console.log(r.lines.join("\n")), stackFailed(env, "up", r.code, r.lines);
   const addresses = addressesOf(project, stack, env);
   console.log([...r.lines, `stack ${stack.name}: up${addresses.length ? "" : " — no HTTP service in env.http and no published port"}`, ...shown(addresses, false)].join("\n"));
   console.log(`logs: docker compose -p ${stack.name} logs <service>; down: bun --no-env-file ${fileURLToPath(import.meta.url)} down${project.task === undefined ? "" : ` ${project.task}`}`);
@@ -894,9 +895,9 @@ function stackUp(project: Project, profiles: string[], env: NodeJS.ProcessEnv): 
 function stackE2e(project: Project, profiles: string[], command: string[], env: NodeJS.ProcessEnv): number {
   const stack = stackOf(project.name, project.task, true);
   const clean = downStack(stack.name, env);
-  if (!clean.ok) return console.log(clean.line), 2;
+  if (!clean.ok) return console.log(clean.line), stackFailed(env, "e2e", 2, [clean.line]);
   const r = inSlot(`e2e ${stack.name}`, () => upStack(project, stack, profiles, env));
-  if (r.code) return console.log(r.lines.join("\n")), r.code;
+  if (r.code) return console.log(r.lines.join("\n")), stackFailed(env, "e2e", r.code, r.lines);
   const addresses = addressesOf(project, stack, env);
   console.log([...r.lines, `stack ${stack.name}: up, clean volumes — TASK_ENV_PROJECT=${stack.name}`, ...shown(addresses, true)].join("\n"));
   if (!command.length) return 0;
@@ -1008,6 +1009,28 @@ function profilesOf(args: string[]): { profiles: string[]; rest: string[] } | un
   return { profiles, rest: args.slice(i + 1) };
 }
 
+/**
+ * The task of a checkout without a task branch — `ELVES_TASK=<N>`: `pr premerge` of the github skill checks the merge
+ * in a temporary worktree on a detached HEAD and gives the PR's task (#759) — `up`, `e2e` and `down` without a number
+ * take its stack instead of refusing. A task branch comes first; not a positive number — none.
+ */
+export const TASK_VAR = "ELVES_TASK";
+/**
+ * The file a stack command that didn't bring the stack up appends its reason to — `ELVES_TASK_ENV_FAILED=<file>`:
+ * `pr premerge` tells «couldn't check» from a red check by it (#759) — a test that failed on the connection says
+ * nothing about the stack.
+ */
+export const FAILED_VAR = "ELVES_TASK_ENV_FAILED";
+const taskOfEnv = (env: NodeJS.ProcessEnv) => (/^[1-9]\d*$/.test(env[TASK_VAR] ?? "") ? Number(env[TASK_VAR]) : undefined);
+
+/** A stack that didn't come up — its reason into FAILED_VAR, if given; the code as is. */
+function stackFailed(env: NodeJS.ProcessEnv, group: string, code: number, lines: string[]): number {
+  const file = env[FAILED_VAR];
+  const why = lines.filter((l) => l.trim()).slice(-3).join(" / ") || `code ${code}`;
+  if (file && code !== 0) appendFileSync(file, `${why.startsWith("task-env ") ? "" : `task-env ${group}: `}${why}\n`);
+  return code;
+}
+
 /** The stack commands: undefined — not one of them or wrong arguments. */
 function stackCommand(group: string, args: string[], env: NodeJS.ProcessEnv): number | undefined {
   if (group !== "up" && group !== "e2e" && group !== "down" && group !== "prune") return undefined;
@@ -1016,21 +1039,24 @@ function stackCommand(group: string, args: string[], env: NodeJS.ProcessEnv): nu
     // the stacks are found by the Compose project: the task's worktree may be gone already
     const root = git(process.cwd(), "rev-parse", "--show-toplevel") || process.cwd();
     if (group === "prune") return prune(root, env);
-    if (!args[0]) {
+    const branch = taskBranch(currentBranch(root))?.issue ?? taskOfEnv(env);
+    if (!args[0] && branch === undefined) {
       const refusal = noTaskRefusal(root, "down");
       if (refusal) return console.log(refusal), 2;
     }
-    return stackDown(root, args[0] ? Number(args[0]) : taskBranch(currentBranch(root))?.issue, env);
+    return stackDown(root, args[0] ? Number(args[0]) : branch, env);
   }
-  const number = group === "up" && /^\d+$/.test(args[0] ?? "") ? Number(args[0]) : undefined;
-  const opts = profilesOf(number === undefined ? args : args.slice(1));
+  const given = group === "up" && /^\d+$/.test(args[0] ?? "") ? Number(args[0]) : undefined;
+  const opts = profilesOf(given === undefined ? args : args.slice(1));
   if (!opts || (group === "up" && opts.rest.length)) return undefined;
+  const root = git(process.cwd(), "rev-parse", "--show-toplevel") || process.cwd();
+  const number = given ?? (taskBranch(currentBranch(root)) ? undefined : taskOfEnv(env));
   if (number === undefined) {
-    const refusal = noTaskRefusal(git(process.cwd(), "rev-parse", "--show-toplevel") || process.cwd(), group);
-    if (refusal) return console.log(refusal), 2;
+    const refusal = noTaskRefusal(root, group);
+    if (refusal) return console.log(refusal), stackFailed(env, group, 2, [refusal]);
   }
   const project = projectOf(process.cwd(), number);
-  if (typeof project === "string") return console.log(`task-env ${group}: ${project}`), 2;
+  if (typeof project === "string") return console.log(`task-env ${group}: ${project}`), stackFailed(env, group, 2, [project]);
   return group === "up" ? stackUp(project, opts.profiles, env) : stackE2e(project, opts.profiles, opts.rest, env);
 }
 
