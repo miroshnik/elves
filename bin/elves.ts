@@ -1046,6 +1046,31 @@ function turboEnv(root: string) {
   else warn(`${name} — ${text}`);
 }
 
+/** A command that brings a Compose stack up itself: `docker compose [opts] up`, `docker-compose up`. */
+const COMPOSE_UP = /\bdocker(?:\s+|-)compose\b(?:\s+(?!up\b)[^\s;&|]+)*\s+up\b/;
+
+/**
+ * Bringing a stack up is heavy work of the machine (tests/capabilities/task-env/stacks): `task-env up` and `e2e` take a
+ * place in the slot queue until the containers are healthy, a package.json script with its own `docker compose up`
+ * doesn't. It isn't wrapped in the shim like the checks: the shim holds the slot while the script runs, and `docker
+ * compose up` without `-d` runs until Ctrl+C. The script is named with the replacement — a warning, not falling behind;
+ * a script already in the queue (wrapped by hand) — not named.
+ */
+function composeOutsideQueue(root: string) {
+  let scripts: unknown;
+  try {
+    scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts;
+  } catch {
+    return;
+  }
+  if (!scripts || typeof scripts !== "object") return;
+  const names = Object.entries(scripts).flatMap(([name, cmd]) => (typeof cmd === "string" && unslot(cmd) === cmd && COMPOSE_UP.test(cmd) ? [name] : []));
+  if (!names.length) return;
+  const text = `${names.join(", ")} — ${names.length > 1 ? "bring" : "brings"} a stack up with docker compose up outside the machine queue (slot): its start chokes neighbors' runs — bring it up with \`${packageRun(yarnShell(root))} task-env up\`, it waits for the queue until the containers are healthy`;
+  if (dry) change("!", path.join(root, "package.json"), { note: text });
+  else warn(`package.json — ${text}`);
+}
+
 /**
  * Claude Code: rules from `.claude/rules` load by themselves, whatever the CLAUDE.md. The symlinks under the former
  * name go — Claude Code would load the rules twice; only ours, into the former canon.
@@ -1787,6 +1812,7 @@ function installProject(root: string, auto = autoOf(root), language = languageOf
   projectHook(root, false);
   packageScripts(root);
   turboEnv(root);
+  composeOutsideQueue(root);
   rewriteCopyRefs(root);
   packageDependency(root, ownVersion());
   gitignoreFlow(root);
