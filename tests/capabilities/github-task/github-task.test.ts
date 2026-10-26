@@ -1891,7 +1891,7 @@ describe("task actualize делает механику актуализации 
     expect(r.code).toBe(0);
     const lines = r.out.split("\n");
     expect(lines[0]).toBe(LEAD);
-    expect(lines).toContain("Репозиторий miroshnik/elves. Выкачено: #46 «GitHub · Проект по канону — github project check и fix», PR #77 (`gh pr view 77`, `gh pr diff 77`).");
+    expect(lines).toContain("Репозиторий miroshnik/elves. Выкачено: #46 «GitHub · Проект по канону — github project check и fix», PR #77, дифф — `git log -p -E --grep '#46([^0-9]|$)' origin/main`.");
     expect(r.out).toContain("Файлы PR #77:\n- skills/github/scripts/github.ts (+1 −1)\n- docs/old.md (deleted, +0 −12)");
     expect(r.out).toContain("## Эпик #45 «GitHub · Скилл github: проект и задачи по канону одной командой»\n~~~~markdown\nЦель эпика: проект по канону.\n~~~~");
     expect(r.out).toContain("## Открытые задачи эпика — его подзадачи (sub-issues), а не список в описании эпика");
@@ -1909,7 +1909,8 @@ describe("task actualize делает механику актуализации 
     for (const i of [1, 3]) expect(r.out).not.toContain(CHECKS[i]!);
     expect(r.out).toContain("#46, эпик #45 и их milestone не закрывать — это сделает task close после тебя");
     // итог — всегда, и «блок актуален» тоже: по нему task close видит, что актуализация закончена (#571)
-    expect(r.out).toContain("Итог — всегда, последним шагом: комментарий к эпику #45 (`gh issue comment 45 --repo miroshnik/elves`) одной строкой «Актуализация после #46, итог: …»");
+    expect(r.out).toContain("Итог — всегда: «report» файла");
+    expect(r.out).toContain("Скрипт пишет его комментарием к эпику #45 — «Актуализация после #46, итог: …»");
     // задание печатается, ничего не меняя
     expect(f.mutations.length).toBe(before);
   });
@@ -2078,7 +2079,7 @@ describe("task actualize делает механику актуализации 
     expect(CHECKS[4]!.replace(/\s+/g, " ")).toContain("First — an open task of the epic of the same kind (the same helper, module or standard) in Backlog: the finding is an item in its «What to do»");
     expect(r.out).toContain(CHECKS[4]!);
     // итог называет, куда ушла находка
-    expect(r.out).toContain("после двоеточия что поправил, находку-повтор — с тем, куда она ушла: «дописано в #N» или «заведена #M»;");
+    expect(r.out).toContain("что поправил, находку-повтор — с тем, куда она ушла: «дописано в #N» или «заведена #new1»;");
     expect(r.out.split("\n").at(-1)).toBe("Ответ — правки по строке с номерами задач (находка-повтор — «дописано в #N» или «заведена #M») и вопросы владельцу, если есть; иначе «Блок актуален».");
     expect(f.mutations.length).toBe(before);
   });
@@ -2097,6 +2098,115 @@ describe("task actualize делает механику актуализации 
     );
     expect(underHeading(r.out, `### #${opened} «GitHub · Экспорт счетов»`)).toBe("PR #80 открыт — задача уже идёт: находку-повтор того же рода сюда не дописывать, а завести новой задачей.");
     expect(CHECKS[4]!.replace(/\s+/g, " ")).toContain("one In progress or with an open PR is already going — a new task");
+  });
+
+  /**
+   * Субагент обновления эпика — 27 ходов на обновление; в пяти проектах за две недели ≈ 1800 прямых вызовов `gh` (#669),
+   * хотя задание уже содержит тексты эпика и его задач. Правки — одним файлом: `--apply` сверяет все до изменений,
+   * применяет все или ни одной и сам пишет итог в эпик.
+   */
+  const refreshFile = (data: unknown) => {
+    const file = path.join(scratch(), "refresh.json");
+    writeFileSync(file, JSON.stringify(data));
+    return file;
+  };
+  const BODY47 = "Задача.\n\nПосле #46 — сначала проект.\n\n## Что сделать\n\n- [ ] экспорт\n\n## Вопросы\n\n1. Формат?\n";
+
+  it("actualize --apply применяет все правки файла и пишет комментарий в эпик", () => {
+    const f = new FakeGitHub(REC);
+    merged46(f);
+    f.issue(47).body = BODY47;
+    f.labelIssue(47, "вопросы");
+    f.blockedBy[47] = [49];
+    const extra = Number(subtask(f, "Лишняя"));
+    const shipped = Number(subtask(f, "Уже сделана"));
+    const file = refreshFile({
+      report: "у #47 убрана копия связи, ответ на вопрос 1; заведена #new1",
+      edits: [
+        { task: 47, replace: "После #46 — сначала проект.\n\n", with: "" },
+        { task: 47, add: "## Что сделать", item: "импорт" },
+        { task: 47, check: "экспорт" },
+        { task: 47, answer: 1, text: "CSV" },
+        { task: 47, unblock: 49 },
+        { task: extra, close: "not needed" },
+        { task: shipped, close: "done" },
+        { new: "Стандарт · одна выгрузка", branchType: "refactor" },
+      ],
+    });
+    const r = task(f, ["actualize", "46", "--apply", file]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    // правки описания — по порядку, одной записью
+    expect(byOp(f, "UpdateIssue").filter((m) => m.id === f.issue(47).id)).toEqual([
+      { id: f.issue(47).id, body: "Задача.\n\n## Что сделать\n\n- [x] экспорт\n- [ ] импорт\n\n## Вопросы\n\n1. ✅ Формат? **Ответ:** CSV" },
+    ]);
+    expect(f.issue(47).labels.nodes).toEqual([]);
+    expect(f.blockedBy[47]).toEqual([]);
+    expect([f.issue(extra).state, f.issue(extra).stateReason]).toEqual(["CLOSED", "NOT_PLANNED"]);
+    expect([f.issue(shipped).state, f.issue(shipped).stateReason]).toEqual(["CLOSED", "COMPLETED"]);
+    const created = Number(/^Created #(\d+)/m.exec(r.out)![1]);
+    expect(f.issue(created).parent).toEqual({ id: f.issue(45).id, number: 45 });
+    // итог — комментарием в эпик, #new1 — номер заведённой задачи: по нему task close видит, что обновление закончено
+    expect(byOp(f, "AddComment").at(-1)).toEqual({ subjectId: f.issue(45).id, body: `Актуализация после #46, итог: у #47 убрана копия связи, ответ на вопрос 1; заведена #${created}` });
+    expect(r.out.split("\n").at(-1)).toBe(`+ epic #45: the refresh report — «у #47 убрана копия связи, ответ на вопрос 1; заведена #${created}»`);
+    // без правок — только итог «блок актуален»
+    const g = new FakeGitHub(REC);
+    merged46(g);
+    expect(task(g, ["actualize", "46", "--apply", refreshFile({ report: "блок актуален" })]).code).toBe(0);
+    expect(g.mutations.map((m) => m.op)).toEqual(["AddComment"]);
+  });
+
+  it("actualize --apply с невыполнимой правкой ничего не меняет и называет её", () => {
+    const f = new FakeGitHub(REC);
+    merged46(f);
+    f.issue(47).body = BODY47;
+    f.closed(Number(subtask(f, "Закрытая")));
+    const closed = f.mutations.length;
+    const file = refreshFile({
+      report: "заведена #new2",
+      edits: [
+        { task: 47, check: "экспорт" },
+        { task: 47, replace: "XML-выгрузка", with: "JSON" },
+        { task: 46, close: "done" },
+        { task: 47, answer: 3, text: "CSV" },
+        { task: 47, unblock: 49 },
+        { task: 47, check: "импорт", close: "done" },
+        { new: "Стандарт", branchType: "style" },
+      ],
+    });
+    const r = task(f, ["actualize", "46", "--apply", file]);
+    expect(r.code).toBe(2);
+    expect(r.err).toBe(
+      `error: --apply ${file}: nothing changed — ` +
+        "edit 2: #47: --replace «XML-выгрузка» — not found in the description; " +
+        "edit 3: #46 shipped — task close closes it; editable: #45, #47; " +
+        "edit 4: #47: no question 3 in «## Вопросы»; questions: 1; " +
+        "edit 5: #47 isn't blocked by #49; blocked by: none; " +
+        "edit 6: expected one action of replace, add, check, answer, unblock, close, new, not check and close; " +
+        "edit 7: «new» «Стандарт» — «branchType»: feat, fix, docs, refactor, perf, test, chore, ci, build, research; " +
+        "report: #new2 — the file has 0 «new» edits",
+    );
+    expect(f.mutations.length).toBe(closed);
+    // без итога файл не применяется: по нему task close видит конец обновления
+    expect(task(f, ["actualize", "46", "--apply", refreshFile({ edits: [] })]).err).toContain("no «report»");
+    expect(f.mutations.length).toBe(closed);
+  });
+
+  it("задание обновления содержит формат файла правок и всё о задачах эпика", () => {
+    const f = new FakeGitHub(REC);
+    merged46(f);
+    f.issue(47).body = BODY47;
+    const r = task(f, ["actualize", "46", "--assignment"]);
+    expect(r.code).toBe(0);
+    // применяет правки одна команда, gh субагенту не нужен: тексты задач — в задании, дифф — git log
+    expect(r.out).toMatch(/и примени `bun --no-env-file \S+github\.ts task actualize 46 --apply <файл> --repo miroshnik\/elves`, вне песочницы/);
+    expect(r.out).toContain("«report» — текст после «Актуализация после #46, итог:», в нём «#new1», «#new2» — номера новых задач. Пример:");
+    const example = /~~~~json\n([\s\S]*?)\n~~~~/.exec(r.out)![1]!;
+    const parsed = JSON.parse(example);
+    expect(parsed.edits.map((e: Record<string, unknown>) => Object.keys(e).find((k) => k !== "task" && k !== "with" && k !== "item" && k !== "text" && k !== "branchType" && k !== "body"))).toEqual(["replace", "add", "check", "answer", "unblock", "close", "new"]);
+    expect(parsed.edits[0].task).toBe(47);
+    expect(r.out).toContain("~~~~markdown\n" + BODY47.trim() + "\n~~~~");
+    expect(r.out).not.toMatch(/`gh \S/);
   });
 });
 
@@ -3687,7 +3797,7 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(r.code).toBe(0);
     expect(byOp(f, "RemoveBlockedBy")).toEqual([]);
     const assignment = task(f, ["actualize", "47", "--assignment"], REPO).out;
-    expect(assignment).toContain(`Выкачено: #47 «${f.issue(47).title}», PR #300 (\`gh pr view 300\`, \`gh pr diff 300\`).`);
+    expect(assignment).toContain(`Выкачено: #47 «${f.issue(47).title}», PR #300, дифф — \`git log -p -E --grep '#47([^0-9]|$)' origin/${name}\`.`);
     expect(assignment).toContain("Файлы PR #300:\n- skills/github/scripts/github.ts");
     // задача без эпика: строка после актуализации не зовёт task close — задача закроется выпуском пачки
     const lone =createdIn(task(f, ["new", "--branch-type", "feat", "--title", "Без эпика"]));
@@ -4005,11 +4115,11 @@ describe("Выпуск пачки — один PR в main", () => {
     // задание: что выкатила каждая задача — её PR в пачку, а не PR выпуска; одна строка отчёта на обе
     const assignment = task(f, ["actualize", "47", String(third), "--assignment"], REPO).out;
     expect(assignment).toContain(
-      `Выкачено: #47 «${f.issue(47).title}», PR #300 (\`gh pr view 300\`, \`gh pr diff 300\`); #${third} «${f.issue(third).title}», PR #302 (\`gh pr view 302\`, \`gh pr diff 302\`).`,
+      `Выкачено: #47 «${f.issue(47).title}», PR #300, дифф — \`git log -p -E --grep '#47([^0-9]|$)' origin/main\`; #${third} «${f.issue(third).title}», PR #302, дифф — \`git log -p -E --grep '#${third}([^0-9]|$)' origin/main\`.`,
     );
     expect(assignment).not.toContain("PR #303");
     expect(assignment).toContain(`### #${waiting} «GitHub · Ждёт следующей пачки»`);
-    expect(assignment).toContain(`одной строкой «Актуализация после #47, #${third}, итог: …»`);
+    expect(assignment).toContain(`комментарием к эпику #45 — «Актуализация после #47, #${third}, итог: …»`);
     expect(assignment).toContain(`По нему \`task close 47\`, \`task close ${third}\` видит, что актуализация закончена`);
     expect(task(f, ["actualize", "47", "49", "--assignment"], REPO).err).toBe("error: --assignment — the tasks of one epic, as its refresh prompt names them: #47 — epic #45; #49 — no epic");
     // до отчёта task close отказывает — по эпику: называет задачи эпика из выпуска и их актуализацию

@@ -2840,21 +2840,16 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   return { lines: out, title: i.title, state: i.state, epic, estimate: Boolean(estimate), body: i.body ?? "", open, epicOpen, prs };
 }
 
+/** The answer's text on one line: `task answer` and the refresh's file of edits (#669). */
+const answerText = (answer: string) => answer.trim().replace(/\s*\r?\n\s*/g, " ");
+
 /**
- * The answer at question k of the questions section, in place of rewriting the description by hand: ✅ (with --auto —
- * `autoAnswer`) after the item's number and «**Answer:** …» (`est.answer`: est strips it from the description size) at
- * its end — on the same line for a one-line item, otherwise on a line of its own; the numbering doesn't change, the
- * rest of the description stays as is. No open questions left — the questions label is removed. An answered question
- * is refused: a changed answer — `task edit --replace` (#670).
+ * The description with the answer at question k (`cmdTaskAnswer`, the refresh's file of edits — #669) and the numbers
+ * of the questions still open; no such question, or it is answered — an error, nothing is written.
  */
-export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, answer: string, auto: boolean): number {
-  const text = answer.trim().replace(/\s*\r?\n\s*/g, " ");
-  if (!text) throw new GhError("task answer: expected the answer text after the question number");
-  const [owner, name] = slug.split("/");
-  const cloud = inCloud(io);
-  const i = cloud ? restIssue(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
-  if (!i) throw new GhError(`no issue #${number} in ${slug}`);
-  const body: string = i.body ?? "";
+export function answerInBody(number: number, body: string, k: number, answer: string, auto: boolean): { body: string; open: number[] } {
+  const text = answerText(answer);
+  if (!text) throw new GhError(`#${number}: question ${k} — the answer text is empty`);
   const lines = body.split(/\r?\n/);
   const questions = questionItems(body);
   if (!questions.length) throw new GhError(`#${number}: no ${q(N.sections.questions)} section with numbered questions`);
@@ -2865,11 +2860,27 @@ export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, a
   lines[question.first] = lines[question.first]!.replace(/^(\d+\.\s+)/, `$1${auto ? N.autoAnswer : "✅"} `);
   if (question.first === question.last) lines[question.first] += ` ${reply}`;
   else lines.splice(question.last + 1, 0, `${" ".repeat(`${k}. `.length)}${reply}`);
-  const next = lines.join(body.includes("\r\n") ? "\r\n" : "\n");
+  const open = questions.filter((x) => !x.answered && x !== question).map((x) => x.k);
+  return { body: lines.join(body.includes("\r\n") ? "\r\n" : "\n"), open };
+}
+
+/**
+ * The answer at question k of the questions section, in place of rewriting the description by hand: ✅ (with --auto —
+ * `autoAnswer`) after the item's number and «**Answer:** …» (`est.answer`: est strips it from the description size) at
+ * its end — on the same line for a one-line item, otherwise on a line of its own; the numbering doesn't change, the
+ * rest of the description stays as is. No open questions left — the questions label is removed. An answered question
+ * is refused: a changed answer — `task edit --replace` (#670).
+ */
+export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, answer: string, auto: boolean): number {
+  if (!answerText(answer)) throw new GhError("task answer: expected the answer text after the question number");
+  const [owner, name] = slug.split("/");
+  const cloud = inCloud(io);
+  const i = cloud ? restIssue(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  if (!i) throw new GhError(`no issue #${number} in ${slug}`);
+  const { body: next, open } = answerInBody(number, i.body ?? "", k, answer, auto);
   if (cloud) rest(io, `repos/${slug}/issues/${number}`, { method: "PATCH", payload: { body: next } });
   else mutate(io, { op: "UpdateIssue", input: { id: i.id, body: next } });
   io.out(`+ #${number}: question ${k} — ✅ and the answer in the description`);
-  const open = questions.filter((x) => !x.answered && x !== question).map((x) => x.k);
   if (open.length) return io.out(`○ #${number}: open questions left: ${open.join(", ")}`), 0;
   const label: Any[] = (i.labels?.nodes ?? []).filter((l: Any) => locale.every((n) => n.labels.questions).includes(l.name));
   if (label.length) {
@@ -4358,25 +4369,27 @@ function shippedBy(io: Io, slug: string, issue: Issue): { prs: Issue["prs"]; rel
  * — the checks by meaning have nothing to go through: a "not needed" line, no subagent. Several tasks — shipped together
  * (a batch's release, #676: `batch release` names them all) — grouped by their epics: one refresh per epic, its prompt
  * and its report name the epic's tasks («Task #N, #M», «Refresh after #N, #M, result: …»), and `task close` of each
- * accepts it; `--assignment` — the tasks of one epic, as its prompt names them.
+ * accepts it; `--assignment` — the tasks of one epic, as its prompt names them. `--apply <file>` — the subagent's
+ * edits and its report in one file (`applyRefresh`, #669), the same tasks as its assignment.
  */
-export function cmdTaskActualize(io: Io, slug: string, numbers: number[], o: { assignment: boolean; finish?: boolean } = { assignment: false }): number {
+export function cmdTaskActualize(io: Io, slug: string, numbers: number[], o: RefreshOptions = { assignment: false }): number {
+  if (o.assignment && o.apply !== undefined) throw new GhError("--assignment or --apply, not both: the assignment is read-only, the file of edits is applied after it");
   const groups = new Map<number | null, Issue[]>();
   for (const n of [...new Set(numbers)]) {
     const issue = loadIssue(io, slug, n);
     const epic = issue.parent?.number ?? null;
     groups.set(epic, [...(groups.get(epic) ?? []), issue]);
   }
-  if (o.assignment && groups.size > 1) {
+  if ((o.assignment || o.apply !== undefined) && groups.size > 1) {
     const by = [...groups].map(([epic, g]) => `${g.map((i) => `#${i.number}`).join(", ")} — ${epic === null ? "no epic" : `epic #${epic}`}`).join("; ");
-    throw new GhError(`--assignment — the tasks of one epic, as its refresh prompt names them: ${by}`);
+    throw new GhError(`${o.apply === undefined ? "--assignment" : "--apply"} — the tasks of one epic, as its refresh prompt names them: ${by}`);
   }
   for (const [epic, group] of groups) refreshEpic(io, slug, epic, group, o);
   return 0;
 }
 
 /** One epic's refresh after its tasks shipped (`cmdTaskActualize`): the tasks of `group` — of this epic, or of none. */
-function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Issue[], o: { assignment: boolean; finish?: boolean }): void {
+function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Issue[], o: RefreshOptions): void {
   const numbers = group.map((i) => i.number);
   const tags = numbers.map((n) => `#${n}`).join(", ");
   const shipped = group.map((issue) => ({ issue, ...shippedBy(io, slug, issue) }));
@@ -4389,9 +4402,14 @@ function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Iss
     : held
     ? `Next: no task close — ${tags} ${numbers.length > 1 ? "are" : "is"} merged into ${shipped[0]!.prs[0]!.base}: ${numbers.length > 1 ? "they close" : "it closes"} with the batch's release.`
     : `Next: ${numbers.map((n) => `task close ${n}`).join("; ")} — after the deploy, where the merge deploys.`;
-  if (epicNumber === null) return io.out(`○ refresh not needed: ${tags} ${numbers.length > 1 ? "have" : "has"} no epic.${later && ` ${later}`}`);
+  if (epicNumber === null) {
+    if (o.apply !== undefined) throw new GhError(`--apply: ${tags} ${numbers.length > 1 ? "have" : "has"} no epic — there is nothing to refresh`);
+    return io.out(`○ refresh not needed: ${tags} ${numbers.length > 1 ? "have" : "has"} no epic.${later && ` ${later}`}`);
+  }
   const epic = loadTaskText(io, slug, epicNumber);
   const open = epic.subIssues.filter((x) => x.state === "OPEN" && !numbers.includes(x.number)).map((x) => loadTaskText(io, slug, x.number));
+  // the file of edits (#669): the mechanics is done by the call that printed the prompt
+  if (o.apply !== undefined) return applyRefresh(io, slug, o.apply, { numbers, epic, open });
   if (!o.assignment) refreshMechanics(io, slug, { numbers, merged: shipped.filter((s) => s.released).map((s) => s.issue.number), epic, open });
   if (!open.length) return io.out(`○ refresh not needed: epic #${epic.number} has no open tasks besides ${tags}.${later && ` ${later}`}`);
   // the board with its Status (and its language) — the assignment names where a repeat finding goes (#636)
@@ -4405,9 +4423,13 @@ function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Iss
     return;
   }
   const checks = actualizeChecks();
+  // the diff — by git, not gh (#669): rebase-merged commits carry «Refs #N»; merged only into a batch — its branch
   const what = (s: (typeof shipped)[number]) =>
     s.prs.length
-      ? locale.fill(N.actualize.prs, { list: s.prs.map((p) => `#${p.number} (\`gh pr view ${p.number}\`, \`gh pr diff ${p.number}\`)`).join(", ") })
+      ? locale.fill(N.actualize.prs, {
+          list: s.prs.map((p) => `#${p.number}`).join(", "),
+          command: `\`git log -p -E --grep '#${s.issue.number}([^0-9]|$)' origin/${s.released ? (s.prs.find((p) => !isBatchBranch(p.base))?.base ?? "main") : s.prs[0]!.base}\``,
+        })
       : locale.fill(N.actualize.noPr, { command: `\`git log origin/main --grep '#${s.issue.number}'\`` });
   const tasks = shipped.map((s) => locale.fill(N.actualize.shippedTask, { number: s.issue.number, title: s.issue.title, shipped: what(s) })).join("; ");
   const lines = [lead, locale.fill(N.actualize.shipped, { repo: slug, tasks })];
@@ -4437,11 +4459,166 @@ function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Iss
     "",
     MEANING_CHECKS.map((i) => checks[i]!).join("\n"),
     "",
-    locale.fill(N.actualize.scope, { ...vars, questions: N.sections.questions, script: `bun --no-env-file ${import.meta.path}` }),
+    locale.fill(N.actualize.scope, { ...vars, args: numbers.join(" "), script: `bun --no-env-file ${import.meta.path}` }),
+    locale.fill(N.actualize.format, { report: locale.fill(N.actualize.report, { number: vars.number, text: "" }).trim() }),
+    "~~~~json",
+    refreshExample(epic, open),
+    "~~~~",
     locale.fill(N.actualize.comment, { ...vars, report: locale.fill(N.actualize.report, { number: vars.number, text: "…" }), close: numbers.map((n) => `\`task close ${n}\``).join(", ") }),
     N.actualize.answer,
   );
   for (const line of lines) io.out(line);
+}
+
+/** `task actualize`'s modes: the mechanics and the prompt, the assignment (read-only), the file of edits (#669). */
+interface RefreshOptions {
+  assignment: boolean;
+  finish?: boolean;
+  /** The refresh subagent's file of edits: checked whole, applied all or none, the report posted on the epic. */
+  apply?: string | undefined;
+}
+
+/** The actions of an edit in the refresh's file (#669): each edit is exactly one. */
+const REFRESH_ACTIONS = ["replace", "add", "check", "answer", "unblock", "close", "new"] as const;
+/** `#new1`, `#new2` in the report — the numbers of the tasks the file's `new` edits create, in their order. */
+const NEW_REF_RE = /#new(\d+)(?!\d)/g;
+
+/** The file's example in the assignment: on the epic's first open task — the subagent sees the shape, not a recipe. */
+function refreshExample(epic: TaskText, open: TaskText[]): string {
+  const task = (open[0] ?? epic).number;
+  const lines = [
+    `{ "task": ${task}, "replace": "<text found once in the description>", "with": "<new text, \\"\\" removes it>" }`,
+    `{ "task": ${task}, "add": "## <section heading>", "item": "<item>" }`,
+    `{ "task": ${task}, "check": "<text of an unchecked item>" }`,
+    `{ "task": ${task}, "answer": 1, "text": "<answer>" }`,
+    `{ "task": ${task}, "unblock": "#<N>" }`,
+    `{ "task": ${task}, "close": "done" }`,
+    `{ "new": "<title>", "branchType": "refactor", "body": "<description>" }`,
+  ];
+  return `{\n  "report": "<what you fixed; filed #new1>",\n  "edits": [\n${lines.map((l) => `    ${l}`).join(",\n")}\n  ]\n}`;
+}
+
+const asText = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** The refresh's file of edits: JSON `{ report, edits }`; not readable, not JSON or without a report — an error. */
+function readRefreshFile(file: string): { report: string; edits: unknown[] } {
+  let data: Any;
+  try {
+    data = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    throw new GhError(`--apply ${file}: ${(e as Any)?.code === "ENOENT" ? "no such file" : `not JSON — ${(e as Error).message}`}`);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new GhError(`--apply ${file}: expected an object { "report": "…", "edits": [ … ] }`);
+  const report = asText(data.report).trim().replace(/\s*\r?\n\s*/g, " ");
+  if (!report) throw new GhError(`--apply ${file}: no «report» — the result after «${locale.fill(N.actualize.report, { number: "N", text: "" }).trim()}», «the block is current» too`);
+  if (data.edits !== undefined && !Array.isArray(data.edits)) throw new GhError(`--apply ${file}: «edits» — a list`);
+  return { report, edits: data.edits ?? [] };
+}
+
+/**
+ * The refresh subagent's edits in one call (#669), in place of a `gh` call per edit (27 turns a refresh, ≈1800 direct
+ * `gh` calls in two weeks across five projects): descriptions (`applyEdits`, `answerInBody` — in order, each on the
+ * result of the previous one), blocked by removed, tasks closed as done or not needed, new tasks of the epic, and the
+ * report on the epic — «Refresh after #N, result: …», which `task close` waits for. Every edit is checked before any
+ * write: one that can't be done (no such text, a closed or foreign task, an answered question) — the whole file is
+ * refused, each such edit named, nothing changed. The editable tasks — the epic and its open tasks besides the shipped
+ * ones: those and their epic are closed by `task close`.
+ */
+function applyRefresh(io: Io, slug: string, file: string, r: { numbers: number[]; epic: TaskText; open: TaskText[] }): void {
+  const { report, edits } = readRefreshFile(file);
+  const tasks = new Map([r.epic, ...r.open].map((t) => [t.number, t]));
+  const bodies = new Map<number, { body: string; done: string[] }>();
+  const unblock: { t: TaskText; b: TaskText["blockedBy"][number] }[] = [];
+  const close: { t: TaskText; how: "done" | "not needed" }[] = [];
+  const created: NewTask[] = [];
+  const problems: string[] = [];
+  edits.forEach((raw, i) => {
+    const at = `edit ${i + 1}`;
+    try {
+      const e: Any = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
+      const actions = e ? REFRESH_ACTIONS.filter((a) => Object.hasOwn(e, a)) : [];
+      if (!e || actions.length !== 1) throw new GhError(`expected one action of ${REFRESH_ACTIONS.join(", ")}${actions.length ? `, not ${actions.join(" and ")}` : ""}`);
+      const action = actions[0]!;
+      if (action === "new") {
+        const title = asText(e.new).trim();
+        if (!title) throw new GhError("«new» — the new task's title");
+        const branchType = asText(e.branchType).trim().toLowerCase();
+        if (!TASK_TYPES.includes(branchType)) throw new GhError(`«new» ${q(title)} — «branchType»: ${TASK_TYPES.join(", ")}`);
+        created.push({ title, body: asText(e.body), epic: e.epic === false ? undefined : r.epic.number, branchType, blockedBy: [], labels: [] });
+        return;
+      }
+      const n = Number(e.task);
+      const t = tasks.get(n);
+      if (!t) {
+        const why = !Number.isInteger(n) || n <= 0 ? "«task» — the issue number" : r.numbers.includes(n) ? `#${n} shipped — task close closes it` : `#${n} is not an open task of epic #${r.epic.number}`;
+        throw new GhError(`${why}; editable: ${[...tasks.keys()].map((x) => `#${x}`).join(", ")}`);
+      }
+      const now = bodies.get(n) ?? { body: t.body, done: [] };
+      if (action === "replace" || action === "add" || action === "check") {
+        if (action === "replace" && typeof e.with !== "string") throw new GhError(`#${n}: «replace» — and «with», the new text («""» removes it)`);
+        if (action === "add" && !asText(e.item).trim()) throw new GhError(`#${n}: «add» — and «item», the item's text`);
+        const edit: Edit =
+          action === "replace" ? { kind: "replace", old: asText(e.replace), next: asText(e.with) } : action === "add" ? { kind: "add", section: asText(e.add), item: asText(e.item) } : { kind: "check", text: asText(e.check) };
+        const res = applyEdits(n, now.body, [edit]);
+        bodies.set(n, { body: res.body, done: [...now.done, ...res.done] });
+      } else if (action === "answer") {
+        const k = Number(e.answer);
+        if (!Number.isInteger(k) || k <= 0) throw new GhError(`#${n}: «answer» — the question's number`);
+        const res = answerInBody(n, now.body, k, asText(e.text), e.auto === true);
+        bodies.set(n, { body: res.body, done: [...now.done, `question ${k} answered`] });
+      } else if (action === "unblock") {
+        const ref = typeof e.unblock === "number" ? `#${e.unblock}` : asText(e.unblock).trim().replace(/^(?=\d)/, "#");
+        const b = t.blockedBy.find((x) => blockerRef(slug, x).toLowerCase() === ref.toLowerCase());
+        if (!b) throw new GhError(`#${n} isn't blocked by ${ref || "—"}; blocked by: ${t.blockedBy.map((x) => blockerRef(slug, x)).join(", ") || "none"}`);
+        if (unblock.some((u) => u.t === t && u.b === b)) throw new GhError(`#${n}: ${ref} is removed by an earlier edit`);
+        unblock.push({ t, b });
+      } else {
+        if (e.close !== "done" && e.close !== "not needed") throw new GhError(`#${n}: «close» — «done» (part of what shipped) or «not needed»`);
+        if (t === r.epic) throw new GhError(`epic #${n} — task close closes it with its last task`);
+        if (close.some((c) => c.t === t)) throw new GhError(`#${n} is closed by an earlier edit`);
+        close.push({ t, how: e.close });
+      }
+    } catch (err) {
+      if (!(err instanceof GhError)) throw err;
+      problems.push(`${at}: ${err.message}`);
+    }
+  });
+  for (const m of report.matchAll(NEW_REF_RE)) if (Number(m[1]) < 1 || Number(m[1]) > created.length) problems.push(`report: ${m[0]} — the file has ${created.length} «new» edit${created.length === 1 ? "" : "s"}`);
+  if (problems.length) throw new GhError(`--apply ${file}: nothing changed — ${problems.join("; ")}`);
+
+  const questionLabels = locale.every((n) => n.labels.questions);
+  for (const [n, { body, done }] of bodies) {
+    const t = tasks.get(n)!;
+    mutate(io, { op: "UpdateIssue", input: { id: t.id, body } });
+    io.out(`+ #${n}: description — ${done.join(", ")}`);
+    const labels = t.labels.filter((l) => questionLabels.includes(l.name));
+    if (!labels.length || questionItems(body).some((x) => !x.answered)) continue;
+    mutate(io, { op: "RemoveLabels", input: { labelableId: t.id, labelIds: labels.map((l) => l.id) } });
+    io.out(`+ #${n}: label ${labels.map((l) => q(l.name)).join(", ")} removed — no open questions left`);
+  }
+  for (const { t, b } of unblock) {
+    mutate(io, { op: "RemoveBlockedBy", input: { issueId: t.id, blockingIssueId: b.id } });
+    io.out(`+ #${t.number}: blocked by ${blockerRef(slug, b)} removed`);
+  }
+  const numbers: number[] = [];
+  for (const task of created) {
+    // the new task's number — from its «Created #N» line: the report names it as #newK
+    cmdTaskNew({ ...io, out: (l) => (numbers.push(...[/^Created #(\d+)/.exec(l)?.[1]].filter(Boolean).map(Number)), io.out(l)) }, slug, task);
+  }
+  const ctx = close.some((c) => c.how === "done") ? taskContext(io, slug) : null;
+  for (const { t, how } of close) {
+    if (how === "not needed") {
+      cmdTaskDrop(io, slug, t.number);
+      continue;
+    }
+    mutate(io, { op: "CloseIssue", input: { issueId: t.id, stateReason: "COMPLETED" } });
+    const item = ensureItem(io, ctx!, loadIssue(io, slug, t.number));
+    setStatus(io, ctx!, item.id, N.status.done);
+    io.out(`+ #${t.number} closed as done: ${STATUS} ${q(N.status.done)}`);
+  }
+  const text = report.replace(NEW_REF_RE, (_, k) => `#${numbers[Number(k) - 1] ?? `new${k}`}`);
+  mutate(io, { op: "AddComment", input: { subjectId: r.epic.id, body: locale.fill(N.actualize.report, { number: r.numbers.join(", #"), text }) } });
+  io.out(`+ epic #${r.epic.number}: the refresh report — ${q(clip(text))}`);
 }
 
 /**
@@ -5915,7 +6092,7 @@ Closes the task without doing it (not planned) and removes it from the project.
 Examples:
   github task drop 42
   github task drop 42 --duplicate-of 17`,
-  "task actualize": `github task actualize <N> [<M> …] [--assignment] [--repo owner/repo]
+  "task actualize": `github task actualize <N> [<M> …] [--assignment | --apply <file>] [--repo owner/repo]
 
 Right after the merge, in parallel with the deploy: the epic refresh's mechanics (blocked by on done tasks, the questions
 label without open questions, milestones without open tasks; a comment on the epic) and the subagent's prompt;
@@ -5925,11 +6102,15 @@ the PR files, copies of links and answers in comments, the checks by meaning; no
 task stay till the batch's release. Several tasks — shipped together, a batch's release (batch release names them):
 grouped by epic, one refresh per epic — its prompt and its report («Refresh after #N, #M, result: …») name the epic's
 tasks, task close of each takes it; a released task's PRs — its own into the batch, not the release's; --assignment —
-the tasks of one epic.
+the tasks of one epic. --apply <file> — the subagent's edits in one JSON file { "report": "…", "edits": [ … ] }
+(replace/with, add/item, check, answer/text, unblock, close done|not needed, new/branchType/body; the format — in the
+assignment): every edit is checked first, one that can't be done refuses the whole file, nothing changed; then all
+are applied and the report is posted on the epic — «Refresh after #N, result: …».
 
 Examples:
   github task actualize 42
   github task actualize 42 --assignment
+  github task actualize 42 --apply refresh.json
   github task actualize 42 43 47`,
   "task resume": `github task resume
 
@@ -6196,6 +6377,7 @@ export function main(argv: string[], io: Io): number {
           branch: { type: "string" },
           "no-git": { type: "boolean", default: false },
           assignment: { type: "boolean", default: false },
+          apply: { type: "string" },
           cloud: { type: "boolean", default: false },
           session: { type: "boolean", default: false },
           auto: { type: "boolean", default: false },
@@ -6248,7 +6430,7 @@ export function main(argv: string[], io: Io): number {
         return cmdTaskAnswer(io, slug, number, Number(k[0]), positionals.slice(2).join(" "), values.auto!);
       }
       // several tasks — shipped together, a batch's release (#676): one refresh per epic of them
-      if (cmd === "actualize") return cmdTaskActualize(io, slug, positionals.map((p) => issueNumber(p, "task actualize")), { assignment: values.assignment! });
+      if (cmd === "actualize") return cmdTaskActualize(io, slug, positionals.map((p) => issueNumber(p, "task actualize")), { assignment: values.assignment!, apply: values.apply });
       if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
       if (cmd === "show") return cmdTaskShow(io, slug, number);
       if (cmd === "close") return cmdTaskClose(io, slug, number, { git: !values["no-git"] });
