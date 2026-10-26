@@ -26,7 +26,7 @@ Each requirement has exactly one outcome:
 |---|---|---|
 | re-verified by breaking | a test exists and catches the breakage (`spec-break` — ✅ `failed`) | the test name |
 | added | no test, or `spec-break` — ❌ `didn't fail` | a new test: red first, then green |
-| from code | the spec fell behind the code, the behavior has a decision trace (section below) | a test from code, the reason and the trace — in `<folder>.md` |
+| from code | the spec fell behind the code, the behavior has a decision trace (section below) | a test from code, the reason and the trace — in `<section>.md` |
 | removed with a reason | a removal category (section below) or the requirement no longer applies | the reason — as a table row |
 | home in another decision | a repeat of a general rule (standard) or of another capability's behavior | the test there, here — a link |
 | test in a bug | the behavior diverges from the requirement, there is no decision trace | a task with a scenario; not pinned by a test |
@@ -91,7 +91,7 @@ how it should. The source of what should be is a decision and its trace: a
 commit with an explanation, a decision in an issue, a change archive. Code only
 shows which decision was implemented.
 
-- **There is a trace** — a test from code; in the decision's `<folder>.md` —
+- **There is a trace** — a test from code; in the section's `<section>.md` —
   the reason and a link to the trace. The old spec's requirement is removed by
   this decision.
 - **No trace** — what was intended can't be told from what is accidental: a
@@ -103,10 +103,10 @@ In the pilot ≈10 % of requirements were handled this way.
 
 ## Parallel migration of neighboring decisions
 
-- A decision folder belongs to one PR at a time: tags and exceptions in the
-  folder are removed by its owner; a neighboring PR doesn't touch the folder.
+- A section belongs to one PR at a time: tags and exceptions of the section
+  are removed by its owner; a neighboring PR doesn't touch its files.
 - Exceptions of cross-folder checks — in the folder of the decision they
-  concern (canon: exceptions — in the decision folder's `exceptions/`). Names
+  concern (canon: exceptions — in the topic folder's `exceptions/<section>/`). Names
   that aren't statements yet aren't exceptions: `spec-doc` warns about them
   without an exit code, they are rewritten when the folder is touched.
 
@@ -123,3 +123,34 @@ The epic's last subtask: all groups have outcomes and no references to the old
 spec are left in the code — the corpus is deleted in one PR, together with its
 mentions in the project's rules. A before-and-after comparison — from the `est`
 actuals (`est history`), as a separate task, once a sample accumulates.
+
+## Regrouping decisions into topics
+
+A project whose decisions are flat folders — a test file named after its
+folder, `tests/<root>/<name>/<name>.test.ts` — regroups them into topics with
+sections (canon: "The topic rule"). `elves check` names the regrouping task
+while such a decision is left; CI stays green until then, and `spec-doc` shows
+a flat decision as a topic of one section. One task, one PR, in this order:
+
+1. **Topics by the rule.** For each root — its subjects: a product area in the
+   user's words for capabilities, the kind of element whose registry the
+   check walks for standards and architecture. Each former decision goes into
+   the topic whose subject covers it; a quality goes into the topic of the
+   elements it walks; a topic of one section is fine. The list "topic — its
+   sections" goes into the task before the first move.
+2. **`git mv` with the former names as section names.**
+   `<name>/<name>.test.ts` → `<topic>/<name>.test.ts`, `<name>.md` →
+   `<topic>/<name>.md` (the other `<name>.*` files alongside),
+   `<name>/exceptions/*.json` → `<topic>/exceptions/<name>/`, a package
+   subfolder `<name>/<package>/` → `<topic>/<package>/`. The moves go in a
+   commit of their own, without content edits, so history follows the files
+   and `pr labels` reads them as mechanical. Each topic gets `<topic>.md`: its
+   first paragraph names the subject in one phrase. A section keeps the former
+   decision's name — by it the label is merged (step 4).
+3. **Cross-references.** Every path `tests/<root>/<name>/…` — in code, marks,
+   tool configs, CI fragments, docs and the README — is rewritten to the new
+   one; a search for each former path finds nothing outside the history.
+4. **Labels.** After the merge — `github project check`, then `project fix
+   --confirm`: a label whose name is a section of exactly one topic of the
+   same root is merged into the topic's label on every task, closed ones too,
+   and deleted. A section is renamed only after that — it has no label.
