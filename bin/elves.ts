@@ -770,21 +770,18 @@ function readManifest(root: string): Manifest {
  * has are removed. `.agents/elves.json` holds the source SHA, the release tag and the installed skills — the manifest
  * under the former name (FORMER) is read and moved into it, its fields carried over; a dry run
  * doesn't compare the SHA and the tag: the install is up to date if what it installs matches (a release that changes
- * only the installer doesn't touch projects). auto and language — the project settings "a task entirely without
- * asking" and the language the agent works in, always written; the machine doesn't have them (undefined). `env` —
- * the project's task stack settings (the task-env skill: HTTP services and their ports), `batch` — the dispatcher's
- * batches (the github skill): the project writes them, the install carries them over. A dry run doesn't compare them
- * either: editing a field by hand doesn't make the install "behind".
+ * only the installer doesn't touch projects). The one caller is the machine install (`installGlobal`): the manifest
+ * holds only the install fields — source, sha, tag, clone, skills; the project's fields (auto, language, env, batch)
+ * live in the project's manifest (`manifestText`) and aren't carried here.
  * The order survives a run cut off midway (an agent's sandbox refuses writes to `.claude/skills`): skills Elves no
  * longer has go while the old manifest still lists them, and the new manifest is written before the copies — a repeat
  * run takes them for the flow's and finishes the install instead of leaving them as someone else's.
  * @returns installed skills
  */
-function installSkills(src: string, root: string, linkMode: boolean, claude: boolean, auto?: boolean, language?: string) {
+function installSkills(src: string, root: string, linkMode: boolean, claude: boolean) {
   const manifestPath = path.join(root, MANIFEST);
   const before = readManifest(root).skills ?? [];
   const names = sourceSkills(src);
-  const env = readManifest(root).env;
   const installed = names.filter((name) => {
     const dst = path.join(root, ".agents/skills", name);
     const st = lstat(dst);
@@ -808,7 +805,7 @@ function installSkills(src: string, root: string, linkMode: boolean, claude: boo
     if (m.source !== SOURCE || JSON.stringify(m.skills) !== JSON.stringify(installed) || m.clone !== clone || !existsSync(manifestPath)) change(existsSync(manifestPath) ? "~" : "+", manifestPath);
   } else {
     const sha = sourceSha(src);
-    const manifest = { source: SOURCE, ...(sha ? { sha } : {}), ...(release ? { tag: release } : {}), ...(clone ? { clone } : {}), skills: installed, ...(auto === undefined ? {} : { auto }), ...(language === undefined ? {} : { language }), ...(env === undefined ? {} : { env }) };
+    const manifest = { source: SOURCE, ...(sha ? { sha } : {}), ...(release ? { tag: release } : {}), ...(clone ? { clone } : {}), skills: installed };
     mkdirSync(path.dirname(manifestPath), { recursive: true });
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   }
