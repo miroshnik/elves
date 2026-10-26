@@ -8,9 +8,9 @@ every project, whatever its `CLAUDE.md`.
   source of actuals for the `est` skill; `~/.claude/settings.json` must have
   `"cleanupPeriodDays": 365`, otherwise history is cleaned before it's needed.
 - The app's worktree names the branch `claude/<slug>-<hash>` — renamed when
-  the task is taken: `github task status <N> "In progress" --branch
-  <type>/<N>-<slug>` (a bare `git branch -m` fails on `.git/config` locked by
-  a parallel worktree and leaves the upstream behind). The session panel
+  the task is taken: `github task start <N> --branch <type>/<N>-<slug>` (a
+  bare `git branch -m` fails on `.git/config` locked by a parallel worktree
+  and leaves the upstream behind). The session panel
   (branch, diff to `main`, "Create PR") reads git, not GitHub: after a merge
   it is accurate once the checkout is on `origin/main` (`github task close`
   moves it).

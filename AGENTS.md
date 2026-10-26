@@ -112,7 +112,7 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 
 ### Session and branch — one task
 
-- **Session = task:** `task status` won't take a second one. Another task —
+- **Session = task:** `task start` won't take a second one. Another task —
   Backlog and the question «queue #263?», "yes" — its executor at once;
   "do it here" — a one-sentence refusal and the question again. My own
   regression and a fix for a green PR are the same task. A new epic — the
@@ -135,7 +135,7 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   build`) plus `research` (a spike without code); slug — Latin kebab-case,
   2–5 words; a repository's area prefix goes first (`backend/fix/263-…`). A
   branch named by a worktree tool is renamed before the first push by `github
-  task status <N> "In progress" --branch <type>/<N>-<slug>`.
+  task start <N> --branch <type>/<N>-<slug>`.
 - **PR:** the title is a conventional commit, the body has `Closes #263`.
   **Merge — rebase only** (`gh pr merge <N> --rebase`): commits land in
   `main`, each a conventional commit with `Refs #263` (`Closes` would close
@@ -145,8 +145,8 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 
 A task's questions are a numbered list in its description's questions
 section. Taking a task, **first of all** — before the plan, code and
-subagents — I read the questions of the task and its epic (`github task show
-<N>`) and **ask the user all open ones (without ✅)** in one message, each
+subagents — I read the questions of the task and its epic (`github task start
+<N>` prints them) and **ask the user all open ones (without ✅)** in one message, each
 with options and a recommendation. What already has an answer (comments,
 code) gets ✅; my own questions join the message and the section. While
 waiting I do what doesn't depend on the answer — what does, I neither start
@@ -182,7 +182,7 @@ it.
 ## Git, PRs and merging
 
 - **Taking a task** — check it isn't going in a parallel session (an open PR,
-  a branch `*/<N>-*` after `git fetch --prune`): continue that work or wait
+  a branch `*/<N>-*` — `task start` checks): continue that work or wait
   for the merge; two PRs for one thing — close the second.
 - **Branch only from a fresh `origin/main`** (`git fetch origin && git switch
   -c feat/263-slug origin/main --no-track`). Into `main` only via a PR; a

@@ -604,6 +604,27 @@ none — the questions label is removed. Refused before any change (code 2): no
 questions section, no question `k`, the question already has ✅ (a changed
 answer is edited by hand), an empty answer.
 
+### task start
+
+Taking a task in one call (#666) instead of ~11 flow turns: `project check`
+once per session (green — `✅ project check: …` and the marker
+`~/.config/elves/project-checks/<CLAUDE_CODE_SESSION_ID>`, the next call of
+the session — `= project check — done in this session`; ❌ — the report and
+code 1); the task as `task show` prints it; then the stops before any change,
+code 1: open questions of the task or its epic (`! open questions — …`: asked
+in one message, auto mode — `task answer --auto`, then `task start` again);
+the task in work elsewhere (`! #N is in work elsewhere — …`: an open PR of it,
+into a batch branch too, or a branch `*/N-*` locally or on origin that isn't
+the current one) — continue that work or wait for its merge. Then `task
+status N "In progress" --branch` (below: the pin, the epic, the rename), `est
+estimate --write` when the task has no estimate (the type — from `--branch`),
+and the next lines: the session name `«#N <title>»`, `Branch:`, the number of
+scenarios (none — an `○` line: a code task gets them before code) and, in
+Claude Code (`CLAUDECODE=1`), `ToolSearch select:…` with the app tools the
+flow calls in a task (session title, PR monitor, `TaskStop`, archive) — one
+load, not one per call. An epic, a closed task, a `--branch` not of this task
+— code 2. `task status` stays for other status changes.
+
 ### task status
 
 Sets `Status` (a task outside the project is added). A
