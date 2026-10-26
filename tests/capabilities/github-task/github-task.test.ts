@@ -1237,6 +1237,38 @@ describe("task start берёт задачу одним вызовом", () => {
     expect(git(work, "branch", "--show-current")).toBe("claude/x-1");
   });
 
+  /**
+   * Перезапуск исполнителя (#709): ветка задачи — работа прежнего исполнителя, `task start` без флага остановился бы на
+   * ней. С `--resume` ветка и PR — то, что продолжают: задача «В работе», текущая ветка не переименована, строка
+   * `Branch:` называет, что продолжать; продолжать нечего или флаг вместе с `--branch` — отказ до изменений.
+   */
+  it("задание перезапуска исполнителя продолжает его ветку без отказа task start", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = BODY;
+    f.prs[80] = { files: [], closes: [49], head: "fix/49-earlier", base: "main", model: null };
+    const { work, main } = worktree();
+    git(main, "branch", "fix/49-earlier");
+    const r = start(f, ["49", "--resume"], { cwd: work });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(statusSet(f)).toEqual([[49, "В работе"]]);
+    expect(git(work, "branch", "--show-current")).toBe("claude/x-1");
+    expect(r.out).not.toContain("is in work elsewhere");
+    expect(r.out).toContain("Branch: continue PR #80 (fix/49-earlier), branch fix/49-earlier — checked out in another worktree (git worktree list): work in that one; in none — git switch it here");
+    // оценки нет — тип берётся у продолжаемой ветки
+    expect(r.est.map((a) => a.slice(2))).toEqual([["estimate", "49", "--repo", REPO, "--type", "fix", "--write"]]);
+
+    const nothing = new FakeGitHub(REC);
+    nothing.issue(49).body = BODY;
+    const n = start(nothing, ["49", "--resume"]);
+    expect(n.code).toBe(2);
+    expect(n.err).toContain("--resume: #49 has no branch or open PR to continue — a first take: task start 49 --branch <type>/49-<slug>");
+    expect(nothing.mutations).toEqual([]);
+    const both = start(nothing, ["49", "--resume", "--branch", "fix/49-x"]);
+    expect(both.code).toBe(2);
+    expect(both.err).toContain("--resume continues the task's existing branch — without --branch");
+  });
+
   it("task start печатает имя сессии, ветку, сценарии и строку загрузки инструментов", () => {
     const f = new FakeGitHub(REC);
     f.issue(49).body = BODY;
@@ -3343,6 +3375,22 @@ describe("task queue раздаёт задачи эпика или фильтр�
     );
   });
 
+  /**
+   * Задание велело взять задачу через `task status --branch`, а вопросы и `task show` — отдельными ходами (#709): после
+   * #666 это один вызов `task start --branch` — вопросы и проверка параллельной работы внутри него.
+   */
+  it("задание исполнителя велит взять задачу через task start", () => {
+    const batch = scratch();
+    writeTree(batch, { [`dispatchers/${SESSION}`]: `bun --no-env-file github.ts task queue --epic 45 --repo ${REPO}\nbatch ${REPO} batch/2026-10-22-1\n` });
+    for (const [io, more] of [[inSession(scratch()), []], [inSession(scratch()), ["--session"]], [inSession(batch), []], [inSession(batch), ["--session"]]] as [Partial<Io>, string[]][]) {
+      const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", ...more], REPO, { ...io, cwd: projectDir() });
+      expect(r.code).toBe(0);
+      const lead = r.out.split("\n")[0]!;
+      expect(lead).toMatch(/`bun --no-env-file \S+github\.ts task start 47 --branch <тип>\/47-<slug>` \(вопросы задачи и её параллельная работа — в нём\)/);
+      expect(lead).not.toContain("task status 47");
+    }
+  });
+
   // строка о перезапуске — факт о задаче, а не напоминание всем: исполнитель задачи из «Бэклога» разбирал, что она неправда (#511)
   it("задание исполнителю по задаче в «Бэклоге» без ветки не говорит, что задача уже в работе", () => {
     const { work, cleanup } = checkout("feat/48-other", { merged: false });
@@ -3364,9 +3412,11 @@ describe("task queue раздаёт задачи эпика или фильтр�
   it("задание исполнителю по задаче «В работе» с веткой `*/N-*` велит продолжить её работу в worktree ветки, а не в новом", () => {
     const { work, cleanup } = checkout("feat/47-export", { merged: false });
     const resume = (branch: string) =>
-      `Задача уже «В работе» и у неё есть ветка \`${branch}\` — это перезапуск: продолжи её работу. ` +
-      "Ветка взята в другом worktree (`git worktree list`) — работай в нём, а не в своём новом: в Claude Code — `EnterWorktree` с его путём; " +
-      "незакоммиченное — `git status` там. Ни в одном worktree её нет — возьми её в свой.";
+      new RegExp(
+        `^Задача уже «В работе» и у неё есть ветка \`${branch}\` — это перезапуск: бери её \`bun --no-env-file \\S+github\\.ts task start 47 --resume\`, а не \`--branch\`, и продолжи её работу\\. ` +
+          "Ветка взята в другом worktree \\(`git worktree list`\\) — работай в нём, а не в своём новом: в Claude Code — `EnterWorktree` с его путём; " +
+          "незакоммиченное — `git status` там\\. Ни в одном worktree её нет — возьми её в свой\\.$",
+      );
     try {
       const f = new FakeGitHub(REC);
       f.status(47, "В работе");
@@ -3374,11 +3424,11 @@ describe("task queue раздаёт задачи эпика или фильтр�
       // прежний исполнитель запушил ветку, его worktree убран: локальной ветки нет, она есть на origin
       git(work, "switch", "-q", "main");
       git(work, "branch", "-q", "-D", "feat/47-export");
-      expect(assignment()[1]).toBe(resume("feat/47-export"));
+      expect(assignment()[1]).toMatch(resume("feat/47-export"));
       // прежний исполнитель не успел запушить: ветка только локальная
       git(work, "push", "-q", "origin", "--delete", "feat/47-export");
       git(work, "branch", "fix/47-local");
-      expect(assignment()[1]).toBe(resume("fix/47-local"));
+      expect(assignment()[1]).toMatch(resume("fix/47-local"));
     } finally {
       cleanup();
     }
@@ -4886,7 +4936,7 @@ describe("Исполнитель диспетчера в проекте без a
     const { plain, batched, cloud } = assignments(false);
     expect(batched[0]).toContain("задача идёт в пачку `batch/2026-10-22-1`");
     for (const lines of [plain, batched]) {
-      expect(lines[0]).toContain("по канону, в режиме проекта, без auto — мерж по «да» владельца: вопросы задачи");
+      expect(lines[0]).toContain("по канону, в режиме проекта, без auto — мерж по «да» владельца: `");
       expect(lines[0]).not.toContain("в режиме auto");
       // вопрос о мерже — сразу за ожиданием CI, до строк о шагах после мержа
       expect(lines.indexOf(MERGE)).toBe(lines.findIndex((l) => l.startsWith("- CI ")) + 1);
@@ -4899,7 +4949,7 @@ describe("Исполнитель диспетчера в проекте без a
   it("задание исполнителя в auto-проекте мержит задачу на зелёных проверках без вопроса", () => {
     const { plain, batched, cloud } = assignments(true);
     for (const lines of [plain, batched, cloud]) {
-      expect(lines[0]).toContain("по канону, как сессия в режиме auto: вопросы задачи");
+      expect(lines[0]).toContain("по канону, как сессия в режиме auto: ");
       expect(lines.filter((l) => l.includes("по «да» владельца"))).toEqual([]);
     }
     expect(plain[0]).toContain("зелёный CI, `pr premerge`, мерж, деплой, актуализация эпика");
