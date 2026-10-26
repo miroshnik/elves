@@ -1168,8 +1168,10 @@ release's only task; otherwise the files the failed GitHub Actions jobs' logs
 name (a failure line of Bun, Vitest, Jest, Playwright or its file header
 above it, a compiler error) — their decisions by the rule of `pr labels`
 against the decision labels of the release's tasks (`Closes #N` of the
-release): one task holds them — it; none or several — a bisect on the machine
-(question 1 of the task: in CI a push into the batch branch starts no run,
+release): one task holds them — it; several (a topic's label: a section has
+none, #689) — the one whose PR into the batch changed the failed test's
+section files, `tests/<root>/<topic>/<section>.*`; otherwise a bisect on the
+machine (question 1 of the task: in CI a push into the batch branch starts no run,
 and a run per step there is the full set). The bisect: the batch's commits
 over its merge-base with `origin/<base>` in blocks by `Refs #N` of the
 release's tasks (a commit without one — the block before it), a temporary
