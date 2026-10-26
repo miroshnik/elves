@@ -2503,8 +2503,12 @@ export function scenarioItems(body: string, heading: string): string[] | null {
  * — continue it or wait for its merge); then `task status N "In progress" --branch`, the estimate when the task has
  * none (`--branch` gives the type) and what the agent needs next: the session name, the branch, the scenarios and, in
  * Claude Code, one `ToolSearch` line for the app tools the flow calls. Code 1 — stopped, the task isn't taken.
+ * `resume` — an executor's restart (#709, the assignment's restart line): the task's branch and open PR are the
+ * previous executor's work to continue, not a stop; the current branch isn't renamed — the work goes on in the branch's
+ * worktree or the branch checked out here. Nothing to continue — refused before any change: a first take is `--branch`.
  */
-export function cmdTaskStart(io: Io, slug: string, number: number, branch?: string): number {
+export function cmdTaskStart(io: Io, slug: string, number: number, branch?: string, resume = false): number {
+  if (resume && branch !== undefined) throw new GhError(`--resume continues the task's existing branch — without --branch`);
   if (branch !== undefined && (taskBranch(branch)?.issue !== number || !TASK_SLUG_RE.test(branch))) {
     throw new GhError(`--branch ${q(branch)}: expected a branch of #${number} by the canon — [<area>/]<type>/${number}-<slug>, type ${TASK_TYPES.join("|")}, slug — Latin kebab-case`);
   }
@@ -2521,17 +2525,22 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const mine = (head: string) => head !== "" && head === current;
   const prs = [...t.prs.filter((p) => !p.merged && p.state === "OPEN"), ...(inCloud(io) ? [] : unlinkedPrs(io, slug, number).batched.filter((p) => !p.merged && p.state === "OPEN"))];
-  const parallel = [...new Set([...prs.filter((p) => !mine(p.head)).map((p) => `PR #${p.number} (${p.head})`), ...taskBranchesHere(io, slug, number).filter((b) => b !== current).map((b) => `branch ${b}`)])];
-  if (parallel.length) {
+  const others = taskBranchesHere(io, slug, number).filter((b) => b !== current);
+  const parallel = [...new Set([...prs.filter((p) => !mine(p.head)).map((p) => `PR #${p.number} (${p.head})`), ...others.map((b) => `branch ${b}`)])];
+  const here = isTaskBranch(current, number);
+  if (resume && !parallel.length && !here) throw new GhError(`--resume: #${number} has no branch or open PR to continue — a first take: task start ${number} --branch <type>/${number}-<slug>`);
+  if (parallel.length && !resume) {
     io.out(`! #${number} is in work elsewhere — ${parallel.join(", ")}: continue that work or wait for its merge — the task isn't taken a second time`);
     return 1;
   }
   const code = cmdTaskStatus(io, slug, number, N.status.inProgress, branch);
-  if (!t.estimate && branch !== undefined) runEstimate(io, slug, number, taskBranch(branch)!.type);
+  const type = taskBranch(branch ?? (here ? current : (others[0] ?? "")))?.type;
+  if (!t.estimate && type) runEstimate(io, slug, number, type);
   const now = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const scenarios = scenarioItems(t.body, N.sections.scenarios);
   io.out(`Next: the session name — «#${number} ${t.title}»`);
-  io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
+  if (resume && !here) io.out(`Branch: continue ${parallel.join(", ")} — checked out in another worktree (git worktree list): work in that one; in none — git switch it here`);
+  else io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
   io.out(scenarios?.length ? `Scenarios: ${scenarios.length} in ${q(N.sections.scenarios)} — the future it names` : `○ no scenarios in ${q(N.sections.scenarios)} — a code task gets them in the description before code`);
   if (io.env["CLAUDECODE"] === "1") io.out(`ToolSearch select:${APP_TOOLS.join(",")}`);
   return code;
@@ -4117,6 +4126,8 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   // wait; in a batch (#676) — no CI wait (a PR into the batch runs none: the checks before a commit and pr premerge are
   // its gate), no deploy, no refresh and no `task close`: they are the release's, the subagent's and the session's alike;
   // the fix of a red release (#650) — its own lead, the rest as in the batch
+  // the leads take the task with `task start --branch` (#709), a restart — `--resume` (the `resume` line); the fix's
+  // leads keep `task status --branch`: the new branch is cut beside the task's merged one, which task start stops on
   const sessionLead = fix ? N.queue.sessionFixLead : batch ? N.queue.sessionBatchLead : N.queue.sessionLead;
   const lines = o.session
     ? [sessionLead, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.batchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
@@ -5867,7 +5878,7 @@ the repository's REST.
 Examples:
   github task edit 42 --replace "PDF only" "PDF and CSV"
   github task edit 42 --add "## Scenarios" "export opens in Excel" --check "PDF export"`,
-  "task start": `github task start <N> [--branch <type>/<N>-<slug>] [--repo owner/repo]
+  "task start": `github task start <N> [--branch <type>/<N>-<slug> | --resume] [--repo owner/repo]
 
 Taking a task into work in one call: project check (once per session — a marker in project-checks/<session id> of
 ~/.config/elves; ❌ — the report and code 1), the task as task show prints it, then the stops before any change, code 1:
@@ -5876,10 +5887,13 @@ of it — into a batch branch too — or a branch */<N>-* locally or on origin t
 status N «In progress» --branch (the pin, the epic, the branch rename), the estimate when the task has none (the type —
 from --branch), and the next lines: the session name «#N <title>», the branch, the scenarios of the description and,
 in Claude Code (CLAUDECODE=1), one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}). An epic
-and a closed task — refused (code 2).
+and a closed task — refused (code 2). --resume — an executor's restart: the task's branch and open PR are the previous
+executor's work to continue, not a stop; the current branch isn't renamed, the Branch line names the one to continue;
+nothing to continue — refused (code 2).
 
 Examples:
-  github task start 42 --branch feat/42-invoice-export`,
+  github task start 42 --branch feat/42-invoice-export
+  github task start 42 --resume`,
   "task finish": `github task finish <N> [--timeout S] [--title "<type>(<scope>): <subject>"] [--repo owner/repo]
 
 The tail of a task from its committed branch to its close, resumable: each call does what is ready within --timeout
@@ -6198,6 +6212,7 @@ export function main(argv: string[], io: Io): number {
           assignment: { type: "boolean", default: false },
           cloud: { type: "boolean", default: false },
           session: { type: "boolean", default: false },
+          resume: { type: "boolean", default: false },
           auto: { type: "boolean", default: false },
           timeout: { type: "string" },
         },
@@ -6233,7 +6248,7 @@ export function main(argv: string[], io: Io): number {
       const number = issueNumber(positionals[0], `task ${cmd}`);
       if (cmd === "start") {
         if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
-        return cmdTaskStart(io, slug, number, values.branch);
+        return cmdTaskStart(io, slug, number, values.branch, values.resume!);
       }
       if (cmd === "finish") {
         if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
