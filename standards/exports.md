@@ -1,5 +1,53 @@
 <!-- spec-doc: сгенерировано из названий тестов, руками не править -->
-# harness-load
+# exports
+
+Модули из `exports` пакета `@miroshnik/elves`, которые импортирует проект: харнесс, модель архитектуры и скрипты —
+под любым раннером и строгим тайпчеком проекта.
+
+## consumer-typecheck
+
+Модули из `exports` пакета `@miroshnik/elves` проходят тайпчек проекта-потребителя с самыми строгими опциями
+TypeScript: проект, который их импортирует, не получает ошибок в чужом файле, какие бы проверки он ни включил.
+
+Условие `types` в `exports` ведёт тайпчекер проекта к исходнику `.ts` (стандарт `exports#harness-load`), а исходник из
+`node_modules` TypeScript проверяет с опциями проекта: `skipLibCheck` пропускает только `.d.ts`. Тайпчек Elves идёт со
+своим `tsconfig.json` и строгих опций вроде `exactOptionalPropertyTypes` не видит, так что поломку замечал только
+проект: тест стандарта, импортирующий `harness`, давал 7 ошибок в `harness.ts` и `architecture.ts` (#647). Обход у
+проекта — отдельный проект тайпчека для `tests/` с ослабленной опцией — ослабляет проверку его собственного кода.
+
+### Правило
+
+- Модули из `exports` и всё, что они импортируют, проходят тайпчек с опциями, которые TypeScript держит выключенными:
+  `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`,
+  `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`,
+  `noUncheckedSideEffectImports`, `allowUnreachableCode: false`, `allowUnusedLabels: false` — поверх `strict`.
+- Необязательное поле, куда код передаёт значение, которого может не быть, объявлено с `| undefined`: обёртка передаёт
+  своё необязательное `exceptions` в `invariant` как есть, и проект делает так же.
+- Поле индексной сигнатуры (`process.env`, разобранный JSON, атрибуты XML) читается в скобках: `env["HOME"]`. Поля узла
+  Babel, которые читает `speclib.ts`, объявлены в его типе.
+
+### Проверка
+
+Настоящий тайпчек проекта: пакет ставится `bun install` из tarball `npm pack`, как из реестра; `tsconfig.json` — как у
+`bun init`, со всеми опциями правила; файл проекта импортирует каждый модуль из `exports` пакета — новый экспорт
+попадает в проверку сам. `bun check` проекта — без ошибок.
+
+Отвергнуто: включить эти опции в `tsconfig.json` Elves — они легли бы на все скрипты и тесты, а с проектом пакет делит
+только `exports`; `bun check` с флагами по файлам Elves — не тот путь, что у проекта: разрешение через `exports` и
+`node_modules` он не проходит.
+
+### Пакет @miroshnik/elves в тайпчеке проекта
+
+<details><summary>✅ 1 тест</summary>
+
+- ✅ модули из exports пакета проходят тайпчек проекта-потребителя со строгими опциями
+  > Условие `types` в `exports` ведёт тайпчекер к исходнику `.ts`, а исходник из `node_modules` TypeScript проверяет с
+  > опциями проекта: `skipLibCheck` пропускает только `.d.ts`. Модуль, что не проходит строгую опцию, красит тайпчек
+  > проекта, который её включил, ошибками в чужом файле (#647).
+
+</details>
+
+## harness-load
 
 Харнесс и модель архитектуры скилла `spec` импортирует тест проекта любым раннером — и тем, что грузит TypeScript как
 CommonJS: Playwright и Jest в проекте без `"type": "module"`.
@@ -18,7 +66,7 @@ CommonJS-загрузки своими средствами — не тот за
 без транспиляции раннера. В проекте с `"type": "commonjs"` он счёл бы ESM-модули копии скилла CommonJS, поэтому у
 скиллов `spec` и `github` свой `scripts/package.json` с `"type": "module"`; проверка — `node` во временном проекте.
 
-## Из пакета `@miroshnik/elves`
+### Из пакета `@miroshnik/elves`
 
 Проект без копии флоу берёт те же модули из пакета в devDependencies (#556), а из `node_modules` TypeScript не
 грузится: Node не снимает там типы (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), Playwright и Jest файлы
@@ -35,7 +83,7 @@ CommonJS-загрузки своими средствами — не тот за
 e2e на Playwright, импортирующие харнесс (#303), покраснели бы при переезде. Проверка — настоящие Playwright (CommonJS и
 ESM) и `node` в проекте, куда пакет поставлен `bun install` из tarball `npm pack`, как из реестра.
 
-## Тест проекта импортирует харнесс и модель любым раннером
+### Тест проекта импортирует харнесс и модель любым раннером
 
 <details><summary>✅ 3 теста</summary>
 
@@ -45,7 +93,7 @@ ESM) и `node` в проекте, куда пакет поставлен `bun in
 
 </details>
 
-## Тест проекта импортирует харнесс и модель из пакета @miroshnik/elves любым раннером
+### Тест проекта импортирует харнесс и модель из пакета @miroshnik/elves любым раннером
 
 <details><summary>✅ 4 теста</summary>
 
