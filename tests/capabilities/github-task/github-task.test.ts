@@ -984,6 +984,25 @@ describe("task status берёт в работу одну задачу на се
   });
 });
 
+// чекаут сессии — worktree от origin/main с upstream, как его заводит инструмент: .git/config — общий с основным чекаутом
+function worktree(name = REPO) {
+  const { dir, cleanup } = tmpDir();
+  temp.push(cleanup);
+  const origin = path.join(dir, `${name}.git`);
+  mkdirSync(path.dirname(origin), { recursive: true });
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
+  const main = path.join(dir, "main");
+  mkdirSync(main);
+  const repo = gitRepo(main);
+  repo.commit({ "README.md": "x\n", ".agents/elves.json": '{ "language": "ru" }\n' }, "init");
+  repo.git("remote", "add", "origin", origin);
+  repo.git("push", "-q", "-u", "origin", "main");
+  const work = path.join(dir, "wt");
+  repo.git("worktree", "add", "-q", "--track", "-b", "claude/x-1", work, "origin/main");
+  // путь блокировки — как его называет git: настоящий, без симлинков временного каталога (/var → /private/var на macOS)
+  return { work, main, lock: path.join(realpathSync(main), ".git", "config.lock") };
+}
+
 /**
  * Ветку worktree (`claude/<слаг>-<хеш>`) агент переименовывал в ветку задачи сам, `git branch -m`, — и 11 раз получал
  * `could not lock config file .git/config` (#438): `.git/config` общий у всех worktree репозитория, его держит git
@@ -992,24 +1011,6 @@ describe("task status берёт в работу одну задачу на се
  * что берёт задачу, и повторяет запись секции, пока конфиг занят.
  */
 describe("task status --branch переименовывает ветку worktree в ветку задачи", () => {
-  // чекаут сессии — worktree от origin/main с upstream, как его заводит инструмент: .git/config — общий с основным чекаутом
-  function worktree(name = REPO) {
-    const { dir, cleanup } = tmpDir();
-    temp.push(cleanup);
-    const origin = path.join(dir, `${name}.git`);
-    mkdirSync(path.dirname(origin), { recursive: true });
-    execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
-    const main = path.join(dir, "main");
-    mkdirSync(main);
-    const repo = gitRepo(main);
-    repo.commit({ "README.md": "x\n", ".agents/elves.json": '{ "language": "ru" }\n' }, "init");
-    repo.git("remote", "add", "origin", origin);
-    repo.git("push", "-q", "-u", "origin", "main");
-    const work = path.join(dir, "wt");
-    repo.git("worktree", "add", "-q", "--track", "-b", "claude/x-1", work, "origin/main");
-    // путь блокировки — как его называет git: настоящий, без симлинков временного каталога (/var → /private/var на macOS)
-    return { work, main, lock: path.join(realpathSync(main), ".git", "config.lock") };
-  }
   const config = (cwd: string, key: string) => {
     try {
       return execFileSync("git", ["config", "--get", key], { cwd, encoding: "utf8" }).trim();
@@ -1136,6 +1137,118 @@ describe("task status --branch переименовывает ветку worktre
     expect(r.code).toBe(0);
     expect(statusSet(f)).toEqual([[49, "В работе"]]);
     expect(r.out).toContain("○ branch left alone: the current directory is not a checkout of miroshnik/elves");
+  });
+});
+
+/**
+ * #666: начало задачи — медиана 11 ходов одного флоу: `project check`, `task show` задачи и эпика, проверка
+ * параллельной работы, `task status --branch`, имя сессии, загрузка инструментов приложения по одному. `task start`
+ * делает это одним вызовом и останавливается до изменений, когда брать задачу рано.
+ */
+describe("task start берёт задачу одним вызовом", () => {
+  const BODY = "Что сделать.\n\n## Сценарии\n\n1. экспорт в PDF\n2. экспорт пустого счёта\n\n## Вопросы\n";
+  // est — подпроцесс bun: вызовы записываются, git — настоящий во временном worktree
+  function start(f: FakeGitHub, args: string[], o: { config?: string; cwd?: string; env?: Record<string, string> } = {}) {
+    const est: string[][] = [];
+    const run = githubOrigin((cmd: string, a: string[], cwd?: string) => (cmd === "bun" ? (est.push(a), { status: 0, stdout: "", stderr: "" }) : realRun(cmd, a, cwd)));
+    const config = o.config ?? scratch();
+    const r = task(f, ["start", ...args], REPO, { run, cwd: o.cwd ?? worktree().work, env: { CLAUDE_CODE_SESSION_ID: SESSION, ELVES_CONFIG_DIR: config, ...o.env } });
+    return { ...r, est, config };
+  }
+
+  it("task start берёт задачу без открытых вопросов: статус «В работе», закрепление за сессией, ветка по типу и названию", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = BODY;
+    const { work } = worktree();
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"], { cwd: work });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(statusSet(f)).toEqual([[49, "В работе"]]);
+    expect(pinned(r.config)).toBe("miroshnik/elves#49");
+    expect(git(work, "branch", "--show-current")).toBe("fix/49-invoice-export");
+    expect(r.out).toContain("+ branch claude/x-1 → fix/49-invoice-export");
+  });
+
+  it("task start с открытыми вопросами задачи или эпика печатает их и не берёт задачу", () => {
+    const own = new FakeGitHub(REC);
+    own.issue(49).body = `${BODY}\n1. ✅ Формат? **Ответ:** PDF.\n2. Кодировка?\n`;
+    const r = start(own, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('Questions: open 2; answered 1 — task answer 49 <k> "<answer>" [--auto]');
+    expect(r.out).toContain("! open questions — #49: 2: ask the owner all of them in one message");
+    expect(own.mutations).toEqual([]);
+
+    const epic = new FakeGitHub(REC);
+    epic.issue(47).body = BODY;
+    epic.issue(45).body = "Цель эпика.\n\n## Вопросы\n\n1. Сроки?\n";
+    const e = start(epic, ["47", "--branch", "feat/47-invoice-export"]);
+    expect(e.code).toBe(1);
+    expect(e.out).toContain("- question 1. Сроки?");
+    expect(e.out).toContain("! open questions — epic #45: 1:");
+    expect(epic.mutations).toEqual([]);
+    expect(existsSync(pinFile(e.config))).toBe(false);
+  });
+
+  it("task start находит открытый PR или ветку задачи и не берёт её второй раз", () => {
+    const pr = new FakeGitHub(REC);
+    pr.issue(49).body = BODY;
+    pr.prs[80] = { files: [], closes: [49], head: "fix/49-other", base: "main", model: null };
+    const r = start(pr, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("! #49 is in work elsewhere — PR #80 (fix/49-other): continue that work or wait for its merge — the task isn't taken a second time");
+    expect(pr.mutations).toEqual([]);
+
+    const branch = new FakeGitHub(REC);
+    branch.issue(49).body = BODY;
+    const { work, main } = worktree();
+    git(main, "branch", "fix/49-earlier");
+    const b = start(branch, ["49", "--branch", "fix/49-invoice-export"], { cwd: work });
+    expect(b.code).toBe(1);
+    expect(b.out).toContain("! #49 is in work elsewhere — branch fix/49-earlier:");
+    expect(branch.mutations).toEqual([]);
+    expect(git(work, "branch", "--show-current")).toBe("claude/x-1");
+  });
+
+  it("task start печатает имя сессии, ветку, сценарии и строку загрузки инструментов", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = BODY;
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"], { env: { CLAUDECODE: "1" } });
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines.slice(-4)).toEqual([
+      `Next: the session name — «#49 ${f.issue(49).title}»`,
+      "Branch: fix/49-invoice-export",
+      "Scenarios: 2 in «## Сценарии» — the future it names",
+      "ToolSearch select:mcp__ccd_session_mgmt__set_session_title,mcp__ccd_pr__set_monitor,TaskStop,mcp__ccd_session_mgmt__archive_session",
+    ]);
+    // оценки у задачи нет — её ставит est с типом ветки
+    expect(r.est.map((a) => a.slice(2))).toEqual([["estimate", "49", "--repo", REPO, "--type", "fix", "--write"]]);
+
+    const bare = new FakeGitHub(REC);
+    const n = start(bare, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(n.out).toContain("○ no scenarios in «## Сценарии» — a code task gets them in the description before code");
+    expect(n.out).not.toContain("ToolSearch");
+  });
+
+  it("project check в task start идёт один раз за сессию", () => {
+    const config = scratch();
+    const first = start(new FakeGitHub(REC), ["49", "--branch", "fix/49-invoice-export"], { config });
+    expect(first.out.split("\n")[0]).toBe("✅ project check: miroshnik/elves per the canon");
+    const again = start(new FakeGitHub(REC), ["49", "--branch", "fix/49-invoice-export"], { config });
+    expect(again.out.split("\n")[0]).toBe("= project check — done in this session");
+    const other = start(new FakeGitHub(REC), ["49", "--branch", "fix/49-invoice-export"], { config, env: { CLAUDE_CODE_SESSION_ID: "7d9e2a44-1c3b-4e6f-8a70-5b2c9d1e3f08" } });
+    expect(other.out.split("\n")[0]).toBe("✅ project check: miroshnik/elves per the canon");
+  });
+
+  it("task start эпика и задачи с --branch не по канону — отказ до изменений", () => {
+    const f = new FakeGitHub(REC);
+    const epic = start(f, ["45"]);
+    expect(epic.code).toBe(2);
+    expect(epic.err).toContain("#45 is an epic — it isn't taken into work");
+    const wrong = start(f, ["49", "--branch", "fix/50-x"]);
+    expect(wrong.code).toBe(2);
+    expect(wrong.err).toContain("--branch «fix/50-x»: expected a branch of #49 by the canon");
+    expect(f.mutations).toEqual([]);
   });
 });
 

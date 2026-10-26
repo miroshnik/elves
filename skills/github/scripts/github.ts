@@ -706,7 +706,7 @@ const CLOUD_COMMANDS = ["task show", "task answer", "task new"];
  * (`locale.missingManifest`); reading (`task show`, `task queue`, `pr premerge`) parses the names of every language and
  * goes on, `task drop` writes no names.
  */
-const LANGUAGE_COMMANDS = ["project check", "project fix", "task new", "task answer", "task status", "task actualize", "task close", "pr labels", "batch release"];
+const LANGUAGE_COMMANDS = ["project check", "project fix", "task new", "task answer", "task start", "task status", "task actualize", "task close", "pr labels", "batch release"];
 
 /**
  * A REST request of the cloud's path: the payload — JSON on stdin (a description doesn't fit an argument); an error
@@ -2359,6 +2359,97 @@ export function cmdTaskStatus(io: Io, slug: string, number: number, name: string
   return code;
 }
 
+/**
+ * The app's deferred tools the flow calls in a task in Claude Code (claude/CLAUDE.md): naming the session, the PR
+ * monitor without auto-fix, stopping own background tasks and archiving the session — one `ToolSearch` loads them all,
+ * not one per call (#666).
+ */
+export const APP_TOOLS = ["mcp__ccd_session_mgmt__set_session_title", "mcp__ccd_pr__set_monitor", "TaskStop", "mcp__ccd_session_mgmt__archive_session"];
+
+/** The marker of `project check` done in this session: `<config directory>/project-checks/<session id>`, a repository per line. */
+function projectCheckFile(io: Io): string | null {
+  const id = io.env["CLAUDE_CODE_SESSION_ID"];
+  return id ? path.join(configDir(io.env), "project-checks", id) : null;
+}
+
+/**
+ * `project check` once per session (AGENTS.md, "Task tracking"): green — one line and the marker, the next `task start`
+ * of the session skips it; ❌ — the full report, false. The session isn't identified — checked every time.
+ */
+function projectChecked(io: Io, slug: string): boolean {
+  const file = projectCheckFile(io);
+  const done = file && existsSync(file) ? readFileSync(file, "utf8").split("\n").map((l) => l.trim().toLowerCase()) : [];
+  if (done.includes(slug.toLowerCase())) return io.out(`= project check — done in this session`), true;
+  const s = loadState(io, slug);
+  const checks = analyze(s);
+  if (checks.some((c) => c.problems.length)) {
+    header(io, s);
+    report(io, s, checks);
+    return false;
+  }
+  io.out(`✅ project check: ${s.repo.nameWithOwner} per the canon`);
+  if (file) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
+    writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
+    appendFileSync(file, `${slug}\n`);
+  }
+  return true;
+}
+
+/** The numbered items of the description's scenarios section — the future `it` names; no section — null. */
+export function scenarioItems(body: string, heading: string): string[] | null {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((l) => l.trim().toLowerCase() === heading.toLowerCase());
+  if (start < 0) return null;
+  const end = lines.findIndex((l, k) => k > start && /^#{1,2}\s/.test(l));
+  return lines
+    .slice(start + 1, end < 0 ? undefined : end)
+    .map((l) => /^\s*\d+[.)]\s+(.+)$/.exec(l)?.[1]?.trim())
+    .filter((x): x is string => Boolean(x));
+}
+
+/**
+ * Taking a task in one call (#666) instead of ~11 flow turns: `project check` (once per session), the task as `task
+ * show` prints it, then the stops before any change — open questions of the task or its epic (they are asked first,
+ * AGENTS.md, "Open questions"), parallel work (an open PR of the task or its branch `*\/N-*` that isn't this checkout's
+ * — continue it or wait for its merge); then `task status N "In progress" --branch`, the estimate when the task has
+ * none (`--branch` gives the type) and what the agent needs next: the session name, the branch, the scenarios and, in
+ * Claude Code, one `ToolSearch` line for the app tools the flow calls. Code 1 — stopped, the task isn't taken.
+ */
+export function cmdTaskStart(io: Io, slug: string, number: number, branch?: string): number {
+  if (branch !== undefined && (taskBranch(branch)?.issue !== number || !TASK_SLUG_RE.test(branch))) {
+    throw new GhError(`--branch ${q(branch)}: expected a branch of #${number} by the canon — [<area>/]<type>/${number}-<slug>, type ${TASK_TYPES.join("|")}, slug — Latin kebab-case`);
+  }
+  if (!projectChecked(io, slug)) return io.out(`Next: github project fix, then task start ${number} again — the task isn't taken`), 1;
+  const t = showTask(io, slug, number);
+  if (t.epic) throw new GhError(`#${number} is an epic — it isn't taken into work: the question to the owner «run the dispatcher on epic #${number}?», then task queue --epic ${number}`);
+  if (t.state !== "OPEN") throw new GhError(`#${number} is closed — reopen it first (gh issue reopen ${number}), then task start`);
+  for (const line of t.lines) io.out(line);
+  const asked = [t.open.length ? `#${number}: ${t.open.join(", ")}` : "", t.epicOpen?.ks.length ? `epic #${t.epicOpen.number}: ${t.epicOpen.ks.join(", ")}` : ""].filter(Boolean);
+  if (asked.length) {
+    io.out(`! open questions — ${asked.join("; ")}: ask the owner all of them in one message, with options and a recommendation (auto mode — task answer <N> <k> "<answer>" --auto by the recommendation), then task start ${number} again — the task isn't taken`);
+    return 1;
+  }
+  const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
+  const mine = (head: string) => head !== "" && head === current;
+  const prs = [...t.prs.filter((p) => !p.merged && p.state === "OPEN"), ...(inCloud(io) ? [] : unlinkedPrs(io, slug, number).batched.filter((p) => !p.merged && p.state === "OPEN"))];
+  const parallel = [...new Set([...prs.filter((p) => !mine(p.head)).map((p) => `PR #${p.number} (${p.head})`), ...taskBranchesHere(io, slug, number).filter((b) => b !== current).map((b) => `branch ${b}`)])];
+  if (parallel.length) {
+    io.out(`! #${number} is in work elsewhere — ${parallel.join(", ")}: continue that work or wait for its merge — the task isn't taken a second time`);
+    return 1;
+  }
+  const code = cmdTaskStatus(io, slug, number, N.status.inProgress, branch);
+  if (!t.estimate && branch !== undefined) runEstimate(io, slug, number, taskBranch(branch)!.type);
+  const now = git(io, io.cwd, "branch", "--show-current").stdout.trim();
+  const scenarios = scenarioItems(t.body, N.sections.scenarios);
+  io.out(`Next: the session name — «#${number} ${t.title}»`);
+  io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
+  io.out(scenarios?.length ? `Scenarios: ${scenarios.length} in ${q(N.sections.scenarios)} — the future it names` : `○ no scenarios in ${q(N.sections.scenarios)} — a code task gets them in the description before code`);
+  if (io.env["CLAUDECODE"] === "1") io.out(`ToolSearch select:${APP_TOOLS.join(",")}`);
+  return code;
+}
+
 export function cmdTaskDrop(io: Io, slug: string, number: number, duplicateOf?: number): number {
   const ctx = taskContext(io, slug);
   const issue = loadIssue(io, slug, number);
@@ -2388,6 +2479,7 @@ interface ShownPr {
   state: string;
   merged: boolean;
   draft: boolean;
+  head: string;
   checks: { green: number; pending: string[]; red: string[] } | null;
   why?: string | undefined;
 }
@@ -2396,7 +2488,7 @@ interface ShownPr {
 function shownPr(p: Any, why?: string): ShownPr {
   const by = [...checkStates(rollupOf(p))];
   const of = (...states: CheckBucket[]) => by.filter(([, v]) => states.includes(v)).map(([k]) => k);
-  return { number: p.number, state: p.state ?? "", merged: Boolean(p.merged), draft: Boolean(p.isDraft), checks: by.length ? { green: of("pass", "skipping").length, pending: of("pending"), red: of("cancel", "fail") } : null, why };
+  return { number: p.number, state: p.state ?? "", merged: Boolean(p.merged), draft: Boolean(p.isDraft), head: p.headRefName ?? "", checks: by.length ? { green: of("pass", "skipping").length, pending: of("pending"), red: of("cancel", "fail") } : null, why };
 }
 
 function prLine(p: ShownPr): string {
@@ -2565,6 +2657,24 @@ function commentLines(title: string, c: { total: number; nodes: ShownComment[] }
  * auto over it), and the description as is. Read-only.
  */
 export function cmdTaskShow(io: Io, slug: string, number: number): number {
+  for (const line of showTask(io, slug, number).lines) io.out(line);
+  return 0;
+}
+
+/** What `task show` prints and what `task start` decides by: the lines, open questions of the task and its epic, the PRs. */
+interface ShownTask {
+  lines: string[];
+  title: string;
+  state: string;
+  epic: boolean;
+  estimate: boolean;
+  body: string;
+  open: number[];
+  epicOpen: { number: number; ks: number[] } | null;
+  prs: ShownPr[];
+}
+
+function showTask(io: Io, slug: string, number: number): ShownTask {
   const [owner, name] = slug.split("/");
   const cloud = inCloud(io);
   const i = cloud ? restIssueShow(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
@@ -2594,9 +2704,12 @@ export function cmdTaskShow(io: Io, slug: string, number: number): number {
   ];
   const out = [`#${i.number} ${i.title} — ${i.url}`, facts.filter(Boolean).join(" · ")];
   const epicComments = i.parent ? shownComments(i.parent.comments) : null;
+  let epicOpen: ShownTask["epicOpen"] = null;
+  let prs: ShownPr[] = [];
   if (i.parent) {
     const p = i.parent;
     const open = questionItems(p.body ?? "").filter((x) => !x.answered);
+    epicOpen = { number: p.number, ks: open.map((x) => x.k) };
     const tasks: Any[] = (p.subIssues?.nodes ?? []).filter((x: Any) => x.state === "OPEN" && x.number !== number);
     const answers = answerCandidates(open.map((x) => x.k), epicComments!.nodes);
     out.push(`Epic #${p.number} ${q(p.title)} — open questions: ${open.length}, other open tasks: ${tasks.length}`);
@@ -2611,7 +2724,7 @@ export function cmdTaskShow(io: Io, slug: string, number: number): number {
   if (blockers.length) out.push(`Blocked by: ${blockers.map((x) => `${blockerRef(slug, { number: x.number, repo: x.repository?.nameWithOwner ?? slug })} ${q(x.title)}`).join(", ")}`);
   // an epic has no PR of its own
   if (!epic) {
-    let prs: ShownPr[] = (cloud ? restPrs(io, slug, number) : (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean)).map((p: Any) => shownPr(p));
+    prs = (cloud ? restPrs(io, slug, number) : (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean)).map((p: Any) => shownPr(p));
     if (!cloud && !prs.length && i.state === "OPEN") {
       for (const p of unlinkedPrs(io, slug, number).prs) {
         const pr = graphql(io, Q.PrShow, { owner, name, number: p.number })?.repository?.pullRequest;
@@ -2637,8 +2750,7 @@ export function cmdTaskShow(io: Io, slug: string, number: number): number {
   out.push(...commentLines("Comments", comments));
   if (epicComments) out.push(...commentLines(`Epic #${i.parent.number} comments`, epicComments));
   if (lines.join("").trim()) out.push("", ...lines);
-  for (const line of out) io.out(line);
-  return 0;
+  return { lines: out, title: i.title, state: i.state, epic, estimate: Boolean(estimate), body: i.body ?? "", open, epicOpen, prs };
 }
 
 /**
@@ -5339,6 +5451,19 @@ start of its answer, not by ✅ in its text. A cloud session — over the reposi
 Examples:
   github task answer 42 1 "Only PDF, no CSV yet"
   github task answer 42 2 "Medium, by recommendation" --auto`,
+  "task start": `github task start <N> [--branch <type>/<N>-<slug>] [--repo owner/repo]
+
+Taking a task into work in one call: project check (once per session — a marker in project-checks/<session id> of
+~/.config/elves; ❌ — the report and code 1), the task as task show prints it, then the stops before any change, code 1:
+open questions of the task or its epic (ask the owner, then task start again), the task in work elsewhere (an open PR
+of it — into a batch branch too — or a branch */<N>-* locally or on origin that isn't the current one). Then task
+status N «In progress» --branch (the pin, the epic, the branch rename), the estimate when the task has none (the type —
+from --branch), and the next lines: the session name «#N <title>», the branch, the scenarios of the description and,
+in Claude Code (CLAUDECODE=1), one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}). An epic
+and a closed task — refused (code 2).
+
+Examples:
+  github task start 42 --branch feat/42-invoice-export`,
   "task status": `github task status <N> <Backlog|In progress|Done> [--branch <type>/<N>-<slug>] [--repo owner/repo]
 
 Status in the project (and the epic's In progress once its first subtask is taken). In progress pins the task to the
@@ -5669,6 +5794,10 @@ export function main(argv: string[], io: Io): number {
         return cmdTaskQueue(io, slug, { epic: values.epic === undefined ? undefined : issueNumber(values.epic, "--epic"), type: values.type, priority });
       }
       const number = issueNumber(positionals[0], `task ${cmd}`);
+      if (cmd === "start") {
+        if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
+        return cmdTaskStart(io, slug, number, values.branch);
+      }
       if (cmd === "status") return cmdTaskStatus(io, slug, number, positionals.slice(1).join(" "), values.branch);
       if (cmd === "answer") {
         const k = /^\d+$/.exec((positionals[1] ?? "").trim());
