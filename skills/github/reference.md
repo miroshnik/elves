@@ -1094,8 +1094,15 @@ closing, and a merge into the batch doesn't close it (#648); its brief and
 the default branch, as before.
 
 The batch's release (#649, "batch release" below): nothing ready and every
-task in work merged into the batch — `Next:` names `batch release`; a task
-merged into the batch without an open PR of it isn't a live executor. With
+task of the batch merged into it — `Next:` names `batch release`; a task
+merged into the batch without an open PR of it isn't a live executor. The
+condition is the batch's tasks, not all In progress (#696): a live executor
+of the batch is a task with an open PR into it, or one handed out to a
+subagent or an app session, not merged into the batch and without a PR into
+another branch; a task past the batch — its PR into the default branch, a
+cloud executor, In progress without a hand-out (the dispatcher's own task,
+another session's) — doesn't hold the release, `Next:` names it as past the
+batch. With
 live executors — the owner's word «release», the same command; `Next:` names
 it once something is merged. The release PR open — ready tasks are held (`○ …
 ready, held`), no new executors till its merge: a merge into the batch now
