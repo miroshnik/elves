@@ -64,7 +64,8 @@ Brings the task's stack up — the Compose project <project>-<N> by the branch <
 number (in the middle of a rebase — the branch being rebased; a linked worktree without a task branch is
 refused: give N) — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
 127.0.0.1; the HTTP addresses go to the compose file's interpolation in TASK_ENV_<SERVICE>_URL; --profile — Compose
-profiles. Code 0 — up, 1 — a service failed (its state and log), 2 — not tried.
+profiles. The bring-up takes a place in the machine queue (slot) until the containers are healthy. Code 0 — up, 1 — a
+service failed (its state and log), 2 — not tried.
 
 Examples:
   task-env up
@@ -74,7 +75,8 @@ Examples:
 
 The e2e stack <project>-<N>-e2e anew with clean volumes (its own addresses in the interpolation), then the command with
 its addresses in TASK_ENV_PROJECT, TASK_ENV_<SERVICE>_URL, TASK_ENV_<SERVICE>_<PORT>; the exit code is the command's; the
-stack stays until the next run.
+stack stays until the next run. The bring-up takes a place in the machine queue (slot) until the containers are healthy,
+the command runs outside it.
 
 Examples:
   task-env e2e -- npx playwright test
@@ -543,6 +545,45 @@ const MAX_BUFFER = 64 * 1024 * 1024;
 const WAIT_TIMEOUT = "300";
 /** Log lines of a failed service the report shows. */
 const LOG_TAIL = "20";
+/**
+ * The slot skill's script: installed skills sit side by side — on the machine and in the package. A neighbor's script
+ * run as a process, not imported (tests/standards/scripts/skill-imports): without it the stack comes up outside the queue.
+ */
+const SLOT_SCRIPT = fileURLToPath(new URL("../../slot/scripts/slot.ts", import.meta.url));
+
+/**
+ * Bringing a stack up is heavy work of the machine — containers with databases and a broker start at once, on macOS in
+ * one Docker VM — so it takes a place in the machine queue of the slot skill (tests/capabilities/task-env/stacks):
+ * it waits while two heavy runs are going and prints whom it waits for, and gives the place back when `up --wait` is
+ * over — the containers are healthy — not for the stack's whole life: the e2e command after it runs outside the slot.
+ *
+ * The place is slot's `--for <PID>` of a holder — a shell that lives while this process does: `--for` holds the slot
+ * until its process exits, and the holder is killed when the stack is up. The holder is a grandchild re-parented to
+ * init, which reaps it at once: our own child would stay a zombie through a synchronous e2e command, and a zombie
+ * counts as alive for the queue. No queue in CI and inside a slot — slot decides that itself.
+ */
+function inSlot<T>(what: string, fn: () => T): T {
+  const outside = (why: string) => (console.log(`○ slot: ${why} — ${what} comes up outside the machine queue`), fn());
+  if (!existsSync(SLOT_SCRIPT)) return outside("the slot skill isn't next to task-env");
+  const holder = spawnSync("sh", ["-c", `(while kill -0 ${process.pid} 2>/dev/null; do sleep 1; done) </dev/null >/dev/null 2>&1 & echo $!`], { encoding: "utf8" });
+  const pid = Number(holder.stdout?.trim());
+  if (!pid) return outside(`no holder process — ${holder.error?.message ?? `sh: code ${holder.status}`}`);
+  try {
+    // the ticket names the work by the script's text — slot's scriptCommand; the queue lines go to our stderr
+    const r = spawnSync(process.execPath, ["--no-env-file", SLOT_SCRIPT, "--for", String(pid)], {
+      stdio: ["ignore", "ignore", "inherit"],
+      env: { ...process.env, npm_lifecycle_script: `task-env ${what}` },
+    });
+    if (r.error || r.status !== 0) return outside(`no place in the queue — ${r.error?.message ?? `slot: code ${r.status}`}`);
+    return fn();
+  } finally {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* the holder is gone already */
+    }
+  }
+}
 
 const git = (dir: string, ...args: string[]) => {
   const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
@@ -877,7 +918,7 @@ function shown(addresses: Address[], withVar: boolean): string[] {
 /** `up`: the dev stack of the branch's task (without one — the main checkout's) and its addresses. */
 function stackUp(project: Project, profiles: string[], env: NodeJS.ProcessEnv): number {
   const stack = stackOf(project.name, project.task);
-  const r = upStack(project, stack, profiles, env);
+  const r = inSlot(`up ${stack.name}`, () => upStack(project, stack, profiles, env));
   if (r.code) return console.log(r.lines.join("\n")), r.code;
   const addresses = addressesOf(project, stack, env);
   console.log([...r.lines, `stack ${stack.name}: up${addresses.length ? "" : " — no HTTP service in env.http and no published port"}`, ...shown(addresses, false)].join("\n"));
@@ -894,7 +935,7 @@ function stackE2e(project: Project, profiles: string[], command: string[], env: 
   const stack = stackOf(project.name, project.task, true);
   const clean = downStack(stack.name, env);
   if (!clean.ok) return console.log(clean.line), 2;
-  const r = upStack(project, stack, profiles, env);
+  const r = inSlot(`e2e ${stack.name}`, () => upStack(project, stack, profiles, env));
   if (r.code) return console.log(r.lines.join("\n")), r.code;
   const addresses = addressesOf(project, stack, env);
   console.log([...r.lines, `stack ${stack.name}: up, clean volumes — TASK_ENV_PROJECT=${stack.name}`, ...shown(addresses, true)].join("\n"));

@@ -1,6 +1,6 @@
 ---
 name: slot
-description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; two runs at a time, together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (a quarter of the cores) for the runner's workers. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (Vitest, Playwright, Jest) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
+description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) and bringing a task stack up (`task-env`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; two runs at a time, together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (a quarter of the cores) for the runner's workers. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (Vitest, Playwright, Jest) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
 allowed-tools: Bash(bun *skills/slot/scripts/slot.ts *)
 ---
 
@@ -85,6 +85,7 @@ what its parent loaded.
 | `slot: waited …` | the time in the queue; compare run speed without it — by CI or by `user` from `time` |
 | A targeted run (`vitest run <file>`) | bypasses the queue — it's cheap |
 | A heavy command bypassing the project's scripts | `bun --no-env-file <skill dir>/scripts/slot.ts '<command>'` |
+| Bringing a task's stack up | heavy work too — containers with databases and a broker start at once: `task-env up` and `e2e` hold a slot until the containers are healthy, not for the stack's life; not `docker compose up` by hand — `check` names a package.json script that does it |
 | Runner workers locally | from `ELVES_SLOT_CPUS` — below |
 
 ## Runner workers
