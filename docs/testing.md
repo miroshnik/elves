@@ -13,6 +13,11 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
 
 ## Run and result
 
+- **A flake suspicion — the same run on the base branch.** Red there too — I
+  compare the delta: otherwise someone else's flake becomes my regression.
+- **A green test may lock in wrong behavior.** An external API's test is
+  checked against its schema or docs, not intuition about how such APIs
+  usually work; on a mismatch the test is fixed, not the code to fit the test.
 - **A heavy run goes through the machine queue.** The flow install wraps the
   project's checks (`lint`, `typecheck`, `test`, `test:*`) in `slot`: two runs
   go at once, together on half the cores; the rest wait in order of arrival

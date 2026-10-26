@@ -17,7 +17,10 @@ under Bun (Agent Skills; README, "Repository layout"); repository specifics
 — local configuration. **Budgets** (standard `documents#canon-size`): this file ≤
 3,000 words, `SKILL.md` ≤ 2,500, a description ≤ 1,024 characters.
 Here — what always applies and where to go; reference — a skill's
-`reference.md` or `--help`, `docs/`.
+`reference.md` or `--help`, `docs/`. **A file at its budget** — a detail
+moves whole, by its topic, into that topic's md (an existing one, else
+`docs/<topic>.md`), here — a link to it; a fact is never deleted for the
+budget.
 
 ## First step of a session — an up-to-date flow
 
@@ -82,7 +85,8 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   external still needs a "yes".
 - **Secrets and bypassing protections — only with permission** (tokens, keys,
   bypass secrets, disabling checks at the host, CI or cloud): first — what
-  will appear and where; a secret from chat — never stored, rotation reminded.
+  will appear and where; a secret from chat — never stored (memory, files,
+  commits, issues, logs), rotation reminded.
 
 ## Task tracking
 
@@ -261,8 +265,7 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
   permissions, audited settings) never changes by direct DML: the audit is
   lost, guards bypassed; what the UI lacks is a code change.
 - **Production numbers — first, is it the right database:** the first query
-  checks it against the repository (migrations, columns, orders of
-  magnitude); no match — stop.
+  checks it against the repository; no match — stop (`docs/production.md`).
 - **"Didn't help" → production facts, not a third reproduction:** the logs
   of the real request and production data (the row, `updated_at`, audit),
   then a new hypothesis.
@@ -273,16 +276,15 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
   packages or touch files "to try" gets an isolated worktree or "read-only
   plus a temp folder" without `git checkout/restore/stash/clean`: its cleanup
   reverts everything uncommitted, others' work too. Several agents in one
-  worktree — non-overlapping files, no git, a shared file has one owner. After
-  a fan-out — `git status` and `git diff --stat`. Temp files shared with
-  subagents get a unique prefix (task, role).
+  worktree, temp files shared with subagents — `docs/parallel-checkouts.md`.
+  After a fan-out — `git status` and `git diff --stat`.
 - **A fresh worktree lacks untracked files** (dependencies, `.env*.local`) —
   I install and copy them. Paths in commands and assignments lead into the
   worktree (a path "from memory" edits `main`); `git -C <worktree> status`
   before and after an edit.
 - **Parallel checkouts share ports, databases and `.git/config`:** the task's
   apps, databases and e2e run in its own Compose stack (the `task-env`
-  skill) at `<service>.<N>.<project>.localhost`, not on a host port; others'
+  skill), not on a host port; others'
   stacks and busy ports I don't touch — `docs/parallel-checkouts.md`.
 - **A subagent gets a unit of ~50 turns** (one decision's folder, one file,
   one spec), not a 200-turn zone: its price is quadratic in turns. The
@@ -307,7 +309,6 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
 
 ## CI: parallel tasks
 
-Branches and PRs run in parallel, only my own stale run of a branch is
-cancelled; `main`, tags and manual runs never (`queue: max`); deploy — a
-queue per environment, apart from CI; others' runs I don't cancel or re-run.
-Workflow fragments — `docs/ci-concurrency.md`.
+Branches and PRs in parallel, `main`, tags and manual runs never cancelled,
+deploy — a queue per environment; others' runs I don't cancel or re-run —
+`docs/ci-concurrency.md`.

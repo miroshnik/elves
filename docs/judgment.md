@@ -1,7 +1,7 @@
 # Judgment and edits: where a mistake looks like a result — for "Tests and code"
 
 Reference for the "Tests and code" section of `AGENTS.md`: the full rules and
-examples (made up). What the four have in common: such a mistake is caught
+examples (made up). What the first four have in common: such a mistake is caught
 neither by green checks nor by plausible numbers — only by the question of
 what the result, the label or the request is really about.
 
@@ -78,4 +78,27 @@ I looked at a width of 1440 px in a clean profile, the human — at 390 px with
 a long name in the header. One product in the conversation, two tools.
 
 "Didn't help" after a fix is a different rule: the "Production and debugging"
-section of `AGENTS.md` (production facts, not a third reproduction).
+section of `AGENTS.md` (production facts, not a third reproduction) and
+`docs/production.md`.
+
+## What reached the human
+
+I check the delivered email, the page at the recipient, the promised text in
+the result (by `git grep` and by eye) — not my own output: someone else's
+system (a mail client, a CDN, a provider) changes the result after us while
+our checks are green. A component on several surfaces (site and email) — on
+each, in its own isolation: a test page with the site's styles lies about the
+email.
+
+## Intentionally different behavior in two places
+
+A mirrored comment with the reason — in both places: otherwise the next reader
+"fixes" one of them into the other.
+
+## Sources: tool documentation and the agent's memory
+
+- **A tool question — its official documentation first**: the framework's and
+  the host's, then the tool's own; checked, not assumed.
+- **An agreement goes into the project, not the agent's memory:** the memory
+  is tied to the account and the machine — another machine or account doesn't
+  see it; it is a cache, not a source.
