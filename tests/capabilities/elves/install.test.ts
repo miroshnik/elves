@@ -641,6 +641,35 @@ describe("Проверки проекта идут очередью машины
     expect(c.code).toBe(0);
     expect(c.stdout).toContain(`  ${line}\n`);
   });
+
+  /**
+   * Подъём стека — тяжёлая работа машины (capability `task-env#stacks`): `task-env up` ждёт очередь до здоровья
+   * контейнеров, а свой `docker compose up` скрипта — нет. В шим его не обернуть: шим держит слот, пока идёт скрипт, а
+   * `docker compose up` без `-d` идёт до Ctrl+C. Поэтому install и check называют скрипт с заменой, отставанием это не
+   * считается.
+   */
+  it("скрипт package.json поднимает стек docker compose up мимо task-env — install и check называют его с заменой task-env up, отставанием это не считается", () => {
+    writeTree(proj, {
+      "package.json": JSON.stringify({
+        scripts: {
+          lint: "eslint .",
+          "db:up": "docker compose -f compose.db.yaml up -d --wait",
+          stack: "docker-compose up",
+          "db:logs": "docker compose logs -f db",
+          "stack:task": "elves task-env up",
+        },
+      }),
+    });
+    const line = "! package.json — db:up, stack — bring a stack up with docker compose up outside the machine queue (slot): its start chokes neighbors' runs — bring it up with `bun --no-env-file node_modules/.bin/elves task-env up`, it waits for the queue until the containers are healthy";
+    const i = install();
+    expect(i.code).toBe(0);
+    expect(i.stderr).toContain(`!${line}\n`);
+    const c = elves(sb, ["check"]);
+    expect(c.code).toBe(0);
+    expect(c.stdout).toContain(`  ${line}\n`);
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", "stack:task": "elves task-env up" } }) });
+    expect(elves(sb, ["check"]).stdout).not.toContain("docker compose up");
+  });
 });
 
 /**
