@@ -678,6 +678,18 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(JSON.parse(read(path.join(home, ".agents/elves.json"))).sha).toBe(head);
   });
 
+  /** Поля проекта (`env`, `batch`, `auto`, `language`) живут в `.agents/elves.json` проекта, у машины их не бывает. */
+  it("install -g пишет в манифест машины только поля установки — source, sha, tag, clone и skills: поля проекта из прежнего манифеста не переносит", () => {
+    install(["-g"]);
+    const manifest = path.join(home, ".agents/elves.json");
+    const env = { services: { web: 3000 } };
+    writeFileSync(manifest, JSON.stringify({ ...JSON.parse(read(manifest)), env, batch: true, auto: true, language: "ru" }));
+    install(["-g"]);
+    const m = JSON.parse(read(manifest));
+    expect(m.skills).toEqual(SKILLS);
+    expect(Object.keys(m).filter((k) => !["source", "sha", "tag", "clone", "skills"].includes(k))).toEqual([]);
+  });
+
   /**
    * bunx ставит пакет из GitHub архивом, без `.git`, и в `.bun-tag` оставляет лишь 7 знаков SHA: полный коммит виден
    * только в спецификаторе, по которому поставлено, — `package.json` каталога bunx рядом с node_modules.
