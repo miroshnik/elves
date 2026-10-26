@@ -129,12 +129,12 @@ describe("Скрипты флоу под bun не подгружают env-фа�
   it("команда скрипта пакета, которую печатает код скриптов и установщика и которая подгрузит env-файлы проекта, — нарушение no-env-file", () => {
     const calls = (text: string) => unflagged(stringsOnly(text, "x.ts"), PACKAGE_CALL).length;
     const loads = [
-      `const MIGRATE = "migrate with spec-exceptions: bun node_modules/.bin/elves spec-exceptions";`,
+      `const HINT = "run: bun node_modules/.bin/elves spec-break";`,
       "const help = (cmd: string) => HELP.replace(/^spec-doc/gm, `bun node_modules/.bin/elves ${cmd}`);",
       "note(`run: bun --smol ./node_modules/.bin/elves spec-diff --base ${base}`);",
     ];
     const clean = [
-      "const MIGRATE = `migrate with spec-exceptions: ${PACKAGE_RUN} spec-exceptions`;",
+      "const HINT = `run: ${PACKAGE_RUN} spec-break`;",
       "const help = (cmd: string) => HELP.replace(/^spec-doc/gm, `bun --no-env-file node_modules/.bin/elves ${cmd}`);",
       "const wrap = (cmd: string) => `elves slot '${cmd}'`;",
       "const OLD = /^bun node_modules\\/\\.bin\\/elves slot '(.*)'$/;",
@@ -154,7 +154,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
     violator: [
       { name: "скрипт package.json — bin под bun без флага", item: { file: "package.json", text: `{"scripts":{"spec:doc":"bun node_modules/.bin/elves spec-doc .spec-report.xml --strict"}}` } },
       { name: "команда скилла — bin под bun без флага", item: { file: "skills/x/SKILL.md", text: "```bash\nbun ./node_modules/.bin/elves spec-diff\n```\n" } },
-      { name: "подсказка кода — bin под bun без флага", item: { file: "skills/x/scripts/x.ts", text: stringsOnly(`console.log("migrate: bun node_modules/.bin/elves spec-exceptions");\n`, "x.ts") } },
+      { name: "подсказка кода — bin под bun без флага", item: { file: "skills/x/scripts/x.ts", text: stringsOnly(`console.log("run: bun node_modules/.bin/elves spec-break");\n`, "x.ts") } },
     ],
     exceptions: exceptionsIn(),
     includes: ["README.md", "skills/spec/SKILL.md", "skills/spec/reference.md", "skills/spec/ci.md", "skills/spec/scripts/harness.ts", "bin/elves.ts"],
@@ -178,27 +178,14 @@ describe("Скрипты флоу под bun не подгружают env-фа�
   /**
    * На Yarn 2+ с PnP `node_modules/.bin/elves` нет, а bin `.ts` Yarn 2+ запускает Node-ом при любом `nodeLinker` (#608):
    * справка в проекте на Yarn 2+ называет форму его package.json — пакет через bunx, по `packageManager` скилла
-   * github. Подсказка харнесса — под PnP: `.pnp.cjs` Yarn ставит рантайму проекта `process.versions.pnp`, а харнесс
-   * `packageManager` не импортирует (tests/standards/scripts/skill-imports).
+   * github.
    */
-  it("справка скрипта пакета elves <скрипт> --help и подсказка харнесса называют форму запуска, которая на Yarn 2+ с PnP находит bin пакета", () => {
+  it("справка скрипта пакета elves <скрипт> --help называет форму запуска, которая на Yarn 2+ с PnP находит bin пакета", () => {
     const { dir, cleanup } = tmpDir();
     try {
-      const harness = JSON.stringify(path.join(ROOT, "skills/spec/scripts/harness.ts"));
-      writeTree(dir, {
-        "package.json": JSON.stringify({ private: true, packageManager: "yarn@4.9.1" }),
-        "pnp.ts": 'process.versions.pnp = "3";\n',
-        // exceptions.ts прошлого формата — харнесс подсказывает перенос
-        "tests/standards/audit/audit.test.ts": `import { it } from "bun:test";\nimport { invariant } from ${harness};\ninvariant(it, { registry: "r", items: ["a"], key: (x) => x, name: (x) => x, check: () => {}, violator: { name: "v", item: "b" } });\n`,
-        "tests/standards/audit/exceptions.ts": "export default [];\n",
-      });
-      const help = spawnSync(process.execPath, ["--no-env-file", path.join(ROOT, "bin/elves.ts"), "spec-exceptions", "--help"], { cwd: dir, encoding: "utf8" });
-      expect(help.stdout.split("\n")[0]).toBe(`${PACKAGE_BUNX} spec-exceptions [--root DIR]`);
-      const hint = (...preload: string[]) => {
-        const r = spawnSync(process.execPath, ["--no-env-file", "test", ...preload], { cwd: dir, encoding: "utf8" });
-        return /migrate with spec-exceptions: (.+) spec-exceptions$/m.exec(`${r.stdout}${r.stderr}`)?.[1] ?? `${r.stdout}${r.stderr}`;
-      };
-      expect({ pnp: hint("--preload", "./pnp.ts"), node_modules: hint() }).toEqual({ pnp: PACKAGE_BUNX, node_modules: PACKAGE_RUN });
+      writeTree(dir, { "package.json": JSON.stringify({ private: true, packageManager: "yarn@4.9.1" }) });
+      const help = spawnSync(process.execPath, ["--no-env-file", path.join(ROOT, "bin/elves.ts"), "spec-break", "--help"], { cwd: dir, encoding: "utf8" });
+      expect(help.stdout.split("\n")[0]).toStartWith(`${PACKAGE_BUNX} spec-break --file`);
     } finally {
       cleanup();
     }

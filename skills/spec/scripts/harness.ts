@@ -22,7 +22,6 @@ import locale from "../../github/scripts/locale.ts";
 import type { Names } from "../../github/scripts/locale.ts";
 import type { Model } from "./architecture.ts";
 import knipHints from "./knip-hints.cjs";
-import { PACKAGE_BUNX, PACKAGE_RUN } from "./package-run.ts";
 import { commentsOf, decisionFolder, EXCEPTIONS_DIR, exceptionFile, stringsOf } from "./speclib.ts";
 
 /**
@@ -205,14 +204,6 @@ export function marksIn(file: string, text: string): Mark[] {
 }
 
 /**
- * The hint's command — the package's script, as in package.json: under Yarn's PnP (`process.versions.pnp`) there is no
- * `node_modules/.bin/elves` — the package through bunx (#608). The harness doesn't import the github skill's
- * `packageManager` (tests/standards/scripts/skill-imports); on Yarn 2+ with `node_modules` the agent's shell finds the bin by
- * `PACKAGE_RUN` — `bun` reads it itself.
- */
-const MIGRATE = `migrate with spec-exceptions: ${process.versions["pnp"] ? PACKAGE_BUNX : PACKAGE_RUN} spec-exceptions`;
-
-/**
  * Exceptions of a decision folder — the `exceptions/` directory, a file per exception (`<element>.json`:
  * `{ item, issue, reason, rule? }`): parallel PRs each add and remove their own file, while in a shared array
  * neighboring lines conflict. The directory is `<dir>/exceptions`, by default the calling test's folder (by the stack,
@@ -244,7 +235,7 @@ export function exceptionFiles(at: string): Exception[] {
   let names: string[];
   try {
     // a subdirectory — a section's exceptions (`exceptions/<section>/`): its tests read it, and a misplaced file there
-    // is the check of legacyExceptions
+    // is the check of misplacedExceptions
     names = readdirSync(at, { withFileTypes: true })
       .filter((e) => !e.name.startsWith(".") && !e.isDirectory())
       .map((e) => e.name)
@@ -329,32 +320,22 @@ function filesUnder(rel: string, base = process.cwd()): string[] {
 }
 
 /**
- * The calling test folder's exceptions in the wrong place or form (the `exceptionFile` rule): an old `exceptions.ts` of
- * the folder or a subfolder — a failing test with a migration hint; an `exceptions/` directory in a subfolder and
- * non-JSON in the directory — a failing test with the paths. One per folder per run; the check registers it itself — a
- * project that still imports `exceptions.ts` doesn't call `exceptionsIn`.
+ * The calling test folder's exceptions in the wrong place or form (the `exceptionFile` rule): an `exceptions/`
+ * directory in a subfolder and non-JSON in the directory — a failing test with the paths. One per folder per run; the
+ * check registers it itself — a test that doesn't call `exceptionsIn` gets it too.
  */
-function legacyExceptions(it: It): void {
+function misplacedExceptions(it: It): void {
   const caller = callerFolder();
   if (caller === null) return;
   const { rel: folder, base } = caller;
-  if (decisionFolder(`${folder}/_`) !== folder || seen.has(`legacy\0${folder}`)) return;
-  seen.add(`legacy\0${folder}`);
-  const found = filesUnder(folder, base).flatMap((f) => {
-    const x = exceptionFile(f);
-    return x ? [{ f, x }] : [];
+  if (decisionFolder(`${folder}/_`) !== folder || seen.has(`misplaced\0${folder}`)) return;
+  seen.add(`misplaced\0${folder}`);
+  const misplaced = filesUnder(folder, base).flatMap((f) => {
+    const error = exceptionFile(f)?.error;
+    return error ? [`${shownPath(path.join(base, f))}: ${error}`] : [];
   });
-  const at = (f: string) => shownPath(path.join(base, f));
-  const legacy = found.filter(({ x }) => x.legacy).map(({ f, x }) => `${at(f)}: exceptions — a file per element in ${x.folder}/${EXCEPTIONS_DIR}/ — ${MIGRATE}`);
-  const misplaced = found.filter(({ x }) => x.error).map(({ f, x }) => `${at(f)}: ${x.error}`);
-  const N = localeNames();
-  if (legacy.length) {
-    it(N.spec.harness.exceptionFiles, () => {
-      throw new Error(legacy.join("\n"));
-    });
-  }
   if (misplaced.length) {
-    it(N.spec.harness.exceptionJson, () => {
+    it(localeNames().spec.harness.exceptionJson, () => {
       throw new Error(misplaced.join("\n"));
     });
   }
@@ -538,7 +519,7 @@ function decisionNames(base: string): Set<string> {
  * the new elements.
  */
 export function invariant<T>(it: It, spec: Invariant<T>): void {
-  legacyExceptions(it);
+  misplacedExceptions(it);
   const N = localeNames();
   // several conventions over one registry in one describe: the rule tells the service tests apart
   const tag = spec.rule ? ` (${spec.rule})` : "";
@@ -1165,7 +1146,7 @@ export function deadCode(it: It, opts: DeadCode): void {
     if (findings instanceof Error) throw findings;
     return findings;
   };
-  legacyExceptions(it);
+  misplacedExceptions(it);
   const all = opts.exceptions ?? [];
   const own = all.filter((e) => e.rule === rule || (!e.rule && !rule));
   const silenced = new Set([...own, ...all.filter((e) => !e.rule)].map((e) => e.item));

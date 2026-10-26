@@ -294,7 +294,6 @@ interface SpecNames {
     elementFiles: string;
     outside: string;
     exception: string;
-    exceptionFiles: string;
     exceptionJson: string;
     exceptionRules: string;
     markRules: string;

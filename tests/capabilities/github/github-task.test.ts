@@ -558,17 +558,6 @@ describe("pr labels ставит задаче метки решений по д�
     expect(r.out).toContain("○ billing — only a mechanical edit");
   });
 
-  it("правка только `exceptions.ts` не даёт метку решения", () => {
-    const f = new FakeGitHub(REC);
-    f.label("audit", "1D76DB", "Решение: tests/standards/audit");
-    f.prs[120] = { files: [{ path: "tests/standards/audit/exceptions.ts", changeType: "MODIFIED", additions: 0, deletions: 4 }], closes: [49], head: HEAD, model: null };
-    const r = prLabels(f, 120);
-    expect(r.code).toBe(0);
-    expect(f.mutations).toEqual([]);
-    expect(r.out).toContain("PR #120 → #49: no decisions in the diff");
-    expect(r.out).toContain("○ audit — only a mechanical edit");
-  });
-
   it("правка только файлов `exceptions/` не даёт метку решения", () => {
     const f = new FakeGitHub(REC);
     f.label("audit", "1D76DB", "Решение: tests/standards/audit");
@@ -614,7 +603,7 @@ describe("pr labels ставит задаче метки решений по д�
     const f = new FakeGitHub(REC);
     const files = [
       { path: "tests/capabilities/billing/billing.test.ts", changeType: "MODIFIED", additions: 5, deletions: 0 },
-      { path: "tests/capabilities/billing/exceptions.ts", changeType: "MODIFIED", additions: 1, deletions: 0 },
+      { path: "tests/capabilities/billing/exceptions/a.json", changeType: "MODIFIED", additions: 1, deletions: 0 },
     ];
     f.prs[120] = { files, closes: [49], head: HEAD, model: null };
     const r = prLabels(f, 120);

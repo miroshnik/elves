@@ -30,11 +30,10 @@ Node-проекте `.env.local` часто несёт прод-ключи из 
   `#!/usr/bin/env -S bun --no-env-file` — `env -S` есть не везде (busybox), bin там не запустился бы вовсе;
 - в коде скриптов скиллов и установщика — команда, которую скрипт печатает (`bun ${…}`, `bun .agents/skills/…`), и
   дочерний процесс `bun` (`spawn("bun", […])`, `process.execPath`);
-- там же — скрипт пакета под `bun` в строках кода: подсказка (`migrate with spec-exceptions: …` харнесса), справка
-  скрипта под именем `elves` и обзор `elves --help` (#602). Строка запуска — константы `PACKAGE_RUN` и `PACKAGE_BUNX`
-  (`skills/spec/scripts/package-run.ts`) у установщика, харнесса и справки: `bun --no-env-file node_modules/.bin/elves
-  <скрипт>`, на Yarn 2+ — пакет через bunx (#608): справка — по `packageManager` проекта, подсказка харнесса — под PnP
-  (`process.versions.pnp`). Справку агент копирует как есть: форма та же, что в `package.json` и CI, и версия — пакета
+- там же — скрипт пакета под `bun` в строках кода: подсказка, справка скрипта под именем `elves` и обзор
+  `elves --help` (#602). Строка запуска — константы `PACKAGE_RUN` и `PACKAGE_BUNX`
+  (`skills/spec/scripts/package-run.ts`) у установщика и справки: `bun --no-env-file node_modules/.bin/elves
+  <скрипт>`, на Yarn 2+ — пакет через bunx (#608): справка — по `packageManager` проекта. Справку агент копирует как есть: форма та же, что в `package.json` и CI, и версия — пакета
   проекта, а голый `elves` в shell агента — глобальный пакет машины, если он вообще в PATH. Строки — литералы и шаблоны с `${…}`;
   комментарий и регулярное выражение — не вывод.
 

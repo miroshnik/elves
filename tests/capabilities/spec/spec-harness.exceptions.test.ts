@@ -231,18 +231,6 @@ describe("Исключения папки решения — файл на эл�
     expect(() => exceptionsIn(path.join(dir, "tests/standards/other"))).toThrow("tests/standards/other/exceptions/x.json: an exception is { item, issue, reason }");
   });
 
-  it("exceptions.ts в папке решения — упавший тест с подсказкой команды переноса", () => {
-    writeTree(dir, {
-      [`${AUDIT}/audit.test.ts`]: auditTest('import exceptions from "./exceptions.ts";', "exceptions"),
-      [`${AUDIT}/exceptions.ts`]: 'export default [{ item: "importLegacy", issue: 12, reason: "аудит в #12" }];\n',
-    });
-    const r = bunTest();
-    expect(r["исключение: importLegacy (#12)"]).toBe("✓");
-    expect(r["исключения — файлом на элемент в exceptions/, а не в exceptions.ts"]).toBe(
-      `✗ ${AUDIT}/exceptions.ts: exceptions — a file per element in ${AUDIT}/exceptions/ — migrate with spec-exceptions: bun --no-env-file node_modules/.bin/elves spec-exceptions`,
-    );
-  });
-
   // каталог один на папку решения: exceptionsIn() теста любой подпапки читает каталог папки, а не подпапки
   it("каталог exceptions/ в подпапке папки решения — упавший тест с местом каталога, исключение из него не читается", () => {
     writeTree(dir, {
@@ -254,17 +242,6 @@ describe("Исключения папки решения — файл на эл�
       `✗ ${AUDIT}/sub/exceptions/importLegacy.json: exceptions — only in ${AUDIT}/exceptions/ of the decision folder, not in a subfolder`,
     );
     expect(r["importLegacy пишет аудит"]).toBe("✗ нет аудита");
-  });
-
-  it("exceptions.ts подпапки — упавший тест с подсказкой переноса в exceptions/ папки решения", () => {
-    writeTree(dir, {
-      [`${AUDIT}/sub/sub.test.ts`]: auditTest('import exceptions from "./exceptions.ts";', "exceptions"),
-      [`${AUDIT}/sub/exceptions.ts`]: 'export default [{ item: "importLegacy", issue: 12, reason: "аудит в #12" }];\n',
-    });
-    const r = bunTest();
-    expect(r["исключения — файлом на элемент в exceptions/, а не в exceptions.ts"]).toBe(
-      `✗ ${AUDIT}/sub/exceptions.ts: exceptions — a file per element in ${AUDIT}/exceptions/ — migrate with spec-exceptions: bun --no-env-file node_modules/.bin/elves spec-exceptions`,
-    );
   });
 });
 

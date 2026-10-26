@@ -10,7 +10,7 @@ Which check for what:
 | A lint rule: «not allowed», «allowed», «outside scope» | `examples`, `eslintLinter` | `standards/<topic>/` + an ESLint fragment (`eslint.ts`, `<section>.eslint.ts`) |
 | An ESLint rule in a standard's folder | `collectEslint` in `eslint.config.*` | the tree's `eslint.ts` and `<section>.eslint.ts` fragments |
 | Out of scope and an item's exception with its own file | `fileOf` in `invariant`; a mark `spec-outside(<decision>)` / `spec-exception(<decision>) #N` in the file (`marksIn`), in JSON — the value of the `"//"` key | the item's file (a route, a script, a migration, a workspace package's `package.json`) |
-| Exceptions with a ratchet | `exceptionsIn()` → `exceptions` in `invariant`; a disable `-- #N reason` + `lintExceptions` | the decision folder's `exceptions/<item>.json`; migration — `spec-exceptions` |
+| Exceptions with a ratchet | `exceptionsIn()` → `exceptions` in `invariant`; a disable `-- #N reason` + `lintExceptions` | the decision folder's `exceptions/<item>.json` |
 | Architecture model: module boundaries, directories, packages | `boundariesConfig`, `architecture` | `architecture/model.ts`, `architecture/<name>/` |
 | External systems (C1): hosts, packages, keys and headers — only in adapters, a perimeter without an adapter, network in tests, CSP | `externals` in the model, `architecture`, `networkGuard`, `cspConnectSrc` | `architecture/model.ts`, test setup |
 | Containers (C2): modules and libraries, links, deploy configs (compose, Supabase, Vercel, Terraform), storage clients | `containers` in the model, `architecture`, `deployUnits` | `architecture/model.ts` |
@@ -201,13 +201,7 @@ A fragment is `eslint.ts`, `eslint.mts` (ESM even in a project without
   normalized. One directory per decision folder: `exceptions/` in a subfolder or
   a non-`.json` file in the directory — a red test
   «exceptions are <element>.json files in the decision folder's exceptions/» with the paths
-  (an exception from a subfolder isn't read). A leftover `exceptions.ts` in the
-  decision folder or its subfolder — a red test
-  «exceptions are one file per element in exceptions/, not exceptions.ts» with a migration hint:
-  `bun --no-env-file node_modules/.bin/elves spec-exceptions` spreads
-  each file into the decision folder's directory, changes the import in the folder's tests to
-  `exceptionsIn()`, and the path in `package.json` and the CI workflow to the
-  directory; whatever it didn't rewrite — as a `!` line, exit code 1.
+  (an exception from a subfolder isn't read).
 - *Mark on the element* — outside scope and an exception for an element with its
   own file (a route, a script, a migration): in `invariant` — `fileOf: (item) =>
   path from the root` (the project root — the directory with `tests/`, without

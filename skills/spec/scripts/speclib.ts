@@ -1,5 +1,5 @@
 /**
- * speclib — shared by spec-doc, spec-diff, spec-publish, spec-exceptions, spec-shard and the harness: the tests/ tree,
+ * speclib — shared by spec-doc, spec-diff, spec-publish, spec-shard and the harness: the tests/ tree,
  * the test model, the publication's `Source:`, parsing of runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML
  * from `bun test`) and test files' durations from them, parsing of test sources with a parser (describe/it/test for
  * TS/JS: names and prose from JSDoc), the rule for a decision folder's exception files (`exceptionFile`) and the "a
@@ -126,9 +126,6 @@ export function sectionOf(file: string): string | null {
 /** Decision folder exceptions — the `exceptions/` directory, a file per harness registry element (`exceptionsIn`). */
 export const EXCEPTIONS_DIR = "exceptions";
 
-// the old format — an array in one file: the harness's exceptions.ts
-const LEGACY_EXCEPTIONS = /^exceptions\.(ts|mts|js|mjs|json)$/;
-
 /** Whose exceptions file it is and in what form. */
 export interface ExceptionFile {
   /** The decision folder `tests/<kind>/<name>` these exceptions belong to. */
@@ -137,17 +134,12 @@ export interface ExceptionFile {
   dir: string;
   /** The section whose exceptions these are (`exceptions/<section>/<element>.json`); none — the whole folder's. */
   section?: string;
-  /**
-   * The old format — an array in one file of the folder or a subfolder: spec-exceptions moves it into the folder's
-   * `dir` directory.
-   */
-  legacy: boolean;
   /** Misplaced or of the wrong kind — what's wrong; such a file isn't read as an exception. */
   error?: string;
 }
 
 /**
- * Exceptions file of which decision folder? One rule for the harness, spec-doc, spec-diff and spec-exceptions; a copy
+ * Exceptions file of which decision folder? One rule for the harness, spec-doc and spec-diff; a copy
  * in the github skill (`pr labels`: a mechanical edit) is checked against it by the standard
  * `tests/standards/scripts/exception-files`.
  *
@@ -157,7 +149,6 @@ export interface ExceptionFile {
  *   JSON file;
  * - the directory in a subfolder of the decision folder — an error: there's one directory per folder, `exceptionsIn()`
  *   of a test in any subfolder reads it;
- * - `exceptions.{ts,mts,js,mjs,json}` in the folder or a subfolder — the folder's old exceptions format;
  * - outside decision folders, and hidden files — not exceptions (null).
  */
 export function exceptionFile(p: string): ExceptionFile | null {
@@ -165,14 +156,13 @@ export function exceptionFile(p: string): ExceptionFile | null {
   if (folder === null) return null;
   const inner = p.split("/").slice(3);
   if (inner.some((s) => s.startsWith("."))) return null;
-  const at = inner.findIndex((s, i) => (i < inner.length - 1 ? s === EXCEPTIONS_DIR : LEGACY_EXCEPTIONS.test(s)));
+  const at = inner.findIndex((s, i) => i < inner.length - 1 && s === EXCEPTIONS_DIR);
   if (at < 0) return null;
   const dir = EXCEPTIONS_DIR;
-  if (at === inner.length - 1) return { folder, dir, legacy: true };
-  if (at > 0) return { folder, dir, legacy: false, error: `exceptions — only in ${folder}/${dir}/ of the decision folder, not in a subfolder` };
+  if (at > 0) return { folder, dir, error: `exceptions — only in ${folder}/${dir}/ of the decision folder, not in a subfolder` };
   const section = inner.length === 3 ? { dir: `${dir}/${inner[1]}`, section: inner[1]! } : { dir };
-  if (inner.length > 3 || !p.endsWith(".json")) return { folder, ...section, legacy: false, error: "an exception is an <element>.json file with { item, issue, reason }" };
-  return { folder, ...section, legacy: false };
+  if (inner.length > 3 || !p.endsWith(".json")) return { folder, ...section, error: "an exception is an <element>.json file with { item, issue, reason }" };
+  return { folder, ...section };
 }
 
 // a word: letters, the capital — only the first or all (an abbreviation), parts — joined by an apostrophe or a hyphen

@@ -330,7 +330,7 @@ Examples:
  * `node_modules` (#620).
  */
 const SCRIPTS: Record<string, { file: string; helpFirst?: boolean }> = {
-  ...Object.fromEntries(["spec-doc", "spec-diff", "spec-publish", "spec-run", "spec-shard", "spec-claims", "spec-break", "spec-exceptions"].map((name) => [name, { file: `skills/spec/scripts/${name}.ts` }])),
+  ...Object.fromEntries(["spec-doc", "spec-diff", "spec-publish", "spec-run", "spec-shard", "spec-claims", "spec-break"].map((name) => [name, { file: `skills/spec/scripts/${name}.ts` }])),
   precommit: { file: "skills/spec/scripts/precommit.ts" },
   slot: { file: "skills/slot/scripts/slot.ts", helpFirst: true },
   "task-env": { file: "skills/task-env/scripts/task-env.ts" },

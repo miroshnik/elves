@@ -161,8 +161,8 @@ Decisions outside test names — as separate sections «<title> — removed» an
 dependencies, packages from `tests/architecture/model.ts`),
 «Exceptions» (the files of the decision folders' `exceptions/` and their
 sections' `exceptions/<section>/` — not in a subfolder and `.json`, as the
-harness reads them, a section's line names `<folder>#<section>` — entries of the former
-`exceptions.ts` — the item and the harness `rule` — and lint disables
+harness reads them, a section's line names `<folder>#<section>` — the item
+and the harness `rule` — and lint disables
 `eslint-disable … -- #N` in changed files,
 except the flow copy `.agents/` and `.claude/`; each entry
 is its own line, identical ones aren't collapsed), «Harness checks»
@@ -456,31 +456,6 @@ without a revert (kill -9, a closed session) — from the journal
 `.git/spec-break.json`, written before the edit: the next run or `--restore`
 restores the file; the file was edited after the interruption — the journal
 isn't applied, exit code 2 — compare by hand.
-
-## spec-exceptions — what it moves and rewrites
-
-A decision's exceptions are the folder's `exceptions/` directory, one file per
-exception (`<item>.json`: `{ item, rule?, issue, reason }`), not an array in
-`exceptions.ts`: the subtasks paying down the debt delete their own files in
-parallel and don't conflict (with an array each next one got a conflict on
-neighboring lines and a repeated CI run). The command moves each
-`exceptions.ts` (`.mts`, `.js`, `.mjs`, `.json`) of a decision folder
-`tests/<kind>/<name>` or its subfolder into the decision folder's
-`exceptions/` directory (read by `exceptionsIn()` of a test in any
-subfolder): one file per exception (the name is the item in Latin letters,
-`rule--` in front), the old file is deleted; the import in the files of the
-folder and subfolders (`import exceptions from "./exceptions.ts"`) — to
-`const exceptions = exceptionsIn()` with an import from the harness; the path
-to the old file in `package.json` and `.github/workflows/*.yml` (`spec-claims
---exceptions`) — to the directory. Which file belongs to whom — one rule,
-`exceptionFile` (`speclib.ts`), for the harness, spec-diff and
-spec-exceptions (the Elves standard `scripts#exception-files`); the
-command doesn't touch files outside decision folders. Output
-— lines `-` (file moved), `+` (new file), `~` (import or path rewritten), `!`
-(fix by hand: a reference from another folder, no harness import). Exit codes:
-0 — moved or nothing to move, 1 — there is a `!`, 2 — an exceptions file
-doesn't load or isn't an array of `{ item, … }`. A repeated run changes
-nothing.
 
 ## Wiring into a repository — step by step
 

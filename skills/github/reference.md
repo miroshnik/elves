@@ -32,7 +32,7 @@ milestones). When to call each command — `SKILL.md`; syntax —
   or changes (`github task new --labels`, from the PR diff —
   `github pr labels <PR>`; a mechanical edit — a deletion, a rename without
   changes, the decision folder's exceptions file that spec reads as an
-  exception: `exceptions/*.json`, the former `exceptions.*` — doesn't change
+  exception: `exceptions/*.json` — doesn't change
   the decision and gives no label); no labels — only a task without code. An epic has the
   union of its subtasks' labels. `github project check` checks the set
   against the spec tree of the main branch.
@@ -738,7 +738,7 @@ file — the label of the model module from the PR head (the longest matching
 directory), `tests/lib` and files outside modules aren't decisions. A
 mechanical edit doesn't change a decision and gives no label: a deleted file,
 a rename without content changes, an exceptions file of a decision folder that
-spec reads as an exception (`exceptions/*.json`, the former `exceptions.*`; a
+spec reads as an exception (`exceptions/*.json`; a
 copy of the spec rule `exceptionFile`) — a decision touched only that way
 comes out as an `○` line (a label is needed — set it by hand). A decision whose
 name belongs to a slice label (module `web` and the app label `web`) — also an

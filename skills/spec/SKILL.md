@@ -1,7 +1,7 @@
 ---
 name: spec
-description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (Vitest/Jest, Playwright, bun JUnit) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; spec-exceptions moves exceptions.ts into exceptions/; harness.ts — mechanical checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
-allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(bun *skills/spec/scripts/spec-exceptions.ts *) Bash(pnpm spec:*) Bash(bunx vitest run *) Bash(git status *) Bash(git diff *)
+description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (Vitest/Jest, Playwright, bun JUnit) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — mechanical checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
+allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(pnpm spec:*) Bash(bunx vitest run *) Bash(git status *) Bash(git diff *)
 ---
 
 # spec — documentation from test names, spec diff in the PR
@@ -37,8 +37,6 @@ per-repository configuration:
 - `spec-break.ts` — check by breaking: edit the code, run the test, always
   revert (even after an interruption); ✅ failed / ❌ didn't fail for each
   breakage;
-- `spec-exceptions.ts` — moves the decision folders' `exceptions.ts` into an
-  `exceptions/` directory, one file per exception (section "spec-exceptions");
 - `harness.ts` — a library for the project's tests: a mechanical check
   registers ordinary runner tests and gets into the spec (section "Checks").
 
@@ -66,7 +64,6 @@ skill directory: the project's package version is pinned for CI.
 | A convention for all items (mutations, routes, files) | `invariant` in `tests/standards/<name>/<name>.test.ts` — section "Checks" |
 | Prove that a check can fail (migrating an old spec, a "covered" review) | `spec-break` — a breakage aimed at the check, one per run |
 | After running all tests and shards | `spec-claims` — every entry point is called by a capability test; its report goes to `spec-doc` together with the runner reports |
-| The harness failed «exceptions are one file per element in exceptions/, not exceptions.ts» | `spec-exceptions` — section "spec-exceptions" |
 | spec-doc warns that `names.exceptions` «isn't read — names aren't exceptions any more, delete it» | delete that directory or file (#447) |
 
 ## Reports for spec-doc
@@ -161,16 +158,6 @@ check (this is not mutation testing): `--find` occurs in the file exactly
 once; a plan of several — each a separate run. A baseline run goes first: red
 even without a breakage — exit code 2. After an interruption without a revert
 — the next run or `--restore`. Details — `reference.md`, "spec-break".
-
-## spec-exceptions
-
-A decision's exceptions are the folder's `exceptions/` directory (a section's —
-`exceptions/<section>/`), one file per
-exception (`<item>.json`: `{ item, rule?, issue, reason }`), not an array in
-`exceptions.ts`. `spec-exceptions` moves each `exceptions.ts` of a decision
-folder there and rewrites the imports (`exceptionsIn()`) and the paths in
-`package.json` and workflows; a `!` line — fix by hand. A repeated run changes
-nothing. Details — `reference.md`, "spec-exceptions".
 
 ## Checks — `harness.ts`, `architecture.ts`, `spec-claims.ts`
 

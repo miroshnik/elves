@@ -683,14 +683,15 @@ describe("Решения вне названий тестов — модель, 
     expect(out).toContain("**Модель архитектуры — добавлено (3):**\n\n- модуль ui\n- зависимость ui → domain\n- пакет redis модуля infra\n");
   });
 
-  it("исключение из exceptions.ts и отключение линта в коде: добавленные и снятые", () => {
-    const EXC = "tests/standards/audit/exceptions.ts";
+  it("исключение папки решения и отключение линта в коде: добавленные и снятые", () => {
+    const EXC = "tests/standards/audit/exceptions";
     const base = repo.commit({
-      [EXC]: 'export default [{ item: "a", issue: 1, reason: "r1" }];\n',
+      [`${EXC}/a.json`]: JSON.stringify({ item: "a", issue: 1, reason: "r1" }) + "\n",
       "src/a.ts": "// eslint-disable-next-line no-console -- #5 старое\nconsole.log(1);\n",
     });
     repo.commit({
-      [EXC]: 'export default [{ item: "b", issue: 2, reason: "r2" }];\n',
+      [`${EXC}/a.json`]: null,
+      [`${EXC}/b.json`]: JSON.stringify({ item: "b", issue: 2, reason: "r2" }) + "\n",
       "src/a.ts": "console.log(1);\n",
       "src/b.ts": "// eslint-disable-next-line eqeqeq -- #6 новое\na == b;\n",
     });
@@ -727,20 +728,6 @@ describe("Решения вне названий тестов — модель, 
     expect(out).toContain("**Исключения — добавлено (1):**\n\n- `tests/standards/routes#naming` · b (#2) — r2\n");
   });
 
-  // перенос spec-exceptions — не снятие и не добавление: то же исключение в другом файле
-  it("перенос exceptions.ts в каталог — раздела «Исключения» нет", () => {
-    const base = repo.commit({ "tests/standards/audit/exceptions.ts": 'export default [{ item: "a", issue: 1, reason: "r1" }];\n' });
-    repo.commit({ "tests/standards/audit/exceptions.ts": null, "tests/standards/audit/exceptions/a.json": JSON.stringify({ item: "a", issue: 1, reason: "r1" }) + "\n" });
-    expect(diffFrom(base).stdout).not.toContain("**Исключения");
-  });
-
-  // прежний файл подпапки — исключения папки решения (правило exceptionFile): перенос в её каталог — то же исключение
-  it("перенос exceptions.ts подпапки в каталог папки решения — раздела «Исключения» нет", () => {
-    const base = repo.commit({ "tests/standards/audit/sub/exceptions.ts": 'export default [{ item: "a", issue: 1, reason: "r1" }];\n' });
-    repo.commit({ "tests/standards/audit/sub/exceptions.ts": null, "tests/standards/audit/exceptions/a.json": JSON.stringify({ item: "a", issue: 1, reason: "r1" }) + "\n" });
-    expect(diffFrom(base).stdout).not.toContain("**Исключения");
-  });
-
   // файл не на месте исключением не читается — харнесс на нём падает, а в теле PR его нет
   it("файл исключения не на месте — каталог в подпапке, не JSON — в разделе «Исключения» не показан", () => {
     const base = repo.commit({ "tests/standards/audit/exceptions/a.json": JSON.stringify({ item: "a", issue: 1, reason: "r1" }) + "\n" });
@@ -760,10 +747,10 @@ describe("Решения вне названий тестов — модель, 
   });
 
   it("исключения одного элемента из разных соглашений папки — разные строки", () => {
-    const EXC = "tests/standards/audit/exceptions.ts";
-    const names = (list: object[]) => `export default ${JSON.stringify(list)};\n`;
-    const base = repo.commit({ [EXC]: names(["audit", "cancel"].map((rule) => ({ item: "a", issue: 1, reason: "r", rule }))) });
-    repo.commit({ [EXC]: names([]) });
+    const EXC = "tests/standards/audit/exceptions";
+    const one = (rule: string) => JSON.stringify({ item: "a", issue: 1, reason: "r", rule }) + "\n";
+    const base = repo.commit({ [`${EXC}/audit--a.json`]: one("audit"), [`${EXC}/cancel--a.json`]: one("cancel") });
+    repo.commit({ [`${EXC}/audit--a.json`]: null, [`${EXC}/cancel--a.json`]: null });
     expect(diffFrom(base).stdout).toContain("**Исключения — снято (2):**\n\n- `tests/standards/audit` · a (audit, #1) — r\n- `tests/standards/audit` · a (cancel, #1) — r\n");
   });
 
@@ -1068,10 +1055,10 @@ describe("Большой PR — сводка по папкам, полный с�
   });
 
   it("решения выше порога — число на папку, а не список", () => {
-    const EXC = "tests/standards/audit/exceptions.ts";
-    const list = ["a", "b", "c"].map((item) => ({ item, issue: 7, reason: "переписать" }));
-    const base = repo.commit({ [EXC]: `export default ${JSON.stringify(list)};\n` });
-    repo.commit({ [EXC]: "export default [];\n" });
+    const EXC = "tests/standards/audit/exceptions";
+    const files = (content: (item: string) => string | null) => Object.fromEntries(["a", "b", "c"].map((item) => [`${EXC}/${item}.json`, content(item)]));
+    const base = repo.commit(files((item) => JSON.stringify({ item, issue: 7, reason: "переписать" }) + "\n"));
+    repo.commit(files(() => null));
     const out = diffFrom(base, "--limit", "2").stdout;
     expect(out).toContain("**Исключения — снято (3), сводкой:**\n\n- `tests/standards/audit` — 3\n");
     expect(out).not.toContain("· a (#7)");

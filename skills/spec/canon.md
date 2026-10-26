@@ -194,8 +194,7 @@ no decision claims is dead and is deleted.
   `spec-outside`), otherwise in the topic folder's `exceptions/<section>/`
   directory, one file per exception (`<element>.json`: the element, `#issue` and the
   reason); an exception that no longer violates fails the check (`remove the
-  mark in <file>`, `remove the exception: delete <file>`). The old `exceptions.ts` is migrated
-  by `spec-exceptions`; the harness fails on it with a hint. Disabling lint in
+  mark in <file>`, `remove the exception: delete <file>`). Disabling lint in
   code — only with a rule and `-- #N reason` (`lintExceptions`); a blanket
   `eslint-disable` is forbidden, an unnecessary disable is a `lint` error.
   Exceptions are visible on the topic's page — it's debt, not a secret. A
