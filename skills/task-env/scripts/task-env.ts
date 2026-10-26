@@ -677,23 +677,39 @@ const urlVars = (project: Project, stack: Stack, env: NodeJS.ProcessEnv) =>
   Object.fromEntries(Object.keys(project.http).map((service) => [varOf(service, "URL"), addressUrl(stack.host(service), proxyPort(env))]));
 
 /**
- * The task stack's override — the only thing the script adds to the project's Compose: the proxy's labels and network
- * for HTTP services of the settings, nothing to the others (a database isn't published). A service's networks are its
- * own as Compose normalized them (one without `networks` is in `default`) plus the proxy's: listed networks replace
- * the implicit `default`, and a key with null merges with the project's keeping its aliases. The override goes to
- * Compose's stdin (`-f -`), not into a file: a `compose.override.yaml` would be the project's, and `check` would name
- * its external network. No HTTP service in the compose file — no override.
+ * The task stack's override — the only thing the script adds to the project's Compose: the proxy's labels for HTTP
+ * services of the settings, nothing to the others (a database isn't published). The proxy's network isn't in it:
+ * Compose gives a service in each of its networks the alias of its short name, and in the proxy's network same-named
+ * services of two stacks would answer one name — a neighbour inside the stack (`http://storage:9000`) would reach
+ * another stack by chance (#700); `upStack` joins the network itself (`joinProxy`). The override goes to Compose's
+ * stdin (`-f -`), not into a file: a `compose.override.yaml` would be the project's. No HTTP service in the compose
+ * file — no override.
  */
 function overrideOf(config: Config, http: Record<string, number>, stack: Stack, proxy: string): object | undefined {
   const services: Record<string, object> = {};
   for (const [service, port] of Object.entries(http)) {
-    const s = config.services?.[service];
-    if (!s) continue;
-    const networks = Object.fromEntries([...Object.keys(s.networks ?? { default: null }), proxy].map((n) => [n, null]));
-    services[service] = { networks, labels: proxyLabels({ stack: stack.name, service: dnsLabel(service), host: stack.host(service), port, network: proxy }) };
+    if (!config.services?.[service]) continue;
+    services[service] = { labels: proxyLabels({ stack: stack.name, service: dnsLabel(service), host: stack.host(service), port, network: proxy }) };
   }
-  if (!Object.keys(services).length) return undefined;
-  return { services, networks: { [proxy]: { external: true } } };
+  return Object.keys(services).length ? { services } : undefined;
+}
+
+/**
+ * Joins the stack's HTTP containers to the proxy's network by `docker network connect` — without the service's alias
+ * (#700): in that network a container answers only to its own name `<stack>-<service>-<n>`, unique on the machine,
+ * and the short name stays in the stack's own networks. Between `up --no-start` and the start: Traefik sees the
+ * network on the container's start event, and the next `up` doesn't recreate a container for a network beyond its
+ * config. A container already in the network is skipped. Returns the reason of the first failure.
+ */
+function joinProxy(stack: string, http: Record<string, number>, proxy: string): string | undefined {
+  for (const c of containers(stack, true).filter((c) => Object.hasOwn(http, c.Service))) {
+    const nets = spawnSync("docker", ["inspect", "--format", "{{json .NetworkSettings.Networks}}", c.Name], { encoding: "utf8" });
+    if (nets.error || nets.status !== 0) return `docker inspect ${c.Name}: ${why(nets)}`;
+    if (Object.hasOwn(JSON.parse(nets.stdout) as object, proxy)) continue;
+    const r = spawnSync("docker", ["network", "connect", proxy, c.Name], { encoding: "utf8" });
+    if (r.error || r.status !== 0) return `docker network connect ${proxy} ${c.Name}: ${why(r)}`;
+  }
+  return undefined;
 }
 
 /** A container of `docker compose ps --format json`. */
@@ -798,7 +814,16 @@ function upStack(project: Project, stack: Stack, profiles: string[], env: NodeJS
     }
   }
   const args = ["-p", stack.name, ...project.files, ...(override ? ["-f", "-"] : []), ...profiles.flatMap((p) => ["--profile", p])];
-  const r = dc([...args, "--progress", "plain", "up", "--detach", "--wait", "--wait-timeout", WAIT_TIMEOUT, "--build", "--remove-orphans", "--quiet-pull"], project.root, override ? JSON.stringify(override) : undefined, vars);
+  const input = override ? JSON.stringify(override) : undefined;
+  const flags = ["--build", "--remove-orphans", "--quiet-pull"];
+  if (override) {
+    // created, not started: HTTP containers join the proxy's network before their start event — joinProxy
+    const created = dc([...args, "--progress", "plain", "up", "--no-start", ...flags], project.root, input, vars);
+    if (created.error || created.status !== 0) return { code: created.error ? 2 : 1, lines: [...lines, ...report(stack.name, created, env)] };
+    const joined = joinProxy(stack.name, project.http, proxyName(env));
+    if (joined) return { code: 1, lines: [...lines, `stack ${stack.name}: not up — ${joined}${hint(joined, env)}`] };
+  }
+  const r = dc([...args, "--progress", "plain", "up", "--detach", "--wait", "--wait-timeout", WAIT_TIMEOUT, ...flags], project.root, input, vars);
   if (r.error || r.status !== 0) return { code: r.error ? 2 : 1, lines: [...lines, ...report(stack.name, r, env)] };
   return { code: 0, lines };
 }
