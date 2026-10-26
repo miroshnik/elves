@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { composeEnv, FORMER_PROXY, formerProxyName, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
@@ -644,7 +645,8 @@ describe("Посреди ребейза и на отцеплённом HEAD в w
     const r = spawnSync(process.execPath, [SCRIPT, ...args], {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log },
+      // внутри слота: подъём стека здесь не про очередь, и тест не встаёт в очередь машины
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_SLOT: "test" },
     });
     return { code: exitOf(r), stdout: r.stdout, stderr: r.stderr };
   }
@@ -691,5 +693,86 @@ describe("Посреди ребейза и на отцеплённом HEAD в w
     const r = taskEnvIn(proj, ["up"]);
     expect(r.stdout + r.stderr).not.toContain("has no task branch");
     expect(calls(log).join("\n")).toMatch(/-p proj( |$)/m);
+  });
+});
+
+/**
+ * Подъём стека — тяжёлая работа машины (#731): контейнеры с базами и брокером стартуют разом, и мимо очереди `slot` он
+ * ронял чужие интеграционные прогоны. `up` и `e2e` берут место в очереди до конца `up --wait` — до здоровья
+ * контейнеров, — а не на всю жизнь стека: команда `e2e` после подъёма идёт вне слота.
+ */
+describe("Подъём стека задачи — тяжёлая работа машины: идёт очередью slot до здоровья контейнеров", () => {
+  projectPerTest();
+  const SLOT = fileURLToPath(new URL("../../../skills/slot/scripts/slot.ts", import.meta.url));
+  let bin: string;
+  let log: string;
+  let running: Bun.Subprocess[];
+  beforeEach(() => {
+    bin = noDockerPath();
+    log = path.join(project.dir, "docker.log");
+    writeFileSync(log, "");
+    // config — пустой проект; на `up --wait` — сколько билетов в очереди, пока контейнеры «поднимаются»
+    const docker = [
+      'case " $* " in *" config "*) echo \'{"services":{}}\';; esac',
+      'case " $* " in *" --wait "*) echo "tickets $(ls "$ELVES_CONFIG_DIR/slots" | wc -l | tr -d " ")" >> "$FAKE_DOCKER_LOG";; esac',
+    ].join("\n");
+    writeFileSync(path.join(bin, "docker"), FAKE_DOCKER + docker + "\n", { mode: 0o755 });
+    writeFileSync(path.join(proj, "compose.yaml"), "services:\n  db:\n    image: postgres\n");
+    running = [];
+  });
+  afterEach(() => {
+    for (const p of running) p.kill("SIGKILL");
+  });
+
+  /** Своя очередь теста — в конфигурации и во временном каталоге: прогон самого теста в очереди машины не в счёт. */
+  const env = (): NodeJS.ProcessEnv => {
+    const e: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_CONFIG_DIR: path.join(project.dir, "config"), TMPDIR: path.join(project.dir, "tmp") };
+    for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "AI_DEV_SLOT", "AI_DEV_SLOT_CPUS", "AI_DEV_CONFIG_DIR", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) delete e[k];
+    return e;
+  };
+  /** Фоном; stdout и stderr — в файлы рядом с журналом, тест читает их по ходу. */
+  function start(cmd: string, args: string[]) {
+    const [out, err] = ["out", "err"].map((k) => path.join(project.dir, `${k}-${running.length}.log`)) as [string, string];
+    const p = Bun.spawn([cmd, ...args], { cwd: proj, env: env(), stdout: Bun.file(out), stderr: Bun.file(err) });
+    running.push(p);
+    const text = (f: string) => (existsSync(f) ? readFileSync(f, "utf8") : "");
+    return { out: () => text(out) + text(err), done: p.exited };
+  }
+  /**
+   * Тяжёлый прогон в слоте, пока тест не отпустит: `started-<имя>` — начался, `release-<имя>` — закончить; каталог
+   * теста убран — тоже: команда — потомок slot и пережила бы его.
+   */
+  const hold = (name: string) => start(process.execPath, [SLOT, `touch started-${name}; while [ ! -f release-${name} ] && [ -f compose.yaml ]; do sleep 0.02; done`]);
+  const release = (name: string) => writeFileSync(path.join(proj, `release-${name}`), "");
+  const started = (name: string) => existsSync(path.join(proj, `started-${name}`));
+  async function until(what: string, ok: () => boolean) {
+    for (const t0 = Date.now(); !ok(); await new Promise((r) => setTimeout(r, 20))) if (Date.now() - t0 > 20_000) throw new Error(`не дождались: ${what}`);
+  }
+
+  it("подъём стека задачи ждёт места в очереди, когда два тяжёлых прогона уже идут", async () => {
+    hold("a");
+    hold("b");
+    await until("два прогона в слотах", () => started("a") && started("b"));
+    const up = start(process.execPath, [SCRIPT, "up", "42"]);
+    await until("task-env ждёт очередь", () => up.out().includes("slot: waiting for the machine queue"));
+    expect(calls(log).filter((l) => / up /.test(` ${l} `))).toEqual([]);
+    release("a");
+    expect(await up.done, up.out()).toBe(0);
+    // во время `up --wait` в очереди — оставшийся прогон и подъём стека
+    expect(calls(log)).toContain("tickets 2");
+    expect(calls(log).join("\n")).toMatch(/-p proj-42 [^\n]* up --detach --wait/);
+    release("b");
+  });
+
+  it("подъём стека задачи отдаёт место в очереди, когда контейнеры стека здоровы", async () => {
+    hold("a");
+    await until("прогон в слоте", () => started("a"));
+    // команда e2e сама идёт очередью: держи task-env слот и после подъёма — оба места заняты, и она ждала бы вечно
+    const e2e = start(process.execPath, [SCRIPT, "e2e", "--", process.execPath, SLOT, "touch inner"]);
+    const code = await Promise.race([e2e.done, new Promise((r) => setTimeout(() => r("ждёт"), 20_000))]);
+    expect(code, e2e.out()).toBe(0);
+    expect(existsSync(path.join(proj, "inner"))).toBe(true);
+    expect(calls(log)).toContain("tickets 2");
+    release("a");
   });
 });
