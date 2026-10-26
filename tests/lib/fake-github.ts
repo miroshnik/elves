@@ -41,8 +41,6 @@ export class FakeGitHub {
   issueRefLag: Record<number, number> = {};
   /** Метки репозитория (RepoLabels): создаёт, переименовывает и удаляет их fix и task new. */
   labels: { id: string; name: string; color: string; description: string }[] = [];
-  /** Метки, которые список (RepoLabels) ещё отдаёт, а `label(name:)` уже нет — null, как сразу после удаления метки. */
-  labelsGoneByName = new Set<string>();
   /**
    * Дерево спеки в основной ветке (SpecDecisions): папки решений, текст модели архитектуры и файлы в корне папок тем —
    * `files["standards/forms"]` = `["forms.md", "reset-button.md", "reset-button.test.ts"]` (разделы темы).
@@ -180,11 +178,6 @@ export class FakeGitHub {
         return { ...l, issues: { totalCount: open.length, nodes: open.map((i) => ({ number: i.number })) } };
       });
       return JSON.stringify({ data: { repository: { labels: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
-    }
-    if (op === "LabelIssues") {
-      if (this.labelsGoneByName.has(variables.label)) return JSON.stringify({ data: { repository: { label: null } } });
-      const nodes = this.allIssues().filter((i) => i.labels.nodes.some((l: Any) => l.name === variables.label)).map((i) => ({ id: i.id, number: i.number }));
-      return JSON.stringify({ data: { repository: { label: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } } });
     }
     if (op === "SpecDecisions") return JSON.stringify({ data: { repository: this.specTree() } });
     if (op === "PrChange") return JSON.stringify(this.prChange(variables.number));

@@ -338,12 +338,6 @@ export interface State {
   project: Project | null;
   openIssues: { id: string; number: number }[];
   labels: Label[];
-  /**
-   * Tasks of labels that merge into another one, open and closed, by label id: an old `kind:name` label into an already
-   * taken name, a section's label into its topic's. null — the list still returns the label, but `label(name:)` no longer
-   * finds it (deleted a moment ago, #735): nothing to merge, check names it with an ○ line.
-   */
-  labelIssues: Record<string, { id: string; number: number }[] | null>;
   decisions: Decisions;
   /** An empty repository (no default branch) — null. */
   merge: Merge | null;
@@ -497,11 +491,6 @@ export const Q = {
     standards: object(expression: "HEAD:tests/standards") { ... on Tree { entries { name type object { ... on Tree { entries { name type } } } } } }
     architecture: object(expression: "HEAD:tests/architecture") { ... on Tree { entries { name type object { ... on Tree { entries { name type } } } } } }
     model: object(expression: "HEAD:${MODEL_PATH}") { ... on Blob { text } }
-  }
-}`,
-  LabelIssues: `query LabelIssues($owner: String!, $name: String!, $label: String!, $after: String) {
-  repository(owner: $owner, name: $name) {
-    label(name: $label) { issues(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id number } } }
   }
 }`,
   RepoLabels: `query RepoLabels($owner: String!, $name: String!, $after: String) {
@@ -850,9 +839,7 @@ export function loadState(io: Io, slug: string): State {
   const repo = loadRepo(io, slug);
   const openIssues = pages<{ id: string; number: number }>((after) => graphql(io, Q.RepoIssues, { owner, name, after }).repository.issues);
   const main = mainProject(repo);
-  const labels = loadLabels(io, slug);
-  const decisions = loadDecisions(io, slug);
-  return { repo, project: main ? loadProject(io, main.id) : null, openIssues, labels, labelIssues: mergedIssues(io, slug, labels, decisions), decisions, merge: loadMerge(io, slug) };
+  return { repo, project: main ? loadProject(io, main.id) : null, openIssues, labels: loadLabels(io, slug), decisions: loadDecisions(io, slug), merge: loadMerge(io, slug) };
 }
 
 const statusChecks = (rule: Any): { strict: boolean; contexts: string[] } | null =>
@@ -939,38 +926,6 @@ function loadMerge(io: Io, slug: string): Merge | null {
     open: heads(r.open?.nodes).filter((h) => Object.values(h.checks).every((c) => c !== "pending")),
     methods: { merge: !!r.mergeCommitAllowed, squash: !!r.squashMergeAllowed, rebase: !!r.rebaseMergeAllowed },
   };
-}
-
-/**
- * Tasks of the labels fix merges into another one: old labels whose name is taken (by another label or an old label
- * earlier in the list), and decision labels without a decision whose name is a section of a topic (`sectionTopics`).
- */
-function mergedIssues(io: Io, slug: string, labels: Label[], d: Decisions): State["labelIssues"] {
-  const [owner, name] = slug.split("/") as [string, string];
-  const seen = new Set(labels.filter((l) => !legacyDecision(l.name)).map((l) => l.name));
-  const out: State["labelIssues"] = {};
-  // a label the list still returns but `label(name:)` no longer finds (null — deleted a moment ago, #735) — null, not a throw
-  const load = (l: Label) => {
-    let gone = false;
-    const issues = pages<{ id: string; number: number }>((after) => {
-      const label = graphql(io, Q.LabelIssues, { owner, name, label: l.name, after }).repository.label;
-      gone ||= !label;
-      return label?.issues ?? { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] };
-    });
-    out[l.id] = gone ? null : issues;
-  };
-  const want = decisionsByName(d);
-  for (const l of labels) {
-    const old = legacyDecision(l.name);
-    if (!old) {
-      const kinds = labelKinds(l.description);
-      if (kinds && !want.has(l.name) && sectionTopics(d, l.name, kinds).length === 1) load(l);
-      continue;
-    }
-    if (seen.has(old.name)) load(l);
-    seen.add(old.name);
-  }
-  return out;
 }
 
 function loadLabels(io: Io, slug: string): Label[] {
@@ -1065,11 +1020,8 @@ function restSpecTree(io: Io, slug: string): Any {
   return { capabilities: dir("capability"), standards: dir("standard"), architecture: dir("architecture"), model: model?.content ? { text: Buffer.from(model.content, "base64").toString("utf8") } : null };
 }
 
-/**
- * `capability:billing` → the decision's kind and name; anything else — null. An old-form label or the kind of a new
- * decision in `--labels`.
- */
-export function legacyDecision(label: string): { kind: DecisionKind; name: string } | null {
+/** `capability:billing` → the decision's kind and name; anything else — null. The kind of a new decision in `--labels`. */
+export function newDecision(label: string): { kind: DecisionKind; name: string } | null {
   const i = label.indexOf(":");
   const kind = label.slice(0, i) as DecisionKind;
   return i > 0 && DECISION_KINDS.includes(kind) && label.length > i + 1 ? { kind, name: label.slice(i + 1) } : null;
@@ -1375,11 +1327,10 @@ export function analyze(s: State): Check[] {
   const noStatus = issues.filter((it) => it.issue!.state === "OPEN" && !it.status);
   if (noStatus.length) open(`without ${STATUS}: ${nums(noStatus.map((it) => it.issue!))}`, ...(statusReady ? [api(`${STATUS} ${q(N.status.backlog)}: ${nums(noStatus.map((it) => it.issue!))}`, ...noStatus.map((it) => setStatus(it, N.status.backlog)))] : []));
 
-  // Decision labels: by the spec tree and the model of the default branch. Deleting, renaming by a guess, merging, making
-  // a regular label a decision one — only with --confirm: the label is on tasks. One extra and one missing of the same
-  // kind — a renamed folder, not two decisions. The old form `kind:name` → name — fix does it itself, decision or not:
-  // tasks keep the label, there's no guess. A label without a decision on an open task is a new decision (task new sets
-  // it before the PR): an ○ line, not deleted and not renamed by a guess — that would take it away from the task. A
+  // Decision labels: by the spec tree and the model of the default branch. Deleting, renaming by a guess, making a
+  // regular label a decision one — only with --confirm: the label is on tasks. One extra and one missing of the same
+  // kind — a renamed folder, not two decisions. A label without a decision on an open task is a new decision (task new
+  // sets it before the PR): an ○ line, not deleted and not renamed by a guess — that would take it away from the task. A
   // slice label with a decision's name is a different slice of tasks: an ○ line, fix doesn't touch it, and the decision
   // stays without a label (the name is taken).
   const labels = add("labels", "Decision labels — the decision's name, the kind by color; by the spec tree and the model of the default branch");
@@ -1388,33 +1339,10 @@ export function analyze(s: State): Check[] {
   const want = decisionsByName(d);
   // the model wasn't read — it's unknown which modules exist: architecture labels aren't deleted or re-described
   const unsure = (kinds: DecisionKind[]) => !!d.modelError && kinds.includes("architecture");
-  const taken = new Map(s.labels.filter((l) => !legacyDecision(l.name)).map((l) => [l.name, l]));
+  const taken = new Map(s.labels.map((l) => [l.name, l]));
   const orphans: { label: Label; kinds: DecisionKind[] }[] = [];
-  const gone = (l: Label) => `label ${q(l.name)}: in the label list, but GitHub no longer finds it by name — deleted a moment ago? not merged, check again`;
   const dimensions = new Map<string, string[]>();
   for (const l of s.labels) {
-    const old = legacyDecision(l.name);
-    if (!old) continue;
-    const to = decisionLabel(old.name, want.get(old.name) ?? [old.kind]);
-    const into = taken.get(old.name);
-    if (!into) {
-      taken.set(old.name, { ...l, ...to });
-      labels(`label ${q(l.name)} of the old form \`kind:name\``, api(`rename label ${q(l.name)} → ${q(old.name)} (tasks keep it)`, { op: "UpdateLabel", input: { id: l.id, ...to } }));
-      continue;
-    }
-    if (s.labelIssues[l.id] === null) {
-      labels.note(gone(l));
-      continue;
-    }
-    const issues = s.labelIssues[l.id] ?? [];
-    labels(`label ${q(l.name)} of the old form, label ${q(old.name)} already exists`, {
-      kind: "confirm",
-      text: `merge label ${q(l.name)} into ${q(old.name)}: ${issues.length ? `${nums(issues)} get ${q(old.name)}, ` : ""}the old one is deleted`,
-      mutations: [...issues.map((i) => ({ op: "AddLabels", input: { labelableId: i.id, labelIds: [into.id] } })), { op: "DeleteLabel", input: { id: l.id } }],
-    });
-  }
-  for (const l of s.labels) {
-    if (legacyDecision(l.name)) continue;
     const kinds = labelKinds(l.description);
     const w = want.get(l.name);
     if (!w) {
@@ -1439,40 +1367,8 @@ export function analyze(s: State): Check[] {
   for (const [dim, names] of dimensions) {
     labels.note(`slice ${q(dim)}: labels ${names.map(q).join(", ")} aren't decision labels, decisions of the same name aren't labeled`);
   }
-  // A former decision regrouped into a section of a topic (#688): its label merges into the topic's — on every task with
-  // it, closed ones too (est picks analogs by them), the label is deleted; the topic has no label yet — the section's
-  // label is renamed into it. A section of several topics — which one is a guess: an ○ line, the label is left alone.
-  const regrouped = new Set<string>();
-  for (const { label: l, kinds } of orphans) {
-    const topics = sectionTopics(d, l.name, kinds);
-    if (!topics.length) continue;
-    regrouped.add(l.id);
-    if (topics.length > 1) {
-      labels.note(`label ${q(l.name)}: a section of topics ${topics.map(q).join(", ")} — not merged, the topic is a guess`);
-      continue;
-    }
-    const topic = topics[0]!;
-    const into = taken.get(topic);
-    const what = `label ${q(l.name)} without a decision is a section of topic ${q(topic)} — merge into the topic's label`;
-    if (!into) {
-      const to = decisionLabel(topic, want.get(topic)!);
-      taken.set(topic, { ...l, ...to });
-      labels(what, { kind: "confirm", text: `rename label ${q(l.name)} → ${q(topic)} (tasks keep it)`, mutations: [{ op: "UpdateLabel", input: { id: l.id, ...to } }] });
-      continue;
-    }
-    if (s.labelIssues[l.id] === null) {
-      labels.note(gone(l));
-      continue;
-    }
-    const issues = s.labelIssues[l.id] ?? [];
-    labels(what, {
-      kind: "confirm",
-      text: `merge label ${q(l.name)} into ${q(topic)}: ${issues.length ? `${nums(issues)} get ${q(topic)}, ` : ""}the old one is deleted`,
-      mutations: [...issues.map((i) => ({ op: "AddLabels", input: { labelableId: i.id, labelIds: [into.id] } })), { op: "DeleteLabel", input: { id: l.id } }],
-    });
-  }
   const unlabeled = [...want.keys()].filter((n) => !taken.has(n));
-  const sure = orphans.filter((o) => !unsure(o.kinds) && !regrouped.has(o.label.id));
+  const sure = orphans.filter((o) => !unsure(o.kinds));
   for (const { label: l } of sure.filter((o) => o.label.open.total)) {
     const more = l.open.total - l.open.numbers.length;
     labels.note(`new decision ${q(l.name)}: not in the default branch yet, the label is on open tasks ${l.open.numbers.map((n) => `#${n}`).join(", ")}${more > 0 ? ` and ${more} more` : ""}`);
@@ -2307,11 +2203,11 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const repoLabels = wanted.length || open.length ? loadLabels(io, slug) : [];
   const has = (n: string) => repoLabels.find((x) => x.name === n);
   // a decision by name comes from the default branch; `kind:name` — also a new one that isn't there yet; a decision
-  // label — it may be a former decision regrouped into a section, whose label is the topic's
-  const decisions = wanted.some((l) => legacyDecision(l) || !has(l) || labelKinds(has(l)!.description)) ? loadDecisions(io, slug) : null;
+  // label — its name may be a section's, whose label is the topic's
+  const decisions = wanted.some((l) => newDecision(l) || !has(l) || labelKinds(has(l)!.description)) ? loadDecisions(io, slug) : null;
   const inMain = decisions ? decisionsByName(decisions) : new Map<string, DecisionKind[]>();
   const plan = wanted.map((l) => {
-    const dec = legacyDecision(l);
+    const dec = newDecision(l);
     const name = dec?.name ?? l;
     const label = has(name);
     const main = inMain.get(name) ?? [];
@@ -3528,7 +3424,7 @@ function guiltyByLabels(io: Io, slug: string, sha: string, issues: Issue[], file
   const decisions = [...decisionsOfFiles(changed, modules).changed.keys()];
   const none = "no guilty task by the labels";
   if (!decisions.length) return io.out(`○ the failed files name no decision — ${none}`), null;
-  const held = (i: Issue) => decisions.filter((d) => i.labels.some((l) => l === d || legacyDecision(l)?.name === d));
+  const held = (i: Issue) => decisions.filter((d) => i.labels.includes(d));
   const holders = issues.filter((i) => held(i).length);
   const what = `the failed files' ${decisions.length > 1 ? "decisions" : "decision"} ${decisions.join(", ")}`;
   if (holders.length === 1) return { number: holders[0]!.number, why: `the label ${held(holders[0]!).join(", ")} — ${what}` };
@@ -5711,7 +5607,7 @@ function applyPrLabels(io: Io, slug: string, plan: LabelPlan, verbose: boolean):
     all.push({ id: created.id, ...label, open: { total: 0, numbers: [] } });
     lines.push(`+ created label ${q(l)}`);
   }
-  const isDecision = (n: string) => legacyDecision(n) !== null || labelKinds(all.find((x) => x.name === n)?.description) !== null;
+  const isDecision = (n: string) => labelKinds(all.find((x) => x.name === n)?.description) !== null;
   const epics = new Map<number, Issue>();
   for (const n of closes) {
     const issue = loadIssue(io, slug, n);
