@@ -2311,3 +2311,119 @@ describe("check облачной сессии называет окружени�
     expect(r.stdout).not.toContain("cloud environment");
   });
 });
+
+/**
+ * TTL кэша подсказок Claude Code (#665, docs/prompt-cache.md): субагенты по умолчанию пишут кэш на 5 минут, на докупе —
+ * и основная сессия; пауза дольше (ожидание CI, долгий тест, раздумье человека) — и следующий ход пишет весь контекст
+ * заново. Ключи `promptCacheTtl` и `subagentPromptCacheTtl` (Claude Code 2.1.242+) это снимают, но часовая запись
+ * дороже — это выбор владельца, как и цена: `check -g` и хук называют незаданный TTL готовой командой, `install -g` и
+ * `update -g` печатают ту же рекомендацию, а `~/.claude/settings.json` правит только команда, которую запускает он.
+ */
+describe("TTL кэша Claude Code: check -g, install -g и update -g рекомендуют час, settings.json правит владелец", () => {
+  const TTL = "prompt cache TTL: ";
+  const TTL_TAIL = "The prompt cache TTL line is the owner's choice and price — name its command to the user, don't run it yourself.";
+  const settings = () => path.join(sb.home, ".claude/settings.json");
+  // claude песочницы печатает версию, как `claude --version`
+  const claude = (version: string) => writeFileSync(path.join(sb.bin, "claude"), `#!/bin/sh\necho '${version} (Claude Code)'\n`, { mode: 0o755 });
+  // команда из строки рекомендации
+  const command = (out: string) => {
+    const m = /: (bun --no-env-file -e '[^'\n]*')/.exec(out.split("\n").find((l) => l.includes(TTL)) ?? "");
+    expect(m).not.toBeNull();
+    return m![1]!;
+  };
+  // команду запускает владелец — через shell, из каталога проекта, с HOME песочницы
+  const run = (cmd: string) => spawnSync("sh", ["-c", cmd], { cwd: sb.proj, env: sb.env, encoding: "utf8" });
+  beforeEach(() => {
+    mkdirSync(path.join(sb.home, ".claude"));
+    claude("2.1.242");
+  });
+
+  it("check -g сообщает, что TTL кэша не задан, и печатает команду, которая ставит оба ключа", () => {
+    elves(sb, ["install", "-g"]);
+    const before = snapshot(sb.home);
+    const r = elves(sb, ["check", "-g"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`\n  ${TTL}promptCacheTtl and subagentPromptCacheTtl aren't set in ~/.claude/settings.json — `);
+    expect(r.stdout).toContain("~/.agents/elves/docs/prompt-cache.md");
+    expect(existsSync(path.join(sb.home, ".agents/elves/docs/prompt-cache.md"))).toBe(true);
+    expect(command(r.stdout)).toContain('["promptCacheTtl","subagentPromptCacheTtl"]');
+    expect(snapshot(sb.home)).toEqual(before);
+    // хук SessionStart — та же строка и хвост: выбор и команда — владельца, агент её не запускает
+    const hook = elves(sb, ["check", "--hook"]);
+    expect(hook.code).toBe(0);
+    expect(command(hook.stdout)).toBe(command(r.stdout));
+    expect(hook.stdout).toContain(TTL_TAIL);
+  });
+
+  it("check -g молчит о TTL, когда оба ключа заданы на час", () => {
+    elves(sb, ["install", "-g"]);
+    const s = JSON.parse(read(settings()));
+    // задан один ключ — строка называет второй, и команда ставит только его
+    writeFileSync(settings(), JSON.stringify({ ...s, promptCacheTtl: "1h" }));
+    const one = elves(sb, ["check", "-g"]).stdout;
+    expect(one).toContain(`  ${TTL}subagentPromptCacheTtl isn't set in ~/.claude/settings.json — `);
+    expect(command(one)).toContain('["subagentPromptCacheTtl"]');
+    writeFileSync(settings(), JSON.stringify({ ...s, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h" }));
+    const both = elves(sb, ["check", "-g"]);
+    expect(both.code).toBe(0);
+    expect(both.stdout).toContain("on the machine: up to date");
+    expect(both.stdout).not.toContain(TTL);
+    expect(elves(sb, ["check", "--hook"]).stdout).not.toContain("prompt cache TTL");
+    // те же TTL переменными окружения Claude Code — тоже заданы
+    writeFileSync(settings(), JSON.stringify(s));
+    expect(elves(sb, ["check", "-g"], { env: { CLAUDE_CODE_PROMPT_CACHE_TTL: "1h", CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: "1h" } }).stdout).not.toContain(TTL);
+  });
+
+  it("команда из рекомендации сохраняет копию settings.json и не трогает другие ключи", () => {
+    elves(sb, ["install", "-g"]);
+    const s = { ...JSON.parse(read(settings())), model: "opus", permissions: { allow: ["Bash(git status)"] } };
+    const original = JSON.stringify(s, null, 4) + "\n";
+    writeFileSync(settings(), original);
+    // копия прошлого раза у владельца остаётся: новая — со следующим суффиксом
+    writeFileSync(`${settings()}.bak`, "прошлая копия\n");
+    const r = run(command(elves(sb, ["check", "-g"]).stdout));
+    expect(r.status).toBe(0);
+    expect(read(`${settings()}.bak`)).toBe("прошлая копия\n");
+    expect(read(`${settings()}.bak2`)).toBe(original);
+    expect(r.stdout).toContain(`${settings()}.bak2`);
+    expect(JSON.parse(read(settings()))).toEqual({ ...s, promptCacheTtl: "1h", subagentPromptCacheTtl: "1h" });
+    expect(elves(sb, ["check", "-g"]).stdout).not.toContain(TTL);
+  });
+
+  it("повторный запуск команды из рекомендации ничего не меняет", () => {
+    elves(sb, ["install", "-g"]);
+    const cmd = command(elves(sb, ["check", "-g"]).stdout);
+    expect(run(cmd).status).toBe(0);
+    const before = snapshot(sb.home);
+    const again = run(cmd);
+    expect(again.status).toBe(0);
+    expect(again.stdout).toContain('prompt cache TTL already set: {"promptCacheTtl":"1h","subagentPromptCacheTtl":"1h"}');
+    expect(snapshot(sb.home)).toEqual(before);
+  });
+
+  it("install -g и update -g рекомендуют TTL и не меняют settings.json", () => {
+    const first = elves(sb, ["install", "-g"]);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain(`\n${TTL}promptCacheTtl and subagentPromptCacheTtl aren't set in ~/.claude/settings.json — `);
+    const before = read(settings());
+    for (const cmd of [["install", "-g"], ["update", "-g"]]) {
+      const r = elves(sb, cmd);
+      expect(r.code).toBe(0);
+      expect(command(r.stdout)).toBe(command(first.stdout));
+      expect(read(settings())).toBe(before);
+      expect(existsSync(`${settings()}.bak`)).toBe(false);
+    }
+  });
+
+  it("Claude Code ниже 2.1.242 — рекомендации TTL нет", () => {
+    claude("2.1.241");
+    for (const cmd of [["install", "-g"], ["update", "-g"], ["check", "-g"], ["check", "--hook"]]) {
+      const r = elves(sb, cmd);
+      expect(r.code).toBe(0);
+      expect(r.stdout).not.toContain("prompt cache TTL");
+    }
+    // та же машина с Claude Code 2.1.242 — рекомендация есть
+    claude("2.1.242");
+    expect(elves(sb, ["check", "-g"]).stdout).toContain(TTL);
+  });
+});

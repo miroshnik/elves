@@ -33,11 +33,11 @@ every project, whatever its `CLAUDE.md`.
   no flow — install it; a
   session with a pinned task (a resume after the app restarted) gets the wait
   to restart — `github task resume` with the session id from the hook's input.
-  The hook always exits 0 (else Claude Code drops its output), timeout 60 s.
-  No hook output in context — run `check` by hand. The hook also writes the
-  agent's Bash environment to `$CLAUDE_ENV_FILE`: zsh passes a glob without
-  matches and `====` as is, `timeout` works without coreutils; the
-  «agent Bash: not set up» line — it didn't, follow the line.
+  The hook always exits 0. No hook output in context — run `check` by hand.
+  The hook also writes the agent's Bash environment to `$CLAUDE_ENV_FILE`: zsh
+  passes a glob without matches and `====` as is, `timeout` works without
+  coreutils; the «agent Bash: not set up» line — it didn't, follow the line.
+  The «prompt cache TTL» line — the owner's step (`docs/prompt-cache.md`).
 - `set_session_title` renames the session; in auto mode `archive_session`
   with `self` archives it, ending the conversation: the last action, after
   the "can be closed" line. Before it — `TaskStop` for each own
