@@ -703,6 +703,21 @@ describe("Метки решений — имя решения без вида, �
     expect(ops(f)).not.toContain("AddLabels");
   });
 
+  /** Пока параллельная сессия удаляет метки, список меток ещё отдаёт удалённую, а `label(name:)` для неё — null (#735). */
+  it("метка из списка, которую GitHub по имени уже не находит, не роняет загрузку состояния проекта: project check — строка ○ с её именем, fix её не сливает", () => {
+    const f = fake();
+    f.tree.standards = ["forms"];
+    f.tree.files = { "standards/forms": ["forms.md", "reset-button.md", "reset-button.test.ts"] };
+    f.label("forms", STD, "Решение: tests/standards/forms");
+    f.label("reset-button", STD, "Решение: tests/standards/reset-button");
+    f.labelsGoneByName.add("reset-button");
+    const r = check(f);
+    expect(r.err).toBe("");
+    expect(r.out).toContain("○ label «reset-button»: in the label list, but GitHub no longer finds it by name — deleted a moment ago? not merged, check again");
+    fix(f, { confirm: true });
+    expect(ops(f)).not.toContain("DeleteLabel");
+  });
+
   it("project fix --confirm: лейбл темы — на всех задачах с прежним лейблом, закрытых тоже, прежний удалён", () => {
     const f = fake();
     f.tree.standards = ["forms"];
