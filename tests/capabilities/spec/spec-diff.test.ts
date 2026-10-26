@@ -236,13 +236,54 @@ describe("Перегруппировка решений в темы — пере
 });
 
 /**
+ * Тема может сохранить имя папки прежнего решения (#743): `orders/orders.test.ts` → раздел `orders/history.test.ts`,
+ * другие решения переезжают в неё разделами. Папка плоская в базе, но тема в голове: место теста считается по плоским
+ * папкам своей ревизии — тесты головы по голове, тесты базы по базе.
+ */
+describe("Перегруппировка в тему с именем прежнего решения — по разделам темы", () => {
+  function regroupIntoOrders() {
+    const base = repo.commit({
+      "tests/capabilities/orders/orders.test.ts": ts(`it("заказ оформляется", () => {});`),
+      "tests/capabilities/invoices/invoices.test.ts": ts(`it("счёт выставляется", () => {});`),
+    });
+    repo.commit({
+      "tests/capabilities/orders/orders.test.ts": null,
+      "tests/capabilities/invoices/invoices.test.ts": null,
+      "tests/capabilities/orders/history.test.ts": ts(`it("заказ оформляется", () => {});`),
+      "tests/capabilities/orders/invoices.test.ts": ts(`it("счёт выставляется", () => {});`),
+    });
+    return diffFrom(base).stdout;
+  }
+
+  it("тема, сохранившая имя папки прежнего решения, показывает каждый переехавший в неё раздел как «папка → тема#раздел»", () => {
+    const out = regroupIntoOrders();
+    expect(out).toContain("- `tests/capabilities/invoices` → `tests/capabilities/orders#invoices` — 1 тест\n");
+    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
+  });
+
+  it("прежнее решение, ставшее разделом своего имени в теме того же имени, — в сводке перегруппировки, а не вне списков", () => {
+    const out = regroupIntoOrders();
+    expect(out).toContain("**Перегруппированы в темы (2):**");
+    expect(out).toContain("- `tests/capabilities/orders` → `tests/capabilities/orders#history` — 1 тест\n");
+  });
+
+  it("проверка харнесса раздела своего имени — перегруппирована, а не снята и добавлена", () => {
+    const base = repo.commit({ [DEAD]: ts(`deadCode(it, { root: "." });`) });
+    repo.commit({ [DEAD]: null, "tests/standards/dead-code/production.test.ts": ts(`deadCode(it, { root: "." });`) });
+    expect(diffFrom(base).stdout).not.toContain("Проверки харнесса");
+  });
+});
+
+/**
  * Файл в идентичность не входит: единица спеки — папка capability, тесты внутри неё можно перекладывать между
  * файлами.
  */
 describe("Тест — это папка, цепочка describe и имя: перекладка между файлами папки — не изменение", () => {
   it("перенос между файлами одной папки — не изменение", () => {
-    const base = repo.commit({ [BILLING]: ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
-    repo.commit({ [BILLING]: null, "tests/capabilities/billing/moved.test.ts": ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
+    // файл по имени папки остаётся: папка — решение без разделов в обеих ревизиях, а не перегруппировка в тему (#743)
+    const OLD = "tests/capabilities/billing/old.test.ts";
+    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`), [OLD]: ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
+    repo.commit({ [OLD]: null, "tests/capabilities/billing/moved.test.ts": ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
     expect(diffFrom(base).stdout).toContain("Тесты не менялись.");
   });
 
