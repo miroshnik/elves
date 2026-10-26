@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task show` (not `gh issue view`) and `task answer` (not `gh issue edit`); `task status`, `task drop`; `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
+description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task start`, `task show` (not `gh issue view`) and `task answer` (not `gh issue edit`); `task status`, `task drop`; `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
 allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-url *)
 ---
 
@@ -62,6 +62,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" --branch-
     # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
 bun --no-env-file <skill dir>/scripts/github.ts task show <N>
 bun --no-env-file <skill dir>/scripts/github.ts task answer <N> <k> "<answer>" [--auto]
+bun --no-env-file <skill dir>/scripts/github.ts task start <N> --branch <type>/<N>-<slug>
 bun --no-env-file <skill dir>/scripts/github.ts task status <N> "In progress" [--branch <type>/<N>-<slug>]   # Backlog | In progress | Done
 bun --no-env-file <skill dir>/scripts/github.ts task drop <N> [--duplicate-of M]
 bun --no-env-file <skill dir>/scripts/github.ts task actualize <N>
@@ -77,7 +78,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | Moment | Action |
 |---|---|
 | New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new --branch-type <type>` — it sets the estimate itself (an epic isn't estimated: its estimate is the sum of its subtasks, `reference.md`) |
-| Took into work · reopened | `task show N` — the task, its epic's questions and tasks, the PR, comments (`?` — check), in one call; a task without an estimate (created in the GitHub UI) — first `est estimate N --type <branch type> --write`; `task status N "In progress" --branch <type>/N-<slug>` — a separate call, no pipeline (`tail` hides the refusal code): it renames the worktree tool's branch into the task branch |
+| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work; then In progress, the branch renamed, the estimate if missing, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
 | An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
 | PR merged | in one turn — `task actualize N` and in the background `wait-ci.sh merged <PR>` (it takes the merge SHA itself); a refresh is needed — next turn, in the background, a subagent with the printed two-line prompt; after both — `task close N` (exit code 0 from the wait — right away, don't read the output) |
 | Task closed without a PR | `task actualize N`, the subagent; then `task close N` |
