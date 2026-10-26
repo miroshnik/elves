@@ -95,8 +95,7 @@ JSDoc (**what it can do**), the tests in a collapsed block (**what checks
 it**); plus the `README.md` index (topics, their sections under them) and
 `architecture.md` from the model `tests/architecture/model.ts`. A section is
 the files `<section>.test.ts`, `<section>.<part>.test.ts`, `<section>.e2e.ts`,
-`<package>/<section>.test.ts`; a folder with a test file named after it
-isn't regrouped yet — one section, the folder's own. `--strict` — exit code
+`<package>/<section>.test.ts`. `--strict` — exit code
 1 when:
 
 - a test is outside `tests/capabilities/<name>`, `tests/architecture/<name>`

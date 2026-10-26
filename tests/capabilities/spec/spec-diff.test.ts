@@ -166,8 +166,7 @@ describe("Изменён — только очевидное переимено�
 
 /**
  * Тема с разделами (#685): папка решения — тема, файлы `<раздел>.test.ts` — её разделы. Списки идут по теме и разделу,
- * место теста — папка и раздел после `#`, как якорь раздела на странице spec-doc; неперегруппированное решение
- * (тестовый файл с именем папки) — по-прежнему одна папка.
+ * место теста — папка и раздел после `#`, как якорь раздела на странице spec-doc.
  */
 describe("Списки PR — по теме и разделу", () => {
   it("снятые, изменённые и добавленные тесты сгруппированы по теме и разделу", () => {
@@ -187,125 +186,6 @@ describe("Списки PR — по теме и разделу", () => {
       "**Добавлены (3):**\n\n- `tests/standards/routes#errors` · ошибка — JSON\n- `tests/standards/routes#naming` · имя во множественном числе\n- `tests/standards/routes#permissions` · гость видит 403\n",
     );
   });
-
-  it("решение с тестовым файлом по имени папки — одна папка без раздела, и другие его файлы тоже", () => {
-    const base = repo.commit({ [BILLING]: ts(`it("выставляется", () => {});`) });
-    repo.commit({ "tests/capabilities/billing/vat.test.ts": ts(`it("НДС считается", () => {});`) });
-    expect(diffFrom(base).stdout).toContain("**Добавлены (1):**\n\n- `tests/capabilities/billing` · НДС считается\n");
-  });
-});
-
-describe("Перегруппировка решений в темы — переезд, а не снятые и добавленные требования", () => {
-  it("решения, ставшие разделами темы с прежними именами, — сводка перегруппировки, без удалённых и добавленных", () => {
-    const base = repo.commit({
-      [BILLING]: ts(`it("счёт выставляется", () => {});`),
-      "tests/capabilities/billing/vat.test.ts": ts(`it("НДС считается", () => {});`),
-      "tests/capabilities/refunds/refunds.test.ts": ts(`describe("Возврат", () => { it("деньги возвращаются", () => {}); });`),
-    });
-    repo.commit({
-      [BILLING]: null,
-      "tests/capabilities/billing/vat.test.ts": null,
-      "tests/capabilities/refunds/refunds.test.ts": null,
-      "tests/capabilities/payments/billing.test.ts": ts(`it("счёт выставляется", () => {});`),
-      "tests/capabilities/payments/billing.vat.test.ts": ts(`it("НДС считается", () => {});`),
-      "tests/capabilities/payments/refunds.test.ts": ts(`describe("Возврат", () => { it("деньги возвращаются", () => {}); });`),
-    });
-    const out = diffFrom(base).stdout;
-    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
-    expect(out).toContain(
-      "**Перегруппированы в темы (3):** названия те же, раздел темы — прежнее решение.\n\n" +
-        "- `tests/capabilities/billing` → `tests/capabilities/payments#billing` — 2 теста\n" +
-        "- `tests/capabilities/refunds` → `tests/capabilities/payments#refunds` — 1 тест\n",
-    );
-  });
-
-  it("раздел с другим именем, чем прежнее решение, — удалён и добавлен", () => {
-    const base = repo.commit({ [BILLING]: ts(`it("счёт выставляется", () => {});`) });
-    repo.commit({ [BILLING]: null, "tests/capabilities/payments/invoices.test.ts": ts(`it("счёт выставляется", () => {});`) });
-    const out = diffFrom(base).stdout;
-    expect(out).toContain("**Удалены (1):**\n\n- `tests/capabilities/billing` · счёт выставляется\n");
-    expect(out).toContain("**Добавлены (1):**\n\n- `tests/capabilities/payments#invoices` · счёт выставляется\n");
-    expect(out).not.toContain("Перегруппированы");
-  });
-
-  it("проверка харнесса решения, ставшего разделом темы, не снята и не добавлена", () => {
-    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`), [DEAD]: ts(`deadCode(it, { root: "." });`) });
-    repo.commit({ [DEAD]: null, "tests/standards/code/dead-code.test.ts": ts(`deadCode(it, { root: "." });`) });
-    expect(diffFrom(base).stdout).not.toContain("Проверки харнесса");
-  });
-
-  // у стандарта на линте главный файл — только examples(it, …), статических тестов в нём нет (#746): решение
-  // неперегруппировано в базе по файлу с именем папки, а не по его тестам
-  it("части стандарта на линте, переехавшие в раздел темы, — в сводке «Перегруппированы в темы», а не снятыми и добавленными", () => {
-    const PART = ts(`describe("Имена файлов", () => { it("файл называется в kebab-case", () => {}); });`);
-    const base = repo.commit({
-      "tests/standards/naming/naming.test.ts": ts(`examples(it, { rule: "naming" });`),
-      "tests/standards/naming/files.test.ts": PART,
-    });
-    repo.commit({
-      "tests/standards/naming/naming.test.ts": null,
-      "tests/standards/naming/files.test.ts": null,
-      "tests/standards/code/naming.test.ts": ts(`examples(it, { rule: "naming" });`),
-      "tests/standards/code/naming.files.test.ts": PART,
-    });
-    const out = diffFrom(base).stdout;
-    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
-    expect(out).toContain("- `tests/standards/naming` → `tests/standards/code#naming` — 1 тест\n");
-  });
-
-  it("отключение линта в файле, переехавшем в тему, — не новое исключение", () => {
-    const FRAGMENT = "// eslint-disable-next-line no-restricted-syntax -- #5 правило само себя не проверяет\nexport default [];\n";
-    const base = repo.commit({
-      "tests/standards/naming/naming.test.ts": ts(`it("файл называется в kebab-case", () => {});`),
-      "tests/standards/naming/eslint.ts": FRAGMENT,
-    });
-    repo.commit({
-      "tests/standards/naming/naming.test.ts": null,
-      "tests/standards/naming/eslint.ts": null,
-      "tests/standards/code/naming.test.ts": ts(`it("файл называется в kebab-case", () => {});`),
-      "tests/standards/code/naming.eslint.ts": FRAGMENT,
-    });
-    expect(diffFrom(base).stdout).not.toContain("Исключения");
-  });
-});
-
-/**
- * Тема может сохранить имя папки прежнего решения (#743): `orders/orders.test.ts` → раздел `orders/history.test.ts`,
- * другие решения переезжают в неё разделами. Папка плоская в базе, но тема в голове: место теста считается по плоским
- * папкам своей ревизии — тесты головы по голове, тесты базы по базе.
- */
-describe("Перегруппировка в тему с именем прежнего решения — по разделам темы", () => {
-  function regroupIntoOrders() {
-    const base = repo.commit({
-      "tests/capabilities/orders/orders.test.ts": ts(`it("заказ оформляется", () => {});`),
-      "tests/capabilities/invoices/invoices.test.ts": ts(`it("счёт выставляется", () => {});`),
-    });
-    repo.commit({
-      "tests/capabilities/orders/orders.test.ts": null,
-      "tests/capabilities/invoices/invoices.test.ts": null,
-      "tests/capabilities/orders/history.test.ts": ts(`it("заказ оформляется", () => {});`),
-      "tests/capabilities/orders/invoices.test.ts": ts(`it("счёт выставляется", () => {});`),
-    });
-    return diffFrom(base).stdout;
-  }
-
-  it("тема, сохранившая имя папки прежнего решения, показывает каждый переехавший в неё раздел как «папка → тема#раздел»", () => {
-    const out = regroupIntoOrders();
-    expect(out).toContain("- `tests/capabilities/invoices` → `tests/capabilities/orders#invoices` — 1 тест\n");
-    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
-  });
-
-  it("прежнее решение, ставшее разделом своего имени в теме того же имени, — в сводке перегруппировки, а не вне списков", () => {
-    const out = regroupIntoOrders();
-    expect(out).toContain("**Перегруппированы в темы (2):**");
-    expect(out).toContain("- `tests/capabilities/orders` → `tests/capabilities/orders#history` — 1 тест\n");
-  });
-
-  it("проверка харнесса раздела своего имени — перегруппирована, а не снята и добавлена", () => {
-    const base = repo.commit({ [DEAD]: ts(`deadCode(it, { root: "." });`) });
-    repo.commit({ [DEAD]: null, "tests/standards/dead-code/production.test.ts": ts(`deadCode(it, { root: "." });`) });
-    expect(diffFrom(base).stdout).not.toContain("Проверки харнесса");
-  });
 });
 
 /**
@@ -314,7 +194,6 @@ describe("Перегруппировка в тему с именем прежн�
  */
 describe("Тест — это папка, цепочка describe и имя: перекладка между файлами папки — не изменение", () => {
   it("перенос между файлами одной папки — не изменение", () => {
-    // файл по имени папки остаётся: папка — решение без разделов в обеих ревизиях, а не перегруппировка в тему (#743)
     const OLD = "tests/capabilities/billing/old.test.ts";
     const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`), [OLD]: ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
     repo.commit({ [OLD]: null, "tests/capabilities/billing/moved.test.ts": ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });

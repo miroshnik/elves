@@ -42,8 +42,7 @@ no decision claims is dead and is deleted.
     follows the order of the `describe`s; `<section>.e2e.ts` comes right
     after it (the units open the part), then `<section>.<part>.*`;
   - a topic of one section has the same anatomy — `<topic>.md` and a section
-    with a name of its own; a test file named after its folder
-    (`<name>/<name>.test.ts`) is a decision not regrouped yet;
+    with a name of its own;
   - the mechanism — in the same folder: an ESLint fragment (the topic's
     `eslint.ts`, a section's `<section>.eslint.ts`), an ast-grep `rule.yml`. The project's tool configs (`eslint.config.*`, `sgconfig.yml`)
     only collect them from the tree (the harness's `collectEslint`) — a rule
@@ -256,7 +255,7 @@ no decision claims is dead and is deleted.
 - **Migrating an old spec** (OpenSpec, a technical specification) into
   decisions — the `migration.md` reference next to this file: an outcome for
   each requirement, check by breaking, removal categories, "the spec fell
-  behind the code"; regrouping flat decisions into topics — its last section.
+  behind the code".
 - **What's not here:** state markers and todos as a plan (the plan is in the
   issue), ADRs (the reason is in the section's `<section>.md`), capability
   registries, handwritten documentation of behavior and hand-drawn diagrams,

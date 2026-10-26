@@ -100,9 +100,8 @@ const SECTION_ENTRIES = /(?:^|\/)(tests\/standards\/[^/]+)\/([^/]+)\.entries\.(?
 
 /**
  * Where the report goes: explicit `--standard`/`--section` win; without them a registry
- * `tests/standards/<topic>/<section>.entries.ts` names its topic and section — after regrouping decisions into topics
- * the project moves the registry, and a default path hidden in the script would leave the report under the old decision
- * (#751); otherwise — `tests/standards/entry-points`.
+ * `tests/standards/<topic>/<section>.entries.ts` names its topic and section — a registry moved to another topic takes
+ * its report along, a default path hidden in the script would leave it under the old one (#751); otherwise — `tests/standards/entry-points`.
  */
 function reportPlace(entries: string, standard?: string, section?: string): { standard: string; section: string } {
   const m = SECTION_ENTRIES.exec(entries.split(path.sep).join("/"));

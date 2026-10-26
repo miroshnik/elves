@@ -266,11 +266,6 @@ export interface Names {
    */
   updateTask: string;
   /**
-   * The title of the task that regroups a project's flat decisions into topics, which `check` suggests (#690): constant,
-   * so `task new` refuses a second open one.
-   */
-  regroupTask: string;
-  /**
    * Names before the flow's rename to Elves (#544) that scripts still recognise: `updateTask` — `task new` of the update
    * task refuses while an open one has the former title, so a project doesn't get a second one.
    */
@@ -430,7 +425,6 @@ interface SpecNames {
     outsideMark: string;
     moved: string;
     movedFolder: string;
-    regrouped: string;
     files: Plural;
     summary: string;
     folder: string;

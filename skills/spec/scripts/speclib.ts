@@ -111,33 +111,16 @@ export function decisionFolder(file: string): string | null {
 }
 
 /**
- * A test file of a not-yet-regrouped decision: named after its folder (`<name>.*`) in the folder root or in a monorepo
- * package subfolder — the folder is a topic of one section, the folder's own (#685).
- */
-export function isFolderNamed(file: string): boolean {
-  const folder = decisionFolder(file);
-  if (folder === null || !isTestFile(file)) return false;
-  const inner = file.split("/").slice(3);
-  return inner.length <= 2 && inner.at(-1)!.split(".")[0] === folder.split("/")[2];
-}
-
-/**
  * A test file's section in its topic (`tests/<kind>/<topic>/<section>.test.ts`, `<section>.<part>.test.ts`,
- * `<section>.e2e.ts`, `<package>/<section>.test.ts`): the first part of the file name. A topic folder with a test file
- * named after it (`unregrouped` has the folder) — a not-yet-regrouped decision: one section, named after the topic.
- * Outside the decision tree — null.
+ * `<section>.e2e.ts`, `<package>/<section>.test.ts`): the first part of the file name. A file named after its topic
+ * isn't a section — its statements are the topic's own, as `<topic>.md` is its description. Outside the decision tree
+ * and for the topic's own file — null.
  */
-export function sectionOf(file: string, unregrouped: ReadonlySet<string>): string | null {
+export function sectionOf(file: string): string | null {
   const folder = decisionFolder(file);
   if (folder === null) return null;
-  return unregrouped.has(folder) ? folder.split("/")[2]! : posix.basename(file).split(".")[0]!;
-}
-
-/** Decision folders of not-yet-regrouped decisions among test files (`isFolderNamed`). */
-export function unregroupedFolders(files: Iterable<string>): Set<string> {
-  const out = new Set<string>();
-  for (const f of files) if (isFolderNamed(f)) out.add(decisionFolder(f)!);
-  return out;
+  const section = posix.basename(file).split(".")[0]!;
+  return section === folder.split("/")[2] ? null : section;
 }
 
 /** Decision folder exceptions — the `exceptions/` directory, a file per harness registry element (`exceptionsIn`). */

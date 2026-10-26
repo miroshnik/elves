@@ -63,9 +63,9 @@ capability) merge into one section.
 **A topic with sections** (#685): a decision folder is a topic, a section — its
 files by the first part of the name: `<section>.test.ts`,
 `<section>.<part>.test.ts`, `<section>.e2e.ts`, `<package>/<section>.test.ts`;
-sections go by name, a section's main file is `<section>.*`. A folder with a
-test file named after it (in the root or a package subfolder, in the report or
-on disk) isn't regrouped yet: a topic of one section, all its files in it.
+sections go by name, a section's main file is `<section>.*`. A test file
+named after its folder (`<name>.*`, in the root or a package subfolder) isn't
+a section: its statements are the topic's own, right under `<topic>.md`.
 **The main file of a folder** — `tests/<kind>/<name>/<name>.*`
 (`<name>.test.ts`, `<name>.e2e.ts`…) for a capability, an architecture rule
 and a standard, in a monorepo also `tests/<kind>/<name>/<package>/<name>.*`
@@ -305,21 +305,6 @@ the "outside the tree" list; one that stayed or has some tests without a pair
 the move is "added", a test that also stayed outside the tree is a copy, also
 "added". In `--json` — `moved` with the original (`from`) and the new path of
 each test.
-
-**Regrouping into topics** (`migration.md`, its last section): a test of a
-decision not regrouped on the base that appears with the same `describe` chain
-and name in a section of the same root named after that decision is moved, not
-removed and added — «Regrouped into topics», a line per former decision; a
-harness check moves with its file the same way. A section under another name is
-honestly removed and added. In `--json` — `regrouped` with the former folder
-(`from`).
-
-```markdown
-**Regrouped into topics (3):** the same names, the topic's section is the former decision.
-
-- `tests/capabilities/billing` → `tests/capabilities/payments#billing` — 2 tests
-- `tests/capabilities/refunds` → `tests/capabilities/payments#refunds` — 1 test
-```
 
 The section is inserted into the PR body as a whole (after `Closes #N`); on
 new commits with tests — regenerate it and replace it.
