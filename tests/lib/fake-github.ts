@@ -484,6 +484,11 @@ export class FakeGitHub {
       const runs = Object.entries(this.mainChecks).map(([name, v]) => ({ id: ++k, name, status: "completed", conclusion: v.toLowerCase(), app: { id: 15368 } }));
       return main[1] === "status" ? { sha: "c0ffee1", state: "success", statuses: [] } : { total_count: runs.length, check_runs: runs };
     }
+    // job красного чека main — без шагов; пуш последнего коммита main — без задач (#699): коммит без Refs, PR не влит
+    if (new RegExp(`^repos/${repo}/actions/jobs/\\d+$`).test(route)) return { steps: [] };
+    if (route.startsWith(`repos/${repo}/commits/c0ffee1/check-suites`)) return { check_suites: [] };
+    if (route === `repos/${repo}/commits/c0ffee1/pulls`) return [];
+    if (route === `repos/${repo}/commits/c0ffee1`) return { sha: "c0ffee1", commit: { message: "" } };
     const suites = new RegExp(`^repos/${repo}/commits/sha(\\d+)/check-suites\\b`).exec(route);
     if (suites) return { check_suites: [{ created_at: this.ciAt }] };
     if (route.startsWith(`repos/${repo}/activity`)) return [{ timestamp: this.mainMovedAt }];
