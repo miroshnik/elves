@@ -9376,6 +9376,20 @@
   "name": "фрагмент eslint.mts собирается так же, как eslint.ts"
  },
  {
+  "path": "tests/capabilities/spec/spec-harness.lint.test.ts",
+  "describes": [
+   "Правило ESLint живёт в папке своего стандарта, конфиг проекта собирает его из дерева"
+  ],
+  "name": "фрагмент раздела <раздел>.eslint.ts в папке темы входит в конфиг линта"
+ },
+ {
+  "path": "tests/capabilities/spec/spec-harness.lint.test.ts",
+  "describes": [
+   "Правило ESLint живёт в папке своего стандарта, конфиг проекта собирает его из дерева"
+  ],
+  "name": "фрагменты темы и её разделов идут в конфиг по порядку путей"
+ },
+ {
   "path": "tests/capabilities/spec/spec-harness.meta.test.ts",
   "describes": [
    "Проверка оставляет метаданные прогона — спека показывает примеры и долг"
