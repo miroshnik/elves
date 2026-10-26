@@ -576,6 +576,23 @@ architecture(it, { root, model: { roots: ["apps/web/src"], modules: { web: { pat
     expect(r["login пишет аудит"]).toBe("✗ login не пишет аудит");
   });
 
+  // #754: раннер монорепо идёт из tests/ — имена тем и разделов читаются от корня проекта, а не из tests/tests
+  it("харнесс: раннер, запущенный из tests/, узнаёт отметки разделов и тем — неизвестным остаётся только имя, которого нет", () => {
+    const section = (name: string) => markedTest({ items: ["login", "logout", "signup"] }).replace("/audit.test", `/${name}.test`);
+    writeTree(dir, {
+      "tests/standards/pages/routes.test.ts": section("routes"),
+      "tests/standards/forms/forms.test.ts": section("forms"),
+      "src/login.ts": "// spec-outside(forms): вход — раздел другой темы\nexport const login = () => check();\n",
+      "src/logout.ts": "// spec-outside(routes): выход — до маршрутизации\nexport const logout = () => check();\n",
+      "src/signup.ts": "export const x = 1;\n// spec-outside(routs): опечатка в имени раздела\nexport const signup = () => audit();\n",
+    });
+    const r = bunTestIn(path.join(dir, "tests"), "./standards/pages/routes.test.ts");
+    // без манифеста в tests/ имена тестов харнесса — на en
+    expect(r["outside scope: logout"]).toBe("✓");
+    expect(r["login пишет аудит"]).toBe("✗ login не пишет аудит");
+    expect(r["a mark names a topic or its section"]).toBe("✗ src/signup.ts:2: spec-outside(routs) — no topic or section of tests/ is named «routs»: a topic's name takes the file out of all its sections, a section's — out of that section's invariants");
+  });
+
   it("отметка в файле двух элементов — красный тест: к какому элементу, неизвестно", () => {
     writeTree(dir, {
       [`${AUDIT}/audit.test.ts`]: markedTest({ items: ["login", "logout"], fileOf: '(m) => "src/session.ts"' }),
