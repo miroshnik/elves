@@ -1610,6 +1610,83 @@ describe("task answer ставит ответ у вопроса задачи", (
 });
 
 /**
+ * Правка описания — три хода: `gh issue view --json body`, правка в файле, `gh issue edit --body-file`; за две недели в
+ * пяти проектах ≈ 2200 чтений описания и ≈ 480 `gh issue edit` (#670). `task edit` правит описание одним вызовом: замена
+ * текста, пункт в раздел, отметка пункта — и отказывает целиком, если хоть одна правка неоднозначна.
+ */
+describe("task edit правит описание задачи одним вызовом", () => {
+  const BODY = "Экспорт счетов.\n\n## Что сделать\n\n- [ ] PDF-выгрузка\n- [ ] CSV-выгрузка\n\n## Сценарии\n\n1. выгрузка в PDF\n\n## Вопросы\n\n1. ✅ Формат? **Ответ:** PDF.\n";
+  const bodyOf = (f: FakeGitHub) => byOp(f, "UpdateIssue").at(-1)?.body;
+  const edit = (args: string[], body = BODY) => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = body;
+    return { f, r: task(f, ["edit", "47", ...args]) };
+  };
+
+  it("task edit заменяет текст, который встречается в описании один раз", () => {
+    const { f, r } = edit(["--replace", "Экспорт счетов.", "Экспорт счетов клиенту."]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(bodyOf(f)).toBe(BODY.replace("Экспорт счетов.", "Экспорт счетов клиенту."));
+    expect(byOp(f, "UpdateIssue")).toHaveLength(1);
+    expect(r.out.split("\n")).toEqual(["+ #47: description — 1 edit: replaced «Экспорт счетов.»"]);
+  });
+
+  describe("task edit отказывает, если текст не найден или встречается дважды, и ничего не меняет", () => {
+    const refused = (args: string[], message: string) => {
+      const { f, r } = edit(args);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain(message);
+      expect(f.mutations).toEqual([]);
+    };
+    it("замена: текста нет", () => refused(["--replace", "XML-выгрузка", "JSON"], "#47: --replace «XML-выгрузка» — not found in the description"));
+    it("замена: текст встречается дважды", () => refused(["--replace", "-выгрузка", "-экспорт"], "#47: --replace «-выгрузка» — found 2 times, expected once: give a longer text"));
+    it("пункт: раздела нет", () => refused(["--add", "## Готово, когда", "файл открывается"], "#47: --add — no section «## Готово, когда»"));
+    it("отметка: пункта нет", () => refused(["--check", "XML"], "#47: --check «XML» — no unchecked item «- [ ] …» with it"));
+    it("отметка: подходят два пункта", () => refused(["--check", "выгрузка"], "#47: --check «выгрузка» — 2 unchecked items with it, expected one: give a longer text"));
+    it("без правок", () => refused([], "task edit: expected edits — --replace <old> <new>, --add <section> <item>, --check <item text>"));
+    it("правке не хватает аргумента", () => refused(["--replace", "Экспорт"], "task edit: --replace expects 2 values: --replace <old> <new>"));
+  });
+
+  it("task edit добавляет пункт в раздел и отмечает пункт выполненным", () => {
+    const { f, r } = edit(["--add", "## Что сделать", "XML-выгрузка", "--add", "## Сценарии", "выгрузка в CSV", "--check", "PDF"]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    // вид пункта — по последнему пункту раздела: чек-лист — `- [ ]`, нумерованный — следующий номер
+    expect(bodyOf(f)).toBe(
+      BODY.replace("- [ ] PDF-выгрузка\n- [ ] CSV-выгрузка\n", "- [x] PDF-выгрузка\n- [ ] CSV-выгрузка\n- [ ] XML-выгрузка\n").replace("1. выгрузка в PDF\n", "1. выгрузка в PDF\n2. выгрузка в CSV\n"),
+    );
+    expect(r.out.split("\n")).toEqual(["+ #47: description — 3 edits: added to «## Что сделать», added to «## Сценарии», checked «PDF»"]);
+  });
+
+  it("несколько правок task edit в одном вызове применяются вместе или не применяются", () => {
+    const together = edit(["--replace", "Экспорт счетов.", "Экспорт.", "--check", "CSV"]);
+    expect(together.r.code).toBe(0);
+    expect(byOp(together.f, "UpdateIssue")).toHaveLength(1);
+    expect(bodyOf(together.f)).toBe(BODY.replace("Экспорт счетов.", "Экспорт.").replace("- [ ] CSV", "- [x] CSV"));
+    // вторая правка не находит текст — первая тоже не записана
+    const none = edit(["--replace", "Экспорт счетов.", "Экспорт.", "--check", "XML"]);
+    expect(none.r.code).toBe(2);
+    expect(none.f.mutations).toEqual([]);
+    // правки идут по порядку: следующая видит текст предыдущей
+    const chained = edit(["--add", "## Что сделать", "XML-выгрузка", "--check", "XML"]);
+    expect(bodyOf(chained.f)).toContain("- [x] XML-выгрузка\n");
+  });
+
+  it("облачная сессия: task edit пишет описание через REST", () => {
+    const f = Object.assign(new FakeGitHub(REC), { cloud: true });
+    const body = `Что сделать.\n\n## Что сделать\n\n- [ ] PDF\n\n${CLOUD_SIGNATURE}`;
+    f.issue(47).body = body;
+    const r = task(f, ["edit", "47", "--add", "## Что сделать", "CSV"], REPO, { env: { CLAUDE_CODE_REMOTE: "true" } });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    // подпись прокси после `---` — не пункт раздела: новый пункт встаёт до неё
+    expect(f.issue(47).body).toBe(body.replace("- [ ] PDF\n", "- [ ] PDF\n- [ ] CSV\n"));
+    expect(f.mutations).toEqual([]);
+  });
+});
+
+/**
  * Облачной сессии (claude.ai/code) прокси закрывает GraphQL, поиск и Projects v2 — остаётся REST `repos/<репозиторий>/…`.
  * Скрипт отказывал целиком, и в облачных сессиях #559 и #598 ответ на вопрос и новую задачу делали руками: формат
  * (✅ авто, метка вопросов, подзадача эпика) держался на внимательности агента (#603). Где REST хватает — он, чего нет
@@ -1760,7 +1837,7 @@ describe("Облачная сессия: task show, task answer и task new — 
       const f = cloud();
       const r = task(f, args, REPO, CLOUD);
       expect(r.code).toBe(2);
-      expect(r.err).toBe(`cloud session: GitHub GraphQL and Projects are unavailable to it (403, docs/cloud-sessions.md) — task ${args[0]} runs in a local session; in the cloud — task show, task answer, task new over the repository's REST`);
+      expect(r.err).toBe(`cloud session: GitHub GraphQL and Projects are unavailable to it (403, docs/cloud-sessions.md) — task ${args[0]} runs in a local session; in the cloud — task show, task answer, task edit, task new over the repository's REST`);
       expect(f.rest).toEqual([]);
     }
   });

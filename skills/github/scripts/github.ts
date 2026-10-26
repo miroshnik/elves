@@ -12,6 +12,7 @@
  *   github task show     — the task in one output: the description, Status, estimate, the epic, blockers, PRs and
  *                          their checks, open questions, the comments of the task and its epic
  *   github task answer   — ✅ and the answer at a question of the questions section; none open — the label goes
+ *   github task edit     — the description edited in one call: a replacement, an item into a section, a checked item
  *   github task status   — Status in the project (and the epic's "In progress" once its first subtask is taken);
  *                          "In progress" pins the task to the session — another task in the same session is refused
  *                          with the question whether to queue it
@@ -707,7 +708,7 @@ function restCall(io: Io, args: string[]): Any {
  */
 const inCloud = (io: Io) => io.env["CLAUDE_CODE_REMOTE"] === "true";
 /** The commands with a REST path in the cloud (#603): the rest need GraphQL or the project and refuse there. */
-const CLOUD_COMMANDS = ["task show", "task answer", "task new"];
+const CLOUD_COMMANDS = ["task show", "task answer", "task edit", "task new"];
 /**
  * The commands that write the canon's names to GitHub in the project language or check the project against them
  * (#681, question 1): views, fields and `Status` options, a task's sections, statuses and comments, a decision label's
@@ -2844,7 +2845,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
  * `autoAnswer`) after the item's number and «**Answer:** …» (`est.answer`: est strips it from the description size) at
  * its end — on the same line for a one-line item, otherwise on a line of its own; the numbering doesn't change, the
  * rest of the description stays as is. No open questions left — the questions label is removed. An answered question
- * is refused: a changed answer is edited by hand.
+ * is refused: a changed answer — `task edit --replace` (#670).
  */
 export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, answer: string, auto: boolean): number {
   const text = answer.trim().replace(/\s*\r?\n\s*/g, " ");
@@ -2859,7 +2860,7 @@ export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, a
   if (!questions.length) throw new GhError(`#${number}: no ${q(N.sections.questions)} section with numbered questions`);
   const question = questions.find((x) => x.k === k);
   if (!question) throw new GhError(`#${number}: no question ${k} in ${q(N.sections.questions)}; questions: ${questions.map((x) => x.k).join(", ")}`);
-  if (question.answered) throw new GhError(`#${number}: question ${k} is already answered (✅) — a changed answer is edited by hand`);
+  if (question.answered) throw new GhError(`#${number}: question ${k} is already answered (✅) — a changed answer: task edit ${number} --replace "<old>" "<new>"`);
   const reply = `**${N.est.answer}:** ${text}`;
   lines[question.first] = lines[question.first]!.replace(/^(\d+\.\s+)/, `$1${auto ? N.autoAnswer : "✅"} `);
   if (question.first === question.last) lines[question.first] += ` ${reply}`;
@@ -2876,6 +2877,125 @@ export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, a
     else mutate(io, { op: "RemoveLabels", input: { labelableId: i.id, labelIds: label.map((l) => l.id) } });
     io.out(`+ #${number}: label ${label.map((l) => q(l.name)).join(", ")} removed — no open questions left`);
   }
+  return 0;
+}
+
+/** One edit of `task edit`, in the order given: a replacement, an item into a section, a checked item. */
+export type Edit = { kind: "replace"; old: string; next: string } | { kind: "add"; section: string; item: string } | { kind: "check"; text: string };
+
+const EDIT_ARITY: Record<string, number> = { "--replace": 2, "--add": 2, "--check": 1 };
+const EDIT_USAGE: Record<string, string> = { "--replace": "--replace <old> <new>", "--add": "--add <section> <item>", "--check": "--check <item text>" };
+
+/**
+ * `task edit`'s arguments: an edit takes two values (`--replace <old> <new>`, `--add <section> <item>`), which
+ * `parseArgs` can't, and its values go as is — a text may start with `-`.
+ */
+function parseEdits(args: string[]): { number: number; repo: string | undefined; edits: Edit[] } {
+  let number: number | undefined;
+  let repo: string | undefined;
+  const edits: Edit[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    const arity = a === "--repo" ? 1 : EDIT_ARITY[a];
+    if (arity === undefined) {
+      if (a.startsWith("--")) throw new GhError(`task edit: unknown option ${a}; expected ${Object.values(EDIT_USAGE).join(", ")}`);
+      if (number !== undefined) throw new GhError(`extra arguments: ${a}`);
+      number = issueNumber(a, "task edit");
+      continue;
+    }
+    // a value that is an option's name — a value missing, not a text: `--replace <old> --repo …` lost its `<new>`
+    const values = args.slice(i + 1, i + 1 + arity);
+    if (values.length < arity || values.some((v) => v === "--repo" || Object.hasOwn(EDIT_ARITY, v))) throw new GhError(`task edit: ${a} expects ${arity} value${arity > 1 ? "s" : ""}${a === "--repo" ? "" : `: ${EDIT_USAGE[a]}`}`);
+    i += arity;
+    if (a === "--repo") repo = values[0];
+    else if (a === "--replace") edits.push({ kind: "replace", old: values[0]!, next: values[1]! });
+    else if (a === "--add") edits.push({ kind: "add", section: values[0]!, item: values[1]! });
+    else edits.push({ kind: "check", text: values[0]! });
+  }
+  if (number === undefined) throw new GhError("task edit: expected an issue number");
+  if (!edits.length) throw new GhError(`task edit: expected edits — ${Object.values(EDIT_USAGE).join(", ")}`);
+  return { number, repo, edits };
+}
+
+const CHECKLIST_RE = /^(\s*[-*+]\s+)\[ \](\s)/;
+/** A top-level list item: a bullet or a number at the line's start. */
+const LIST_ITEM_RE = /^(?:[-*+]|\d+\.)\s/;
+/** A Markdown heading's level (`## …` — 2), not a heading — 0. */
+const headingLevel = (line: string) => /^(#{1,6})\s/.exec(line)?.[1]?.length ?? 0;
+
+/** The marker of an item added after `prev`, the section's last item: `- [ ]` after a checklist item, the next number, its bullet; none — `- `. */
+function itemMarker(prev: string | undefined): string {
+  const numbered = /^(\d+)\.\s/.exec(prev ?? "");
+  if (numbered) return `${Number(numbered[1]) + 1}. `;
+  const bullet = /^([-*+]\s+)(\[[ xX]\]\s)?/.exec(prev ?? "");
+  if (!bullet) return "- ";
+  return bullet[2] ? `${bullet[1]}[ ] ` : bullet[1]!;
+}
+
+/**
+ * The edits applied in order to the description, each to the result of the previous one; an edit that is ambiguous or
+ * finds nothing — an error, so none is written. `--add` — after the section's last non-blank line (the section ends at
+ * a heading of its level or higher, or a thematic break: the cloud proxy's signature isn't the section's); an item
+ * without a list marker gets the one of the section's last item: `- [ ]`, the next number, or `-`.
+ */
+export function applyEdits(number: number, body: string, edits: Edit[]): { body: string; done: string[] } {
+  const eol = body.includes("\r\n") ? "\r\n" : "\n";
+  let text = body;
+  const done: string[] = [];
+  for (const e of edits) {
+    if (e.kind === "replace") {
+      const count = e.old ? text.split(e.old).length - 1 : 0;
+      if (!count) throw new GhError(`#${number}: --replace ${q(clip(e.old))} — not found in the description`);
+      if (count > 1) throw new GhError(`#${number}: --replace ${q(clip(e.old))} — found ${count} times, expected once: give a longer text`);
+      text = text.replace(e.old, () => e.next);
+      done.push(`replaced ${q(clip(e.old))}`);
+      continue;
+    }
+    const lines = text.split(/\r?\n/);
+    if (e.kind === "add") {
+      const heading = e.section.trim();
+      const level = headingLevel(heading);
+      const at = lines.flatMap((l, i) => (l.trim() === heading ? [i] : []));
+      if (!level || !at.length) throw new GhError(`#${number}: --add — no section ${q(heading)}${level ? "" : " (a heading line, «## …»)"}`);
+      if (at.length > 1) throw new GhError(`#${number}: --add — section ${q(heading)} appears ${at.length} times`);
+      const from = at[0]!;
+      let end = from + 1;
+      while (end < lines.length && !THEMATIC_BREAK_RE.test(lines[end]!) && !(headingLevel(lines[end]!) && headingLevel(lines[end]!) <= level)) end++;
+      let last = end - 1;
+      while (last > from && !lines[last]!.trim()) last--;
+      const item = e.item.trim().replace(/\s*\r?\n\s*/g, " ");
+      // the section's last top-level item: a nested one under it isn't the list's
+      const prev = lines.slice(from + 1, last + 1).filter((l) => LIST_ITEM_RE.test(l)).at(-1);
+      const line = `${LIST_ITEM_RE.test(item) ? "" : itemMarker(prev)}${item}`;
+      // a heading right before the item — a blank line between them, as the section's own items have
+      lines.splice(last + 1, 0, ...(last === from ? ["", line] : [line]));
+      done.push(`added to ${q(heading)}`);
+    } else {
+      const hits = lines.flatMap((l, i) => (CHECKLIST_RE.test(l) && l.includes(e.text) ? [i] : []));
+      if (!hits.length) throw new GhError(`#${number}: --check ${q(clip(e.text))} — no unchecked item «- [ ] …» with it`);
+      if (hits.length > 1) throw new GhError(`#${number}: --check ${q(clip(e.text))} — ${hits.length} unchecked items with it, expected one: give a longer text`);
+      lines[hits[0]!] = lines[hits[0]!]!.replace(CHECKLIST_RE, "$1[x]$2");
+      done.push(`checked ${q(clip(e.text))}`);
+    }
+    text = lines.join(eol);
+  }
+  return { body: text, done };
+}
+
+/**
+ * An edit of the task's description in one call, in place of `gh issue view --json body`, a file and `gh issue edit
+ * --body-file` (#670): the edits together or none — an error in any leaves the description untouched. A cloud session
+ * — over the repository's REST.
+ */
+export function cmdTaskEdit(io: Io, slug: string, number: number, edits: Edit[]): number {
+  const [owner, name] = slug.split("/");
+  const cloud = inCloud(io);
+  const i = cloud ? restIssue(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  if (!i) throw new GhError(`no issue #${number} in ${slug}`);
+  const { body, done } = applyEdits(number, i.body ?? "", edits);
+  if (cloud) rest(io, `repos/${slug}/issues/${number}`, { method: "PATCH", payload: { body } });
+  else mutate(io, { op: "UpdateIssue", input: { id: i.id, body } });
+  io.out(`+ #${number}: description — ${done.length} edit${done.length > 1 ? "s" : ""}: ${done.join(", ")}`);
   return 0;
 }
 
@@ -5729,12 +5849,24 @@ Examples:
   "task answer": `github task answer <N> <k> "<answer>" [--auto] [--repo owner/repo]
 
 ✅ and «**Answer:** …» at question k of the questions section (--auto — the auto mark), the numbering unchanged; no open
-questions left — the questions label is removed; an answered question is refused. A question is answered by ✅ at the
+questions left — the questions label is removed; an answered question is refused (a changed answer — task edit --replace). A question is answered by ✅ at the
 start of its answer, not by ✅ in its text. A cloud session — over the repository's REST.
 
 Examples:
   github task answer 42 1 "Only PDF, no CSV yet"
   github task answer 42 2 "Medium, by recommendation" --auto`,
+  "task edit": `github task edit <N> [--replace <old> <new>] [--add <section> <item>] [--check <item text>] … [--repo owner/repo]
+
+An edit of the description in one call, not gh issue view --json body, a file and gh issue edit --body-file: --replace —
+the text must occur exactly once; --add — an item at the end of the section «## …» (without a list marker — the one of
+the section's last item: «- [ ]», the next number, its bullet); --check — «- [ ]» → «- [x]» of the one unchecked item
+with the text. Several edits — in order, each sees the previous one's result, written together; any not found or
+ambiguous — refused (code 2), the description untouched. Questions are answered by task answer. A cloud session — over
+the repository's REST.
+
+Examples:
+  github task edit 42 --replace "PDF only" "PDF and CSV"
+  github task edit 42 --add "## Scenarios" "export opens in Excel" --check "PDF export"`,
   "task start": `github task start <N> [--branch <type>/<N>-<slug>] [--repo owner/repo]
 
 Taking a task into work in one call: project check (once per session — a marker in project-checks/<session id> of
@@ -6039,6 +6171,10 @@ export function main(argv: string[], io: Io): number {
       const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
       if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
       return cmdBatchRelease(io, repoOf(values.repo), positionals[0]);
+    }
+    if (group === "task" && cmd === "edit") {
+      const { number, repo, edits } = parseEdits(rest);
+      return cmdTaskEdit(io, repoOf(repo), number, edits);
     }
     if (group === "task") {
       const { values, positionals } = parseArgs({
