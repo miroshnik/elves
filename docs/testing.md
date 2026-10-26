@@ -71,6 +71,16 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
     objects), not the app code the browser opens; the rest — CI;
   - `test:slow` — when the change touches what it checks (below).
 
+  **One command runs the set:** `bun --no-env-file node_modules/.bin/elves
+  precommit` (in Elves — `bun run precommit`) starts `lint`, `typecheck`,
+  `test:spec` and `test --changed=origin/main` at once — each through the
+  machine queue of its script — and prints a line per check, then the
+  details of the failed ones only (their output without the passed tests,
+  the whole output — a file); a test check's result is the runner's summary
+  (below). In a batch — `--base origin/<batch>`. Tests the import graph
+  doesn't see, e2e and `test:slow` — separate runs, as above; a round of
+  fixes — the command again, not each check by hand.
+
   The full run is CI's; `github pr premerge` stays as it is: `typecheck` and
   `test:spec` on the merge with a fresh `main` (`docs/pr-checks.md`). In a
   batch — the dispatcher's tasks go into a batch branch and reach `main` by
