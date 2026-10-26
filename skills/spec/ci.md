@@ -45,6 +45,7 @@ concurrency: # main — a run gets its own group: it doesn't wait and isn't disp
 jobs:
   test-spec: # standards and architecture — once per run, no shards: green or red in a minute
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # a hung step fails the run, not at GitHub's 6 hours
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -52,6 +53,7 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - uses: oven-sh/setup-bun@v2 # package.json checks go through slot under Bun
       - run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
       - run: pnpm test:spec --reporter=default --reporter=blob --outputFile.blob=vitest-blob/spec.json
       - uses: actions/upload-artifact@v7
         with: { name: vitest-blob-spec, path: vitest-blob/, retention-days: 1 }
@@ -60,6 +62,7 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions: { contents: read, actions: read } # spec-run and gh run download: the last green run's reports
     strategy:
       fail-fast: false
@@ -71,6 +74,7 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
       # one source for all shards: the run green by this run's start; no continue-on-error — a shard split by count
       # next to shards split by durations would lose files, a failure is a red shard to re-run
       - name: the last green run's reports — durations for the shard
@@ -94,6 +98,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions: { contents: read, actions: read }
     strategy:
       fail-fast: false
@@ -105,7 +110,9 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - uses: oven-sh/setup-bun@v2 # spec-run, spec-shard
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps
+        timeout-minutes: 10
+      - run: pnpm exec playwright install --with-deps # browsers and apt packages
+        timeout-minutes: 10
       - name: the last green run's reports — durations for the shard
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
@@ -126,6 +133,7 @@ jobs:
   spec:
     needs: [test-spec, unit, e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -133,6 +141,7 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - uses: oven-sh/setup-bun@v2 # the spec scripts: spec:claims, spec:doc
       - run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
       - uses: actions/download-artifact@v8
         with: { pattern: vitest-blob-*, path: vitest-blob, merge-multiple: true }
       - uses: actions/download-artifact@v8
@@ -163,6 +172,7 @@ jobs:
     if: github.event_name == 'push'
     needs: spec
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: { contents: write } # push to the spec branch — only here
     concurrency: { group: spec-publish, queue: max } # a pending publication isn't displaced by the next one
     steps:
@@ -177,6 +187,7 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: spec
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 } # merge-base with the base branch, and the spec branch
@@ -192,6 +203,12 @@ The publish job is named `spec-publish` (in a reusable workflow — `<job> /
 spec-publish`): by this name `github pr premerge` doesn't count its red as a
 red `main`, and `ci-wait` doesn't wait for it — publishing the documentation
 isn't a check (#443).
+
+Every job has `timeout-minutes`, and a step that installs packages from the
+network (`pnpm install`, `playwright install --with-deps` — browsers and apt
+packages) has its own: without them GitHub holds a job on a hung mirror for 6
+hours, and the agent's `ci-wait` waits all that time. The limits leave room
+over a usual run — raise them to the project's durations, don't drop them.
 
 The `.spec-*` reports and logs are hidden files: `upload-artifact` skips them
 without `include-hidden-files: true`, and the artifact comes out empty.
@@ -377,6 +394,7 @@ jobs:
   spec-publish:
     if: github.event.pull_request.merged == true # a PR closed without a merge doesn't publish
     runs-on: ubuntu-latest
+    timeout-minutes: 40 # spec-run waits up to 30 min for the PR run in progress
     permissions: { contents: write, actions: read } # push to the spec branch, the PR run's artifact
     concurrency: { group: spec-publish, queue: max } # a pending publication isn't displaced by the next one
     env:
