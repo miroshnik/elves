@@ -861,6 +861,18 @@ in the body) is a fix, without matching the check: the same breakage is named
 by a script one time and by a CI check another; a red `main` doesn't stop it
 (an `○` line), its red merge is code `1`, as usual.
 
+A task's own regression (#699) has no «`<base>` is red…» bug: the bug is the
+reopened task, and its fix is a PR that closes it. So a PR whose `Closes #N`
+names a task of the red push — `Refs #N` or `Closes #N` in the commits of the
+red commit's check suite (`before`..the commit; without `before` — the commit
+itself), or `Closes #N` of the PR merged by them (a batch's release) — is a
+fix as well: the line «this PR fixes red `<base>`: it closes #N, whose commit …
+made it red», the check goes on as usual. A PR of another task — code `3`, as
+before. A red GitHub Actions job names its first failed step next to the check
+in parentheses, in the reason and the bug title: a step without a test
+(install, network) has no decision label, the bug goes by the check and the
+step.
+
 ### task resume
 
 A background wait (`ci-wait`) dies with the app's process,

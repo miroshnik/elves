@@ -5741,9 +5741,10 @@ export const SPEC_PUBLISH = /^(?:.+ \/ )?spec-publish$/;
 
 /**
  * Red checks of the default branch's last commit — check-runs (the last run of each name) and hosting statuses;
- * `publish` — the red spec publish jobs, apart.
+ * `publish` — the red spec publish jobs, apart; `steps` — the failed step of a red GitHub Actions job by its name
+ * (#699: a step without a test — install, network — names the bug by the check and the step).
  */
-function redChecksOf(io: Io, slug: string, base: string): { sha: string; names: string[]; publish: string[] } {
+function redChecksOf(io: Io, slug: string, base: string): { sha: string; names: string[]; publish: string[]; steps: Map<string, string> } {
   const ref = encodeURIComponent(base);
   const latest = new Map<string, Any>();
   for (const r of restCall(io, ["api", `repos/${slug}/commits/${ref}/check-runs?per_page=100`]).check_runs ?? []) {
@@ -5755,7 +5756,53 @@ function redChecksOf(io: Io, slug: string, base: string): { sha: string; names: 
     ...(status.statuses ?? []).filter((x: Any) => RED_STATUS.has(x.state)).map((x: Any) => x.context as string),
   ];
   const red = [...new Set(names)].sort();
-  return { sha: String(status.sha ?? ""), names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)) };
+  const steps = new Map<string, string>();
+  for (const r of latest.values()) {
+    if (r.status !== "completed" || !RED_RUN.has(r.conclusion) || SPEC_PUBLISH.test(r.name) || r.app?.id !== ACTIONS_APP) continue;
+    const step = failedStepOf(io, slug, r.id);
+    if (step) steps.set(r.name, step);
+  }
+  return { sha: String(status.sha ?? ""), names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)), steps };
+}
+
+/** The first failed step of a GitHub Actions job (its check-run id is the job's); not read — null, the bug goes by the check. */
+function failedStepOf(io: Io, slug: string, job: number): string | null {
+  try {
+    const steps: Any[] = restCall(io, ["api", `repos/${slug}/actions/jobs/${job}`]).steps ?? [];
+    return steps.find((x) => RED_RUN.has(x.conclusion))?.name ?? null;
+  } catch (e) {
+    if (!(e instanceof GhError)) throw e;
+    return null;
+  }
+}
+
+/**
+ * The tasks whose commits made the base red (#699) — «Refs #N» and «Closes #N» of the commits of the red push (its
+ * check suite's `before`..`sha`; without one — the commit itself) and «Closes #N» of the PRs merged by them (a batch's
+ * release). Not read — none: the PR then waits for the bug, as before.
+ */
+function guiltyTasksOf(io: Io, slug: string, sha: string): { number: number; sha: string }[] {
+  const out: { number: number; sha: string }[] = [];
+  const add = (text: string, at: string) => {
+    for (const n of [...[...text.matchAll(/\bRefs:?\s+#(\d+)\b/gi)].map((m) => Number(m[1])), ...closingInBody(text)]) if (!out.some((x) => x.number === n)) out.push({ number: n, sha: at });
+  };
+  const read = <T,>(f: () => T, none: T): T => {
+    try {
+      return f();
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      return none;
+    }
+  };
+  if (!sha) return out;
+  const suites: Any[] = read(() => restCall(io, ["api", `repos/${slug}/commits/${sha}/check-suites?per_page=100`]).check_suites ?? [], []);
+  const before: string | undefined = suites.map((x) => x.before).find((b) => b && !/^0+$/.test(b));
+  const commits: Any[] = before ? read(() => restCall(io, ["api", `repos/${slug}/compare/${before}...${sha}`]).commits ?? [], []) : [];
+  if (!commits.length) commits.push(...read(() => [restCall(io, ["api", `repos/${slug}/commits/${sha}`])], []));
+  for (const c of commits) add(String(c.commit?.message ?? ""), String(c.sha ?? sha));
+  const pulls: Any[] = read(() => restCall(io, ["api", `repos/${slug}/commits/${sha}/pulls`]) ?? [], []);
+  for (const p of pulls) add(String(p.body ?? ""), sha);
+  return out;
 }
 
 /**
@@ -5867,7 +5914,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
    * `red` — the failed checks (or the script), `what` — how to name them in the bug title. A PR that closes this bug is
    * the fix: null, the check goes as usual.
    */
-  const mainRed = (lead: string, why: string, red: string[], what: (names: string[]) => string, say = what): number | null => {
+  const mainRed = (lead: string, why: string, sha: string, red: string[], what: (names: string[]) => string, say = what, stepped = false): number | null => {
     let bugs: { number: number; title: string }[] = [];
     try {
       bugs = mainBugsOf(io, slug, base);
@@ -5883,6 +5930,13 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
       io.out(`○ ${base} is red — ${why}; the PR closes bug #${fix.number} about it — checking the PR as usual`);
       return null;
     }
+    // the fix of the task whose commit made the base red (#699): its PR closes that task — the bug is the reopened
+    // task, not a «<base> is red…» issue; another task's PR still waits
+    const guilty = closes.length ? guiltyTasksOf(io, slug, sha).find((g) => closes.includes(g.number)) : undefined;
+    if (guilty) {
+      io.out(`○ ${base} is red — ${why}; this PR fixes red ${base}: it closes #${guilty.number}, whose commit ${guilty.sha.slice(0, 7)} made it red — checking the PR as usual`);
+      return null;
+    }
     io.out(lead);
     // wait for a bug whose title names the failed check (unlike the fix above): a bug about another check won't make
     // main green
@@ -5895,7 +5949,10 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     if (unnamed.length) {
       const priority = pr.base?.repo?.owner?.type === "Organization" ? " --priority Urgent" : "";
       const title = `${locale.fill(N.mainRed.title, { base })}: ${what(unnamed)}`;
-      io.out(`no bug on red ${base} about ${say(unnamed)} — find an open one on the failed test or file one (label — the failed test's decision) and ask the owner whether to queue it: bun --no-env-file ${import.meta.path} task new --type ${N.issueTypes.bug}${priority} --title ${JSON.stringify(title)}; ${wait("<N>")}`);
+      const label = stepped
+        ? "find an open one on the failed test or step or file one (label — the failed test's decision; a step without a test — install, network — is named by the check and the step, no decision label)"
+        : "find an open one on the failed test or file one (label — the failed test's decision)";
+      io.out(`no bug on red ${base} about ${say(unnamed)} — ${label} and ask the owner whether to queue it: bun --no-env-file ${import.meta.path} task new --type ${N.issueTypes.bug}${priority} --title ${JSON.stringify(title)}; ${wait("<N>")}`);
     }
     io.out(`⛔ don't merge: ${base} is red, not this PR — don't fix it in your PR`);
     return 3;
@@ -5911,9 +5968,12 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
       if (red.names.length) {
         const checks = (names: string[]) => `${names.length > 1 ? "checks" : "check"} ${names.join(", ")}`;
         // in the bug title — in the project language
-        const titled = (names: string[]) => locale.fill(names.length > 1 ? N.mainRed.checks : N.mainRed.check, { names: names.join(", ") });
-        const why = `${checks(red.names)} of the last commit of ${base} (${red.sha.slice(0, 7)})`;
-        const code = mainRed(`${base} is red: ${why}`, why, red.names, titled, checks);
+        // a failed step of an Actions job — next to its check (#699): «CI (step Install zsh)»
+        const stepOf = (n: string, step: (name: string) => string) => (red.steps.has(n) ? `${n} (${step(red.steps.get(n)!)})` : n);
+        const titled = (names: string[]) => locale.fill(names.length > 1 ? N.mainRed.checks : N.mainRed.check, { names: names.map((n) => stepOf(n, (name) => locale.fill(N.mainRed.step, { name }))).join(", ") });
+        const said = (names: string[]) => checks(names.map((n) => stepOf(n, (name) => `step ${name}`)));
+        const why = `${said(red.names)} of the last commit of ${base} (${red.sha.slice(0, 7)})`;
+        const code = mainRed(`${base} is red: ${why}`, why, red.sha, red.names, titled, said, red.steps.size > 0);
         if (code !== null) return code;
       }
     } catch (e) {
@@ -6034,7 +6094,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
       return 1;
     }
     const reason = `${red.script} is red on bare origin/${base} too, with the same failures`;
-    const code = mainRed(`${base} is red by itself: ${reason}`, reason, [red.script], (names) => names.join(", "));
+    const code = mainRed(`${base} is red by itself: ${reason}`, reason, git(io, dir, "rev-parse", `origin/${base}`).stdout.trim(), [red.script], (names) => names.join(", "));
     if (code !== null) return code;
     io.out(breaks(red.script));
     return 1;

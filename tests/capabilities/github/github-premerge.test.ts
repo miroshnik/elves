@@ -112,8 +112,14 @@ function checkoutWithoutHead(origin: string, head: string): string {
 const MAIN_SHA = "c0ffee1" + "0".repeat(33);
 
 interface MainChecks {
-  runs?: { id?: number; name: string; status?: string; conclusion: string | null }[];
+  /** `steps` — шаги job'а GitHub Actions (`app` 15368): `actions/jobs/<id>`. */
+  runs?: { id?: number; name: string; status?: string; conclusion: string | null; app?: { id: number }; steps?: { name: string; conclusion: string }[] }[];
   statuses?: { context: string; state: string }[];
+  /**
+   * Пуш, покрасивший main (последний коммит MAIN_SHA): `before` его check suite, коммиты `before...MAIN_SHA` с
+   * сообщениями и PR, влитые ими (`commits/<sha>/pulls`, тело с «Closes #N»).
+   */
+  push?: { before?: string; commits: { sha: string; message: string }[]; pulls?: { number: number; body: string }[] };
 }
 
 /**
@@ -178,9 +184,20 @@ function fakeGh(
     }
     if (release) return JSON.stringify({ sha: `rsha${release.number}`, state: "pending", statuses: [] });
     if (url.startsWith(`repos/${SLUG}/commits/${encodeURIComponent(base)}/check-runs`)) {
-      const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion }));
+      const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion, app: r.app }));
       return JSON.stringify({ total_count: runs.length, check_runs: runs });
     }
+    const job = /^repos\/[^/]+\/[^/]+\/actions\/jobs\/(\d+)$/.exec(url);
+    if (job) {
+      const run = (main.runs ?? []).find((r, i) => (r.id ?? i + 1) === Number(job[1]));
+      return JSON.stringify(run ? { id: Number(job[1]), steps: run.steps ?? [] } : { message: "Not Found", status: "404" });
+    }
+    // пуш последнего коммита main: его check suite, коммиты от before и влитые ими PR
+    const push = main.push ?? { commits: [] };
+    if (url.startsWith(`repos/${SLUG}/commits/${MAIN_SHA}/check-suites`)) return JSON.stringify({ total_count: 1, check_suites: [{ id: 50, before: push.before ?? null, after: MAIN_SHA }] });
+    if (url === `repos/${SLUG}/compare/${push.before}...${MAIN_SHA}`) return JSON.stringify({ commits: push.commits.map((c) => ({ sha: c.sha, commit: { message: c.message } })) });
+    if (url === `repos/${SLUG}/commits/${MAIN_SHA}/pulls`) return JSON.stringify(push.pulls ?? []);
+    if (url === `repos/${SLUG}/commits/${MAIN_SHA}`) return JSON.stringify({ sha: MAIN_SHA, commit: { message: push.commits.at(-1)?.message ?? "" } });
     if (url === `repos/${SLUG}/commits/${encodeURIComponent(base)}/status`) return JSON.stringify({ sha: MAIN_SHA, state: "pending", statuses: main.statuses ?? [] });
     if (url.startsWith("search/issues?")) {
       // поиск по заголовку — фраза в кавычках `in:title "…"`
@@ -635,6 +652,62 @@ describe("pr premerge: main красный — не этот PR: не влива
     const red = premerge(fakeGh(p.head, { moved: AFTER, bugs, body: "Fixes #41" }).gh, p.work);
     expect(red.code).toBe(1);
     expect(red.last).toStartWith("❌ don't merge: test:spec is red on the merge with origin/main");
+  });
+});
+
+/**
+ * Регрессия задачи, покрасившая main (#699, эпик #645): баг — переоткрытая задача, а не «main красный…», и её
+ * починка — PR с «Closes #N» этой задачи; код 3 «жди баг» не давал её влить. PR другой задачи ждёт, как прежде.
+ */
+describe("pr premerge: красный main чинит PR задачи, чей коммит его покрасил", () => {
+  const RED_PUSH = "b".repeat(40);
+  const COMMIT = "d".repeat(40);
+  const main: MainChecks = {
+    runs: [{ id: 55, name: "CI", conclusion: "failure" }],
+    push: { before: RED_PUSH, commits: [{ sha: "e".repeat(40), message: "docs: x\n\nRefs #670" }, { sha: COMMIT, message: "fix(ci): предел apt-get\n\nRefs #674" }] },
+  };
+
+  it("pr premerge на красном main пропускает PR, закрывающий задачу, чей коммит его покрасил", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const r = premerge(fakeGh(p.head, { main, body: "Чиню zsh.\n\nCloses #674" }).gh, p.work);
+    expect(r.out).toContain(`○ main is red — check CI of the last commit of main (c0ffee1); this PR fixes red main: it closes #674, whose commit ${COMMIT.slice(0, 7)} made it red — checking the PR as usual`);
+    expect(r.code).toBe(0);
+    // выпуск пачки: задачу называет «Closes #N» влитого PR выпуска, коммиты — без Refs
+    const release: MainChecks = { ...main, push: { before: RED_PUSH, commits: [{ sha: COMMIT, message: "feat: y" }], pulls: [{ number: 693, body: "Closes #672\nCloses #674" }] } };
+    const fix = premerge(fakeGh(p.head, { main: release, body: "Closes #674" }).gh, p.work);
+    expect(fix.out).toContain("this PR fixes red main: it closes #674");
+    expect(fix.code).toBe(0);
+  });
+
+  it("pr premerge на красном main останавливает PR другой задачи кодом 3", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const other = premerge(fakeGh(p.head, { main, body: "Closes #675" }).gh, p.work);
+    expect(other.code).toBe(3);
+    expect(other.out).not.toContain("this PR fixes red main");
+    expect(other.last).toBe(MAIN_RED);
+    // без «Closes» — тоже: ветка задачи сама по себе починкой не делает
+    const bare = fakeGh(p.head, { main });
+    expect(premerge(bare.gh, p.work).code).toBe(3);
+    expect(bare.calls.filter((c) => c.includes("/compare/"))).toEqual([]);
+  });
+
+  it("упавший шаг установки называет баг красного main по чеку и шагу", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const steps = [
+      { name: "Set up job", conclusion: "success" },
+      { name: "Install zsh", conclusion: "failure" },
+      { name: "Test", conclusion: "skipped" },
+    ];
+    const red: MainChecks = { runs: [{ id: 55, name: "CI", conclusion: "failure", app: { id: 15368 }, steps }] };
+    const r = premerge(fakeGh(p.head, { main: red }).gh, p.work);
+    expect(r.code).toBe(3);
+    expect(r.out).toContain("main is red: check CI (step Install zsh) of the last commit of main (c0ffee1)");
+    expect(r.out).toContain(
+      `no bug on red main about check CI (step Install zsh) — find an open one on the failed test or step or file one (label — the failed test's decision; a step without a test — install, network — is named by the check and the step, no decision label) and ask the owner whether to queue it: bun --no-env-file ${GITHUB} task new --type Баг --title "main красный: чек CI (шаг Install zsh)"`,
+    );
+    // открытый баг по чеку — его и ждут
+    const found = premerge(fakeGh(p.head, { main: red, bugs: [{ number: 41, title: "main красный: чек CI (шаг Install zsh)" }] }).gh, p.work);
+    expect(found.out).toContain("bug on red main — #41 «main красный: чек CI (шаг Install zsh)»: wait for it to close");
   });
 });
 

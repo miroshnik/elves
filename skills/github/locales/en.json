@@ -48,7 +48,8 @@
   "mainRed": {
     "title": "{base} is red",
     "check": "check {names}",
-    "checks": "checks {names}"
+    "checks": "checks {names}",
+    "step": "step {name}"
   },
   "release": {
     "title": "release of {batch} — {tasks}",
