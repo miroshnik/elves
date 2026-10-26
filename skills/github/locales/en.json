@@ -235,6 +235,7 @@
   },
   "updateCommit": "Elves flow {version}",
   "updateTask": "Update the Elves flow",
+  "regroupTask": "Regroup the spec decisions into topics",
   "formerly": {
     "updateTask": "Update the ai-dev flow"
   },
