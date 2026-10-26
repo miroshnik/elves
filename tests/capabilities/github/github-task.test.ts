@@ -3050,12 +3050,6 @@ describe("Задачи — на языке проекта из .agents/elves.jso
     expect(byOp(f, "CreateIssue")[0].body).toBe("## Вопросы\n");
   });
 
-  it("манифест без поля language — каркас на русском, как раньше", () => {
-    const f = new FakeGitHub(REC);
-    task(f, ["new", "--branch-type", "feat", "--title", "Экспорт"], REPO, { cwd: checkoutWith('{ "auto": true }\n') });
-    expect(byOp(f, "CreateIssue")[0].body).toBe("## Сценарии\n\n## Вопросы\n");
-  });
-
   it("тело дано — пишется как есть, без каркаса", () => {
     const f = new FakeGitHub(REC);
     task(f, ["new", "--branch-type", "feat", "--title", "Экспорт", "--body", "Что сделать"]);

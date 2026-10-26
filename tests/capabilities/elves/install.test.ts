@@ -1215,10 +1215,9 @@ describe("Задача целиком без спроса — настройка
 
 /**
  * Флоу написан по-английски, а агент работает с человеком на языке проекта: диалог, задачи, промпты, документы. Язык —
- * настройка проекта, как auto: хранится в манифесте, его видят облачная сессия и любой агент. Флоу до поля работал
- * только по-русски, поэтому установка прошлой версии без поля — `ru`: обновление не меняет языка проектам.
+ * настройка проекта, как auto: хранится в манифесте, его видят облачная сессия и любой агент.
  */
-describe("Язык работы агента — настройка проекта: по умолчанию en, у установки прошлой версии — ru", () => {
+describe("Язык работы агента — настройка проекта: по умолчанию en", () => {
   const manifest = (root: string) => JSON.parse(read(path.join(root, ".agents/elves.json")));
 
   it("без терминала и без флага вопроса нет — у новой установки в .agents/elves.json language: en", () => {
@@ -1235,15 +1234,6 @@ describe("Язык работы агента — настройка проект
     expect(manifest(proj).language).toBe("ru");
     expect(install(["--lang=pt-BR"]).code).toBe(0);
     expect(manifest(proj).language).toBe("pt-BR");
-  });
-
-  it("установка прошлой версии без поля language — install без флага пишет ru", () => {
-    install(["--auto"]);
-    const m = manifest(proj);
-    delete m.language;
-    writeFileSync(path.join(proj, ".agents/elves.json"), JSON.stringify(m, null, 2) + "\n");
-    expect(install().code).toBe(0);
-    expect(manifest(proj)).toMatchObject({ auto: true, language: "ru" });
   });
 
   it("не код языка, --lang без значения и --lang с -g — отказ с кодом 2, ничего не ставится", () => {

@@ -46,9 +46,7 @@
  * documents (AGENTS.md, "Language"; the flow is written in English), `env` — the task stack settings of the
  * task-env skill, and `batch` — the dispatcher's batches (epic #645). `install` in a project sets auto and language — by a question in the terminal or by
  * the flags `--auto` / `--no-auto` and `--lang <code>`; by default auto is "no", the language is `en`, without a
- * terminal and a flag — the previous value, `update` keeps it. An install of a previous version has no `language`
- * field, and the flow before it worked only in Russian: its language is `ru` (`LEGACY_LANGUAGE` of the github skill's
- * language module), `update` writes it. With auto `install` suggests the Claude Code permission rule for the merge
+ * terminal and a flag — the previous value, `update` keeps it. With auto `install` suggests the Claude Code permission rule for the merge
  * (MERGE_HINT) — it doesn't change the machine's settings; nor does the machine's prompt cache TTL line of `check -g`,
  * `install -g` and `update -g` (`cacheTtlLines`) — it names the owner's command. The flow isn't installed into an Elves clone (the canon is
  * at its root): `install` writes a single manifest there, with `auto` and `language`, `env` and `batch` carried over as
@@ -284,8 +282,7 @@ lockfile, a few lines in the branch of the current task; a project with a copy o
 --help), by hand after it — a check of the project that knows the queue wrapper by the copy's path (. .agents/slot.sh
 now), AI_DEV_SLOT* in the project's code → ELVES_SLOT*, formatting the shortened imports, git add -A before the first
 run of the checks, the ! lines of check; from the npm package — by restarting from the latest release's package. The
-project's mode and language are kept; an install of a previous version without a language gets ru: before the field
-the flow worked in Russian; ${PACKAGE} in package.json without the manifest — a refusal (2): the language is unknown,
+project's mode and language are kept; ${PACKAGE} in package.json without the manifest — a refusal (2): the language is unknown,
 the manifest comes from the main checkout or install --lang. In a project install and update un-ignore flow files from
 .gitignore patterns with exceptions at its end and wrap the package.json checks (lint, typecheck, test, test:*) in the machine queue slot;
 prints what changed: every release after the installed one, newest first, with the list of changes of its GitHub
@@ -1398,8 +1395,7 @@ const LANGUAGE_CODE = locale.LANGUAGE_CODE;
 
 /**
  * The language the agent works in in the project — via the github skill's language module, the same one the skills'
- * scripts use: `language` of the manifest; a manifest without the field (an install of a previous version) — `ru`, no
- * manifest — `en`, the flow's language.
+ * scripts use: `language` of the manifest; no field or no manifest — `en`, the flow's language.
  */
 const languageOf = (root: string) => locale.projectLanguage(root);
 
