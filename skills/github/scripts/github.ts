@@ -2101,7 +2101,8 @@ export function epicPrefix(title: string): string | null {
 export interface NewTask {
   title: string;
   body: string;
-  type: string;
+  /** The issue type; not given — a task. A personal account keeps none but the epic's label: a line says so. */
+  type?: string | undefined;
   epic?: number | undefined;
   milestone?: string | undefined;
   blockedBy: number[];
@@ -2137,7 +2138,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const org = ctx ? ctx.repo.owner.org : rest(io, `repos/${slug}`).owner?.type === "Organization";
 
   // All checks come before creating: a task mustn't appear half-made. The type — a name in any dictionary language.
-  const type = typeAliases()[task.type.toLowerCase()];
+  const type = typeAliases()[(task.type ?? N.issueTypes.task).toLowerCase()];
   if (!type) throw new GhError(`--type: ${issueTypes().join(", ")}`);
   // the estimate needs the branch type: a bug's branch is fix/<N>-…, an epic has no branch and no estimate of its own
   const branchType = task.branchType?.trim().toLowerCase() || (type === N.issueTypes.bug ? "fix" : "");
@@ -2149,8 +2150,9 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   // in the cloud the organization's types aren't readable (`orgs/…` — 403): the type goes by name, GitHub checks it
   const issueType = org && ctx ? ctx.repo.owner.issueTypes.find((t) => t.name === o.type && t.isEnabled) : undefined;
   if (org && ctx && !issueType) throw new GhError(`the organization has no enabled type ${q(o.type)} — github project fix`);
-  if (!org && o.priority) throw new GhError("a personal account has no issue fields — no priority is kept, --priority isn't needed");
-  if (org && !ctx && o.priority && !(PRIORITIES as readonly string[]).includes(o.priority)) throw new GhError(`--priority: ${PRIORITIES.join(", ")}`);
+  // a personal account keeps neither a priority nor a Task/Bug type (#682): the flags are taken alike — the task is
+  // created, a ○ line says what wasn't kept; a priority is still checked: a typo is a typo in either account
+  if ((!org || !ctx) && o.priority && !(PRIORITIES as readonly string[]).includes(o.priority)) throw new GhError(`--priority: ${PRIORITIES.join(", ")}`);
   let priority: { fieldId: string; optionId: string; name: string } | null = null;
   if (org && ctx) {
     const f = ctx.repo.owner.issueFields.find((x) => x.name === PRIORITY);
@@ -2295,6 +2297,8 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
 
   io.out(`Created #${created.number} ${created.title} — ${created.url}`);
   for (const d of done) io.out(`+ ${d}`);
+  if (!org && o.priority) io.out(`○ ${PRIORITY} ${q(o.priority)} isn't kept: a personal account has no issue fields`);
+  if (!org && task.type !== undefined && o.type !== N.issueTypes.epic) io.out(`○ type ${q(o.type)} isn't kept: a personal account has no issue types, only an epic gets its label`);
   for (const l of epicLabels) io.out(l);
   const isEpicType = o.type === N.issueTypes.epic;
   if (!ctx) {
@@ -5650,7 +5654,7 @@ export function main(argv: string[], io: Io): number {
         const blockedBy = (values["blocked-by"] ?? "").split(",").filter((x) => x.trim()).map((x) => issueNumber(x, "--blocked-by"));
         const epic = values.epic === undefined ? undefined : issueNumber(values.epic, "--epic");
         const labels = (values.labels ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-        return cmdTaskNew(io, slug, { title: values.title, body, type: values.type ?? N.issueTypes.task, epic, milestone: values.milestone, blockedBy, priority: values.priority, labels, branchType: values["branch-type"] });
+        return cmdTaskNew(io, slug, { title: values.title, body, type: values.type, epic, milestone: values.milestone, blockedBy, priority: values.priority, labels, branchType: values["branch-type"] });
       }
       if (cmd === "queue") {
         if (values.cloud && !values.assignment) throw new GhError("--cloud — only with --assignment <N>: the brief of one task's cloud executor");

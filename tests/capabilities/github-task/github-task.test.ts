@@ -127,6 +127,24 @@ describe("task new заводит задачу со всем сразу", () => 
     expect(byOp(f, "CreateIssue").map((m) => Object.keys(m).sort())).toEqual([["body", "projectV2Ids", "repositoryId", "title"]]);
   });
 
+  // канон требует Priority у открытой задачи (#682): агент, который его ставит, не теряет вызов — задача создаётся,
+  // строка ○ говорит, что личный аккаунт приоритет и тип не хранит
+  it("task new в личном аккаунте с --priority — задача создаётся, строка ○: личный аккаунт не хранит приоритет", () => {
+    const f = new FakeGitHub(REC);
+    const r = task(f, ["new", "--branch-type", "feat", "--title", "Экспорт", "--priority", "High"]);
+    expect(r.code).toBe(0);
+    expect(byOp(f, "CreateIssue")[0]).not.toHaveProperty("issueFields");
+    expect(r.out).toContain("○ Priority «High» isn't kept: a personal account has no issue fields");
+  });
+
+  it("task new в личном аккаунте с --type Bug — строка ○: личный аккаунт не хранит тип задачи", () => {
+    const f = new FakeGitHub(REC);
+    const r = task(f, ["new", "--title", "Падает экспорт", "--type", "Bug"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("○ type «Баг» isn't kept: a personal account has no issue types, only an epic gets its label");
+    expect(task(f, ["new", "--branch-type", "feat", "--title", "Импорт"]).out).not.toContain("○ type");
+  });
+
   it("milestone — по названию среди открытых", () => {
     const f = new FakeGitHub(REC);
     const m = f.milestone("GitHub · 1 · Проект");
@@ -193,7 +211,7 @@ describe("task new заводит задачу со всем сразу", () => 
       f.issue(49).title = "Обновить флоу ai-dev";
       refused(f, ["--title", "Обновить флоу Elves"], "an open task with this title already exists: #49 («Обновить флоу ai-dev» — its title before the flow's rename)");
     });
-    it("в личном аккаунте --priority — приоритет там не ведём", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--priority", "High"], "a personal account has no issue fields"));
+    it("в личном аккаунте чужое значение --priority — ошибка, как в организации", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--priority", "P1"], "--priority: Urgent, High, Medium, Low"));
     it("блокера нет в репозитории", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--blocked-by", "999"], "no issue #999 in miroshnik/elves"));
     it("проекта нет — сначала project fix", () => {
       const f = new FakeGitHub(REC);
@@ -702,6 +720,14 @@ describe("В организации задача получает тип issue �
     expect(byOp(f, "CreateIssue")[0]).toMatchObject({ issueTypeId: "IT_1", issueFields: [{ fieldId: "IFSS_priority", singleSelectOptionId: "IFO_medium" }] });
     expect(r.out).toContain("+ type «Задача»");
     expect(r.out).toContain("+ Priority «Medium»");
+  });
+
+  it("task new в организации с --priority High — у задачи Priority High, как прежде", () => {
+    const f = org();
+    const r = task(f, ["new", "--branch-type", "fix", "--title", "Падает экспорт", "--type", "Bug", "--priority", "High"], ORG);
+    expect(byOp(f, "CreateIssue")[0]).toMatchObject({ issueTypeId: "IT_2", issueFields: [{ fieldId: "IFSS_priority", singleSelectOptionId: "IFO_high" }] });
+    expect(r.out).toContain("+ Priority «High»");
+    expect(r.out).not.toContain("○");
   });
 
   it("подзадача срочнее эпика — Priority эпика поднимается до неё; не срочнее — эпик не трогается", () => {
