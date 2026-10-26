@@ -1,7 +1,8 @@
 /**
- * eslint-config — assembling ESLint rules from the spec tree: a standard's rule lives as an `eslint.ts` fragment
- * (default — a flat config object or array) in its folder, next to the examples and the reason, and the project's
- * `eslint.config.*` only collects the fragments — `lint` and the editor see the rule as usual:
+ * eslint-config — assembling ESLint rules from the spec tree: a standard's rule lives as a fragment (default — a flat
+ * config object or array) in its topic folder, next to the examples and the reason — the topic's `eslint.ts` or a
+ * section's `<section>.eslint.ts`, so each standard of a topic keeps its own —, and the project's `eslint.config.*`
+ * only collects the fragments — `lint` and the editor see the rule as usual:
  *
  *   import { collectEslint } from "@miroshnik/elves/spec/eslint-config";
  *   export default [...base, ...(await collectEslint(import.meta.dirname))];
@@ -20,12 +21,13 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const FRAGMENT = new Set(["eslint.ts", "eslint.mts", "eslint.mjs", "eslint.js"]);
+/** A topic's fragment `eslint.ts` or a section's `<section>.eslint.ts` (`.mts`, `.mjs`, `.js` too). */
+const FRAGMENT = /^(?:[^.]+\.)?eslint\.(?:ts|mts|mjs|js)$/;
 const SKIP = new Set(["node_modules", ".git"]);
 // test helpers, not the spec: `spec-doc` skips them too
 const SKIP_REL = new Set(["tests/lib"]);
 
-/** Paths of `eslint.ts` fragments in the directories (by default `tests/`), in order. */
+/** Paths of the topics' `eslint.ts` and the sections' `<section>.eslint.ts` fragments in the directories (by default `tests/`), in order. */
 export function eslintFragments(root: string, dirs: string[] = ["tests"]): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -39,7 +41,7 @@ export function eslintFragments(root: string, dirs: string[] = ["tests"]): strin
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
         if (!SKIP.has(e.name) && !SKIP_REL.has(path.relative(root, full).split(path.sep).join("/"))) walk(full);
-      } else if (FRAGMENT.has(e.name)) out.push(full);
+      } else if (FRAGMENT.test(e.name)) out.push(full);
     }
   };
   for (const d of dirs) walk(path.join(root, d));
@@ -67,7 +69,7 @@ const SPEC_PLUGIN: { meta: { name: string }; rules: Record<string, object> } = {
 
 /**
  * A standard's ban by AST selectors (as in `no-restricted-syntax`) — as its own rule `spec/<id>` in the shared `spec`
- * plugin: bans of different standards on the same files all apply. A standard's `eslint.ts` fragment:
+ * plugin: bans of different standards on the same files all apply. A standard's fragment (`eslint.ts`, `<section>.eslint.ts`):
  *
  *   export default restrict({ id: "no-alert", selectors: ["CallExpression[callee.name='alert']"], message: "…", files: ["src/**"] });
  */

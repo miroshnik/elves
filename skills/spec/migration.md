@@ -143,7 +143,7 @@ a flat decision as a topic of one section. One task, one PR, in this order:
    `<topic>/<name>.md` (the other `<name>.*` files alongside), another test
    file of the folder `<name>/<file>.test.ts` → `<topic>/<name>.<file>.test.ts`
    (by its own name it would be a section of its own), a helper file under the
-   section's prefix (`<name>.preload.ts`), `<name>/exceptions/*.json` → `<topic>/exceptions/<name>/`, a package
+   section's prefix (`<name>.preload.ts`, the ESLint fragment `<name>/eslint.ts` → `<topic>/<name>.eslint.ts`), `<name>/exceptions/*.json` → `<topic>/exceptions/<name>/`, a package
    subfolder `<name>/<package>/` → `<topic>/<package>/`. The moves go in a
    commit of their own, without content edits, so history follows the files
    and `pr labels` reads them as mechanical. Each topic gets `<topic>.md`: its
