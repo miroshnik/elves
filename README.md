@@ -72,14 +72,16 @@ Any decision can be changed — through its check: the check changes first and g
 
 | Decision | Kind | Check | Lives in | Label |
 |---|---|---|---|---|
-| An order survives a restart, a cart lives for the session | functional | an integration test | `tests/capabilities/orders` | 🟩 |
-| The manager sees overdue invoices first | functional | an e2e test | `tests/capabilities/invoices` | 🟩 |
-| Search answers in under 300 ms at 100 requests per second | non-functional, a quality of one capability | a load test with the budget | `tests/capabilities/search` | 🟩 |
-| Every input form has a reset button | non-functional, a standard | "registry + invariant": every form from the code, a test per form | `tests/standards/form-reset` | 🟦 |
-| Code is TypeScript | non-functional, a standard | "registry + invariant": every source file is `.ts` | `tests/standards/typescript` | 🟦 |
+| An order survives a restart, a cart lives for the session | functional | an integration test | `tests/capabilities/orders/persistence` | 🟩 |
+| The manager sees overdue invoices first | functional | an e2e test | `tests/capabilities/invoices/overdue-first` | 🟩 |
+| Search answers in under 300 ms at 100 requests per second | non-functional, a quality of one capability | a load test with the budget | `tests/capabilities/search/latency` | 🟩 |
+| Every input form has a reset button | non-functional, a standard | "registry + invariant": every form from the code, a test per form | `tests/standards/forms/reset-button` | 🟦 |
+| Code is TypeScript | non-functional, a standard | "registry + invariant": every source file is `.ts` | `tests/standards/source-files/typescript` | 🟦 |
 | Data is stored in Postgres | non-functional, architecture | the model: the `db` container and its `pg` client; a module importing another driver — red | `tests/architecture/model.ts` | 🟧 |
 
-**Decision labels** on GitHub tasks name the decision and show its kind by color: 🟩 green — a capability, functional; 🟦 blue — a standard and 🟧 orange — architecture, both non-functional. The color follows where the decision lives, so the budget of one capability, kept next to its behavior, is green; `github project check` holds the colors. How each check is wired — the [`spec`](skills/spec/SKILL.md) skill.
+A decision is a **topic with sections**: the topic is the subject (`orders`, `forms`) — a product area as the user names it, or the kind of element a rule applies to; a section is one statement about it (`reset-button`), with its reason in `<section>.md` and its checks in `<section>.test.ts`. A new rule goes in as a section of the topic whose subject covers it, not as a new folder.
+
+**Decision labels** on GitHub tasks name the topic — a section has none — and show its kind by color: 🟩 green — a capability, functional; 🟦 blue — a standard and 🟧 orange — architecture, both non-functional. The color follows where the decision lives, so the budget of one capability, kept next to its behavior, is green; `github project check` holds the colors. How each check is wired — the [`spec`](skills/spec/SKILL.md) skill.
 
 ## Why
 
@@ -99,7 +101,7 @@ The full canon is [`AGENTS.md`](AGENTS.md); here is what it stands on.
 
 1. **Code is what is; checks are what should be.** Code describes what the system does and how it is built now, so it can't be the source of what should be. What should be lives in checks, and they are all of the project's decisions: functional — tests in `tests/capabilities`, what the system must do; non-functional — architectural (`tests/architecture`, what it's made of) and standards (`tests/standards`, which rules the code obeys and which qualities it holds: performance, security, accessibility). They diverge — red CI, not silent drift. A decision changes through its check: the check first, red on the current code, then the code. → [Specification — decisions](AGENTS.md#specification--decisions)
 2. **No check — no decision.** A decision exists while a mechanism checks it: behavior — a test, a convention — a lint rule or "registry + invariant", architecture — a C1–C3 model with checks over it, a quality — a budget in a capability's test or a standard's cross-cutting invariant. Prose doesn't have to be true; a test fails. Documentation is generated from test names and published to the `spec` branch after merge: it isn't in `main` — a derived copy would conflict in every parallel PR, and review goes by the diff of requirements (`spec-diff`). → [Specification — decisions](AGENTS.md#specification--decisions)
-3. **One fact — one home.** Every fact has exactly one place: a cross-cutting rule — in a standard, behavior — in its capability, a decision's reason — in `<decision>.md` next to its check, the plan and agreements — in the issue, what is shared by all projects — in Elves, what is project-specific — in the project's spec. A copy goes stale silently: that's how specs diverge — a change edits one place out of several. → [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff)
+3. **One fact — one home.** Every fact has exactly one place: a cross-cutting rule — in a standard, behavior — in its capability, a decision's reason — in `<section>.md` next to its check, the plan and agreements — in the issue, what is shared by all projects — in Elves, what is project-specific — in the project's spec. A copy goes stale silently: that's how specs diverge — a change edits one place out of several. → [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff)
 4. **A check must be able to fail.** A test is written before the code and is red first — the decision's acceptance test; green after the code, it stays as its regression test. A regression test is proven by reverting the fix, an inherited one — by breaking the code. A test that can't fail is worse than a missing one. → [Tests and code](AGENTS.md#tests-and-code)
 5. **The issue is the only place to agree.** The goal, `## Questions` with answers, `## Scenarios` — future test names, visible before code; status and links — GitHub fields and relationships. No proposal files, no TODOs, no plan in the agent's memory. → [Task tracking](AGENTS.md#task-tracking)
 6. **Session = task = branch = PR.** Session `#42 …`, branch `feat/42-slug`, `Closes #42` in the PR: work is always linked to a task, so the task has an actual. A session won't take a second task into work (`task status` refuses): it goes to Backlog, and on the owner's "yes" to queuing it — to a background executor, a subagent in its own worktree. → [Session and branch](AGENTS.md#session-and-branch--one-task)
@@ -120,7 +122,7 @@ The full canon is [`AGENTS.md`](AGENTS.md); here is what it stands on.
 | **Agreement before code** | `proposal.md`, `tasks.md` | the issue: `## Questions` and `## Scenarios` — future test names |
 | **A change in the PR** | ADDED / MODIFIED / REMOVED deltas — separate files written by the agent | `spec-diff` from git: added, changed and removed requirements |
 | **Code standards** | text in `config.yaml` and specs | `tests/standards/`: a lint rule or an invariant with a violator, exceptions with a ratchet |
-| **Architecture and "why"** | `design.md` in the change archive | a C1–C3 model with checks; the reason — in `<decision>.md` next to the check |
+| **Architecture and "why"** | `design.md` in the change archive | a C1–C3 model with checks; the reason — in `<section>.md` next to the check |
 | **Qualities** (performance, security, accessibility) | a prose requirement, like behavior | cross-cutting — a "registry + invariant" standard (audit on every mutation, axe on every page); one capability's budget — in its tests |
 | **Documentation** | the specs themselves — read them whole | generated from test names into the `spec` branch |
 | **Uncheckable (look, copy)** | a prose requirement | not called spec — acceptance in the issue; where the look is a decision, it's a screenshot test |

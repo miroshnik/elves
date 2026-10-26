@@ -24,8 +24,9 @@ milestones). When to call each command — `SKILL.md`; syntax —
   (`github task new --type`); `github project fix` configures the
   organization's types. Repositories of a personal account have no types —
   there an epic gets the `epic` label; this is the only exception.
-- **Decision labels** — the decision's name (folder `tests/…/<name>` or a
-  model module) without a kind prefix; the kind is shown by color: capability
+- **Decision labels** — the topic's name (folder `tests/<root>/<topic>` or a
+  model module) without a kind prefix; a section of a topic has no label of
+  its own — its changes label the topic; the kind is shown by color: capability
   green, standard blue, architecture orange; one name across different kinds
   is one label. A code task carries the label of every decision it introduces
   or changes (`github task new --labels`, from the PR diff —
@@ -369,13 +370,18 @@ outside git — ❌, `update` puts it into its commit.
    duplicate) — outside the project.
 8. The repository's open tasks — in the project, each has a `Status`.
 9. Decision labels — by the spec tree of the default branch (via the API): the
-   label name is the decision name (folder
-   `tests/capabilities|standards|architecture/<name>` or a model module), kind
+   label name is the topic name (folder
+   `tests/capabilities|standards|architecture/<topic>` or a model module), kind
    — by color: capability `0E8A16`, standard `1D76DB`, architecture `D93F0B`.
    One name for decisions of different kinds — one label: the color of the
    senior kind (capability → standard → architecture), all paths in the
    description. A decision label is recognized by the description
    `Decision: …`. A decision without a label — the label is created. A label
+   without a decision whose name is a section of exactly one topic of the same
+   root (`tests/<root>/<topic>/<name>.test.ts` or `<name>.md`) — a former
+   decision regrouped into a section: `--confirm` puts the topic's label on
+   every task with it, closed ones too (`est` picks analogs by them), and
+   deletes it; renaming the section afterwards touches no label. A label
    without a decision on an open task — a new decision (`task new` puts it, it
    reaches the default branch with the task's PR): an `○` line with the task
    numbers, item ✅, the label is left alone. A label without a decision and
@@ -647,7 +653,7 @@ repository — an `○` line, the branch is left alone.
 ### pr labels
 
 Decision labels from the PR's changed files (API):
-`tests/capabilities|standards|architecture/<name>/…` — a decision label, a code
+`tests/capabilities|standards|architecture/<topic>/…` — the topic's label, a code
 file — the label of the model module from the PR head (the longest matching
 directory), `tests/lib` and files outside modules aren't decisions. A
 mechanical edit doesn't change a decision and gives no label: a deleted file,

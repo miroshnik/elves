@@ -552,9 +552,9 @@ the project's CI" below.
    workflow fragment is in `ci.md` next to this file.
    All CI on the PR, no tests on `main` — publishing on a PR merge from its
    run's artifact, the second variant in `ci.md`.
-5. **Monorepo** — a decision's tests in package subfolders
-   `tests/<kind>/<name>/<package>/` (`canon.md`, "A decision is the unit of
-   the spec, a folder is its home"): a package has its own runner project with
+5. **Monorepo** — a topic's tests in package subfolders
+   `tests/<kind>/<topic>/<package>/` (`canon.md`, "A decision is a topic with
+   sections; the topic folder is its home"): a package has its own runner project with
    its aliases, environment and plugins, which takes `tests/*/*/<package>/`;
    tests directly in the decision folder are cross-cutting, the root runner
    takes them. Run from the repository root: the harness (`exceptionsIn`,

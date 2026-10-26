@@ -24,7 +24,7 @@
 `reference.md of the github skill`; `README` — `README.md`, `CLAUDE.md` — `claude/CLAUDE.md`.
 
 Инвариант — в файле есть раздел, который называется так: заголовок `#…` или жирное начало пункта списка
-(`- **A decision is the unit of the spec…**` — так разбит `canon.md` спеки). Название — начало заголовка до конца или
+(`- **A decision is a topic with sections…**` — так разбит `canon.md` спеки). Название — начало заголовка до конца или
 знака препинания: `"Task tracking"` находит `## Task tracking — structure`, `"Task"` — нет.
 
 Ссылка в другой форме проверкой не видна — пиши в одной из перечисленных. Отвергнуто: разбирать любую кавычку рядом с
