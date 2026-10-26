@@ -88,7 +88,8 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 
 - Tasks live in the repository's **GitHub Issues**, not in local lists, TODO
   files or the agent's task list; no repository — ask where. The `github`
-  skill runs them, not `gh issue view`/`edit`; how tasks, the project and
+  skill runs them, not `gh issue view`/`edit` (descriptions — `task
+  edit`); how tasks, the project and
   milestones are organized — its `reference.md`.
 - **Types:** Task (one PR), Bug, Epic (a personal account — the `epic`
   label). **Decision labels** — the topic's name, kind by color: a task
