@@ -118,13 +118,6 @@ Not `env` and not `globalEnv`: they go into the cache hash, while
 machine. A script in `slot` calls turbo without pass-through — `install` and
 `check` warn with a ready-made line.
 
-**The flow's former name.** Before the rename the variables were
-`AI_DEV_SLOT` and `AI_DEV_SLOT_CPUS`: `slot` exports them too, with the same
-values, and either name marks a nested call — a project's runner configs and
-`turbo.json` keep working until they are renamed, and so does the slot of a
-project copy `update` hasn't brought yet. `check` names `turbo.json` that
-passes only the former names, with the line to put.
-
 ## Queue
 
 A run's ticket is a file `<time>-<pid>` in `slots/` of the personal
@@ -139,8 +132,7 @@ goes to `elves/slots` of the temp directory (`$TMPDIR`; Claude Code's sandbox
 gives all sessions of the user one), and the queue is read from all places at
 once, Claude Code's temp directory (`$CLAUDE_TMPDIR`) included — runs inside
 and outside the sandbox wait for each other; a human's terminal doesn't see
-the sandbox's runs; the tickets of an earlier release's slot in
-`ai-dev/slots` of the temp directory count too. The checks run in the sandbox,
+the sandbox's runs. The checks run in the sandbox,
 without disabling it. No
 place takes the ticket — one line `slot: running without the queue — …` and
 the command runs anyway.

@@ -49,9 +49,8 @@ task's own Compose project, and nothing of it is shared with other tasks.
 | profiles | `--profile <name>` (repeated) goes to Compose: a heavy service in `profiles` runs only in a task that asks for it |
 | addresses | HTTP services of `env.http` — `http://<service>.<N>.<project>.localhost` (the proxy's port when it isn't 80); a published port — `127.0.0.1:<host port> → <port>` |
 
-The settings — `env.http` in the project's `.agents/elves.json` (an install from before the rename — in
-`.agents/ai-dev.json` until `update` moves it), a service → its HTTP port inside the container (`install` and `update`
-keep the field): in a compose file a database's port doesn't differ from an app's.
+The settings — `env.http` in the project's `.agents/elves.json`, a service → its HTTP port inside the container
+(`install` and `update` keep the field): in a compose file a database's port doesn't differ from an app's.
 
 ```json
 { "env": { "http": { "web": 3000, "admin": 5173 } } }
@@ -131,10 +130,6 @@ removes it for good). Routes follow Docker events — no reload; an unknown host
 skill update brings the container to the new compose file. Its network, health and the API the dashboard reads
 addresses from — reference.md, "The proxy".
 
-**Before the rename** the proxy was `ai-dev-proxy`. `proxy up` (and `up`, which starts the proxy) takes its place:
-removes its container, which holds the port. Its network the proxy doesn't join: a stack brought up before the rename
-gets its addresses back by `up` again — reference.md, "The proxy before the rename".
-
 ## Compose file isolation rules
 
 The task's stack is the Docker Compose project `<project>-<N>`, and Compose
@@ -169,8 +164,7 @@ daemon — reference.md, "What the compose file check reads".
 
 - `ELVES_PROXY` — the proxy's name: its Compose project and network
   (default `elves-proxy`); `ELVES_PROXY_PORT` — its port on `127.0.0.1`
-  (default 80; unset — `AI_DEV_PROXY_PORT`, its name before the rename, if a
-  profile still sets it). Tests run their own proxy with them next to the
+  (default 80). Tests run their own proxy with them next to the
   machine's one. Port 80 busy — another port, and the addresses carry it:
   `http://web.42.shop.localhost:8080`. The defaults live only in the script
   (`proxyName`, `proxyPort`): it passes them to the compose file explicitly,

@@ -328,16 +328,16 @@ board.
 Names of views, `Status` options, fields, issue types and label markers here
 and below are the `en` ones (in the project language — `locales/<language>.json`
 of the `github` skill). The project language — `language` in
-`.agents/elves.json` of the checkout the script runs from (until `update` moves
-it — the former `.agents/ai-dev.json`; module `scripts/locale.ts`). Views,
+`.agents/elves.json` of the checkout the script runs from (module
+`scripts/locale.ts`). Views,
 `Status` options, fields and issue types named in another language of the
 dictionary — ❌, `fix` renames them keeping the ids
 (task values and the «Item closed» target survive; with tasks in the project —
 after `--confirm`); a decision label with a marker in another language — its
 description is rewritten.
 
-No manifest at the checkout's root (the nearest directory up with `.git`),
-under the former name either — the language is unknown (#681): a fresh
+No manifest at the checkout's root (the nearest directory up with `.git`) —
+the language is unknown (#681): a fresh
 worktree of a project that keeps `.agents/` out of git got the `en` names and
 checked its `ru` project against them. The commands that write the canon's
 names to GitHub or check the project against them — `project check`, `project
@@ -402,9 +402,7 @@ outside git — ❌, `update` puts it into its commit.
     each of the last 10 merged PRs (by the latest run; skipped or neutral
     isn't green here), bypass — the admin role (the owner's direct
     push). Its own ruleset keeps being checked: disabled, with strict or
-    without bypass — fixed; under the flow's former name `ai-dev` (set by a
-    `fix` before the rename to Elves) — its own too, `fix` renames it to
-    `elves` with the same edit; a required check that the fresh head lacks (the
+    without bypass — fixed; a required check that the fresh head lacks (the
     last merged PR, an open PR with finished checks) leaves the list —
     otherwise a PR would wait for it forever; a new stable one is added.
     Someone else's rule with required checks — ✅, with strict or without: no

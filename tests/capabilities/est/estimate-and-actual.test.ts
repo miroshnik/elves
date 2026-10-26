@@ -1377,31 +1377,6 @@ describe("Облачная сессия считается по событиям
     expect(bad.status).toBe(1);
     expect(bad.stderr).toContain("not a cloud session export");
   });
-
-  /**
-   * Каталог личной конфигурации до переименования флоу в Elves звался `~/.config/ai-dev`, переносит его `update -g`:
-   * до переноса реестр, цены и кэш est — в прежнем, на чистой машине — сразу в новом. Выгрузка ложится туда же.
-   */
-  it("est берёт каталог личной конфигурации ~/.config/elves, пока его нет — прежний ~/.config/ai-dev; ELVES_CONFIG_DIR, иначе прежняя AI_DEV_CONFIG_DIR", () => {
-    const file = exportFile(events());
-    // переменные профиля владельца прогона не в счёт: пустая — тоже «не задана»
-    const stored = (env: Record<string, string>) => {
-      const r = spawnSync("bun", [EST, "cloud-import", file], { encoding: "utf8", env: { ...process.env, ELVES_CONFIG_DIR: "", AI_DEV_CONFIG_DIR: "", CLAUDE_CODE_REMOTE: "", ...env } });
-      expect(r.status).toBe(0);
-      return path.relative(env.HOME ?? dir, r.stdout.trim().split(" → ").at(-1)!);
-    };
-    const home = (...dirs: string[]) => {
-      const h = path.join(dir, `home-${dirs.join("-") || "clean"}`);
-      for (const d of ["", ...dirs]) mkdirSync(path.join(h, d), { recursive: true });
-      return h;
-    };
-    const at = (config: string) => path.join(config, "cloud", "o", "r", `${SESSION}.json`);
-    expect(stored({ HOME: home(".config/ai-dev") })).toBe(at(".config/ai-dev"));
-    expect(stored({ HOME: home(".config/ai-dev", ".config/elves") })).toBe(at(".config/elves"));
-    expect(stored({ HOME: home() })).toBe(at(".config/elves"));
-    expect(stored({ HOME: home(), AI_DEV_CONFIG_DIR: path.join(dir, "former") })).toBe(at("../former"));
-    expect(stored({ HOME: home(), AI_DEV_CONFIG_DIR: path.join(dir, "former"), ELVES_CONFIG_DIR: path.join(dir, "elves") })).toBe(at("../elves"));
-  });
 });
 
 /**

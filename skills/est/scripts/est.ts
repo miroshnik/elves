@@ -15,7 +15,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -29,12 +29,8 @@ type Any = any;
 const HOME = os.homedir();
 // The skill's personal state (repository registry, prices, cache) lives in an agent-neutral directory:
 // $ELVES_CONFIG_DIR, otherwise ~/.config/elves — one expression in all scripts (the Elves config-dir standard):
-// github pins a task to a session in the same directory. The flow's former names are read for the transition:
-// AI_DEV_CONFIG_DIR — a variable the owner may have set in the profile; ~/.config/ai-dev — the directory of a machine
-// before `update -g` moved it, while the new one doesn't exist; a clean machine gets the new one. The old
-// ~/.claude/est moves automatically (see ensureConfigDir), leaving a symlink in its place.
-export const EST_DIR = process.env.ELVES_CONFIG_DIR || process.env.AI_DEV_CONFIG_DIR || [path.join(HOME, ".config", "elves"), path.join(HOME, ".config", "ai-dev")].find((d) => existsSync(d)) || path.join(HOME, ".config", "elves");
-const LEGACY_EST_DIR = path.join(HOME, ".claude", "est");
+// github pins a task to a session in the same directory.
+export const EST_DIR = process.env.ELVES_CONFIG_DIR || path.join(HOME, ".config", "elves");
 export const REGISTRY_PATH = path.join(EST_DIR, "repos.json");
 const CACHE_DIR = path.join(EST_DIR, "cache");
 // Actual sources: Claude Code transcripts (~/.claude/projects), Codex sessions (~/.codex/sessions) and event exports
@@ -46,21 +42,7 @@ export const CLOUD_DIR = path.join(EST_DIR, "cloud");
 // line owner/repo#N — direct evidence "this session worked on this task", stronger than any feature in the transcript.
 export const PINS_DIR = path.join(EST_DIR, "sessions");
 
-// Move only while the directory doesn't exist: before the move github puts pins into the old directory and doesn't
-// create the new one (github.ts, configDir) — otherwise the registry and prices would stay in the old one.
 function ensureConfigDir(): void {
-  let legacyDir = false;
-  try {
-    legacyDir = !lstatSync(LEGACY_EST_DIR).isSymbolicLink() && statSync(LEGACY_EST_DIR).isDirectory();
-  } catch {
-    legacyDir = false;
-  }
-  if (legacyDir && !existsSync(EST_DIR)) {
-    mkdirSync(path.dirname(EST_DIR), { recursive: true });
-    renameSync(LEGACY_EST_DIR, EST_DIR);
-    symlinkSync(EST_DIR, LEGACY_EST_DIR);
-    console.error(`est state moved: ${LEGACY_EST_DIR} → ${EST_DIR} (symlink left in place)`);
-  }
   mkdirSync(EST_DIR, { recursive: true });
 }
 

@@ -922,64 +922,6 @@ describe("task status берёт в работу одну задачу на се
     expect(existsSync(path.join(config, "sessions"))).toBe(false);
   });
 
-  /**
-   * `est` переносит старый `~/.claude/est` в каталог конфигурации, только пока того нет: создай его гард первым — `est`
-   * молча останется без реестра и цен. Пока переноса не было, каталог конфигурации и есть старый — закрепление ложится
-   * в него и переедет вместе с ним.
-   */
-  it("каталога конфигурации ещё нет, а старый ~/.claude/est на месте — закрепление ложится в него: перенос est не сорван", () => {
-    const f = new FakeGitHub(REC);
-    const home = scratch();
-    const legacy = path.join(home, ".claude", "est");
-    mkdirSync(legacy, { recursive: true });
-    writeFileSync(path.join(legacy, "repos.json"), "{}\n");
-    const io = { env: { CLAUDE_CODE_SESSION_ID: SESSION, HOME: home } };
-    expect(task(f, ["status", "49", "В работе"], REPO, io).code).toBe(0);
-    expect(existsSync(path.join(home, ".config"))).toBe(false);
-    expect(pinned(legacy)).toBe("miroshnik/elves#49");
-    const r = task(f, ["status", "42", "В работе"], REPO, io);
-    expect(r.code).toBe(2);
-    expect(r.err).toContain(`pin: ${pinFile(legacy)}`);
-  });
-
-  /**
-   * Каталог личной конфигурации до переименования флоу в Elves звался `~/.config/ai-dev`; переносит его `update -g`.
-   * До переноса закрепление ложится в прежний — туда, где его ищет est; на чистой машине — сразу в новый.
-   */
-  it("каталог конфигурации — ~/.config/elves; пока его нет, а прежний ~/.config/ai-dev есть, — прежний: машина до update -g", () => {
-    const pinIn = (home: string) => {
-      const f = new FakeGitHub(REC);
-      expect(task(f, ["status", "49", "В работе"], REPO, { env: { CLAUDE_CODE_SESSION_ID: SESSION, HOME: home } }).code).toBe(0);
-    };
-    const before = scratch();
-    mkdirSync(path.join(before, ".config", "ai-dev"), { recursive: true });
-    pinIn(before);
-    expect(pinned(path.join(before, ".config", "ai-dev"))).toBe("miroshnik/elves#49");
-    expect(existsSync(path.join(before, ".config", "elves"))).toBe(false);
-
-    const after = scratch();
-    for (const d of ["ai-dev", "elves"]) mkdirSync(path.join(after, ".config", d), { recursive: true });
-    pinIn(after);
-    expect(pinned(path.join(after, ".config", "elves"))).toBe("miroshnik/elves#49");
-    expect(existsSync(pinFile(path.join(after, ".config", "ai-dev")))).toBe(false);
-
-    const clean = scratch();
-    pinIn(clean);
-    expect(pinned(path.join(clean, ".config", "elves"))).toBe("miroshnik/elves#49");
-    expect(existsSync(path.join(clean, ".config", "ai-dev"))).toBe(false);
-  });
-
-  it("каталог конфигурации задаёт ELVES_CONFIG_DIR; прежняя AI_DEV_CONFIG_DIR из профиля владельца — запасная", () => {
-    const [elves, former] = [scratch(), scratch()];
-    const f = new FakeGitHub(REC);
-    expect(task(f, ["status", "49", "В работе"], REPO, { env: { CLAUDE_CODE_SESSION_ID: SESSION, AI_DEV_CONFIG_DIR: former } }).code).toBe(0);
-    expect(pinned(former)).toBe("miroshnik/elves#49");
-    const g = new FakeGitHub(REC);
-    expect(task(g, ["status", "49", "В работе"], REPO, { env: { CLAUDE_CODE_SESSION_ID: "other-session", ELVES_CONFIG_DIR: elves, AI_DEV_CONFIG_DIR: former } }).code).toBe(0);
-    expect(pinned(elves, "other-session")).toBe("miroshnik/elves#49");
-    expect(existsSync(pinFile(former, "other-session"))).toBe(false);
-  });
-
   // каталог конфигурации бывает симлинком на личный чекаут (ELVES_PRIVATE при install -g)
   it("каталог конфигурации — чекаут git: закрепления в него не коммитятся — sessions/ закрыт своим .gitignore", () => {
     const f = new FakeGitHub(REC);

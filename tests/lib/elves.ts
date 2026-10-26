@@ -3,7 +3,7 @@
  * правками, снимок дерева. Не спека — в документацию не попадает.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -174,38 +174,6 @@ export function loadedAtStart(home: string, dir: string, top: string): string[] 
     return (lstatSync(at, { throwIfNoEntry: false }) ? readdirSync(at) : []).filter((f) => f.endsWith(".md")).flatMap((f) => real(path.join(at, f)));
   };
   return [...memory, ...rules(home), ...rules(dir)];
-}
-
-/**
- * Установка прошлого релиза — до переименования флоу в Elves (#545) — из свежей установки в root (проект или HOME):
- * то же содержимое под прежними именами, как его писал тогдашний установщик, — манифест `.agents/ai-dev.json`, канон
- * `.agents/ai-dev/`, симлинки правил `.claude/rules/ai-dev.md` и `ai-dev-claude.md` в него, блоки `ai-dev:begin` …
- * `ai-dev:end` в AGENTS.md и .gitignore с путями прежних имён.
- */
-export function toFormer(root: string) {
-  const at = (rel: string) => path.join(root, rel);
-  const exists = (rel: string) => lstatSync(at(rel), { throwIfNoEntry: false }) !== undefined;
-  for (const [from, to] of [
-    [".agents/elves.json", ".agents/ai-dev.json"],
-    [".agents/elves", ".agents/ai-dev"],
-  ] as const) {
-    if (exists(from)) renameSync(at(from), at(to));
-  }
-  for (const [from, to] of [
-    ["elves.md", "ai-dev.md"],
-    ["elves-claude.md", "ai-dev-claude.md"],
-  ] as const) {
-    const rel = `.claude/rules/${from}`;
-    if (!exists(rel)) continue;
-    const target = readlinkSync(at(rel)).replace(".agents/elves/", ".agents/ai-dev/");
-    rmSync(at(rel));
-    symlinkSync(target, at(`.claude/rules/${to}`));
-  }
-  for (const rel of ["AGENTS.md", ".gitignore"]) {
-    if (!exists(rel)) continue;
-    const text = readFileSync(at(rel), "utf8");
-    writeFileSync(at(rel), text.replace(/\belves:(begin|end)\b/g, "ai-dev:$1").replace(/\.agents\/elves\b/g, ".agents/ai-dev").replace(/rules\/elves\b/g, "rules/ai-dev"));
-  }
 }
 
 /** Дерево каталога: путь → содержимое файла или «-> цель» симлинка; в `.git` не заходит. */

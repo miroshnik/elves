@@ -83,7 +83,7 @@ afterEach(() => {
  */
 function envOf(extra: Record<string, string> = {}) {
   const env: Record<string, string | undefined> = { ...process.env, ELVES_CONFIG_DIR: config, TMPDIR: tmp, ...extra };
-  for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "AI_DEV_SLOT", "AI_DEV_SLOT_CPUS", "AI_DEV_CONFIG_DIR", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) if (!(k in extra)) delete env[k];
+  for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) if (!(k in extra)) delete env[k];
   return env;
 }
 
@@ -284,21 +284,6 @@ describe("Скрипт package.json берёт слот своим shell, ком
     release("a");
   });
 
-  // slot прошлого релиза — в проекте, копию которого update ещё не принёс: его вложенный вызов, конфиги раннеров и
-  // turbo.json проекта знают только прежние имена переменных
-  it("slot экспортирует ELVES_SLOT, ELVES_SLOT_CPUS и AI_DEV_SLOT, AI_DEV_SLOT_CPUS; вложенный вызов только с AI_DEV_SLOT своего слота не ждёт", async () => {
-    hold("a");
-    await until(() => started("a"), "один слот занят");
-    const r = runScript(`echo "$ELVES_SLOT|$ELVES_SLOT_CPUS|$AI_DEV_SLOT|$AI_DEV_SLOT_CPUS" && sh -c 'unset ELVES_SLOT ELVES_SLOT_CPUS; ${SCRIPT}echo inner'`);
-    expect(exitOf(r)).toBe(0);
-    const [slot, cpus, formerSlot, formerCpus] = r.stdout.split("\n")[0]!.split("|");
-    expect(slot).toMatch(/^\d+-\d+$/);
-    expect(cpus).toBe(String(Math.max(1, Math.floor(os.availableParallelism() / 4))));
-    expect([formerSlot, formerCpus]).toEqual([slot, cpus]);
-    expect(r.stdout.split("\n")[1]).toBe("inner");
-    release("a");
-  });
-
   it("ожидающий видит команду скрипта, а не шим", async () => {
     holdScript("a", { npm_lifecycle_script: SCRIPT + holding("a") });
     hold("b");
@@ -356,7 +341,7 @@ describe("Скрипт package.json берёт слот своим shell, ком
     const viaSlot = run(["--for", String(b)]);
     expect({ code: exitOf(viaElves), stderr: viaElves.stderr }).toEqual({ code: 0, stderr: "" });
     expect(exitOf(viaSlot)).toBe(0);
-    expect(viaElves.stdout).toMatch(new RegExp(`^export ELVES_SLOT=\\d+-${a} ELVES_SLOT_CPUS=\\d+ `));
+    expect(viaElves.stdout).toMatch(new RegExp(`^export ELVES_SLOT=\\d+-${a} ELVES_SLOT_CPUS=\\d+\n`));
     const shape = (out: string, pid: number) => out.replaceAll(`-${pid}`, "-<shell>").replace(/=\d{15}-/g, "=<time>-");
     expect(shape(viaElves.stdout, a!)).toBe(shape(viaSlot.stdout, b!));
   });
@@ -440,22 +425,6 @@ describe("Песочница агента не роняет очередь", () 
     await until(() => started("c"), "третья стартовала после первой");
     for (const n of ["b", "c"]) release(n);
     expect([await b.done, await c.done]).toEqual([0, 0]);
-  });
-
-  // slot прошлого релиза в песочнице кладёт билет в ai-dev/slots временного каталога
-  it("очередь видит билеты slot прошлого релиза в ai-dev/slots временного каталога", async () => {
-    const former = path.join(tmp, "ai-dev", "slots");
-    mkdirSync(former, { recursive: true });
-    const sleeper = spawn("sleep", ["60"], { detached: true });
-    running.push(sleeper);
-    for (const pid of [process.pid, sleeper.pid!]) writeFileSync(path.join(former, `${String(Date.now()).padStart(15, "0")}-${pid}`), JSON.stringify({ cwd: dir, cmd: "bun test" }));
-    const c = hold("c");
-    await waiting(c, "команда за билетами прежнего slot");
-    expect(started("c")).toBe(false);
-    process.kill(sleeper.pid!, "SIGKILL");
-    await until(() => started("c"), "команда стартовала после убитого прежнего прогона");
-    release("c");
-    expect(await c.done).toBe(0);
   });
 
   it("очереди нет — одна строка предупреждения, команда идёт без неё", () => {
