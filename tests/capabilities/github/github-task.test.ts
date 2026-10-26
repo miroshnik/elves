@@ -4021,7 +4021,7 @@ describe("Выпуск пачки — один PR в main", () => {
     const r = queueIn(f, work, config);
     expect(headLines(r.out)).toContain(`= #47 «${f.issue(47).title}» — «В работе», PR #300 merged into ${name} — the task closes with the batch's release`);
     expect(r.out.split("\n").at(-1)).toMatch(
-      new RegExp(`^Next: the batch ${name} is complete — nothing ready, every task in work is merged into it: its release — bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves, once no executor of this session is still at work; `),
+      new RegExp(`^Next: the batch ${name} is complete — nothing ready, every task of the batch is merged into it: its release — bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves, once no executor of the batch is still at work; `),
     );
     // живой исполнитель — ждать его; выпуск — словом владельца
     const live = subtaskOf45(f, "Живой исполнитель");
@@ -4030,6 +4030,35 @@ describe("Выпуск пачки — один PR в main", () => {
     const last = queueIn(f, work, config).out.split("\n").at(-1)!;
     expect(last).toStartWith("Next: no ready tasks — wait for the executors' answers; after each — task queue again; ");
     expect(last).toMatch(new RegExp(`; the owner's word to release now — bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves: what is merged into ${name} goes, the live executors go on, no new ones till its merge\\.$`));
+  });
+
+  it("task queue называет выпуск, когда задачи пачки влиты, а задача мимо пачки ещё в работе", () => {
+    const { work, f, config, name } = started();
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    // мимо пачки: PR в main открыт; облачный исполнитель — без PR
+    const hotfix = subtaskOf45(f, "Хотфикс мимо пачки");
+    f.status(hotfix, "В работе");
+    f.prs[301] = { ...batchPr(hotfix, `fix/${hotfix}-hotfix`, "main"), merged: false };
+    const cloud = subtaskOf45(f, "Облачный исполнитель");
+    expect(task(f, ["queue", "--assignment", String(cloud), "--cloud"], REPO, { ...inSession(config), cwd: work, run: noEst }).code).toBe(0);
+    const r = queueIn(f, work, config);
+    expect(headLines(r.out)).toContain(`= #${hotfix} «${f.issue(hotfix).title}» — «В работе», open PR #301 https://github.com/${REPO}/pull/301`);
+    expect(r.out.split("\n").at(-1)).toMatch(
+      new RegExp(
+        `^Next: the batch ${name} is complete — nothing ready, every task of the batch is merged into it: its release — bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves, once no executor of the batch is still at work; past the batch — #${hotfix}, #${cloud}: they don't hold the release; `,
+      ),
+    );
+  });
+
+  it("task queue не называет выпуск, пока исполнитель пачки работает", () => {
+    const { work, f, config, name } = started();
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    // выдан субагенту, PR ещё нет — исполнитель пачки
+    const live = subtaskOf45(f, "Исполнитель пачки");
+    expect(task(f, ["queue", "--assignment", String(live)], REPO, { ...inSession(config), cwd: work, run: noEst }).code).toBe(0);
+    const last = queueIn(f, work, config).out.split("\n").at(-1)!;
+    expect(last).toStartWith("Next: no ready tasks — wait for the executors' answers; after each — task queue again; ");
+    expect(last).not.toContain("is complete");
   });
 
   it("выпуск по слову владельца при живых исполнителях не запускает новых", () => {
