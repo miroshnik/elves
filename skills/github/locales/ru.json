@@ -48,7 +48,8 @@
   "mainRed": {
     "title": "{base} красный",
     "check": "чек {names}",
-    "checks": "чеки {names}"
+    "checks": "чеки {names}",
+    "step": "шаг {name}"
   },
   "release": {
     "title": "выпуск пачки {batch} — {tasks}",

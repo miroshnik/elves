@@ -56,7 +56,7 @@ export interface Names {
   comments: { state: string; actual: string; closedByPr: string; externalBlocker: string };
   subagentPrompt: { task: string; epic: string };
   /** A bug about a red default branch: the title "<base> is red: <checks>". */
-  mainRed: { title: string; check: string; checks: string };
+  mainRed: { title: string; check: string; checks: string; step: string };
   /**
    * The release PR of a dispatcher's batch (`github batch release`, #649): its title after the conventional-commit type
    * and the lead of its body — before the batch's spec-diff and the `Closes #N` of each task merged into the batch.
