@@ -175,7 +175,16 @@ and 45 % of tokens). Turns of a shared PR aren't split into shares — each task
 gets the whole turn. In the marker — `steps`, `steps_agents`, `tail` (a number),
 `preamble`, `ctx_end`.
 
-and on a fourth — the waits, minutes (section "Waits"):
+and on a fourth — the flow's overhead (section "Turn kinds and cache rewrites";
+absent, like the turns, without linked model responses):
+
+`Overhead: flow turns 30, harness 12, checks 15 of 250; cache rewrites after a pause 4 — $2.10.`
+
+The rewrites' $ goes by a shared PR's share, like the tokens; the turns are
+whole. In the marker — `kinds` (`work`, `flow`, `harness`, `checks`, turns to a
+tenth), `rewrites`, `rewrite_usd`.
+
+and on a fifth — the waits, minutes (section "Waits"):
 
 `Waits: CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 15.`
 
@@ -317,8 +326,9 @@ ones without commits (the actual discards them as routines), and those pinned to
 its tasks; no guests (sessions of another repo). Agent time is counted as in the
 actual (section "Waits"), a session's agents — by their union. The script prints the totals and
 the same per PR merged in the period: agent hours (sum over sessions), machine
-hours (union of sessions) and their ratio — parallelism, tokens, output, $, turns,
-subagents, human prompts, $ per 1M tokens; for two periods — the «after / before»
+hours (union of sessions) and their ratio — parallelism, tokens, output, $, turns
+and their $ by kind, cache rewrites after a pause (below, "Turn kinds and cache
+rewrites"), subagents, human prompts, $ per 1M tokens; for two periods — the «after / before»
 ratio, and below the table — the $ share by model for each
 period.
 
@@ -327,6 +337,35 @@ same flow; the flow's effect shows in tokens, output and hours per PR, a rate
 shift — in «$ per 1M tokens» and the $ share by model
 (`est history` prints it too). Work on a PR may have started before the period —
 compare periods longer than a typical task.
+
+### Turn kinds and cache rewrites
+
+The flow's price is in its turns: every turn re-reads the context. The summary
+splits the turns and their $ by kind — in total and per merged PR:
+
+- **flow** — the flow's overhead: its skills' scripts run by path (`github`,
+  `est`, `ci-wait` with the CI waits, `dashboard`, `slot`, `task-env`, `spec`),
+  the installer (`bunx @miroshnik/elves`, `bin/elves.ts`), `gh`, git (but
+  `git grep` and `git blame` — work);
+- **harness** — the agent app's own tools: ToolSearch, the plan and to-dos,
+  background tasks, subagents, skills, the desktop app's `mcp__ccd_*`;
+- **checks** — lint, typecheck, tests, a command under `slot` (the same as the
+  "checks" wait);
+- **work** — the rest: reading, editing, search, other commands, a turn without
+  calls.
+
+A shell command counts by its simple commands (split by `&&`, `;`, `|`), the
+first row of the table that matches wins — `CALL_RULES` in `est.ts`: a new flow
+command is a row there. A turn with calls of several kinds is split between the
+kinds equally.
+
+A **cache rewrite** is a turn after a pause longer than the TTL of its cache
+write — 5 minutes or an hour, by the response's `cache_creation`: the cache
+expired, and the context is written again at the price of a write instead of a
+read. The pause is between two turns' requests of the same agent (the request
+goes after the tool result or the prompt), so a CI wait of 9 minutes with the
+5-minute cache is a rewrite. The summary prints their number and the $ of their
+cache write — in total and per PR.
 
 ## Linking — details
 

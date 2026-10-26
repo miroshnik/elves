@@ -2126,6 +2126,28 @@ describe("Факт — ходы и контекст задачи", () => {
     expect(parseMarker(noSteps, "fact").steps).toBeUndefined();
   });
 
+  it("факт задачи показывает ходы обвязки и $ перезаписей одной строкой", () => {
+    const call = (hms: string, id: string, name: string, command?: string, cw5 = 0) => ({
+      type: "assistant", timestamp: `2026-09-01T${hms}Z`, gitBranch: "feat/42-x",
+      message: {
+        id, model: "claude-opus-5", usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: cw5, cache_creation: { ephemeral_5m_input_tokens: cw5 } },
+        content: [{ type: "tool_use", id: `${id}-t`, name, input: command === undefined ? {} : { command } }],
+      },
+    });
+    const done = (hms: string, id: string) => ({ type: "user", timestamp: `2026-09-01T${hms}Z`, gitBranch: "feat/42-x", message: { content: [{ type: "tool_result", tool_use_id: `${id}-t`, content: "ok" }] } });
+    const s = session([
+      prompt("10:00", "#42 сделай"),
+      call("10:01:00", "f1", "Read"), done("10:01:10", "f1"),
+      call("10:02:00", "f2", "Bash", `bun --no-env-file ~/.agents/skills/github/scripts/github.ts task status 42 "В работе"`), done("10:02:10", "f2"),
+      call("10:03:00", "f3", "ToolSearch"), done("10:03:10", "f3"),
+      call("10:04:00", "f4", "Bash", "bun test tests/x"), done("10:12:00", "f4"), // тесты — 8 минут: кэш на 5 минут истёк
+      call("10:12:10", "f5", "Bash", "gh pr merge 77 --rebase", 160_000), // запись кэша 160 тыс. — $1 у claude-opus-5
+    ]);
+    const body = factCommentBody(fact(s), 0.25, [], 0, null);
+    expect(body).toContain("\nОбвязка: ходов флоу 2, харнесса 1, проверок 1 из 5; перезаписей кэша после паузы 1 — $1.00.\n");
+    expect(parseMarker(body, "fact")).toMatchObject({ kinds: { work: 1, flow: 2, harness: 1, checks: 1 }, rewrites: 1, rewrite_usd: 1 });
+  });
+
   it("история показывает ходы задачи; у факта без признака — прочерк", () => {
     const row = (number: number, steps?: number): Row => ({
       item_id: "", issue_id: "", number, title: `Задача ${number}`, state: "CLOSED", stateReason: "COMPLETED", closedAt: 0, createdAt: 0, labels: [],
@@ -2203,6 +2225,10 @@ describe("Кэш est переживает параллельные запуск�
  * нельзя. Сводка периода берёт все сессии репозитория за период, без привязки к задачам: часы агента (сумма по
  * сессиям), часы машины (объединение сессий) и их отношение — параллельность, токены, выход, стоимость, ходы,
  * субагентов, промпты человека, — и то же на влитой за период PR. Два периода — рядом, с отношением «после / до».
+ *
+ * Мера трат флоу (эпик #663): ходы и их $ по видам — работа, обвязка флоу (его скрипты, gh, git, ожидания CI), харнесс
+ * (инструменты приложения, ToolSearch) и проверки (lint, typecheck, тесты), — и перезаписи кэша: ход после паузы
+ * дольше TTL записи кэша пишет весь контекст заново по цене записи, а не чтения.
  */
 describe("Сводка периода — все сессии репозитория без привязки к задачам", () => {
   const opus = (mid: string): unknown[] => [mid, 0, 0, 40_000, 0, 0, 2_000_000, 0]; // $1 выхода + $1 чтения кэша
@@ -2244,7 +2270,9 @@ describe("Сводка периода — все сессии репозитор
   const cells = (lines: string[] | string, label: string) => (typeof lines === "string" ? lines.split("\n") : lines).find((l) => l.startsWith(label))?.trim().split(/\s{2,}/);
   const period = (o: Partial<Period>): Period => ({
     since: ts("00:00"), until: ts("12:00"), sessions: 5, prs: 4, h: 4 * 3600, machine: 2 * 3600, tok: 40e6, out: 400_000, usd: 40,
-    models: { "claude-fable-5": 30, "claude-opus-5": 10 }, unpriced: [], steps: 400, agents: 8, prompts: 12, ...o,
+    models: { "claude-fable-5": 30, "claude-opus-5": 10 }, unpriced: [], steps: 400,
+    kinds: { work: { steps: 300, usd: 30 }, flow: { steps: 60, usd: 6 }, harness: { steps: 20, usd: 2 }, checks: { steps: 20, usd: 2 } }, rewrites: 0, rewrite_usd: 0,
+    agents: 8, prompts: 12, ...o,
   });
 
   it("сводка периода делит итоги на влитые за период PR", () => {
@@ -2306,6 +2334,101 @@ describe("Сводка периода — все сессии репозитор
     expect(cells(r.stdout, "  cost, $")).toEqual(["cost, $", "2.00", "2.00", "×1"]);
     expect(r.stdout).toContain("claude-opus-5 100 %");
     expect(r.writes).toEqual([]);
+  });
+
+  /** Транскрипт из записей: ход — ответ модели с вызовами инструментов [имя, команда?], без вызовов — текст; $1 выхода. */
+  const transcript = (records: unknown[]) => {
+    const file = path.join(dir, "66466466-0000-4000-8000-000000000664.jsonl");
+    writeFileSync(file, jsonl(records));
+    return parseSessionFile(file);
+  };
+  const turn = (hhmm: string, id: string, calls: [string, string?][]) => ({
+    type: "assistant", timestamp: `2026-09-01T${hhmm}:00Z`, cwd: "/repo", gitBranch: "main",
+    message: {
+      id, model: "claude-opus-5", usage: { input_tokens: 0, output_tokens: 40_000 },
+      content: calls.length ? calls.map(([name, command], k) => ({ type: "tool_use", id: `${id}-${k}`, name, input: command === undefined ? {} : { command } })) : [{ type: "text", text: "готово" }],
+    },
+  });
+
+  it("est period делит ходы PR на работу, обвязку флоу, харнесс и проверки", () => {
+    const s = transcript([
+      { type: "user", timestamp: "2026-09-01T10:00:00Z", cwd: "/repo", gitBranch: "main", message: { role: "user", content: "сделай" } },
+      turn("10:01", "m1", [["Read"]]),
+      turn("10:02", "m2", [["Bash", `bun --no-env-file "$HOME/.agents/skills/github/scripts/github.ts" task status 42 "В работе" --branch feat/42-x`]]),
+      turn("10:03", "m3", [["ToolSearch"]]),
+      turn("10:04", "m4", [["Edit"]]),
+      turn("10:05", "m5", [["Bash", "set -o pipefail; bun run lint 2>&1 | tail -5"]]),
+      turn("10:06", "m6", [["Bash", "cd /repo && git push -u origin feat/42-x"]]),
+      turn("10:07", "m7", [["Bash", "gh pr create --base main --fill"]]),
+      turn("10:08", "m8", [["Bash", "bash ~/.claude/skills/ci-wait/scripts/wait-ci.sh pr 77"]]),
+      turn("10:09", "m9", [["mcp__ccd_session__mark_chapter"]]),
+      turn("10:10", "m10", [["Bash", "grep -rn export src | head"]]),
+      turn("10:11", "m11", []),
+    ]);
+    const p = periodSummary([s], [merged(1, "10:30"), merged(2, "11:00")], ts("09:30"), ts("12:00"));
+    expect(Object.fromEntries(Object.entries(p.kinds).map(([k, v]) => [k, v.steps]))).toEqual({ work: 4, flow: 4, harness: 2, checks: 1 });
+    expect(p.kinds.flow.usd).toBeCloseTo(4, 9); // $ хода — его виду
+    const lines = periodTable([p]);
+    expect(cells(lines, "turns")).toEqual(["turns", "11"]);
+    expect(cells(lines, "  work turns")).toEqual(["work turns", "4"]);
+    expect(cells(lines, "  flow turns")).toEqual(["flow turns", "4"]);
+    expect(cells(lines, "  harness turns")).toEqual(["harness turns", "2"]);
+    expect(cells(lines, "  check turns")).toEqual(["check turns", "1"]);
+    expect(cells(lines, "  flow turns, $")).toEqual(["flow turns, $", "4.00"]);
+    // на влитую PR
+    expect(cells(lines, "    work turns")).toEqual(["work turns", "2"]);
+    expect(cells(lines, "    flow turns")).toEqual(["flow turns", "2"]);
+    expect(cells(lines, "    check turns")).toEqual(["check turns", "0.5"]);
+    expect(cells(lines, "    flow turns, $")).toEqual(["flow turns, $", "2.00"]);
+    expect(lines.join("\n")).toContain("Turn kinds: flow — the flow's scripts, gh, git, CI waits");
+  });
+
+  it("ход с несколькими вызовами делится между их видами поровну", () => {
+    const s = transcript([
+      { type: "user", timestamp: "2026-09-01T10:00:00Z", cwd: "/repo", gitBranch: "main", message: { role: "user", content: "сделай" } },
+      turn("10:01", "m1", [["Read"], ["Grep"], ["Bash", "git status"]]), // три вызова, два вида — по половине хода
+      turn("10:02", "m2", [["Bash", "bun test tests/x"], ["Bash", "gh pr checks 77"], ["TodoWrite"]]), // три вида — по трети
+    ]);
+    const p = periodSummary([s], [], ts("09:30"), ts("12:00"));
+    expect(p.steps).toBe(2);
+    expect(p.kinds.work.steps).toBeCloseTo(1 / 2, 9);
+    expect(p.kinds.flow.steps).toBeCloseTo(1 / 2 + 1 / 3, 9);
+    expect(p.kinds.harness.steps).toBeCloseTo(1 / 3, 9);
+    expect(p.kinds.checks.steps).toBeCloseTo(1 / 3, 9);
+    expect(p.kinds.work.usd).toBeCloseTo(0.5, 9);
+    expect(p.kinds.checks.usd).toBeCloseTo(1 / 3, 9);
+  });
+
+  // ход: [время, uidx, агент]; записи до хода — результат инструмента или промпт, с ними уходит запрос модели
+  const rec = (hms: string, uidx = -1, agent = 0, input = 0) => [Date.parse(`2026-09-01T${hms}Z`) / 1000, "main", input, "", uidx, agent];
+  // запись кэша: cw5 — на 5 минут ($6.25 за 1M у claude-opus-5), cw1 — на час ($10 за 1M)
+  const write = (mid: string, cw5: number, cw1 = 0): unknown[] => [mid, 0, 0, 0, cw5, cw1, 0, 0];
+
+  it("est period считает перезапись кэша после паузы дольше TTL записи", () => {
+    // кэш на 5 минут: после ожидания CI 9 минут ход пишет контекст заново; первый ход агента — не перезапись
+    const five = sess("s5", [
+      rec("10:00:00", -1, 0, 1), rec("10:01:00", 0), rec("10:02:00"), rec("10:02:30", 1), rec("10:11:00"), rec("10:11:20", 2),
+      rec("10:03:00", -1, 1), rec("10:04:00", 3, 1), rec("10:20:00", -1, 1), rec("10:20:10", 4, 1), // субагент — свой поток
+    ].sort((a, b) => (a[0] as number) - (b[0] as number)), [write("a1", 200_000), write("a2", 1000), write("a3", 160_000), write("b1", 50_000), write("b2", 80_000)]);
+    // кэш на час: человек вернулся через 70 минут
+    const hour = sess("s1", [rec("10:00:00", -1, 0, 1), rec("10:01:00", 0), rec("11:11:00", -1, 0, 1), rec("11:11:10", 1)], [write("c1", 0, 100_000), write("c2", 0, 100_000)]);
+    const p = periodSummary([five, hour], [], ts("09:30"), ts("12:00"));
+    expect(p.rewrites).toBe(3);
+    expect(p.rewrite_usd).toBeCloseTo(1 + 0.5 + 1, 9);
+    // пауза — от хода до периода: перезапись в периоде считается и тогда
+    expect(periodSummary([five], [], ts("10:05"), ts("12:00")).rewrites).toBe(2);
+    const lines = periodTable([p]);
+    expect(cells(lines, "cache rewrites after a pause > TTL")).toEqual(["cache rewrites after a pause > TTL", "3"]);
+    expect(cells(lines, "  their cache write, $")).toEqual(["their cache write, $", "2.50"]);
+  });
+
+  it("запись после паузы короче TTL — не перезапись", () => {
+    // 5 минут: пауза 4 минуты; час: пауза 40 минут; после паузы 9 минут ход без записи кэша — не перезапись
+    const five = sess("s5", [rec("10:00:00", -1, 0, 1), rec("10:01:00", 0), rec("10:04:00"), rec("10:04:10", 1), rec("10:13:00"), rec("10:13:10", 2)], [write("a1", 1000), write("a2", 1000), write("a3", 0)]);
+    const hour = sess("s1", [rec("10:00:00", -1, 0, 1), rec("10:01:00", 0), rec("10:40:00", -1, 0, 1), rec("10:40:10", 1)], [write("c1", 0, 100_000), write("c2", 0, 100_000)]);
+    const p = periodSummary([five, hour], [], ts("09:30"), ts("12:00"));
+    expect(p.rewrites).toBe(0);
+    expect(p.rewrite_usd).toBe(0);
   });
 });
 
