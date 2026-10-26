@@ -71,7 +71,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task close <N> [--no-git]
 bun --no-env-file <skill dir>/scripts/github.ts task finish <N> [--timeout 240] [--title "<type>(<scope>): …"]
 bun --no-env-file <skill dir>/scripts/github.ts task resume
 bun --no-env-file <skill dir>/scripts/github.ts task queue [--epic N] [--type Task|Bug] [--priority Urgent,High]
-bun --no-env-file <skill dir>/scripts/github.ts task queue --assignment <N>
+bun --no-env-file <skill dir>/scripts/github.ts task queue --assignment <N> [--main]
 bun --no-env-file <skill dir>/scripts/github.ts batch release
 bun --no-env-file <skill dir>/scripts/github.ts pr labels <PR>
 bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
@@ -153,11 +153,11 @@ owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
 (`"batch": true` in `.agents/elves.json`) — executors merge into the batch
-branch without CI (`reference.md`, "task queue"); `batch release` takes it
+branch without CI (`reference.md`, "task queue"), the owner's «past the
+batch» — `--assignment N --main`: a PR into `main`; `batch release` takes it
 into `main` once the queue's `Next:` names it or on the owner's «release»:
-one CI run, one refresh per epic. Before each launch — `get_usage`: the 5-hour limit at 85% and more —
-no new executors, the running ones finish, then `Remaining: N tasks, the
-limit`. After each executor's answer — `task queue` again: it alone
+one CI run, one refresh per epic. Before each launch — `get_usage` (its
+limit — `reference.md`, "task queue"). After each executor's answer — `task queue` again: it alone
 removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:
 an executor session whose task closed — the dispatcher archives it in an
 auto project, not one still working in the background or awaiting the

@@ -3855,6 +3855,52 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(task(f, ["actualize", String(lone)], REPO).out).toBe(`○ refresh not needed: #${lone} has no epic. Next: no task close — #${lone} is merged into ${name}: it closes with the batch's release.`);
   });
 
+  /**
+   * Пилот пачки (#697): владелец вёл #676 мимо пачки — PR в main с полным CI, пока пачка собиралась; задание вело её в
+   * пачку, решение пришлось вписать в промпт руками. `--main` — задание проекта без пачек, выдача с пометкой.
+   */
+  it("task queue --assignment N --main ведёт задачу мимо пачки: ветка от origin/main, PR в main, деплой и task close", () => {
+    const name = `batch/${day()}-1`;
+    const config = batchSession(name);
+    const f = new FakeGitHub(REC);
+    const assignment = (...more: string[]) => task(f, ["queue", "--assignment", "47", ...more], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
+    const lines = assignment("--main");
+    expect(lines[0]).toContain("ветка от свежего origin/main, код и тесты, PR, зелёный CI, `pr premerge`, мерж, деплой, актуализация эпика");
+    expect(lines[0]).not.toContain("пачк");
+    expect(lines[1]).toBe(
+      `- задача идёт мимо пачки диспетчера \`${name}\` — слово владельца: ветка задачи от свежего origin/main, а не от пачки, PR в ветку по умолчанию (не \`--base ${name}\`) с полным CI, деплой, актуализация эпика и \`task close\` — твои, как в проекте без пачек; выпуск пачки тебя не ждёт;`,
+    );
+    expect(lines.some((l) => l.includes("wait-ci.sh"))).toBe(true);
+    expect(lines.find((l) => l.startsWith("- актуализация эпика —"))).toContain("task close 47");
+    expect(readFileSync(path.join(config, "dispatchers", `${SESSION}.tasks`), "utf8")).toBe(`${REPO}#47 @main\n`);
+    // перезапуск исполнителя — тем же заданием без --main: выдача помнит путь мимо пачки
+    expect(assignment()[1]).toBe(lines[1]);
+    // сессия-исполнитель приложения — так же
+    const session = assignment("--session", "--main");
+    expect(session[0]).toContain("ветка от свежего origin/main");
+    expect(session[1]).toBe(lines[1]);
+    // без --assignment флаг не принимается
+    expect(task(f, ["queue", "--epic", "45", "--main"], REPO, inSession(config)).err).toBe("error: --main — only with --assignment <N>: one task's assignment past the batch");
+  });
+
+  it("задача, выданная с --main, в очереди — «мимо пачки» и выпуск пачки не держит", () => {
+    const { work, f, config, name } = started();
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    const past = subtaskOf45(f, "Мимо пачки");
+    task(f, ["queue", "--assignment", String(past), "--main"], REPO, { ...inSession(config), cwd: projectDir() });
+    f.status(past, "В работе");
+    const r = queueIn(f, work, config);
+    expect(headLines(r.out)).toContain(`= #${past} «GitHub · Мимо пачки» — «В работе», past the batch ${name} (--main): its PR goes into main with the full CI — the release doesn't wait for it`);
+    expect(r.out.split("\n").at(-1)).toMatch(
+      new RegExp(`^Next: the batch ${name} is complete — nothing ready, every task of the batch is merged into it: its release — bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves, once no executor of the batch is still at work; past the batch — #${past}: they don't hold the release; `),
+    );
+    // задача пачки ещё в работе — выпуск ждёт её, а не задачу мимо пачки
+    const live = subtaskOf45(f, "Живой исполнитель");
+    task(f, ["queue", "--assignment", String(live)], REPO, { ...inSession(config), cwd: projectDir() });
+    f.status(live, "В работе");
+    expect(queueIn(f, work, config).out.split("\n").at(-1)).toStartWith("Next: no ready tasks — wait for the executors' answers");
+  });
+
   it("облачный исполнитель в проекте с пачками — PR в main, как раньше", () => {
     const name = `batch/${day()}-1`;
     const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", "--cloud"], REPO, { ...inSession(batchSession(name)), cwd: projectDir() });
