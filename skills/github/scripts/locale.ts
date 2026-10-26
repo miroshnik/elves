@@ -146,6 +146,12 @@ export interface Names {
     batchWait: string;
     batchRefresh: string;
     /**
+     * A task past the dispatcher's batch (`--assignment N --main`, #697) — the owner's word «past the batch»: after `lead`
+     * (`sessionLead`), the plain path — the branch from origin/main, the PR into it with the full CI, the deploy, the
+     * refresh and `task close`; the batch named so the executor doesn't take its branch.
+     */
+    bypass: string;
+    /**
      * The fix of a red release (#650) in place of `batchLead` (`sessionFixLead` — of `sessionBatchLead`): the task merged
      * into the batch is guilty — a new task branch from the batch, the PR into it with «Refs #N», then the release's full
      * run again; `fixPrevious` — the task's earlier branches, rebase-merged into the batch already.

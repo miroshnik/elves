@@ -1090,8 +1090,15 @@ shipped and leaves the blocked-by links on the task till the release. A cloud
 executor (`--cloud`) isn't in the batch: its PR goes into the default branch
 with the full CI — the dispatcher learns of its end only by the task's
 closing, and a merge into the batch doesn't close it (#648); its brief and
-`Next:` say so. A session outside the dispatcher (one task, a hotfix) — into
-the default branch, as before.
+`Next:` say so. A task past the batch — the owner's word «past the batch»
+(#697): `--assignment N --main` (with `--session` too; `--cloud` is past it
+anyway) — the assignment of a project without batches: the branch from
+`origin/<base>`, the PR into it with the full CI, the deploy, the epic refresh
+and `task close`; the hand-out keeps `@main` — a restart keeps the way, `task
+finish` opens the PR into the default branch, the queue's `=` line says «past
+the batch» and the release doesn't wait for it; a task of a red release
+refuses `--main` — its fix is the batch's. A session outside the dispatcher
+(one task, a hotfix) — into the default branch, as before.
 
 The batch's release (#649, "batch release" below): nothing ready and every
 task of the batch merged into it — `Next:` names `batch release`; a task
