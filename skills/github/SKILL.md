@@ -70,7 +70,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task actualize <N>
 bun --no-env-file <skill dir>/scripts/github.ts task close <N> [--no-git]
 bun --no-env-file <skill dir>/scripts/github.ts task finish <N> [--timeout 240] [--title "<type>(<scope>): …"]
 bun --no-env-file <skill dir>/scripts/github.ts task resume
-bun --no-env-file <skill dir>/scripts/github.ts task queue [--epic N] [--type Task|Bug] [--priority Urgent,High]
+bun --no-env-file <skill dir>/scripts/github.ts task queue [--epic N | --tasks N,M] [--type Task|Bug] [--priority Urgent,High]
 bun --no-env-file <skill dir>/scripts/github.ts task queue --assignment <N> [--main]
 bun --no-env-file <skill dir>/scripts/github.ts batch release
 bun --no-env-file <skill dir>/scripts/github.ts pr labels <PR>
@@ -87,7 +87,7 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 | PR merged by hand | `task actualize N` with `wait-ci.sh merged <PR>` in the background, the subagent, then `task close N` |
 | Task closed without a PR | `task actualize N`, the subagent; then `task close N` |
 | Session resumed after the app restarted | the `SessionStart` hook runs `task resume` itself — its line is in the context: run the named command, a background wait died with the process |
-| "Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's "yes" | the session is a dispatcher, its own task stays: `task queue --epic M` (or `--type`, `--priority`); below, "Dispatcher" |
+| "Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's "yes" | the session is a dispatcher, its own task stays: `task queue --epic M` (or `--tasks`, `--type`, `--priority`); below, "Dispatcher" |
 | Another task: work outside the task, a red-main bug, a flow copy's move | `task new`, then the question to the owner «queue #N?»; "yes" — its executor at once, the same as a dispatcher's (`task new` and `task status` in a session with a task print its prompt) |
 | Won't do, duplicate, replaced by others | `task drop N [--duplicate-of M]` |
 | PR ready (and after new commits) | `pr labels <PR>` — decision labels for the task and the epic |
@@ -156,18 +156,17 @@ its folder (`start_session`, own worktree);
 branch without CI (`reference.md`, "task queue"), the owner's «past the
 batch» — `--assignment N --main`: a PR into `main`; `batch release` takes it
 into `main` once the queue's `Next:` names it or on the owner's «release»:
-one CI run, one refresh per epic. Before each launch — `get_usage` (its
-limit — `reference.md`, "task queue"). After each executor's answer — `task queue` again: it alone
+one CI run, one refresh per epic. The owner's group — `--tasks`. Before each launch —
+`get_usage` (its limit — `reference.md`, "task queue"). After each executor's answer — `task queue` again: it alone
 removes finished executors' worktrees (`+`), not `git worktree remove`; its last line names the step:
 an executor session whose task closed — the dispatcher archives it in an
 auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. A question — to the
 owner in text; the answer — ✅ in the task and to the same
-executor with `SendMessage`. After the app restarts — each stopped executor
-is continued with `SendMessage`, not replaced (`task resume`). Waits for subagents — it answers again. Failed — a
-task comment, no restart (the owner's restart:
-`--assignment` refuses while the previous executor lives); external
-blockers — `reference.md`, "Dependencies". Queue empty and nothing running — the summary, the last
+executor with `SendMessage`. After the app restarts — `task resume`: each stopped executor
+continued, not replaced. Waits for subagents — it answers again. Failed — a
+task comment, no restart (the owner's restart, external blockers —
+`reference.md`, "task queue", "Dependencies"). Queue empty and nothing running — the summary, the last
 line (a session with its own task — after it) and, in auto mode, archiving. The executor's side (`--assignment`;
 `--cloud`, `--session`) — `reference.md`, "task queue".
 

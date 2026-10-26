@@ -918,8 +918,10 @@ whose pid is gone doesn't hold), clean and without commits outside
 `origin/<base>` by `git cherry` — removed with its branch, a `+` line;
 uncommitted changes or unmerged commits — left, an `○` line with the reason; a
 `worktree-agent-*` branch without a worktree — the same by its commits. A
-session's worktree, an agent's on a task branch and an executor's whose
-handed-out task is open — untouched, no line (#533): Claude Code unlocks the
+session's worktree, an agent's on an open task's branch and an executor's whose
+handed-out task is open — untouched, no line (#533); an agent's on a closed
+task's branch — as a detached one (#698: a batch executor ends on its task
+branch, the release closes the task): Claude Code unlocks the
 worktree when the agent ends its answer, a question too, and doesn't lock it
 again for an executor continued with `SendMessage` after a restart. An agent's
 worktree a subagent of it works in without a worktree of its own — left, an
@@ -941,8 +943,8 @@ checkout too; a session in the project folder has none — `main`. In the app's
 worktree (`.claude/worktrees/<name>`, not `agent-*`) the queue prints a `!`
 line with the project folder and still goes, code 0: subagent executors
 branch from origin/main in their own worktrees.
-`--epic N` — the epic's open sub-issues,
-otherwise the repository's open tasks (the first 100 of the search);
+`--epic N` — the epic's open sub-issues, `--tasks N,M,…` — the dispatcher's
+group (#698), otherwise the repository's open tasks (the first 100 of the search);
 `--type`, `--priority` — only in an organization. It marks the session as a
 dispatcher — `dispatchers/<CLAUDE_CODE_SESSION_ID>` in the configuration
 directory with the queue command: the executors are subagents with the
@@ -1142,6 +1144,18 @@ deleted (`+`), with one — kept (`○`) till its executor moves the PR (`pr
 premerge`); a new batch's `k` skips the names of the recent PRs' branches too:
 a released name taken again would read as released at once.
 
+The dispatcher's group (#698) — `--tasks N,M,…`, the owner's chosen tasks
+(the owner picked five and took nothing else, epic #645): the queue command in the marker keeps it,
+so every queue after an answer — and after the app restarts (`task resume`) —
+hands out only them; the release — once they are merged into the batch; after
+it a new batch only from the group's tasks still open, nothing left — no new
+batch, the last line says so. Tasks created meanwhile — by executors (found
+work), by the epic refresh — join only by the owner's word: `task queue
+--tasks` with them. Taking nothing else is a group without new tasks; before
+it the dispatcher could stop only by not running the queue, and the
+executors' worktrees waited for a queue that never came (the pilot of epic
+#645).
+
 ### batch release
 
 The release of the dispatcher's batch (#649) — one full CI run and one deploy
@@ -1172,10 +1186,13 @@ already open — `=` and its steps again, no second PR; merged — the closing
 steps. `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
 `gh pr merge <R> --rebase` — outside auto on the owner's «yes» (#667), as an
 executor's merge (FAIL — `batch release` again: a red release,
-below); after the merge — a dispatcher that goes on runs
-`task queue` at once (the next batch from the merged default branch, the live
-executors' PRs go into it), one that stops doesn't (they go into the default
-branch); then `wait-ci.sh merged <R>` where the merge deploys and, in the same
+below); after the merge — `batch release` again: the batch
+executors' worktrees go with their branches (#698: agents' worktrees on a
+closed task's branch, clean and merged — the queue's rule, above; a dispatcher
+that stops runs no queue), then the closing steps; a dispatcher that goes on runs
+`task queue` at once (the next batch from the merged default branch — a group's
+only from its tasks still open, the live executors' PRs go into it), one that
+stops doesn't (they go into the default branch); then `wait-ci.sh merged <R>` where the merge deploys and, in the same
 turn, the epic refresh — `task actualize` with all the batch's tasks (#676:
 one refresh per epic, not per merge into the batch; below), — after both
 `task close N` of each task of the batch — GitHub closed them by `Closes`,
