@@ -5,7 +5,8 @@
  *
  * The language is `language` in `.agents/elves.json` of the project root (the nearest directory up with `.git`,
  * otherwise the directory itself), until `update` moves it — in the former manifest (`manifestOf`, the one reader of
- * the manifest): a manifest without the field (an install of a previous version) — `ru`, no manifest — `en`. Names
+ * the manifest): a manifest without the field (an install of a previous version) — `ru`, no manifest — `en` for
+ * reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names
  * are `locales/<language>.json`, the same keys for each language; no dictionary for the language — `en`. Scripts write in the project language and parse the names of any dictionary language (`everyNames`):
  * a project that changed its language and tasks of other repositories are read without knowing their language.
  *
@@ -523,6 +524,20 @@ function projectLanguage(dir: string = process.cwd()): string {
 }
 
 /**
+ * Why the project language of `dir` is unknown — no manifest at the root of its checkout, under the former name either
+ * (`manifestOf`; #681). `projectLanguage` answers `en` then, and reading is right with it — it parses the names of every
+ * dictionary language, — but a script that writes names to GitHub would write a wrong language's names in a project of
+ * another one: a fresh worktree of a `ru` project, whose manifest wasn't in git, checked its project against the `en`
+ * names. The text — where and what to do, one for the github skill's refusal and the installer's `check`; a manifest —
+ * null.
+ */
+function missingManifest(dir: string = process.cwd()): string | null {
+  const root = projectRoot(dir);
+  if (manifestOf(root).file) return null;
+  return `no .agents/elves.json in ${root} — the project language is unknown: copy the manifest from the main checkout (the first line of git worktree list) or commit it there`;
+}
+
+/**
  * Whether the project of `dir` releases its dispatcher's tasks in batches — `"batch": true` in its manifest
  * (`manifestOf`; epic #645, question 6): `true` itself — `"true"`, `1`, `"yes"` aren't batches. One answer for `check`
  * of the installer (no CI on a PR into a batch branch) and `task queue` (the batch branch).
@@ -581,4 +596,4 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, LEGACY_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
