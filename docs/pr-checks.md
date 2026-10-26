@@ -53,6 +53,13 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   machine), its executor fixes it by a PR into the batch, then the full set
   runs again on the same release PR (`skills/github/reference.md`, "batch
   release").
+- **A wait in a subagent** (an executor waiting for CI): a subagent's cache
+  lives 5 minutes unless the owner chose the hour (`docs/prompt-cache.md`),
+  and the turn after a longer wait writes its whole context again. With
+  `subagentPromptCacheTtl: "1h"` a wait of up to 9 minutes isn't worth that
+  rewrite — one `ci-wait` call; without it — wait calls of at most 4 minutes
+  (`--timeout 240`, TIMEOUT — call it again): the turn between two calls
+  reads the cache instead of rewriting it.
 - **Deploy — by the commit status, not by polling the site.** Whether the
   merge rolled out is told by the host's status on the merge SHA (`ci-wait
   merged <N>`), not by the page: frequent requests to the live site turn on
