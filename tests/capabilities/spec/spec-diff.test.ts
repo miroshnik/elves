@@ -233,6 +233,40 @@ describe("Перегруппировка решений в темы — пере
     repo.commit({ [DEAD]: null, "tests/standards/code/dead-code.test.ts": ts(`deadCode(it, { root: "." });`) });
     expect(diffFrom(base).stdout).not.toContain("Проверки харнесса");
   });
+
+  // у стандарта на линте главный файл — только examples(it, …), статических тестов в нём нет (#746): решение
+  // неперегруппировано в базе по файлу с именем папки, а не по его тестам
+  it("части стандарта на линте, переехавшие в раздел темы, — в сводке «Перегруппированы в темы», а не снятыми и добавленными", () => {
+    const PART = ts(`describe("Имена файлов", () => { it("файл называется в kebab-case", () => {}); });`);
+    const base = repo.commit({
+      "tests/standards/naming/naming.test.ts": ts(`examples(it, { rule: "naming" });`),
+      "tests/standards/naming/files.test.ts": PART,
+    });
+    repo.commit({
+      "tests/standards/naming/naming.test.ts": null,
+      "tests/standards/naming/files.test.ts": null,
+      "tests/standards/code/naming.test.ts": ts(`examples(it, { rule: "naming" });`),
+      "tests/standards/code/naming.files.test.ts": PART,
+    });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Удалены:** нет.\n\n**Изменены:** нет.\n\n**Добавлены:** нет.\n");
+    expect(out).toContain("- `tests/standards/naming` → `tests/standards/code#naming` — 1 тест\n");
+  });
+
+  it("отключение линта в файле, переехавшем в тему, — не новое исключение", () => {
+    const FRAGMENT = "// eslint-disable-next-line no-restricted-syntax -- #5 правило само себя не проверяет\nexport default [];\n";
+    const base = repo.commit({
+      "tests/standards/naming/naming.test.ts": ts(`it("файл называется в kebab-case", () => {});`),
+      "tests/standards/naming/eslint.ts": FRAGMENT,
+    });
+    repo.commit({
+      "tests/standards/naming/naming.test.ts": null,
+      "tests/standards/naming/eslint.ts": null,
+      "tests/standards/code/naming.test.ts": ts(`it("файл называется в kebab-case", () => {});`),
+      "tests/standards/code/naming.eslint.ts": FRAGMENT,
+    });
+    expect(diffFrom(base).stdout).not.toContain("Исключения");
+  });
 });
 
 /**
