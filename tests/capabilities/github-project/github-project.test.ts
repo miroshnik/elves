@@ -931,8 +931,10 @@ describe("Канон проекта — на языке проекта из .age
     expect(r.out).toContain("✅ Status: Бэклог → В работе → Готово");
   });
 
-  it("без манифеста — язык en: проект Elves с русской доской не по канону", () => {
-    expect(marks(check(fake(), REPO, checkout(null)).out)).toMatchObject({ Status: "❌", Fields: "❌" });
+  it("project check с манифестом language ru сверяет проект с русскими именами — как прежде", () => {
+    const r = check(fake(), REPO, checkout('{ "language": "ru" }\n'));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("✅ Status: Бэклог → В работе → Готово");
   });
 
   it("до update язык читается из прежнего манифеста .agents/ai-dev.json, а когда есть и .agents/elves.json — из нового", () => {
@@ -940,5 +942,50 @@ describe("Канон проекта — на языке проекта из .age
     expect(former.code).toBe(0);
     expect(former.out).toContain("✅ Status: Бэклог → В работе → Готово");
     expect(marks(check(fake(), REPO, checkout(EN, '{ "language": "ru" }\n')).out)).toMatchObject({ Status: "❌", Fields: "❌" });
+  });
+});
+
+/**
+ * Без манифеста язык проекта неизвестен (#681): так поймано — в проекте на ru `.agents/` не в git, свежий worktree
+ * остался без манифеста, и check выдал шесть ❌ на настроенный проект, а fix переписал бы его под английские имена.
+ * Отказ — кодом 2 до первого запроса к GitHub, с причиной и выходом; репозиторий совсем без Elves — так же (вопрос 2).
+ */
+describe("Без манифеста .agents/elves.json project check и fix отказывают: язык проекта неизвестен", () => {
+  /** Fake, который считает вызовы gh: отказ — до любого запроса. */
+  function counted(): { f: FakeGitHub; calls: () => number } {
+    const f = fake();
+    const inner = f.gh;
+    let n = 0;
+    f.gh = (args, stdin) => (n++, inner(args, stdin));
+    return { f, calls: () => n };
+  }
+
+  it("project check без манифеста в корне чекаута — код 2 и причина: нет .agents/elves.json, язык проекта неизвестен", () => {
+    const { f, calls } = counted();
+    const dir = checkout(null);
+    const r = check(f, REPO, dir);
+    expect(r.code).toBe(2);
+    expect(r.out).toBe("");
+    expect(r.err).toBe(
+      `project check writes or checks the canon's names in the project language — no .agents/elves.json in ${dir} — the project language is unknown: copy the manifest from the main checkout (the first line of git worktree list) or commit it there; a repository without Elves — install the flow: bunx @miroshnik/elves install --lang <project language>`,
+    );
+    expect(calls()).toBe(0);
+  });
+
+  it("project fix без манифеста — отказ до любых изменений проекта", () => {
+    const { f, calls } = counted();
+    const r = fix(f, { confirm: true, cwd: checkout(null) });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("project fix writes or checks the canon's names in the project language — no .agents/elves.json in ");
+    expect(f.mutations).toEqual([]);
+    expect(calls()).toBe(0);
+  });
+
+  /** Корень — ближайший каталог с `.git` вверх: из подкаталога чекаута манифест корня находится. */
+  it("из подкаталога чекаута с манифестом — сверка идёт: манифест ищется в корне чекаута", () => {
+    const dir = checkout(EN);
+    const sub = path.join(dir, "src/app");
+    mkdirSync(sub, { recursive: true });
+    expect(marks(check(fake(), REPO, sub).out)).toMatchObject({ Status: "❌", Fields: "❌" });
   });
 });

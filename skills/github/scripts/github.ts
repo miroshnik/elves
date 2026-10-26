@@ -699,6 +699,14 @@ function restCall(io: Io, args: string[]): Any {
 const inCloud = (io: Io) => io.env["CLAUDE_CODE_REMOTE"] === "true";
 /** The commands with a REST path in the cloud (#603): the rest need GraphQL or the project and refuse there. */
 const CLOUD_COMMANDS = ["task show", "task answer", "task new"];
+/**
+ * The commands that write the canon's names to GitHub in the project language or check the project against them
+ * (#681, question 1): views, fields and `Status` options, a task's sections, statuses and comments, a decision label's
+ * marker, the release PR's title. Without the project manifest the language is unknown — they refuse before any request
+ * (`locale.missingManifest`); reading (`task show`, `task queue`, `pr premerge`) parses the names of every language and
+ * goes on, `task drop` writes no names.
+ */
+const LANGUAGE_COMMANDS = ["project check", "project fix", "task new", "task answer", "task status", "task actualize", "task close", "pr labels", "batch release"];
 
 /**
  * A REST request of the cloud's path: the payload — JSON on stdin (a description doesn't fit an argument); an error
@@ -5575,6 +5583,13 @@ export function main(argv: string[], io: Io): number {
     }
     if (inCloud(io) && !CLOUD_COMMANDS.includes(`${group} ${cmd}`)) {
       io.err(`cloud session: GitHub GraphQL and Projects are unavailable to it (403, docs/cloud-sessions.md) — ${group} ${cmd} runs in a local session; in the cloud — ${CLOUD_COMMANDS.join(", ")} over the repository's REST`);
+      return 2;
+    }
+    // without the manifest a command that writes names would write the `en` ones into a project of another language
+    // (#681): a repository without Elves refuses too (question 2) — one rule, no guessing by package.json
+    const missing = LANGUAGE_COMMANDS.includes(`${group} ${cmd}`) ? locale.missingManifest(io.cwd ?? process.cwd()) : null;
+    if (missing) {
+      io.err(`${group} ${cmd} writes or checks the canon's names in the project language — ${missing}; a repository without Elves — install the flow: bunx @miroshnik/elves install --lang <project language>`);
       return 2;
     }
     // the repository — under its current name: --repo or origin may still name it as it was before a rename (#560); the

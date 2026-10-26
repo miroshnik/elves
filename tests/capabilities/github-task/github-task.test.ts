@@ -56,6 +56,12 @@ function scratch(): string {
   temp.push(cleanup);
   return dir;
 }
+/** Каталог другого проекта — не чекаут репозитория задачи, но с манифестом: без него команды, что пишут имена, отказывают (#681). */
+function elsewhere(): string {
+  const dir = scratch();
+  writeTree(dir, { ".agents/elves.json": '{ "language": "ru" }\n' });
+  return dir;
+}
 const inSession = (config: string, id = SESSION): Partial<Io> => ({ env: { CLAUDE_CODE_SESSION_ID: id, ELVES_CONFIG_DIR: config } });
 const pinFile = (config: string, id = SESSION) => path.join(config, "sessions", id);
 const pinned = (config: string, id = SESSION) => readFileSync(pinFile(config, id), "utf8").trim();
@@ -1100,7 +1106,7 @@ describe("task status --branch переименовывает ветку worktre
 
   it("каталог — не чекаут репозитория задачи — ветка не трогается, строка ○", () => {
     const f = new FakeGitHub(REC);
-    const r = task(f, ["status", "49", "В работе", "--branch", "fix/49-config-lock"], REPO, { run: noEst, cwd: scratch() });
+    const r = task(f, ["status", "49", "В работе", "--branch", "fix/49-config-lock"], REPO, { run: noEst, cwd: elsewhere() });
     expect(r.code).toBe(0);
     expect(statusSet(f)).toEqual([[49, "В работе"]]);
     expect(r.out).toContain("○ branch left alone: the current directory is not a checkout of miroshnik/elves");
@@ -2279,6 +2285,7 @@ describe("task close убирает влитое", () => {
   it("текущий каталог — не чекаут репозитория задачи: ветки и стеки задачи не трогаются", () => {
     const { dir, cleanup } = tmpDir();
     try {
+      writeTree(dir, { ".agents/elves.json": '{ "language": "ru" }\n' });
       const f = new FakeGitHub(REC);
       f.prs[77] = { files: [], closes: [49], head: "fix/49-x", base: "main", model: null, merged: true };
       const calls: string[][] = [];
@@ -2616,8 +2623,9 @@ describe("task resume называет, какое ожидание переза
 /**
  * Задачи — на языке проекта (`language` в `.agents/elves.json` чекаута, канон, «Language»): каркас описания, статусы,
  * тип, задание субагенту и комментарии пишутся названиями словаря `skills/github/locales/<язык>.json`, а разбирается
- * название любого его языка. Доска не на языке проекта (скрипт позван не из чекаута, язык сменили без fix) — задача
- * ведётся на языке доски: язык сверяет `project check`.
+ * название любого его языка. Доска не на языке проекта (язык сменили без fix, скрипт позван из чекаута другого проекта)
+ * — задача ведётся на языке доски: язык сверяет `project check`. Без манифеста язык неизвестен — команды, что пишут
+ * имена, отказывают (ниже).
  */
 describe("Задачи — на языке проекта из .agents/elves.json чекаута", () => {
   /** Чекаут проекта с манифестом (null — без манифеста). */
@@ -2686,11 +2694,11 @@ describe("Задачи — на языке проекта из .agents/elves.jso
     expect(statusSet(f).at(-1)).toEqual([47, "Готово"]);
   });
 
-  it("доска на русском, а скрипт позван из каталога без манифеста (en) — задача ведётся на языке доски", () => {
+  it("доска на русском, а язык проекта en — сменили без project fix: задача ведётся на языке доски", () => {
     const f = new FakeGitHub(REC);
-    const r = task(f, ["status", "47", "В работе"], REPO, { cwd: checkoutWith(null) });
+    const r = task(f, ["status", "47", "Done"], REPO, { cwd: checkoutWith(EN) });
     expect(r.code).toBe(0);
-    expect(statusSet(f)).toEqual([[47, "В работе"]]);
+    expect(statusSet(f)).toEqual([[47, "Готово"]]);
   });
 
   it("задание субагенту в проекте на en начинается с «Task #N (epic #M)» — по нему est привязывает работу к задаче", () => {
@@ -2722,6 +2730,63 @@ describe("Задачи — на языке проекта из .agents/elves.jso
     expect(byOp(f, "AddComment").map((c) => c.body)).toEqual(["Closed by PR #77: GitHub didn't link the PR to the task"]);
     expect(statusSet(f)).toEqual([[49, "Done"]]);
     expect(r.out.split("\n").at(-1)).toContain("«All done. The session can be closed.»");
+  });
+});
+
+/**
+ * Без манифеста `.agents/elves.json` язык проекта неизвестен (#681, вопрос 1): команды, что пишут имена канона в GitHub
+ * или сверяют с ними проект, отказывают кодом 2 до первого запроса — иначе задача проекта на ru получала бы английские
+ * разделы, статусы и комментарии, метка решения — английский маркер, PR выпуска — английский заголовок. Чтение
+ * разбирает имена любого языка словаря и идёт, как прежде.
+ */
+describe("Без манифеста команды, что пишут имена в GitHub, отказывают до первого запроса", () => {
+  /** Чекаут без манифеста — свежий worktree проекта, чей `.agents/` не в git. */
+  function bare(): string {
+    const dir = scratch();
+    mkdirSync(path.join(dir, ".git"));
+    return dir;
+  }
+
+  it("task new без манифеста — отказ до создания задачи", () => {
+    const f = new FakeGitHub(REC);
+    let calls = 0;
+    const gh = (args: string[], stdin?: string) => (calls++, f.gh(args, stdin));
+    const dir = bare();
+    const r = task(f, ["new", "--branch-type", "feat", "--title", "Экспорт"], REPO, { cwd: dir, gh });
+    expect(r.code).toBe(2);
+    expect(r.err).toStartWith(`task new writes or checks the canon's names in the project language — no .agents/elves.json in ${dir} — the project language is unknown`);
+    expect(byOp(f, "CreateIssue")).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("каждая команда, что пишет имена канона или сверяет с ними проект, без манифеста — код 2 до первого запроса к GitHub", () => {
+    const commands = [
+      ["project", "check"],
+      ["project", "fix", "--confirm"],
+      ["task", "new", "--title", "Экспорт"],
+      ["task", "answer", "47", "1", "PDF."],
+      ["task", "status", "47", "Готово"],
+      ["task", "actualize", "46"],
+      ["task", "close", "49"],
+      ["pr", "labels", "77"],
+      ["batch", "release", "batch/2026-10-22-1"],
+    ];
+    const refused = commands.map((args) => {
+      const f = new FakeGitHub(REC);
+      const err: string[] = [];
+      let calls = 0;
+      const gh = (a: string[], stdin?: string) => (calls++, f.gh(a, stdin));
+      const code = main([...args, "--repo", REPO], { gh, out: () => {}, err: (l) => err.push(l), env: {}, run: silentEst, cwd: bare() });
+      return { command: args.slice(0, 2).join(" "), code, calls, refusal: err.join("\n").startsWith(`${args.slice(0, 2).join(" ")} writes or checks the canon's names`) };
+    });
+    expect(refused).toEqual(commands.map((args) => ({ command: args.slice(0, 2).join(" "), code: 2, calls: 0, refusal: true })));
+  });
+
+  it("чтение без манифеста — как прежде: task show разбирает имена любого языка", () => {
+    const f = new FakeGitHub(REC);
+    const r = task(f, ["show", "47"], REPO, { cwd: bare() });
+    expect(r.code).toBe(0);
+    expect(r.out).toStartWith("#47 ");
   });
 });
 
