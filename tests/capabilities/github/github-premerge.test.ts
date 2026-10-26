@@ -113,7 +113,20 @@ const MAIN_SHA = "c0ffee1" + "0".repeat(33);
 
 interface MainChecks {
   /** `steps` — шаги job'а GitHub Actions (`app` 15368): `actions/jobs/<id>`. */
-  runs?: { id?: number; name: string; status?: string; conclusion: string | null; app?: { id: number }; steps?: { name: string; conclusion: string }[] }[];
+  runs?: {
+    id?: number;
+    name: string;
+    status?: string;
+    conclusion: string | null;
+    app?: { id: number };
+    steps?: { name: string; conclusion: string }[];
+    /** Check suite прогона (по умолчанию — 50, прогон самого main) и время джоба. */
+    suite?: number;
+    started?: string;
+    completed?: string;
+  }[];
+  /** Прогоны на SHA последнего коммита main сверх его собственного (suite 50): прогон другой ветки на том же SHA. */
+  suites?: { id: number; head_branch: string }[];
   statuses?: { context: string; state: string }[];
   /**
    * Пуш, покрасивший main (последний коммит MAIN_SHA): `before` его check suite, коммиты `before...MAIN_SHA` с
@@ -184,7 +197,7 @@ function fakeGh(
     }
     if (release) return JSON.stringify({ sha: `rsha${release.number}`, state: "pending", statuses: [] });
     if (url.startsWith(`repos/${SLUG}/commits/${encodeURIComponent(base)}/check-runs`)) {
-      const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion, app: r.app }));
+      const runs = (main.runs ?? []).map((r, i) => ({ id: r.id ?? i + 1, name: r.name, status: r.status ?? "completed", conclusion: r.conclusion, app: r.app, check_suite: { id: r.suite ?? 50 }, started_at: r.started ?? null, completed_at: r.completed ?? null }));
       return JSON.stringify({ total_count: runs.length, check_runs: runs });
     }
     const job = /^repos\/[^/]+\/[^/]+\/actions\/jobs\/(\d+)$/.exec(url);
@@ -194,7 +207,7 @@ function fakeGh(
     }
     // пуш последнего коммита main: его check suite, коммиты от before и влитые ими PR
     const push = main.push ?? { commits: [] };
-    if (url.startsWith(`repos/${SLUG}/commits/${MAIN_SHA}/check-suites`)) return JSON.stringify({ total_count: 1, check_suites: [{ id: 50, before: push.before ?? null, after: MAIN_SHA }] });
+    if (url.startsWith(`repos/${SLUG}/commits/${MAIN_SHA}/check-suites`)) return JSON.stringify({ total_count: 1, check_suites: [{ id: 50, head_branch: "main", before: push.before ?? null, after: MAIN_SHA }, ...(main.suites ?? []).map((x) => ({ ...x, before: null, after: MAIN_SHA }))] });
     if (url === `repos/${SLUG}/compare/${push.before}...${MAIN_SHA}`) return JSON.stringify({ commits: push.commits.map((c) => ({ sha: c.sha, commit: { message: c.message } })) });
     if (url === `repos/${SLUG}/commits/${MAIN_SHA}/pulls`) return JSON.stringify(push.pulls ?? []);
     if (url === `repos/${SLUG}/commits/${MAIN_SHA}`) return JSON.stringify({ sha: MAIN_SHA, commit: { message: push.commits.at(-1)?.message ?? "" } });
@@ -659,6 +672,58 @@ describe("pr premerge: main красный — не этот PR: не влива
  * Регрессия задачи, покрасившая main (#699, эпик #645): баг — переоткрытая задача, а не «main красный…», и её
  * починка — PR с «Closes #N» этой задачи; код 3 «жди баг» не давал её влить. PR другой задачи ждёт, как прежде.
  */
+describe("pr premerge: чеки main — прогоны main, не любой ветки на его SHA", () => {
+  /** Ветка пачки заведена на вершине main и запушена: её прогон на том же SHA отменён следующим пушем. */
+  const BATCH_RUN = 61;
+
+  it("красный чек прогона другой ветки на SHA базы не делает базу красной", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const main: MainChecks = {
+      suites: [{ id: BATCH_RUN, head_branch: "batch/2026-10-26-1" }],
+      runs: [
+        { id: 10, name: "ci-ok", conclusion: "success" },
+        { id: 20, name: "ci-ok", conclusion: "failure", suite: BATCH_RUN },
+        { id: 21, name: "report", conclusion: "failure", suite: BATCH_RUN },
+      ],
+    };
+    const r = premerge(fakeGh(p.head, { main }).gh, p.work);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("○ report red on the last commit of main (c0ffee1) in a run of branch batch/2026-10-26-1, not of main: not counted");
+    expect(r.out).not.toContain("main is red");
+  });
+
+  it("агрегат, упавший из-за отменённых джобов своего прогона, не делает базу красной", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const main: MainChecks = {
+      runs: [
+        { id: 1, name: "verify (1)", conclusion: "cancelled", started: "2026-10-26T10:00:00Z", completed: "2026-10-26T10:00:30Z" },
+        { id: 2, name: "verify (2)", conclusion: "cancelled", started: "2026-10-26T10:00:00Z", completed: "2026-10-26T10:00:31Z" },
+        { id: 3, name: "ci-ok", conclusion: "failure", started: "2026-10-26T10:00:35Z", completed: "2026-10-26T10:00:40Z" },
+      ],
+    };
+    const r = premerge(fakeGh(p.head, { main }).gh, p.work);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("○ ci-ok red on the last commit of main (c0ffee1) after cancelled jobs of its run — the verdict of a cancelled run, not a check of main: not counted");
+  });
+
+  it("красный чек прогона самой базы делает её красной, как раньше — и джоб, упавший рядом с отменёнными (fail-fast)", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const own = premerge(fakeGh(p.head, { main: { runs: [{ id: 10, name: "ci-ok", conclusion: "failure" }], suites: [{ id: BATCH_RUN, head_branch: "batch/2026-10-26-1" }] } }).gh, p.work);
+    expect(own.code).toBe(3);
+    expect(own.out).toContain("main is red: check ci-ok of the last commit of main (c0ffee1)");
+    const main: MainChecks = {
+      runs: [
+        { id: 1, name: "verify (1)", conclusion: "failure", started: "2026-10-26T10:00:00Z", completed: "2026-10-26T10:00:20Z" },
+        { id: 2, name: "verify (2)", conclusion: "cancelled", started: "2026-10-26T10:00:00Z", completed: "2026-10-26T10:00:21Z" },
+        { id: 3, name: "ci-ok", conclusion: "failure", started: "2026-10-26T10:00:25Z", completed: "2026-10-26T10:00:30Z" },
+      ],
+    };
+    const fast = premerge(fakeGh(p.head, { main }).gh, p.work);
+    expect(fast.code).toBe(3);
+    expect(fast.out).toContain("main is red: check verify (1) of the last commit of main (c0ffee1)");
+  });
+});
+
 describe("pr premerge: красный main чинит PR задачи, чей коммит его покрасил", () => {
   const RED_PUSH = "b".repeat(40);
   const COMMIT = "d".repeat(40);
