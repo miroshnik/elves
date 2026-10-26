@@ -680,6 +680,83 @@ describe("Метки решений — имя решения без вида, �
     fix(f, { confirm: true });
     expect(f.mutations.filter((m) => /Label/.test(m.op))).toEqual([]);
   });
+
+  /**
+   * Решение перегруппировали в раздел темы (#688): папки `reset-button` больше нет, есть файлы
+   * `forms/reset-button.*`. Лейбл — у темы; прежний лейбл раздела на задачах, закрытых тоже (по ним `est` ищет аналоги),
+   * сменяется лейблом темы.
+   */
+  it("project check: лейбл бывшего решения, ставшего разделом темы, — ❌ со слиянием в лейбл темы", () => {
+    const f = fake();
+    f.tree.standards = ["forms"];
+    f.tree.files = { "standards/forms": ["forms.md", "reset-button.md", "reset-button.test.ts", "eslint.ts"] };
+    f.label("forms", STD, "Решение: tests/standards/forms");
+    f.label("reset-button", STD, "Решение: tests/standards/reset-button");
+    f.labelIssue(49, "reset-button");
+    const r = check(f);
+    expect(r.code).toBe(1);
+    expect(marks(r.out).Decision).toBe("❌");
+    expect(r.out).toContain("· label «reset-button» without a decision is a section of topic «forms» — merge into the topic's label");
+    expect(r.out).not.toContain("new decision «reset-button»");
+    fix(f);
+    expect(ops(f)).not.toContain("DeleteLabel");
+    expect(ops(f)).not.toContain("AddLabels");
+  });
+
+  it("project fix --confirm: лейбл темы — на всех задачах с прежним лейблом, закрытых тоже, прежний удалён", () => {
+    const f = fake();
+    f.tree.standards = ["forms"];
+    f.tree.files = { "standards/forms": ["forms.md", "reset-button.md", "reset-button.test.ts"] };
+    f.label("forms", STD, "Решение: tests/standards/forms");
+    f.label("reset-button", STD, "Решение: tests/standards/reset-button");
+    f.labelIssue(49, "reset-button");
+    f.labelIssue(46, "reset-button");
+    f.closed(46);
+    const r = fix(f);
+    expect(r.out).toContain("merge label «reset-button» into «forms»: #46, #49 get «forms», the old one is deleted");
+    const x = fix(f, { confirm: true });
+    expect(labelNames(f)).toEqual(["forms"]);
+    expect(issueLabels(f, 49)).toEqual(["forms"]);
+    expect(issueLabels(f, 46)).toEqual(["forms"]);
+    expect(marks(x.out).Decision).toBe("✅");
+  });
+
+  it("project fix --confirm: у темы ещё нет лейбла — лейбл раздела переименовывается в лейбл темы, задачи сохраняют его", () => {
+    const f = fake();
+    f.tree.standards = ["forms"];
+    f.tree.files = { "standards/forms": ["forms.md", "reset-button.test.ts"] };
+    const l = f.label("reset-button", STD, "Решение: tests/standards/reset-button");
+    // на открытой задаче лейбл без решения был бы новым решением — раздел темы им не считается
+    f.labelIssue(49, "reset-button");
+    f.labelIssue(46, "reset-button");
+    f.closed(46);
+    expect(fix(f).out).toContain("rename label «reset-button» → «forms» (tasks keep it)");
+    expect(ops(f)).not.toContain("CreateLabel");
+    fix(f, { confirm: true });
+    expect(byOp(f, "UpdateLabel")).toEqual([{ id: l.id, name: "forms", color: STD, description: "Решение: tests/standards/forms" }]);
+    expect(ops(f)).not.toContain("CreateLabel");
+    expect(issueLabels(f, 46)).toEqual(["forms"]);
+    expect(issueLabels(f, 49)).toEqual(["forms"]);
+    expect(marks(check(f).out).Decision).toBe("✅");
+  });
+
+  it("project check: имя раздела в двух темах — ○, лейбл не сливается", () => {
+    const f = fake();
+    f.tree.standards = ["forms", "routes"];
+    f.tree.files = { "standards/forms": ["forms.md", "naming.test.ts"], "standards/routes": ["routes.md", "naming.md", "naming.test.ts"] };
+    f.label("forms", STD, "Решение: tests/standards/forms");
+    f.label("routes", STD, "Решение: tests/standards/routes");
+    f.label("naming", STD, "Решение: tests/standards/naming");
+    f.labelIssue(46, "naming");
+    f.closed(46);
+    const r = check(f);
+    expect(r.code).toBe(0);
+    expect(marks(r.out).Decision).toBe("✅");
+    expect(r.out).toContain("○ label «naming»: a section of topics «forms», «routes» — not merged, the topic is a guess");
+    fix(f, { confirm: true });
+    expect(f.mutations.filter((m) => /Label/.test(m.op))).toEqual([]);
+    expect(issueLabels(f, 46)).toEqual(["naming"]);
+  });
 });
 
 /**

@@ -409,6 +409,23 @@ describe("task new ставит метки решений — по имени р
     expect(byOp(f, "CreateIssue")[0].labelIds).toEqual([api.id]);
     expect(issueLabels(f, 45)).toEqual(["epic"]);
   });
+
+  // у раздела нет своего лейбла — его правки помечают тему (#688): лейбл раздела задачу не найдёт
+  it("task new --labels с именем раздела — ошибка до создания: лейбл у темы", () => {
+    const f = new FakeGitHub(REC);
+    f.tree.standards = ["forms"];
+    f.tree.files = { "standards/forms": ["forms.md", "reset-button.md", "reset-button.test.ts"] };
+    // прежний лейбл раздела ещё в репозитории — project fix его не слил
+    f.label("reset-button", "1D76DB", "Решение: tests/standards/reset-button");
+    for (const labels of ["reset-button", "standard:reset-button"]) {
+      const r = task(f, ["new", "--branch-type", "feat", "--title", "Экспорт", "--labels", labels]);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("reset-button is a section of topic «forms»: the label is the topic's, a section has none — --labels forms");
+    }
+    f.labels.splice(0);
+    expect(task(f, ["new", "--branch-type", "feat", "--title", "Экспорт", "--labels", "reset-button"]).err).toContain("--labels forms");
+    expect(f.mutations).toEqual([]);
+  });
 });
 
 /**
@@ -492,6 +509,17 @@ describe("pr labels ставит задаче метки решений по д�
     f.prs[120] = { files: ["src/domain/invoice.ts", "src/web/page.tsx", "lib/domain/money.ts", "docs/readme.md"], closes: [49], head: HEAD, model: MODEL };
     expect(prLabels(f, 120).code).toBe(0);
     expect(issueLabels(f, 49)).toEqual(["domain", "web"]);
+  });
+
+  it("pr labels: файл раздела даёт лейбл его темы", () => {
+    const f = new FakeGitHub(REC);
+    const files = ["tests/standards/forms/reset-button.test.ts", "tests/standards/forms/reset-button.md", "tests/capabilities/orders/persistence.e2e.ts"];
+    f.prs[120] = { files, closes: [49], head: HEAD, model: null };
+    const r = prLabels(f, 120);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("PR #120 → #49: forms, orders");
+    expect(issueLabels(f, 49)).toEqual(["forms", "orders"]);
+    expect(f.labels.map((l) => l.name).sort()).toEqual(["forms", "orders"]);
   });
 
   it("метки решения нет в репозитории — создаётся с цветом вида", () => {
@@ -621,7 +649,7 @@ describe("pr labels ставит задаче метки решений по д�
   /**
    * GitHub ставит на issue не больше 100 меток, и мутация сверх предела падает целиком (#569): PR, задевший почти все
    * решения (смена раннера переписывает тела всех тестов), оставлял задачу без единой новой метки. Не помещается — метку
-   * получают решения, чьи утверждения PR меняет: `<папка>.md` или имена тестов (раздел спеки тела PR), — по алфавиту,
+   * получают решения, чьи утверждения PR меняет: `<тема>.md`, `<раздел>.md` или имена тестов (раздел спеки тела PR), — по алфавиту,
    * сколько помещается.
    */
   it("решений в диффе больше, чем помещается меток, — ставит, что помещается, остальное печатает, не падает", () => {
@@ -629,8 +657,8 @@ describe("pr labels ставит задаче метки решений по д�
     // меток у задачи больше, чем отдаёт первая страница в 20
     for (let i = 0; i < 30; i++) f.labelIssue(49, `тема-${i}`);
     const names = Array.from({ length: 80 }, (_, i) => `d${String(i).padStart(2, "0")}`);
-    // тела тестов 80 решений, у d79 — ещё и описание решения
-    const files = [...names.map((n) => `tests/capabilities/${n}/${n}.test.ts`), "tests/capabilities/d79/d79.md"];
+    // тела тестов 80 решений, у d79 — ещё и описание темы, у d72 — описание её раздела
+    const files = [...names.map((n) => `tests/capabilities/${n}/${n}.test.ts`), "tests/capabilities/d79/d79.md", "tests/capabilities/d72/persistence.md"];
     // имена тестов меняют 72 решения — сводкой по папкам, как её пишет spec-diff
     const body = [
       "Closes #49",
@@ -648,9 +676,9 @@ describe("pr labels ставит задаче метки решений по д�
     expect(issueLabels(f, 49)).toHaveLength(100);
     expect(issueLabels(f, 49).slice(30)).toEqual(names.slice(0, 70));
     expect(r.out).toContain(
-      "○ #49: 80 new decision labels, room for 70 (GitHub puts at most 100 on an issue, it has 30) — only decisions whose <folder>.md or test names the PR changes; test bodies and code only, no label: d72, d73, d74, d75, d76, d77, d78",
+      "○ #49: 80 new decision labels, room for 70 (GitHub puts at most 100 on an issue, it has 30) — only decisions whose <topic>.md, <section>.md or test names the PR changes; test bodies and code only, no label: d73, d74, d75, d76, d77, d78",
     );
-    expect(r.out).toContain("○ #49: no room — not set: d70, d71, d79");
+    expect(r.out).toContain("○ #49: no room — not set: d70, d71, d72, d79");
   });
 
   it("эпик у предела меток — новые решения подзадачи печатаются, а не роняют команду", () => {
@@ -684,7 +712,7 @@ describe("pr labels ставит задаче метки решений по д�
     expect(issueLabels(f, 45)).toHaveLength(100);
     expect(issueLabels(f, 45).at(-1)).toBe("audit");
     expect(r.out).toContain(
-      "○ epic #45: 3 new decision labels, room for 1 (GitHub puts at most 100 on an issue, it has 99) — only decisions whose <folder>.md or test names the PR changes; test bodies and code only, no label: est",
+      "○ epic #45: 3 new decision labels, room for 1 (GitHub puts at most 100 on an issue, it has 99) — only decisions whose <topic>.md, <section>.md or test names the PR changes; test bodies and code only, no label: est",
     );
     expect(r.out).toContain("○ epic #45: no room — not set: billing");
   });

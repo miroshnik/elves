@@ -379,9 +379,12 @@ outside git — ❌, `update` puts it into its commit.
    `Decision: …`. A decision without a label — the label is created. A label
    without a decision whose name is a section of exactly one topic of the same
    root (`tests/<root>/<topic>/<name>.test.ts` or `<name>.md`) — a former
-   decision regrouped into a section: `--confirm` puts the topic's label on
-   every task with it, closed ones too (`est` picks analogs by them), and
-   deletes it; renaming the section afterwards touches no label. A label
+   decision regrouped into a section, ❌ «merge into the topic's label», on an
+   open task too: `--confirm` puts the topic's label on every task with it,
+   closed ones too (`est` picks analogs by them), and deletes it; the topic has
+   no label yet — the section's label is renamed into it (tasks keep it);
+   renaming the section afterwards touches no label. A name in sections of
+   several topics — an `○` line, no merge: the topic would be a guess. A label
    without a decision on an open task — a new decision (`task new` puts it, it
    reaches the default branch with the task's PR): an `○` line with the task
    numbers, item ✅, the label is left alone. A label without a decision and
@@ -544,7 +547,10 @@ label — created with the kind's color; a regular label must exist, otherwise a
 error before creating. With `--epic` the decision labels are added to the epic
 too (the union of its subtasks; GitHub's limit of 100 — "pr labels"). A slice label by name (`api`) is a regular task label,
 not passed to the epic; `kind:name` with a slice label's name is an error
-before creating: a decision with that name isn't marked by a label. A question
+before creating: a decision with that name isn't marked by a label. A section
+of a topic in the default branch (by name or `kind:name`, not a topic itself)
+— an error before creating with the topic to pass instead: the label is the
+topic's. A question
 without ✅ in the description's questions section — the `questions` label in
 the same mutation (created if missing), a `+` line names the open questions;
 none open — no label. Prints `Created #N …`, `+` lines and the next step.
@@ -676,7 +682,8 @@ repository — an `○` line, the branch is left alone.
 ### pr labels
 
 Decision labels from the PR's changed files (API):
-`tests/capabilities|standards|architecture/<topic>/…` — the topic's label, a code
+`tests/capabilities|standards|architecture/<topic>/…` — the topic's label (a
+section's file `<topic>/<section>.*` too), a code
 file — the label of the model module from the PR head (the longest matching
 directory), `tests/lib` and files outside modules aren't decisions. A
 mechanical edit doesn't change a decision and gives no label: a deleted file,
@@ -699,8 +706,8 @@ task's epic gets the same labels — the union of its subtasks; same with
 `task new --epic --labels`. GitHub puts at most 100 labels on an issue, and a
 mutation past that fails as a whole (#569): the room is 100 minus the labels
 the task (the epic) already has. Everything fits — everything is set; it
-doesn't — only the decisions whose statements the PR changes: the folder's
-`<name>.md` edited in content or the folder named in the spec section of the PR
+doesn't — only the decisions whose statements the PR changes: the topic's
+`<topic>.md` or a section's `<section>.md` edited in content or the folder named in the spec section of the PR
 body (spec-diff output — the lists, the summary, the move, harness checks;
 exceptions don't count), alphabetically, as many as fit. A codemod over every
 test changes no statement: test bodies and code only — an `○` line without a

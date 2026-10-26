@@ -41,8 +41,11 @@ export class FakeGitHub {
   issueRefLag: Record<number, number> = {};
   /** Метки репозитория (RepoLabels): создаёт, переименовывает и удаляет их fix и task new. */
   labels: { id: string; name: string; color: string; description: string }[] = [];
-  /** Дерево спеки в основной ветке (SpecDecisions): папки решений и текст модели архитектуры. */
-  tree: { capabilities: string[]; standards: string[]; architecture: string[]; model: string | null } = { capabilities: [], standards: [], architecture: [], model: null };
+  /**
+   * Дерево спеки в основной ветке (SpecDecisions): папки решений, текст модели архитектуры и файлы в корне папок тем —
+   * `files["standards/forms"]` = `["forms.md", "reset-button.md", "reset-button.test.ts"]` (разделы темы).
+   */
+  tree: { capabilities: string[]; standards: string[]; architecture: string[]; model: string | null; files?: Record<string, string[]> } = { capabilities: [], standards: [], architecture: [], model: null };
   /**
    * PR по номеру (PrChange, closedByPullRequestsReferences в IssueRef, RecentPrs): изменённые файлы (путь или файл с видом правки),
    * задачи, с которыми GitHub связал PR (`closes`; тело может называть и другие), голова, модель архитектуры в ней (ModelAt);
@@ -583,6 +586,10 @@ export class FakeGitHub {
       const t = this.specTree()[m[1]!];
       return t ? t.entries.map((e: Any) => ({ name: e.name, type: e.type === "tree" ? "dir" : "file" })) : missing();
     }
+    if ((m = /^\/contents\/tests\/(capabilities|standards|architecture)\/([^/]+)$/.exec(path))) {
+      const t = this.specTree()[m[1]!]?.entries.find((e: Any) => e.type === "tree" && e.name === m![2]);
+      return t ? t.object.entries.map((e: Any) => ({ name: e.name, type: e.type === "tree" ? "dir" : "file" })) : missing();
+    }
     if (path === "/contents/tests/architecture/model.ts") return this.tree.model === null ? missing() : { encoding: "base64", content: Buffer.from(this.tree.model).toString("base64") };
     throw new Error(`fake gh: REST ${method} ${route} не поддержан`);
   }
@@ -627,12 +634,14 @@ export class FakeGitHub {
   // папка без решений в GitHub — не пустое дерево, а null
   private specTree(): Any {
     const t = this.tree;
-    const dir = (names: string[], files: string[] = []) =>
-      names.length || files.length ? { entries: [...names.map((name) => ({ name, type: "tree" })), ...files.map((name) => ({ name, type: "blob" }))] } : null;
+    // папка темы без файлов в записи — один файл, названный по ней: решение, ещё не перегруппированное в разделы
+    const topic = (root: string, name: string) => ({ entries: (t.files?.[`${root}/${name}`] ?? [`${name}.test.ts`]).map((f) => ({ name: f, type: "blob" })) });
+    const dir = (root: string, names: string[], files: string[] = []) =>
+      names.length || files.length ? { entries: [...names.map((name) => ({ name, type: "tree", object: topic(root, name) })), ...files.map((name) => ({ name, type: "blob" }))] } : null;
     return {
-      capabilities: dir(t.capabilities),
-      standards: dir(t.standards),
-      architecture: dir(t.architecture, t.model === null ? [] : ["model.ts"]),
+      capabilities: dir("capabilities", t.capabilities),
+      standards: dir("standards", t.standards),
+      architecture: dir("architecture", t.architecture, t.model === null ? [] : ["model.ts"]),
       model: t.model === null ? null : { text: t.model },
     };
   }
