@@ -140,13 +140,18 @@ a flat decision as a topic of one section. One task, one PR, in this order:
    sections" goes into the task before the first move.
 2. **`git mv` with the former names as section names.**
    `<name>/<name>.test.ts` → `<topic>/<name>.test.ts`, `<name>.md` →
-   `<topic>/<name>.md` (the other `<name>.*` files alongside),
-   `<name>/exceptions/*.json` → `<topic>/exceptions/<name>/`, a package
+   `<topic>/<name>.md` (the other `<name>.*` files alongside), another test
+   file of the folder `<name>/<file>.test.ts` → `<topic>/<name>.<file>.test.ts`
+   (by its own name it would be a section of its own), a helper file under the
+   section's prefix (`<name>.preload.ts`), `<name>/exceptions/*.json` → `<topic>/exceptions/<name>/`, a package
    subfolder `<name>/<package>/` → `<topic>/<package>/`. The moves go in a
    commit of their own, without content edits, so history follows the files
    and `pr labels` reads them as mechanical. Each topic gets `<topic>.md`: its
    first paragraph names the subject in one phrase. A section keeps the former
-   decision's name — by it the label is merged (step 4).
+   decision's name — by it the label is merged (step 4); a topic that keeps
+   the folder's own name gets a section with a name of its own, and its label
+   stays. `spec-diff` shows the moves as «Regrouped into topics», not removed
+   and added.
 3. **Cross-references.** Every path `tests/<root>/<name>/…` — in code, marks,
    tool configs, CI fragments, docs and the README — is rewritten to the new
    one; a search for each former path finds nothing outside the history.
