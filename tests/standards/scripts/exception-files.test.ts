@@ -9,7 +9,7 @@ import { exceptionFile as specExceptionFile } from "../../../skills/spec/scripts
 
 const SKILLS = fileURLToPath(new URL("../../../skills/", import.meta.url));
 
-type Answer = { folder: string; dir: string; legacy: boolean; error?: string } | null;
+type Answer = { folder: string; dir: string; error?: string } | null;
 type Recognize = (p: string) => Answer;
 
 /** Скрипт со знанием файлов исключений: код без комментариев и, у копии правила, её `exceptionFile`. */
@@ -19,7 +19,7 @@ interface Script {
   answer?: Recognize;
 }
 
-// своё знание путей исключений в коде: регулярка про exceptions, имя прежнего файла, путь …/exceptions; голое
+// своё знание путей исключений в коде: регулярка про exceptions, имя файла exceptions.*, путь …/exceptions; голое
 // "exceptions" — не оно: так же называются поле и переменная
 const OWN = /exceptions\\[./]|(["'`])(?:names\.)?exceptions\.(?:[cm]?[jt]s|json)\1|\/(?:names\.)?exceptions["'`/]|(["'`])names\.exceptions\2/g;
 const COPY = /^export function exceptionFile\(/m;
@@ -48,25 +48,23 @@ async function scripts(): Promise<Script[]> {
 }
 
 const A = "tests/standards/audit";
-const at = (folder: string, dir: string, legacy = false, error = false) => ({ folder, dir, legacy, ...(error ? { error: "…" } : {}) });
+const at = (folder: string, dir: string, error = false) => ({ folder, dir, ...(error ? { error: "…" } : {}) });
 
 /** Таблица путей: файл и ответ на «файл исключений какой папки решения?». */
 const TABLE: { path: string; want: Answer; why: string }[] = [
   { path: `${A}/exceptions/importLegacy.json`, want: at(A, "exceptions"), why: "исключение — файл в exceptions/ папки" },
   { path: "tests/architecture/boundaries/exceptions/src-db.json", want: at("tests/architecture/boundaries", "exceptions"), why: "правило архитектуры — тоже папка решения" },
-  { path: `${A}/exceptions/a.txt`, want: at(A, "exceptions", false, true), why: "не JSON" },
-  { path: `${A}/exceptions/importLegacy.ts`, want: at(A, "exceptions", false, true), why: "модуль вместо JSON" },
+  { path: `${A}/exceptions/a.txt`, want: at(A, "exceptions", true), why: "не JSON" },
+  { path: `${A}/exceptions/importLegacy.ts`, want: at(A, "exceptions", true), why: "модуль вместо JSON" },
   { path: `${A}/exceptions/routes/a.json`, want: at(A, "exceptions/routes"), why: "исключение раздела — файл в exceptions/<раздел>/" },
-  { path: `${A}/exceptions/routes/a.ts`, want: at(A, "exceptions/routes", false, true), why: "модуль вместо JSON в каталоге раздела" },
-  { path: `${A}/exceptions/old/deep/a.json`, want: at(A, "exceptions", false, true), why: "каталог глубже раздела" },
-  { path: `${A}/sub/exceptions/a.json`, want: at(A, "exceptions", false, true), why: "каталог в подпапке — не читается" },
-  ...["ts", "mts", "js", "mjs", "json"].map((ext) => ({ path: `${A}/exceptions.${ext}`, want: at(A, "exceptions", true), why: "прежний файл, любое расширение" })),
-  { path: `${A}/sub/exceptions.ts`, want: at(A, "exceptions", true), why: "прежний файл подпапки — исключения папки решения" },
-  { path: "tests/capabilities/exceptions/exceptions.ts", want: at("tests/capabilities/exceptions", "exceptions", true), why: "решение с именем exceptions" },
+  { path: `${A}/exceptions/routes/a.ts`, want: at(A, "exceptions/routes", true), why: "модуль вместо JSON в каталоге раздела" },
+  { path: `${A}/exceptions/old/deep/a.json`, want: at(A, "exceptions", true), why: "каталог глубже раздела" },
+  { path: `${A}/sub/exceptions/a.json`, want: at(A, "exceptions", true), why: "каталог в подпапке — не читается" },
+  { path: "tests/capabilities/exceptions/exceptions/a.json", want: at("tests/capabilities/exceptions", "exceptions"), why: "решение с именем exceptions" },
   { path: "tests/capabilities/exceptions/a.json", want: null, why: "файл решения с именем exceptions" },
   { path: `${A}/exceptions/.gitkeep`, want: null, why: "скрытый файл" },
   { path: `${A}/audit.test.ts`, want: null, why: "тест папки" },
-  { path: `${A}/exceptions.test.ts`, want: null, why: "тест про исключения — не прежний файл" },
+  { path: `${A}/exceptions.test.ts`, want: null, why: "тест про исключения — не файл исключений" },
   { path: "tests/lib/exceptions/a.json", want: null, why: "вне папок решений" },
   { path: "tests/lib/exceptions.ts", want: null, why: "вне папок решений" },
   { path: "tests/standards/exceptions.ts", want: null, why: "файл прямо в каталоге вида" },
@@ -76,7 +74,7 @@ const TABLE: { path: string; want: Answer; why: string }[] = [
   { path: `${A}/names.exceptions.ts`, want: null, why: "бывший файл исключений названий" },
 ];
 
-const show = (a: Answer) => (a ? `${a.folder}/${a.dir}/${a.legacy ? " прежний" : ""}${a.error ? " ошибка" : ""}` : "не исключения");
+const show = (a: Answer) => (a ? `${a.folder}/${a.dir}/${a.error ? " ошибка" : ""}` : "не исключения");
 const readable = (a: Answer) => !!a && !a.error;
 
 /** Строки таблицы, на которые копия отвечает не по правилу. */
@@ -84,12 +82,11 @@ function mismatches(answer: Recognize): string[] {
   return TABLE.filter((row) => show(answer(row.path)) !== show(row.want)).map((row) => `${row.path}: ${show(answer(row.path))}, а по правилу — ${show(row.want)} (${row.why})`);
 }
 
-// pr labels до стандарта: прежний файл — только exceptions.ts, каталог — любой файл на глубине папки
+// pr labels до стандарта: каталог — любой файл на глубине папки
 const before: Recognize = (p) => {
   const parts = p.split("/");
   if (parts[0] !== "tests") return null;
   const folder = parts.slice(0, 3).join("/");
-  if (parts.length === 4 && parts[3] === "exceptions.ts") return at(folder, "exceptions", true);
   if (parts.length === 5 && (parts[3] === "exceptions" || parts[3] === "names.exceptions")) return at(folder, parts[3]);
   return null;
 };
@@ -101,7 +98,7 @@ describe("Файл исключений папки решения распозн
     registry: "скрипты, распознающие файлы исключений",
     items: registry,
     key: (s) => s.key,
-    includes: ["github/github", "spec/harness", "spec/spec-diff", "spec/spec-exceptions", "spec/speclib"],
+    includes: ["github/github", "spec/harness", "spec/spec-diff", "spec/speclib"],
     name: (s) => (s.answer ? `${s.key} распознаёт файл исключений по таблице путей` : `${s.key} распознаёт файл исключений правилом exceptionFile, без своего`),
     check: (s) => {
       if (s.answer) {
@@ -113,7 +110,7 @@ describe("Файл исключений папки решения распозн
       if (own) throw new Error(`${s.key}: своё правило путей исключений (${[...new Set(own)].join(", ")}) — бери exceptionFile скилла`);
     },
     violator: [
-      { name: "pr labels до стандарта: прежний файл — только exceptions.ts", item: { key: "github до #264", code: "", answer: before } },
+      { name: "pr labels до стандарта: каталог — любой файл на глубине папки", item: { key: "github до #264", code: "", answer: before } },
       {
         name: "spec-diff до стандарта: своя регулярка exceptions/",
         item: { key: "spec-diff до #264", code: "const EXCEPTION_FILE = /(^|\\/)(names\\.)?exceptions\\/[^/]+\\.json$/;\nL.exceptionFile;" },
@@ -121,10 +118,10 @@ describe("Файл исключений папки решения распозн
     ],
   });
 
-  // тема с разделами (#685): правило одно — у spec (харнесс, spec-diff, spec-exceptions) и у копии github (pr labels)
-  it("файл исключений раздела харнесс, spec-diff, spec-exceptions и pr labels узнают одинаково", () => {
+  // тема с разделами (#685): правило одно — у spec (харнесс, spec-diff) и у копии github (pr labels)
+  it("файл исключений раздела харнесс, spec-diff и pr labels узнают одинаково", () => {
     const p = `${A}/exceptions/routes/importLegacy.json`;
-    const want = { folder: A, dir: "exceptions/routes", section: "routes", legacy: false };
+    const want = { folder: A, dir: "exceptions/routes", section: "routes" };
     expect(specExceptionFile(p)).toEqual(want);
     expect(githubExceptionFile(p)).toEqual(want);
     expect(decisionsOfFiles([{ path: p, changeType: "MODIFIED", additions: 1, deletions: 1 }], {}).mechanical).toHaveLength(1);
@@ -139,7 +136,7 @@ describe("Файл исключений папки решения распозн
     expect(wrong.map((row) => `${row.path} (${row.why})`)).toEqual([]);
   });
 
-  it("таблица ловит расхождения pr labels до стандарта: не JSON, раздел, прежний файл не .ts, подпапка, скрытый файл", () => {
+  it("таблица ловит расхождения pr labels до стандарта: не JSON, раздел, подпапка, скрытый файл", () => {
     expect(mismatches(before).map((m) => m.split(":")[0])).toEqual([
       `${A}/exceptions/a.txt`,
       `${A}/exceptions/importLegacy.ts`,
@@ -147,11 +144,6 @@ describe("Файл исключений папки решения распозн
       `${A}/exceptions/routes/a.ts`,
       `${A}/exceptions/old/deep/a.json`,
       `${A}/sub/exceptions/a.json`,
-      `${A}/exceptions.mts`,
-      `${A}/exceptions.js`,
-      `${A}/exceptions.mjs`,
-      `${A}/exceptions.json`,
-      `${A}/sub/exceptions.ts`,
       `${A}/exceptions/.gitkeep`,
       `${A}/names.exceptions/writes-row.json`,
     ]);

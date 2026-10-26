@@ -112,20 +112,20 @@ describe("Тонкий проект на Yarn 2+: скрипт пакета и �
 
   it("install и update на Yarn 2+ с PnP — скрипт пакета в package.json в форме, которая работает без node_modules", () => {
     // скрипт копии флоу и обёртка Yarn 2+ до #608 — `elves slot`, его Yarn запускал Node-ом
-    const copy = "bun --no-env-file .agents/skills/spec/scripts/spec-exceptions.ts";
-    yarnProject("pnp", { "spec:exceptions": copy, lint: `elves slot '${PROBE}'` });
+    const copy = "bun --no-env-file .agents/skills/spec/scripts/spec-break.ts --help";
+    yarnProject("pnp", { "spec:break": copy, lint: `elves slot '${PROBE}'` });
     expect(elves(sb, ["install", "--no-auto", "--lang", "en"]).code).toBe(0);
-    expect(scripts()).toEqual({ "spec:exceptions": `${PACKAGE_BUNX} spec-exceptions`, lint: `${PACKAGE_BUNX} slot '${PROBE}'` });
+    expect(scripts()).toEqual({ "spec:break": `${PACKAGE_BUNX} spec-break --help`, lint: `${PACKAGE_BUNX} slot '${PROBE}'` });
     // проверка с командой копии внутри: строка команды в одинарных кавычках — `'\''` в shell Yarn
     const pkg = JSON.parse(readFileSync(path.join(sb.proj, "package.json"), "utf8"));
     writeFileSync(path.join(sb.proj, "package.json"), JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, lint: `elves slot '${PROBE}'`, "test:spec": `elves slot '${copy}'` } }, null, 2) + "\n");
     expect(elves(sb, ["update"]).code).toBe(0);
-    expect(scripts()["test:spec"]).toBe(`${PACKAGE_BUNX} slot '${PACKAGE_BUNX.replaceAll("'", "'\\''")} spec-exceptions'`);
+    expect(scripts()["test:spec"]).toBe(`${PACKAGE_BUNX} slot '${PACKAGE_BUNX.replaceAll("'", "'\\''")} spec-break --help'`);
     expect(yarn("install").code).toBe(0);
     expect(existsSync(path.join(sb.proj, "node_modules"))).toBe(false);
-    // spec-exceptions пакета в проекте без exceptions.ts: переносить нечего, код 0
-    const nothing = expect.stringMatching(/exceptions\.ts in decision folders — nothing to move/);
-    const runs = Object.fromEntries(["spec:exceptions", "lint", "test:spec"].map((s) => [s, yarn(s)]));
-    expect(runs).toEqual({ "spec:exceptions": { code: 0, out: nothing }, lint: { code: 0, out: expect.stringMatching(IN_SLOT) }, "test:spec": { code: 0, out: nothing } });
+    // справка spec-break пакета: bin запустился, код 0
+    const help = expect.stringMatching(/spec-break --file <file>/);
+    const runs = Object.fromEntries(["spec:break", "lint", "test:spec"].map((s) => [s, yarn(s)]));
+    expect(runs).toEqual({ "spec:break": { code: 0, out: help }, lint: { code: 0, out: expect.stringMatching(IN_SLOT) }, "test:spec": { code: 0, out: help } });
   });
 });

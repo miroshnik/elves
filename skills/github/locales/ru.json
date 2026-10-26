@@ -397,7 +397,6 @@
       "elementFiles": "файлы элементов из fileOf есть на диске{tag}",
       "outside": "вне охвата{tag}: {item}",
       "exception": "исключение{tag}: {item} (#{issue})",
-      "exceptionFiles": "исключения — файлом на элемент в exceptions/, а не в exceptions.ts",
       "exceptionJson": "исключения — файлы <элемент>.json в exceptions/ папки решения",
       "exceptionRules": "исключения с rule — к правилам инвариантов папки",
       "markRules": "отметки с rule — к правилам инвариантов папки",

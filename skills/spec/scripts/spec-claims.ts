@@ -20,7 +20,7 @@
  * 1 — there are unclaimed ones or exception errors, 2 — a call error.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -145,10 +145,6 @@ export async function main(argv: string[]): Promise<number> {
     entries = [...count.keys()].sort();
     repeated = entries.filter((id) => count.get(id)! > 1).map((id) => `${id} ×${count.get(id)}`);
     if (v.exceptions) {
-      // a file per exception: the old array in one file is migrated by a command, not read by a second path
-      if (existsSync(v.exceptions) && !statSync(v.exceptions).isDirectory()) {
-        throw new Error(`--exceptions is an exceptions/ directory (a file per exception), not the file ${v.exceptions} — move it with spec-exceptions`);
-      }
       exceptions = exceptionFiles(v.exceptions);
     }
     if (!existsSync(v.journal)) {

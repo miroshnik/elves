@@ -160,17 +160,6 @@ describe("Точка входа без теста — исключение с з
     expect(failed(xml, "исключение: POST /invoices \\(#13\\)")).toBe(true);
     expect(xml).toContain(`POST /invoices is already called by a capability test — remove the exception: delete ${EXC}/POST-invoices.json (#13)`);
   });
-
-  it("исключения — каталог: файл вместо каталога — код 2 и подсказка переноса", () => {
-    writeTree(dir, {
-      "entries.json": JSON.stringify(["job:cleanup"]),
-      "tests/standards/entry-points/exceptions.ts": 'export default [{ item: "job:cleanup", issue: 12, reason: "тест — в #12" }];\n',
-      ".spec-journal/1.jsonl": "",
-    });
-    const r = claims("--exceptions", "tests/standards/entry-points/exceptions.ts");
-    expect(r.code).toBe(2);
-    expect(r.stderr).toContain("--exceptions is an exceptions/ directory (a file per exception), not the file tests/standards/entry-points/exceptions.ts — move it with spec-exceptions");
-  });
 });
 
 describe("Сверка попадает в спеку как стандарт", () => {

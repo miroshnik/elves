@@ -540,14 +540,13 @@ export function reportedChecks(fresh: Test[], generated: Set<Test>, sourced: Che
 }
 
 // the exceptions file — by the exceptionFile rule (speclib), as the harness reads it: exceptions/<item>.json — a harness
-// exception; the former exceptions.* — an array (the base revision of the move is still on it); a misplaced file isn't
-// read as an exception — we don't show it either
+// exception; a misplaced file isn't read as an exception — we don't show it either
 const readable = (rel: string) => {
   const x = L.exceptionFile(rel);
   return x && !x.error ? x : null;
 };
 
-/** exceptions.* entry: a harness registry item, `rule` — a convention. */
+/** exceptions/ entry: a harness registry item, `rule` — a convention. */
 type ExceptionEntry = { item: string; rule?: string; issue: number; reason: string };
 
 /** Exception line: what's excepted, the task and the reason — each entry has its own, identical ones aren't merged. */
@@ -586,8 +585,7 @@ function readFiles(rev: string | null, top: string, prefix: string, paths: strin
 }
 
 /**
- * Decisions at a revision: the model, exceptions (exceptions/ and exceptions.* in tests/, lint disables in changed
- * files), checks.
+ * Decisions at a revision: the model, exceptions (exceptions/ in tests/, lint disables in changed files), checks.
  */
 async function decisionsAt(
   rev: string | null,
@@ -608,16 +606,11 @@ async function decisionsAt(
   const exceptions: string[] = [];
   for (const p of excPaths) {
     const rel = p.slice(prefix.length);
-    const { folder: inFolder, section, legacy } = readable(rel)!;
+    const { folder: inFolder, section } = readable(rel)!;
     // a section's exception (exceptions/<section>/) — the place as in the test lists
     const folder = section ? `${inFolder}#${section}` : inFolder;
-    if (!legacy) {
-      const data = await loadData(files.get(rel) ?? "null", rel).catch(() => null);
-      if (data && typeof data === "object") exceptions.push(exceptionLine(folder, data as ExceptionEntry));
-      continue;
-    }
-    const data = await loadData(files.get(rel) ?? "[]", rel);
-    for (const e of Array.isArray(data) ? (data as ExceptionEntry[]) : []) exceptions.push(exceptionLine(folder, e));
+    const data = await loadData(files.get(rel) ?? "null", rel).catch(() => null);
+    if (data && typeof data === "object") exceptions.push(exceptionLine(folder, data as ExceptionEntry));
   }
   for (const p of changedCode) {
     const rel = p.slice(prefix.length);

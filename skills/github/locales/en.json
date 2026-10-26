@@ -397,7 +397,6 @@
       "elementFiles": "element files from fileOf exist{tag}",
       "outside": "outside scope{tag}: {item}",
       "exception": "exception{tag}: {item} (#{issue})",
-      "exceptionFiles": "exceptions are one file per element in exceptions/, not exceptions.ts",
       "exceptionJson": "exceptions are <element>.json files in the decision folder's exceptions/",
       "exceptionRules": "exceptions with a rule belong to the folder's invariant rules",
       "markRules": "marks with a rule belong to the folder's invariant rules",
