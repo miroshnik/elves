@@ -374,6 +374,7 @@ ${rules
   .join("\n")}
 `;
 const MARK_RULES = "отметки с rule — к правилам инвариантов папки";
+const MARK_NAMES = "отметка называет тему или её раздел";
 
 /** Метаданные прогона в проекте: название теста → то, что харнесс записал для spec-doc. */
 function metaOf(test: string): Record<string, unknown> | undefined {
@@ -481,11 +482,12 @@ describe("Отметка в файле элемента — «вне охват�
   it("отметка другого решения и текст отметки в строке кода — не отметки папки", () => {
     writeTree(dir, {
       [`${AUDIT}/audit.test.ts`]: markedTest({ items: ["login"] }),
+      "tests/standards/auth/auth.test.ts": 'import { it } from "bun:test";\nit("вход проверяет право", () => {});\n',
       "src/login.ts": '// spec-outside(auth): вход — до проверки права\nexport const hint = "// spec-outside(audit): в строке — не отметка";\nexport const login = () => audit();\n',
     });
-    const r = bunTest();
+    const r = bunTest(`${AUDIT}/audit.test.ts`);
     expect(r["login пишет аудит"]).toBe("✓");
-    expect(Object.keys(r).filter((n) => n.startsWith("вне охвата") || n === MARK_RULES)).toEqual([]);
+    expect(Object.keys(r).filter((n) => n.startsWith("вне охвата") || n === MARK_RULES || n === MARK_NAMES)).toEqual([]);
   });
 
   it("отметка — в начале комментария любого файла: SQL, shell, HTML, JSDoc; в строке JS и посреди текста — не отметка", () => {
@@ -543,6 +545,35 @@ architecture(it, { root, model: { roots: ["apps/web/src"], modules: { web: { pat
     const inPackage = bunTestIn(path.join(dir, "apps/web"), "../../tests/architecture/modules/modules.test.ts");
     expect(inPackage["вне охвата: packages/eslint-config"]).toBe("✓");
     expect(inPackage["исключение: packages/test-helpers (#9)"]).toBe("✓");
+  });
+
+  // #745: после перегруппировки решение — раздел темы; отметка прежнего решения называет раздел и не трогает соседние
+  it("отметка раздела темы выводит файл только из инвариантов этого раздела, отметка темы — из всех её разделов", () => {
+    const section = (name: string) => markedTest({ items: ["login", "logout"] }).replace("/audit.test", `/${name}.test`);
+    writeTree(dir, {
+      "tests/standards/pages/routes.test.ts": section("routes"),
+      "tests/standards/pages/forms.test.ts": section("forms"),
+      "src/login.ts": "// spec-outside(routes): вход — до маршрутизации\nexport const login = () => check();\n",
+      "src/logout.ts": "// spec-outside(pages): выход — не страница\nexport const logout = () => check();\n",
+    });
+    const routes = bunTest("tests/standards/pages/routes.test.ts");
+    expect(routes["вне охвата: login"]).toBe("✓");
+    expect(routes["вне охвата: logout"]).toBe("✓");
+    expect(routes[MARK_NAMES]).toBeUndefined();
+    const forms = bunTest("tests/standards/pages/forms.test.ts");
+    expect(forms["login пишет аудит"]).toBe("✗ login не пишет аудит");
+    expect(forms["вне охвата: login"]).toBeUndefined();
+    expect(forms["вне охвата: logout"]).toBe("✓");
+  });
+
+  it("отметка с именем, которого нет ни у темы, ни у раздела, — красный тест с местом отметки", () => {
+    writeTree(dir, {
+      "tests/standards/pages/routes.test.ts": markedTest({ items: ["login"] }).replace("/audit.test", "/routes.test"),
+      "src/login.ts": "export const x = 1;\n// spec-outside(routs): опечатка в имени раздела\nexport const login = () => check();\n",
+    });
+    const r = bunTest("tests/standards/pages/routes.test.ts");
+    expect(r[MARK_NAMES]).toBe("✗ src/login.ts:2: spec-outside(routs) — no topic or section of tests/ is named «routs»: a topic's name takes the file out of all its sections, a section's — out of that section's invariants");
+    expect(r["login пишет аудит"]).toBe("✗ login не пишет аудит");
   });
 
   it("отметка в файле двух элементов — красный тест: к какому элементу, неизвестно", () => {

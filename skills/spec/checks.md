@@ -223,10 +223,13 @@ A fragment is `eslint.ts`, `eslint.mts` (ESM even in a project without
   The element is deleted — the mark goes too; two PRs don't edit a shared file.
   A record in `outside` or `exceptions/` outlived the element: one PR deleted a
   route, another added it as outside scope — after both merges `main` is red
-  (measurement #211, three of five breakages). `audit` is the decision folder's
-  name: a file may be an element of registries in different folders, and the
-  mark names its own; `audit/cancel` is the folder invariant with that `rule`,
-  without it — all of the folder's invariants. A mark starts the comment text
+  (measurement #211, three of five breakages). `audit` is a topic or its section:
+  the topic folder's name takes the file out of all its sections, a section's
+  name (`<topic>/audit.test.ts`) — out of that section's invariants only; a
+  name no topic or section of `tests/` has — red «a mark names a topic or its
+  section» with the mark's location. A file may be an element of registries in
+  different folders, and the mark names its own; `audit/cancel` is the
+  invariant with that `rule`, without it — all of them. A mark starts the comment text
   (`//`, `/*`, a block's `*`, `#`, `--`, `<!--`): in JS/TS — only in comments,
   not in strings; the format in the middle of prose isn't a mark (`marksIn`).
   JSON has no comments — there the mark is the value of the top-level key `"//"`
