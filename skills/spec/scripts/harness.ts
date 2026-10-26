@@ -892,13 +892,18 @@ export function testFileIn(stack: string, root: string): string | null {
   return testFileAt(stack, root)?.rel ?? null;
 }
 
-/** The same plus the file's absolute path: `rel` — from the project root, `abs` ends with `rel`. */
+/**
+ * The same plus the file's absolute path: `rel` — from the project root, `abs` ends with `rel`. A runner outside the
+ * project root (a monorepo package's directory) or inside its `tests/` (a package of tests, #754) — `rel` from the
+ * directory with that `tests/`, not from the runner's cwd.
+ */
 function testFileAt(stack: string, root: string): { rel: string; abs: string } | null {
   for (const m of stack.matchAll(STACK_FILE)) {
     const abs = m[1]!;
     const rel = path.relative(root, abs).split(path.sep).join("/");
-    if (!rel.startsWith("..")) return { rel, abs };
     const i = abs.indexOf("/tests/");
+    const inTests = i >= 0 && !path.relative(abs.slice(0, i + "/tests".length), root).startsWith("..");
+    if (!rel.startsWith("..") && !inTests) return { rel, abs };
     if (i >= 0) return { rel: abs.slice(i + 1), abs };
   }
   return null;
