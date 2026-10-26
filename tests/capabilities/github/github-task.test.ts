@@ -4264,6 +4264,112 @@ describe("Выпуск пачки — один PR в main", () => {
 });
 
 /**
+ * Группа диспетчера (#698): в пилоте пачки владелец выбрал пять задач и запретил брать новые, а очередь по эпику этого
+ * не знала — после выпуска она завела бы новую пачку из любых готовых задач, и диспетчер остановился, только не
+ * запуская её; worktree исполнителей пачки ждали следующего запуска очереди, которого не было.
+ */
+describe("Группа диспетчера — пачки только из выбранных задач", () => {
+  /** Проект с пачками и группа из двух задач эпика; третья задача эпика готова, но вне группы. */
+  function grouped() {
+    const work = batchProjectDir(true);
+    const f = new FakeGitHub(REC);
+    const config = scratch();
+    const a = subtaskOf45(f, "Первая группы");
+    const b = subtaskOf45(f, "Вторая группы");
+    const outside = subtaskOf45(f, "Вне группы");
+    const queue = () => task(f, ["queue", "--tasks", `${a},${b}`], REPO, { ...inSession(config), cwd: work, run: noEst });
+    /** Задача влита в пачку, выпуск влит в main: GitHub закрыл задачу по «Closes». */
+    const shipped = (n: number, batch: string, pr: number) => {
+      mergeIntoBatch(work, batch, `feat/${n}-x`, `${n}.txt`, `feat(github): #${n}`);
+      f.prs[pr] = batchPr(n, `feat/${n}-x`, batch);
+      expect(release(f, work, config).code).toBe(0);
+      Object.assign(f.prs[pr + 1]!, { merged: true, state: "MERGED" });
+      f.closed(n);
+    };
+    return { work, f, config, a, b, outside, queue, shipped };
+  }
+
+  it("task queue с группой задач раздаёт только её и после выпуска новую пачку заводит только из её оставшихся задач", () => {
+    const { config, f, a, b, outside, queue, shipped } = grouped();
+    const first = queue();
+    expect(first.code).toBe(0);
+    const lines = headLines(first.out);
+    expect(lines).toContain(`Queue ${REPO} (tasks #${a}, #${b}): ready 2, «В работе» 0, not ready 0`);
+    expect(lines.filter((l) => l.startsWith("+ #"))).toEqual([`+ #${a} «GitHub · Первая группы»`, `+ #${b} «GitHub · Вторая группы»`]);
+    expect(first.out).not.toContain(`#${outside} `);
+    // группа — в команде очереди маркера: её перечитывает каждый запуск и task resume
+    expect(readFileSync(marker(config), "utf8").split("\n")[0]).toMatch(new RegExp(` task queue --tasks ${a},${b} --repo ${REPO}$`));
+    // первая задача выпущена — новая пачка только из второй, задача вне группы в неё не идёт
+    shipped(a, `batch/${day()}-1`, 300);
+    const next = queue();
+    expect(headLines(next.out).filter((l) => l.startsWith("+ batch branch batch/"))[1]).toStartWith(`+ batch branch batch/${day()}-2 from origin/main`);
+    expect(headLines(next.out).filter((l) => l.startsWith("+ #"))).toEqual([`+ #${b} «GitHub · Вторая группы»`]);
+    expect(next.out).not.toContain(`#${outside} `);
+    expect(f.issue(outside).state).toBe("OPEN");
+  });
+
+  it("группа пуста после выпуска — последняя строка без новой пачки", () => {
+    const { work, a, b, outside, queue, shipped } = grouped();
+    queue();
+    shipped(a, `batch/${day()}-1`, 300);
+    queue();
+    shipped(b, `batch/${day()}-2`, 302);
+    const r = queue();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it");
+    expect(r.out).not.toContain(`#${outside} `);
+    expect(r.out.split("\n").at(-1)).toContain(
+      `The group (tasks #${a}, #${b}) has nothing left — no new batch: a task outside it joins only by the owner's word, task queue --tasks with it.`,
+    );
+    expect(remoteBatches(work).filter((b) => b === `batch/${day()}-3`)).toEqual([]);
+  });
+
+  // без перегиба: группа задаётся либо эпиком, либо списком
+  it("--tasks и --epic вместе — отказ", () => {
+    const r = task(new FakeGitHub(REC), ["queue", "--tasks", "47", "--epic", "45"], REPO, { ...inSession(scratch()), cwd: scratch(), run: noEst });
+    expect(r.code).toBe(2);
+    expect(r.err).toBe("error: --epic or --tasks, not both: the group is the epic's open tasks or the ones named");
+  });
+
+  it("выпуск убирает worktree и ветки исполнителей пачки", () => {
+    const { work, f, config, name } = started();
+    const AUTHOR = ["-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false"];
+    /** Исполнитель пачки: worktree агента на ветке задачи от пачки, выдача в сессии диспетчера. */
+    const executor = (n: number, id: string) => {
+      const dir = path.join(realpathSync(work), ".claude/worktrees", `agent-${id}`);
+      git(work, "fetch", "-q", "origin");
+      git(work, "worktree", "add", "-q", "-b", `feat/${n}-x`, dir, `origin/${name}`);
+      expect(task(f, ["queue", "--assignment", String(n)], REPO, { ...inSession(config), cwd: dir, run: noEst }).code).toBe(0);
+      return dir;
+    };
+    const done = executor(47, "a1");
+    writeTree(done, { "export.txt": "export\n" });
+    git(done, "add", "-A");
+    git(done, ...AUTHOR, "commit", "-q", "-m", "feat(github): экспорт");
+    git(done, "push", "-q", "origin", `HEAD:refs/heads/${name}`, "HEAD:refs/heads/feat/47-x");
+    f.prs[300] = batchPr(47, "feat/47-x", name);
+    // живой исполнитель: задача открыта, его worktree выпуск не трогает
+    const live = subtaskOf45(f, "Живой исполнитель");
+    const alive = executor(live, "a2");
+    expect(release(f, work, config).code).toBe(0);
+    // GitHub влил выпуск rebase-мержем и закрыл задачу по «Closes»
+    git(work, "fetch", "-q", "origin");
+    git(work, "push", "-q", "origin", `refs/remotes/origin/${name}:refs/heads/main`);
+    Object.assign(f.prs[301]!, { merged: true, state: "MERGED" });
+    f.closed(47);
+    const r = release(f, work, config);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines).toContain(`+ worktree ${done} removed with branch feat/47-x: clean, nothing outside origin/main`);
+    expect(lines.at(-1)).toStartWith("Next: where the merge deploys");
+    const worktrees = git(work, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+    expect(worktrees.sort()).toEqual([realpathSync(work), alive].sort());
+    expect(git(work, "branch", "--list", "feat/47-x")).toBe("");
+    expect(git(work, "branch", "--list", `feat/${live}-x`, "--format=%(refname:short)")).toBe(`feat/${live}-x`);
+  });
+});
+
+/**
  * Красный выпуск (#650, вопрос 3 эпика #645): полный набор впервые идёт на выпуске, и его красный называет виновную
  * задачу — по меткам решений упавших тестов, иначе бисектом по границам задач на машине; чинит её она же — PR в ветку
  * пачки с «Refs #N» после проверок перед коммитом, без CI, затем полный прогон выпуска заново на том же PR, без revert'а. Остальные задачи
