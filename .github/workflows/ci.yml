@@ -16,7 +16,7 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Пределы времени (tests/standards/ci-timeouts): у каждой job — с запасом к обычному прогону, у шага, что ставит пакеты
+# Пределы времени (tests/standards/workflows/ci-timeouts): у каждой job — с запасом к обычному прогону, у шага, что ставит пакеты
 # из сети, — свой; без них GitHub держит зависшую job до 6 часов, а ci-wait агента ждёт её всё это время (#674).
 jobs:
   tests:
@@ -31,7 +31,7 @@ jobs:
       # `.ts` без флагов Node грузит с 22.18, а версия Node в образе раннера не задана
       - uses: actions/setup-node@v7
         with: { node-version: 24 }
-      # tests/capabilities/agent-shell запускает Bash-вызов агента в настоящем zsh — оболочке Claude Code на macOS.
+      # tests/capabilities/elves/agent-shell запускает Bash-вызов агента в настоящем zsh — оболочке Claude Code на macOS.
       # Зеркало apt раннера зависает без вывода (PR #662 — 20 минут) и бывает медленным, но живым (main после PR #693 —
       # update дольше 40 с): команда — до 120 с, три попытки, шаг — до 8 минут
       - name: zsh

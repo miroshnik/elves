@@ -11,4 +11,4 @@
 `package.json` и CI зовут `spec-doc`, `spec-diff` и остальные `spec-*` бином пакета —
 `bun --no-env-file node_modules/.bin/elves <скрипт>`, без env-файлов проекта (#596). Версия у
 агента и у CI одна — версия пакета в lockfile проекта; пути — от каталога проекта, как у скрипта копии. Тест проекта
-идёт под bun test: Bun берёт исходник TypeScript, раннер под Node — сборку для Node (стандарт `harness-load`).
+идёт под bun test: Bun берёт исходник TypeScript, раннер под Node — сборку для Node (стандарт `exports#harness-load`).

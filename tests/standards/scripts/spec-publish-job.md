@@ -6,7 +6,7 @@ Job публикации выкладывает документацию в ве
 его красный красным `main`, `wait-ci.sh` его не ждёт и не даёт по нему FAIL. Правило живёт в двух копиях —
 `SPEC_PUBLISH` в `skills/github/scripts/github.ts` (регулярка JS) и `SPEC_PUBLISH` в `skills/ci-wait/scripts/wait-ci.sh`
 (строка для `test()` jq), а имя job задают фрагменты `skills/spec/ci.md` и `.github/workflows/ci.yml`. Общего модуля
-нет: `github` и `ci-wait` других скиллов не импортируют (стандарт `skill-imports`), а `wait-ci.sh` — bash и jq, импорта
+нет: `github` и `ci-wait` других скиллов не импортируют (стандарт `scripts#skill-imports`), а `wait-ci.sh` — bash и jq, импорта
 TypeScript у него нет. Без проверки
 копии связаны только комментариями: поправленная одна копия или переименованный во фрагменте job — тесты каждого
 скрипта зелёные, а ложный «`main` красный» (код 3 и ложный баг) или FAIL ожидания после мержа возвращаются.

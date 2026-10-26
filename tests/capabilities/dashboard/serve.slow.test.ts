@@ -202,7 +202,7 @@ describe("Команда dashboard сервит страницу сама и о�
     const bad = await fetch(new URL("/est", d.url));
     expect(bad.status).toBe(502);
     expect(await bad.text()).toContain("HTTP 502: Bad Gateway");
-    // сбой сети повторяется без настоящих пауз: прогон задаёт ELVES_GH_RETRY_MS (tests/standards/fast-tests)
+    // сбой сети повторяется без настоящих пауз: прогон задаёт ELVES_GH_RETRY_MS (tests/standards/tests/fast-tests)
     expect(d.stderr()).toContain("network failure, retry in 0 s");
     // неверный период в адресе — ошибка запроса, а не GitHub
     const period = await fetch(new URL("/est?since=вчера", d.url));

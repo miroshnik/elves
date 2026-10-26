@@ -389,7 +389,7 @@ const OPEN_SHOWN = 10;
 const RECENT_PRS = 50;
 /**
  * A PR head's checks for `checkStates` — the one selection of every query that reads them (`PR_SHOW`, `MergeRules`):
- * without the run's id and its app reruns can't be told apart (`tests/standards/check-run-state`).
+ * without the run's id and its app reruns can't be told apart (`tests/standards/scripts/check-run-state`).
  */
 export const HEAD_CHECKS = `commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion databaseId checkSuite { app { databaseId } } } ... on StatusContext { context state } } } } } } }`;
 /** A PR for task show: its state and the checks of its head. */
@@ -867,7 +867,7 @@ const WORST: CheckBucket[] = ["fail", "cancel", "pending", "skipping", "pass"];
  * largest `databaseId`), not the best one and not the order of the response; several apps — the worst of their states.
  * A commit status — GitHub already keeps the latest of a context: success — pass, pending and expected — pending,
  * otherwise fail. The copy — `CHECK_STATES` in ci-wait's `wait-ci.sh` (REST check-runs): both answer by one table,
- * `tests/standards/check-run-state`.
+ * `tests/standards/scripts/check-run-state`.
  */
 export function checkStates(nodes: Any[]): Map<string, CheckBucket> {
   const app = (c: Any) => JSON.stringify([c.name, c.checkSuite?.app?.databaseId ?? null]);
@@ -1818,8 +1818,8 @@ function ensureItem(io: Io, ctx: TaskCtx, i: Pick<Issue, "id" | "number" | "item
 
 /**
  * The personal configuration directory — `ELVES_CONFIG_DIR`, otherwise `~/.config/elves`: one expression for all
- * scripts (the Elves `config-dir` standard) rather than a shared module — github imports no other skill
- * (tests/standards/skill-imports). The flow's former names are read for the transition: `AI_DEV_CONFIG_DIR` — a
+ * scripts (the Elves `scripts#config-dir` standard) rather than a shared module — github imports no other skill
+ * (tests/standards/scripts/skill-imports). The flow's former names are read for the transition: `AI_DEV_CONFIG_DIR` — a
  * variable the owner may have set in the profile; `~/.config/ai-dev` — the directory of a machine before `update -g`
  * moved it, while the new one doesn't exist; a clean machine gets the new one. est
  * moves the old `~/.claude/est` into the directory only while the directory doesn't exist (est.ts, `ensureConfigDir`):
@@ -1843,7 +1843,7 @@ function pinFile(io: Io): string | null {
 
 /**
  * The session pin: `owner/repo#N` — the task, anything else — not a pin. est has the same parse: github imports no other
- * skill (tests/standards/skill-imports, tests/standards/session-pin).
+ * skill (tests/standards/scripts/skill-imports, tests/standards/scripts/session-pin).
  */
 export function sessionPin(text: string): { slug: string; number: number } | null {
   const m = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(text.trim());
@@ -2175,7 +2175,7 @@ export function epicPrefix(title: string): string | null {
 
 /**
  * A new task; an optional field takes `undefined` — the command line passes an option not given as is, under a
- * project's `exactOptionalPropertyTypes` too (tests/standards/consumer-typecheck).
+ * project's `exactOptionalPropertyTypes` too (tests/standards/exports/consumer-typecheck).
  */
 export interface NewTask {
   title: string;
@@ -5038,7 +5038,7 @@ export function cmdTaskResume(io: Io): number {
 }
 
 // canon task types — a copy of EST_TYPES and BRANCH_CONV_RE from skills/est/scripts/est.ts (and in skills/task-env/scripts/task-env.ts):
-// no shared module: github imports no other skill (tests/standards/skill-imports); the tests/standards/task-branch
+// no shared module: github imports no other skill (tests/standards/scripts/skill-imports); the tests/standards/scripts/task-branch
 // standard keeps the parsing identical
 const TASK_TYPES = ["feat", "fix", "docs", "refactor", "perf", "test", "chore", "ci", "build", "research"];
 const TASK_BRANCH_RE = new RegExp("^(?:[\\p{L}\\p{N}_.-]+/)?(" + TASK_TYPES.join("|") + ")/(\\d{1,6})-", "iu");
@@ -5298,8 +5298,8 @@ const LEGACY_EXCEPTIONS = /^exceptions\.(ts|mts|js|mjs|json)$/;
 
 /**
  * Which decision folder's exceptions file is it? A copy of the spec skill's `exceptionFile` rule (`speclib.ts`):
- * github imports no other skill (tests/standards/skill-imports) and works without spec; the
- * `tests/standards/exception-files` standard checks both copies against one table. The `exceptions/` directory of a
+ * github imports no other skill (tests/standards/scripts/skill-imports) and works without spec; the
+ * `tests/standards/scripts/exception-files` standard checks both copies against one table. The `exceptions/` directory of a
  * `tests/<kind>/<name>` folder, a `.json` file — the folder's exception, in `exceptions/<section>/` — the topic
  * section's; another file in the directory, a deeper directory and a directory in a subfolder — an error;
  * `exceptions.*` in a folder or a subfolder — the former format; outside decision folders and hidden ones — null.
@@ -5574,7 +5574,7 @@ export interface PackageManager {
 /**
  * The project's package manager in dir — the one answer of the flow: `pr premerge` (`projectCommands`), the slot
  * wrapper and the `test:spec` runner of the project's `check` (bin/elves.ts) take it here,
- * `tests/standards/package-manager`. The manager — `packageManager` in package.json, otherwise the lockfile in the
+ * `tests/standards/scripts/package-manager`. The manager — `packageManager` in package.json, otherwise the lockfile in the
  * order below, otherwise `.yarnrc.yml` — Yarn, otherwise npm. Yarn 2+ — `yarn@2+` in `packageManager`, Yarn by the
  * files — with `.yarnrc.yml`: `packageManager` decides the version too.
  */
@@ -5605,7 +5605,7 @@ export function projectCommands(dir: string): { install: string[] | null; run: (
 }
 
 /**
- * A temporary worktree of the checkout at a revision (tests/standards/temp-worktree): a directory in the temp folder,
+ * A temporary worktree of the checkout at a revision (tests/standards/scripts/temp-worktree): a directory in the temp folder,
  * `git worktree add --detach`, `work` in it, and the removal always — an error inside too: `worktree remove --force`,
  * the directory, `worktree prune`. The flow's scripts add a worktree only here: a copy that forgot the `finally` or the
  * `prune` left a worktree registered in the user's checkout. Not added — a GhError with git's reason.
@@ -5678,7 +5678,7 @@ const RED_STATUS = new Set(["failure", "error"]);
 /**
  * The spec publish job (the `spec` skill, `ci.md`; `<job> / spec-publish` — the same job in a reusable workflow) —
  * publishing the documentation, not a check of the branch: its red isn't a red main (#443). A copy — in ci-wait's
- * `wait-ci.sh` (`SPEC_PUBLISH`): both answer by one table, `tests/standards/spec-publish-job`.
+ * `wait-ci.sh` (`SPEC_PUBLISH`): both answer by one table, `tests/standards/scripts/spec-publish-job`.
  */
 export const SPEC_PUBLISH = /^(?:.+ \/ )?spec-publish$/;
 
@@ -5989,7 +5989,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
 // ----------------------------------------------------------------------------
 
 /**
- * Help — `--help` or `-h` anywhere in the arguments (tests/standards/cli-help): a command's synopsis (the first
+ * Help — `--help` or `-h` anywhere in the arguments (tests/standards/scripts/cli-help): a command's synopsis (the first
  * paragraph), what it does and examples; `github --help` — the synopses of all. The dispatcher takes only the commands
  * from here: a command without help can't be called.
  */
@@ -6262,7 +6262,7 @@ const issueNumber = (s: string | undefined, what: string): number => {
 };
 
 // The checkout's GitHub repository by its origin — a copy of originRepo from skills/est/scripts/est.ts and skills/task-env/scripts/task-env.ts:
-// no shared module: github imports no other skill (tests/standards/skill-imports); the tests/standards/origin-repo
+// no shared module: github imports no other skill (tests/standards/scripts/skill-imports); the tests/standards/scripts/origin-repo
 // standard keeps the parsing identical
 const ORIGIN_RE = /^(?:[a-z][a-z\d+.-]*:\/\/(?:[^@/\s]+@)?(?:ssh\.)?github\.com(?::\d+)?\/|(?:[^@/\s:]+@)?(?:ssh\.)?github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i;
 

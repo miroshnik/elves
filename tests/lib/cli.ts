@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PACKAGE_RUN } from "../../skills/spec/scripts/package-run.ts";
 
 /**
- * Скрипты флоу с точкой входа и запуск их справки в песочнице — для стандарта `tests/standards/cli-help` и тестов,
+ * Скрипты флоу с точкой входа и запуск их справки в песочнице — для стандарта `tests/standards/scripts/cli-help` и тестов,
  * которым нужны команды скриптов (README, язык справки). Не спека.
  */
 

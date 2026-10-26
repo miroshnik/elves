@@ -9,7 +9,7 @@ const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 // правило — одно выражение: переменная, иначе каталог по умолчанию; `||`, а не `??` — пустая переменная тоже «иначе».
 // Прежнее имя флоу (`ai-dev`, #545) — в нём же: переменная из профиля владельца и каталог машины, который `update -g`
 // ещё не перенёс; на чистой машине — новый каталог. Переменная — через точку или в скобках: `env["X"]` — у модуля, что
-// проходит тайпчек проекта с noPropertyAccessFromIndexSignature (tests/standards/consumer-typecheck)
+// проходит тайпчек проекта с noPropertyAccessFromIndexSignature (tests/standards/exports/consumer-typecheck)
 const HOME = String.raw`[\w$.]+(?:\(\))?`;
 const DIR = (name: string) => String.raw`path\.join\(\s*${HOME}\s*,\s*"\.config"\s*,\s*"${name}"\s*\)`;
 const VAR = (name: string) => String.raw`[\w$.]+(?:\.${name}|\[\s*"${name}"\s*\])`;

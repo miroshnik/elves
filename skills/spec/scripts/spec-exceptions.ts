@@ -21,7 +21,7 @@ import { parseArgs } from "node:util";
 import { EXCEPTIONS_DIR, exceptionFile, TESTS } from "./speclib.ts";
 
 const USAGE = "spec-exceptions [--root DIR]";
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 Moves exceptions to the "file per item" format: each exceptions.ts of a decision folder — into its exceptions/ directory,

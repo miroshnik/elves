@@ -14,7 +14,7 @@ repository and its project hook's flow — `docs/cloud-sessions.md`.
 repositories, no colleagues or clients — in files, git history or issues;
 examples are made up. **A skill is `SKILL.md` + `scripts/`** in TypeScript
 under Bun (Agent Skills; README, "Repository layout"); repository specifics
-— local configuration. **Budgets** (standard `canon-size`): this file ≤
+— local configuration. **Budgets** (standard `documents#canon-size`): this file ≤
 3,000 words, `SKILL.md` ≤ 2,500, a description ≤ 1,024 characters.
 Here — what always applies and where to go; reference — a skill's
 `reference.md` or `--help`, `docs/`.

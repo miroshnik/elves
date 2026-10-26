@@ -8,7 +8,7 @@
  *
  * The second output line is its own: `deadCode` joins both. CommonJS, not TypeScript: the harness takes the file
  * path (`report.file`) with a static import — `import.meta` in a module that Playwright and Jest load as CommonJS is
- * a syntax error (tests/standards/harness-load); knip loads it under both Node and Bun. A project's code takes the
+ * a syntax error (tests/standards/exports/harness-load); knip loads it under both Node and Bun. A project's code takes the
  * path the same way — the package's export `@miroshnik/elves/spec/knip-hints`, as is under Bun and Node, without a
  * build (#620). Types — `knip-hints.d.cts`.
  */

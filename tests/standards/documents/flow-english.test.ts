@@ -48,7 +48,7 @@ describe("Флоу написан по-английски: в его докум�
     check: (d) => {
       const lines = cyrillicLines(d.text);
       if (lines.length) {
-        throw new Error(`${d.file}: кириллица — флоу пишется по-английски, названия на языке проекта — в skills/github/locales (tests/standards/flow-english):\n${lines.join("\n")}`);
+        throw new Error(`${d.file}: кириллица — флоу пишется по-английски, названия на языке проекта — в skills/github/locales (tests/standards/documents/flow-english):\n${lines.join("\n")}`);
       }
     },
     violator: { name: "справочник с русской цитатой вывода скрипта", item: { file: "docs/x.md", text: "# Rule\n\nThe script prints «○ актуализация не нужна».\n" } },
@@ -81,7 +81,7 @@ describe("Код установщика и скриптов скиллов — �
     check: (f) => {
       const lines = cyrillicLines(f.text);
       if (lines.length) {
-        throw new Error(`${f.file}: кириллица — сообщения и комментарии в коде флоу по-английски, названия на языке проекта — из skills/github/locales (tests/standards/flow-english):\n${lines.join("\n")}`);
+        throw new Error(`${f.file}: кириллица — сообщения и комментарии в коде флоу по-английски, названия на языке проекта — из skills/github/locales (tests/standards/documents/flow-english):\n${lines.join("\n")}`);
       }
     },
     violator: { name: "комментарий по-русски", item: { file: "skills/x/scripts/x.ts", text: '// подсказка агенту\nconsole.log("Next: task close");\n' } },
@@ -149,7 +149,7 @@ describe("Строки вывода, которые цитируют доки ф
     name: (q) => `цитату «${q.text}» из ${q.file} печатает или пишет скрипт`,
     check: (q) => {
       const missing = q.text.split(PLACEHOLDER).map(literal).filter((s) => /\p{L}{2,}/u.test(s) && !PRINTED.includes(s));
-      if (missing.length) throw new Error(`${q.file}: «${q.text}» — в коде скриптов и в en.json нет: ${missing.map((s) => `«${s}»`).join(", ")} — поправь вывод скрипта или цитату (tests/standards/flow-english)`);
+      if (missing.length) throw new Error(`${q.file}: «${q.text}» — в коде скриптов и в en.json нет: ${missing.map((s) => `«${s}»`).join(", ")} — поправь вывод скрипта или цитату (tests/standards/documents/flow-english)`);
     },
     violator: { name: "цитата вывода, которого нет", item: { file: "skills/x/SKILL.md", text: "nothing to refresh, all quiet" } },
     outside: [
@@ -193,7 +193,7 @@ describe("Названия, которые пишут и разбирают ск
   /**
    * Модуль `locale` берёт словари статическим импортом в карту, типизированную `Names`, — каталог `locales/` он не
    * читает: так tsc сверяет каждый словарь с типом, а модуль грузится любым раннером проекта
-   * (tests/standards/harness-load). Файл языка, которого нет в карте, молча не подхватился бы ни скриптами, ни typecheck.
+   * (tests/standards/exports/harness-load). Файл языка, которого нет в карте, молча не подхватился бы ни скриптами, ни typecheck.
    */
   it("каждый файл skills/github/locales/*.json — язык модуля locale с этим словарём, en первым", () => {
     const files = readdirSync(path.join(ROOT, LOCALES)).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
@@ -215,7 +215,7 @@ describe("Названия, которые пишут и разбирают ск
     name: ([k]) => `название ${k} скрипты читают из словаря`,
     check: ([k]) => {
       const path = new RegExp(`(?<![\\w$])${k.replace(/\./g, "\\??\\.")}(?![\\w$])`);
-      if (!path.test(CODE)) throw new Error(`${LOCALES}/en.json ${k}: ни один скрипт не читает это название по пути ключа — скрипт пишет его мимо словаря или ключ мёртвый (tests/standards/flow-english)`);
+      if (!path.test(CODE)) throw new Error(`${LOCALES}/en.json ${k}: ни один скрипт не читает это название по пути ключа — скрипт пишет его мимо словаря или ключ мёртвый (tests/standards/documents/flow-english)`);
     },
     violator: { name: "название, которого скрипты не читают", item: ["status.archived", "Archived"] },
     outside: [

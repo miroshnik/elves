@@ -81,7 +81,7 @@ function lines(text: string, at: number[]): string[] {
 const unflagged = (text: string, re: RegExp) => [...text.matchAll(re)].filter((m) => !/--no-env-file\b/.test(m[1] ?? "")).map((m) => m.index!);
 
 function noUnflagged(f: Source, at: number[], what: string) {
-  if (at.length) throw new Error(`${f.file}: ${what} без --no-env-file — Bun подгрузит env-файлы проекта (tests/standards/no-env-file):\n${lines(f.text, at).join("\n")}`);
+  if (at.length) throw new Error(`${f.file}: ${what} без --no-env-file — Bun подгрузит env-файлы проекта (tests/standards/scripts/no-env-file):\n${lines(f.text, at).join("\n")}`);
 }
 
 describe("Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file", () => {
@@ -179,7 +179,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
    * На Yarn 2+ с PnP `node_modules/.bin/elves` нет, а bin `.ts` Yarn 2+ запускает Node-ом при любом `nodeLinker` (#608):
    * справка в проекте на Yarn 2+ называет форму его package.json — пакет через bunx, по `packageManager` скилла
    * github. Подсказка харнесса — под PnP: `.pnp.cjs` Yarn ставит рантайму проекта `process.versions.pnp`, а харнесс
-   * `packageManager` не импортирует (tests/standards/skill-imports).
+   * `packageManager` не импортирует (tests/standards/scripts/skill-imports).
    */
   it("справка скрипта пакета elves <скрипт> --help и подсказка харнесса называют форму запуска, которая на Yarn 2+ с PnP находит bin пакета", () => {
     const { dir, cleanup } = tmpDir();
@@ -211,7 +211,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
     key: (f) => f.file,
     name: (f) => `${f.file} запускает Bun с --no-env-file сам — шебанг через sh`,
     check: (f) => {
-      if (!f.text.startsWith(BIN_SHEBANG)) throw new Error(`${f.file}: шебанг не запускает Bun с --no-env-file — голым bin Bun подгрузит env-файлы проекта; первые строки — ${JSON.stringify(BIN_SHEBANG)} (tests/standards/no-env-file)`);
+      if (!f.text.startsWith(BIN_SHEBANG)) throw new Error(`${f.file}: шебанг не запускает Bun с --no-env-file — голым bin Bun подгрузит env-файлы проекта; первые строки — ${JSON.stringify(BIN_SHEBANG)} (tests/standards/scripts/no-env-file)`);
     },
     violator: [{ name: "шебанг env bun", item: { file: "bin/x.ts", text: "#!/usr/bin/env bun\nconsole.log(1);\n" } }],
     includes: ["bin/elves.ts"],

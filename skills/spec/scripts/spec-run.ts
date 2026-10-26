@@ -28,7 +28,7 @@ import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const USAGE = "spec-run --tree <hash> [--timeout 1800] [--interval 15]\nspec-run --artifact <name>";
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 The green run that checked the merge commit's tree: its id to stdout, for gh run download of docs-spec-<tree hash>; no

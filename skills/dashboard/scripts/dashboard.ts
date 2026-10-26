@@ -186,7 +186,7 @@ const times = (v: number) => `×${fmtH(v)}`;
 // scale steps are round numbers of any magnitude (0.001, 20): fmtH would round small ones to zero
 const tick = (v: number) => String(v);
 // Panels, not several scales on one: hours, ratio, tokens and dollars are different units
-// (tests/capabilities/dashboard).
+// (tests/capabilities/dashboard/chart).
 const PANELS: Panel[] = [
   { key: "h", title: "Hours per task", fact: (p) => p.fact, est: (p) => p.est, tick, fmt: (v) => fmtH(v) },
   { key: "ratio", title: "Actual to estimate — tolerance band ×0.5…×2", fact: (p) => (p.est ? p.fact / p.est : null), est: none, tick: (v) => `×${v}`, fmt: times, ref: { at: 1, band: [0.5, 2] } },
@@ -705,7 +705,7 @@ async function readHosts(): Promise<{ hosts: string[]; error: string | null }> {
 // Server and CLI
 // ----------------------------------------------------------------------------
 
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples. */
 const USAGE = `dashboard [--repo o/r | --all-repos] [--since 90d] [--port N] [--no-open]
 
 A task page: «Sessions» (tasks in progress and what they wait for) and «Estimate and actual» (a chart by close time).

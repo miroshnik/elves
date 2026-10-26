@@ -8,7 +8,7 @@ check-runs — status, conclusion и перезапуски — оба скри�
 `wait-ci.sh` — последний. Чек зелёный, потом красный на перезапуске — `task show` показывал ✅, а ожидание давало FAIL:
 агент видит зелёный PR, который не влить. Теперь в `github.ts` правило одно — `checkStates`, его берут и `task show`, и
 `project check`; копия — `CHECK_STATES` в `skills/ci-wait/scripts/wait-ci.sh`. Общего модуля нет: `github` и `ci-wait`
-других скиллов не импортируют (стандарт `skill-imports`), а `wait-ci.sh` — bash и jq, импорта TypeScript у него нет.
+других скиллов не импортируют (стандарт `scripts#skill-imports`), а `wait-ci.sh` — bash и jq, импорта TypeScript у него нет.
 
 ## Правило
 

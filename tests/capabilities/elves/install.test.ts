@@ -408,7 +408,7 @@ describe("Проверки проекта идут очередью машины
 
   /**
    * Bun сам подгружает env-файлы рабочего каталога: прод-ключи `.env.local` не должны дойти через slot до раннера
-   * тестов, который без обёртки их не видел (tests/standards/no-env-file). Окружение песочницы — без `CI`: команда идёт
+   * тестов, который без обёртки их не видел (tests/standards/scripts/no-env-file). Окружение песочницы — без `CI`: команда идёт
    * через слот, очередь — в её домашнем каталоге.
    */
   it("команда под slot не видит ключей env-файлов рабочего каталога", () => {
@@ -478,7 +478,7 @@ describe("Проверки проекта идут очередью машины
   /**
    * `bun` читает bin пакета сам, мимо шебанга: без `--no-env-file` Bun подгрузил бы env-файлы рабочего каталога, и
    * скрипт отдал бы их ключи дальше — `spec-break` проверяемой команде, `spec-run` и `spec-publish` — `gh` и `git`
-   * (tests/standards/no-env-file, #596). Скрипт `package.json` идёт как у npm: `sh -c` в корне проекта,
+   * (tests/standards/scripts/no-env-file, #596). Скрипт `package.json` идёт как у npm: `sh -c` в корне проекта,
    * `node_modules/.bin` первым в PATH.
    */
   it("скрипт spec из package.json тонкого проекта не видит ключей env-файлов рабочего каталога", () => {
@@ -831,7 +831,7 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(new Set(loaded).size).toBe(loaded.length);
   });
 
-  /** Хук проверяет флоу в начале каждой сессии Claude Code; что он делает — capability `update`. */
+  /** Хук проверяет флоу в начале каждой сессии Claude Code; что он делает — capability `elves#update`. */
   it("с Claude Code — хук SessionStart в ~/.claude/settings.json запускает check --hook; свои настройки и хуки на месте, повторная установка хук не дублирует", () => {
     const mine = { hooks: [{ type: "command", command: "echo мой хук" }] };
     writeTree(home, { ".claude/settings.json": JSON.stringify({ model: "opus", hooks: { SessionStart: [mine], Stop: [mine] } }) });

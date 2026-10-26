@@ -9,7 +9,7 @@
  * The runner doesn't matter: `it` passes the test (Vitest, Jest, bun test, node:test — all have `it(name, fn)`).
  * Import from the project's package (`@miroshnik/elves/spec/harness`); the project's test loads it
  * under the project's runner — Bun, Node, Vitest, Playwright or Jest, as ESM or as CommonJS — so only erasable
- * TypeScript syntax and `node:` APIs, with no dependencies (tests/standards/harness-load).
+ * TypeScript syntax and `node:` APIs, with no dependencies (tests/standards/exports/harness-load).
  */
 
 import { spawnSync } from "node:child_process";
@@ -71,7 +71,7 @@ export interface Invariant<T> {
   /**
    * Exceptions — the decision folder's `exceptions/` directory (`exceptionsIn()`): the element, the task that lifts it,
    * and the reason. `undefined` — none, as without the field: a wrapper passes on its own optional `exceptions`
-   * as is, under `exactOptionalPropertyTypes` too (tests/standards/consumer-typecheck).
+   * as is, under `exactOptionalPropertyTypes` too (tests/standards/exports/consumer-typecheck).
    */
   exceptions?: readonly Exception[] | undefined;
   /** Outside scope — elements the convention deliberately doesn't cover, with a reason: it is shown on the page. */
@@ -206,7 +206,7 @@ export function marksIn(file: string, text: string): Mark[] {
 /**
  * The hint's command — the package's script, as in package.json: under Yarn's PnP (`process.versions.pnp`) there is no
  * `node_modules/.bin/elves` — the package through bunx (#608). The harness doesn't import the github skill's
- * `packageManager` (tests/standards/skill-imports); on Yarn 2+ with `node_modules` the agent's shell finds the bin by
+ * `packageManager` (tests/standards/scripts/skill-imports); on Yarn 2+ with `node_modules` the agent's shell finds the bin by
  * `PACKAGE_RUN` — `bun` reads it itself.
  */
 const MIGRATE = `migrate with spec-exceptions: ${process.versions["pnp"] ? PACKAGE_BUNX : PACKAGE_RUN} spec-exceptions`;

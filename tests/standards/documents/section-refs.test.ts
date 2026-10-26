@@ -32,12 +32,17 @@ function flowDocs(): string[] {
   return ["AGENTS.md", "claude/CLAUDE.md", "README.md", ...docs, ...skills];
 }
 
-/** Описания решений спеки — `tests/<вид>/<имя>/<имя>.md`: они тоже ссылаются на разделы AGENTS.md. */
+/** Описания тем и разделов спеки — `tests/<корень>/<тема>/*.md`: они тоже ссылаются на разделы AGENTS.md. */
 const decisionDocs = (): string[] =>
-  readdirSync(path.join(ROOT, "tests"), { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .flatMap((kind) => readdirSync(path.join(ROOT, "tests", kind.name)).map((name) => `tests/${kind.name}/${name}/${name}.md`))
-    .filter((file) => existsSync(path.join(ROOT, file)));
+  ["capabilities", "architecture", "standards"]
+    .filter((root) => existsSync(path.join(ROOT, "tests", root)))
+    .flatMap((root) =>
+      readdirSync(path.join(ROOT, "tests", root)).flatMap((topic) =>
+        readdirSync(path.join(ROOT, "tests", root, topic))
+          .filter((f) => f.endsWith(".md"))
+          .map((f) => `tests/${root}/${topic}/${f}`),
+      ),
+    );
 
 /** Где ищут ссылки: документы флоу, решения спеки и код — установщик и скрипты скиллов (комментарии, JSDoc, строки вывода). */
 const sourcesOfRefs = (): Source[] => [
@@ -130,7 +135,7 @@ export function broken(ref: Ref, file: (rel: string) => string | null): string |
   const text = file(ref.target);
   if (text === null) return `${ref.file}:${ref.line}: «${ref.name}» — нет файла ${ref.target}`;
   if (headings(text).some((h) => titles(h, ref.name))) return null;
-  return `${ref.file}:${ref.line}: в ${ref.target} нет раздела «${ref.name}» — раздел переименован? поправь ссылку (tests/standards/section-refs)`;
+  return `${ref.file}:${ref.line}: в ${ref.target} нет раздела «${ref.name}» — раздел переименован? поправь ссылку (tests/standards/documents/section-refs)`;
 }
 
 const repoFile = (rel: string) => (existsSync(path.join(ROOT, rel)) ? read(rel) : null);
@@ -176,7 +181,7 @@ describe("Ссылка на раздел документа флоу по наз
 
     it("ссылка на переименованный раздел роняет проверку", () => {
       const src = { file: "skills/dashboard/scripts/sessions.ts", text: '// the canon (AGENTS.md, "Epic refresh on task close")\n' };
-      expect(check(src)).toEqual(["skills/dashboard/scripts/sessions.ts:1: в AGENTS.md нет раздела «Epic refresh on task close» — раздел переименован? поправь ссылку (tests/standards/section-refs)"]);
+      expect(check(src)).toEqual(["skills/dashboard/scripts/sessions.ts:1: в AGENTS.md нет раздела «Epic refresh on task close» — раздел переименован? поправь ссылку (tests/standards/documents/section-refs)"]);
     });
 
     it("ссылка на SKILL.md без имени скилла ищет раздел в SKILL.md того же скилла", () => {
