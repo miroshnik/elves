@@ -622,6 +622,11 @@ none — the questions label is removed. Refused before any change (code 2): no
 questions section, no question `k`, the question already has ✅ (a changed
 answer — `task edit --replace`), an empty answer.
 
+Open questions go to the user before the plan, code and subagents: an answer
+may change the scope and the approach. A question of my own in auto mode goes
+into the questions section with ✅ auto before code, not into chat: a
+decision in chat gets lost.
+
 ### task edit
 
 An edit of the description in one call (#670), not `gh issue view --json
@@ -665,6 +670,8 @@ the current branch isn't renamed, `Branch: continue …` names what to continue
 `--branch` — code 2. The assignment's lead takes the task with `task start
 --branch`; the fix of a red release keeps `task status --branch`: its new
 branch is cut beside the task's merged one, which `task start` would stop on.
+A separate call, no pipeline: `| tail` returns its own exit code and hides
+the stop (code 1) or the refusal (code 2).
 
 ### task finish
 
@@ -1397,12 +1404,20 @@ Waiting for checks, the full SHA and a merge that deploys —
   repository are turned off by `project fix` (item 11 of section "What is
   checked"). The branch's commits themselves land in `main` — each a
   conventional commit with `Refs #N`.
+- **Branch only from a fresh `origin/main`** (`git fetch origin && git switch
+  -c <branch> origin/main --no-track`): the local `main` and the git status
+  snapshot at the session start are stale.
+- **Tests go in the same commit as the code they cover:** a tests-only commit
+  is red, and with a rebase merge it lands in `main` as is — a red commit in
+  `main`'s history breaks `git bisect`.
 - **Merge without a queue:** a PR is merged as soon as its own CI is green and
   GitHub merges it without a conflict; the branch needn't be up to date —
   GitHub merges a branch that fell behind: the default-branch ruleset
   (required checks, no strict) is set by `github project fix`. Rebase onto
   `origin/main` and `git push --force-with-lease` (not `--force`), with
-  permission as usual, — only on a textual conflict or my own changes.
+  permission as usual, — only on a textual conflict or my own changes; after
+  such a rebase — recheck what depends on shared state without a textual
+  conflict: migration and decision numbering, shared lists.
   **Before merging — `github pr premerge <N>`** (after `ci-wait` PASS): if
   `main` moved after the PR's CI — `typecheck` and `test:spec` on the merge
   with a fresh `main`; code `1` — don't merge, fix the root cause; code `3` —

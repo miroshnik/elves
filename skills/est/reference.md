@@ -67,16 +67,26 @@ Only on the owner's request, before work starts:
   from another registry repo — `owner/repo#254`, labeled «from project …» in the
   comment. An analog from a non-public repo isn't written into a public repo:
   `--write` refuses before writing (without it — a warning), since the other
-  task's name and number would stay in the comment's edit history too;
+  task's name and number would stay in the comment's edit history too. Pick
+  them by scope, not topic: in `est history` «agents» is the task's subagents
+  and «turns» its model responses, a size signal; a fan-out task takes analogs
+  with a similar «agents» count; in doubt about scope — `gh issue view <k>
+  --json body,closedByPullRequestsReferences` and `gh pr view <pr> --json
+  additions,deletions,changedFiles` (the diff is a size signal, not time, but
+  it screens out the incomparable; a topic without the scope is a poor
+  analog); another repo's candidates — `est history --all-repos`;
 - `--mult 0.5|1.5|2` with `--note "reason"` — a named difference the features
   don't see (in the backtest, agents' corrections on top of the mechanics didn't
   add accuracy; a downward correction against another repo's analogs isn't
-  written without `--note`); `--tok-mult 0.5…3` with `--tok-note` — when the
-  fan-out differs from the analogs' (parallel subagents shrink hours and grow
-  tokens);
-- `--hours H` — an expert estimate (confidence C), rounded to the scale; with
-  analogs it goes on top of the forecast, and tokens and cost are rescaled in
-  proportion.
+  written without `--note`: "another repo is slower" without a named
+  difference underestimated big tasks threefold); `--tok-mult 0.5…3` with
+  `--tok-note` — when the fan-out differs from the analogs' (parallel
+  subagents shrink hours and grow tokens: each re-reads the context); without
+  it, tokens and cost take the `--mult` correction;
+- `--hours H` — an expert estimate (confidence C), rounded to the scale with a
+  warning; with analogs it goes on top of the forecast — the comment shows
+  what the analogs would give — and tokens and cost are rescaled in
+  proportion; no "starting rates per operation": that is made-up precision.
 
 ## Backtest
 
@@ -174,6 +184,12 @@ the tail is the share of turns with context over 400k (they were 20 % of turns
 and 45 % of tokens). Turns of a shared PR aren't split into shares — each task
 gets the whole turn. In the marker — `steps`, `steps_agents`, `tail` (a number),
 `preamble`, `ctx_end`.
+
+A subagent carries the same preamble (≈ 100k tokens) and costs like a session:
+a unit of N turns costs ≈ N×P + N²×r/2 (P — the preamble, r — context growth
+per turn, ≈ 1.6k by an earlier measurement). Hence ~50-turn units
+(`AGENTS.md`, "Subagents and worktrees"), a file in one full read rather than
+1–2k slices, and reading up front only what the unit needs.
 
 and on a fourth — the flow's overhead (section "Turn kinds and cache rewrites";
 absent, like the turns, without linked model responses):

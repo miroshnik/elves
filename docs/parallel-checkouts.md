@@ -5,7 +5,19 @@ rule, what the project's compose file holds, what moves with the address,
 callbacks of external services, the runner config and the sandbox. The stack
 itself — its names, the e2e stack and its variables, profiles, taking it
 down — is the `task-env` skill; here are links to it, not a copy. Shared git
-config — the "Shared `.git/config`" section at the end.
+config — the "Shared `.git/config`" section at the end; several agents of one
+session — the next section.
+
+## Several agents in one session
+
+- **Several agents in one worktree** — non-overlapping files, no git, the
+  linter on their own files only (a run over the whole tree catches a
+  neighbor's unfinished edits and may "fix" them), a shared file has one
+  owner; dependent groups run as a pipeline, not in parallel.
+- **Temp files shared with subagents get a unique prefix** (task, role):
+  otherwise a subagent silently overwrites a file of the same name.
+- **A fresh worktree lacks untracked files** (dependencies, `.env*.local`):
+  the dependencies — installed, the files — copied from the main checkout.
 
 ## Rule
 
@@ -213,8 +225,7 @@ the project: the deploy doesn't run, and the site quietly falls behind
 - **A branch rename writes the config too** — the branch's section
   (upstream): another checkout's git holds the lock, `git branch -m` fails
   with `could not lock config file`, the ref renamed, the section not. The
-  task branch — `github task status <N> "In progress" --branch …`: it retries
-  on the lock.
+  task branch — `github task start <N> --branch …`: it retries on the lock.
 - **After a commit** — `git log -1 --format=%ae`: the author is who it should
   be. Someone else — first `git config --show-origin user.email`: where it
   came from, rather than a fix by feel.

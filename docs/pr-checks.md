@@ -80,6 +80,8 @@ the `github` skill, section "Git, PRs and merging — mechanics".
 Auto-fix of the Claude Code app's CI monitor wakes the session with a
 `<ci-monitor-event>` on failed checks, a conflict and review comments, and on
 a conflict tells it to merge the base branch in, never rebase or force-push.
+It wakes the session only with Auto-fix on and never on success: green checks
+and the deploy come only from `ci-wait`.
 The flow merges by rebase only (`github project fix` turns the other merge
 methods off): a merge commit in the PR's branch brings the conflict back at
 the rebase merge. In pilot #471 the event about an executor's PR came to the
