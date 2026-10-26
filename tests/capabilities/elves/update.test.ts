@@ -163,7 +163,7 @@ describe("Тонкий проект сверяется с версией пак�
     expect(existsSync(path.join(sb.proj, ".agents"))).toBe(false);
   });
 
-  /** Настройку задаёт только `install` (capability `install`): `update` идёт без терминала и флагов — из сессии агента. */
+  /** Настройку задаёт только `install` (capability `elves#install`): `update` идёт без терминала и флагов — из сессии агента. */
   it("update настройку сохраняет: auto true остаётся true, у установки прошлой версии без поля — false", () => {
     elves(sb, ["install", "--auto"]);
     expect(elves(sb, ["update"], { bin: newer.bin }).code).toBe(0);
@@ -629,7 +629,7 @@ describe("Проект с копией флоу переезжает на тон
 
 /**
  * Файл тонкого проекта, который игнорирует git, в коммит не попадёт — CI и чужой чекаут без шима падают на `. .agents/slot.sh`.
- * Это несоответствие флоу, как отставание: чинит тот же `update` — в задаче сессии (capability `install` — как).
+ * Это несоответствие флоу, как отставание: чинит тот же `update` — в задаче сессии (capability `elves#install` — как).
  */
 describe("Файл флоу, который игнорирует git проекта, — несоответствие: check его называет, update снимает исключением", () => {
   it("check: код 1, ❌ с путём и правилом, команда update — в задаче сессии; check ничего не меняет", () => {
@@ -2324,8 +2324,8 @@ describe("Прежние имена флоу (ai-dev): update переносит
 
 /**
  * Облачная сессия Claude Code (#598): Bun образа отстаёт от `packageManager` проекта (1.4.2 без `bun check` 1.4.3), а
- * тестам клона Elves нужен zsh (capability `agent-shell`), которого в образе нет, — и списков apt в образе нет тоже.
- * Ставит их хук SessionStart проекта на старте облачной сессии (#610, capability `install`); `check` облачной сессии
+ * тестам клона Elves нужен zsh (capability `elves#agent-shell`), которого в образе нет, — и списков apt в образе нет тоже.
+ * Ставит их хук SessionStart проекта на старте облачной сессии (#610, capability `elves#install`); `check` облачной сессии
  * называет окружение, где их всё же нет (проект без хука, шаг хука не удался, кеш setup script со старым Bun), строкой
  * с командой — её сессия запускает сама. Код check строка не меняет: окружение — не отставание флоу.
  */
@@ -2351,9 +2351,9 @@ describe("check облачной сессии называет окружени�
     clone("bun@99.0.0");
     const r = elves(sb, ["check"], { env: cloud });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(line(`Bun ${Bun.version} is older than packageManager bun@99.0.0; no zsh for tests/capabilities/agent-shell`, `${BUN} && ${ZSH}`));
+    expect(r.stdout).toContain(line(`Bun ${Bun.version} is older than packageManager bun@99.0.0; no zsh for tests/capabilities/elves/agent-shell`, `${BUN} && ${ZSH}`));
     clone(`bun@${Bun.version}`);
-    expect(elves(sb, ["check"], { env: cloud }).stdout).toContain(line("no zsh for tests/capabilities/agent-shell", ZSH));
+    expect(elves(sb, ["check"], { env: cloud }).stdout).toContain(line("no zsh for tests/capabilities/elves/agent-shell", ZSH));
   });
 
   it("check облачной сессии с Bun не старше packageManager и zsh на PATH — без строки окружения", () => {

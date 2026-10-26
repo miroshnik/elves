@@ -690,7 +690,7 @@ function leftoverNames(root: string, rel = L.TESTS): string[] {
 
 const USAGE =
   "spec-doc report.json [report2.xml …] [--root DIR] [--out docs/spec | --stdout] [--strict] [--meta .spec-meta]";
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 Documentation from runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML from bun test): a page per folder of

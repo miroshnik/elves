@@ -2,7 +2,7 @@
 /**
  * slot — a queue for heavy runs on the machine (the slot skill): a command goes when one of SLOTS slots is free, the rest
  * wait in arrival order and print whom they wait for. Parallel agent sessions ran the full check at once, each runner on
- * all cores, and the runs hit timeouts (tests/capabilities/slot).
+ * all cores, and the runs hit timeouts (tests/capabilities/slot/queue).
  *
  * A slot is a ticket file `<time>-<pid>` in `slots/` of the personal configuration directory: the name sets the order, the
  * PID tells whether the owner is alive. A dead process, even one killed without cleanup, has its ticket ignored and removed
@@ -35,7 +35,7 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * `--help`, `-h` as the first argument — the rest go to the command (tests/standards/cli-help): synopsis, what, examples;
+ * `--help`, `-h` as the first argument — the rest go to the command (tests/standards/scripts/cli-help): synopsis, what, examples;
  * `elves slot` prints it under its name.
  */
 export const HELP = `slot '<command>' [arguments…]
@@ -99,7 +99,7 @@ function alive(pid: number) {
  * Where tickets live, in the order a ticket is written: the personal configuration, then the temp directory — an agent's
  * sandbox doesn't let the configuration be written, while its TMPDIR is shared by the sandbox's sessions; Claude Code
  * passes its sandbox's temp directory as CLAUDE_TMPDIR outside the sandbox too, so runs outside wait for runs inside.
- * The personal configuration directory — the same expression in all scripts (tests/standards/config-dir).
+ * The personal configuration directory — the same expression in all scripts (tests/standards/scripts/config-dir).
  */
 function places() {
   const config = process.env.ELVES_CONFIG_DIR || process.env.AI_DEV_CONFIG_DIR || [path.join(os.homedir(), ".config", "elves"), path.join(os.homedir(), ".config", "ai-dev")].find((d) => existsSync(d)) || path.join(os.homedir(), ".config", "elves");

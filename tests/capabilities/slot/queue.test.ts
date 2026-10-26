@@ -237,7 +237,7 @@ describe("Команда в слоте — как без него, с долей
   /**
    * `elves slot '<команда>'` — прямой вызов из `node_modules/.bin` (#556) и обёртка скрипта на Yarn 2+ (#558): команда
    * идёт в процессе `elves`, и Bun, подгрузи он env-файлы рабочего каталога, отдал бы их ключи команде. Шебанг bin
-   * запускает Bun с `--no-env-file` (tests/standards/no-env-file, #592).
+   * запускает Bun с `--no-env-file` (tests/standards/scripts/no-env-file, #592).
    */
   it("elves slot '<команда>' из node_modules/.bin не отдаёт команде ключи env-файлов рабочего каталога", () => {
     writeFileSync(path.join(dir, ".env"), "ELVES_DOTENV=dotenv\n");
@@ -254,7 +254,7 @@ describe("Команда в слоте — как без него, с долей
 /**
  * Скрипт package.json не отдаёт команду slot строкой: его shell подключает шим `.agents/slot.sh`, тот зовёт `elves slot
  * --for $$` пакета проекта — слот на этот shell — и экспортирует переменные очереди, а команда остаётся обычной командой
- * скрипта — её видят инструменты, читающие package.json (knip, tests/capabilities/install). Шим и `elves` на PATH — как
+ * скрипта — её видят инструменты, читающие package.json (knip, tests/capabilities/elves/install). Шим и `elves` на PATH — как
  * в тонком проекте (#585).
  */
 describe("Скрипт package.json берёт слот своим shell, команда остаётся командой скрипта", () => {

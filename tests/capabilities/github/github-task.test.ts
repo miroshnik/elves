@@ -862,7 +862,7 @@ describe("task status берёт в работу одну задачу на се
     expect(statusSet(f)).toEqual([[49, "В работе"], [49, "В работе"]]);
   });
 
-  // строку не по форме est и дашборд не считают закреплением — сессия свободна и для github (tests/standards/session-pin)
+  // строку не по форме est и дашборд не считают закреплением — сессия свободна и для github (tests/standards/scripts/session-pin)
   it("файл закрепления не по форме owner/repo#N — сессия свободна: «В работе» перезаписывает его задачей со строкой ○", () => {
     const f = new FakeGitHub(REC);
     const config = scratch();
@@ -2992,7 +2992,7 @@ describe("task resume называет, какое ожидание переза
     expect(task(f, ["resume"], REPO, io)).toMatchObject({ code: 0, out: "○ session task miroshnik/elves#49 is closed — no wait to restart" });
   });
 
-  // как в est и дашборде: строка не по форме — не закрепление (tests/standards/session-pin); путь файла — человеку
+  // как в est и дашборде: строка не по форме — не закрепление (tests/standards/scripts/session-pin); путь файла — человеку
   it("закрепление не по форме owner/repo#N — у сессии нет задачи: строка ○ с путём файла, код 0, без запросов", () => {
     const f = new FakeGitHub(REC);
     const config = scratch();

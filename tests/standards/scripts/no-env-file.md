@@ -52,7 +52,7 @@ Node-проекте `.env.local` часто несёт прод-ключи из 
 зависимостей проекта — `bunx @miroshnik/elves@<версия> spec-…`, `ci.md` скилла spec, #559; скрипты и обёртка очереди
 проекта на Yarn 2+, #608) флаг не принимает — ни `bunx --no-env-file`, ни `bun --no-env-file x` (Bun 1.4.3), — но
 запускает bin его шебангом: env-файлы снимает шебанг (#592; из скрипта Yarn 4 ключ `.env.local` до команды не доходит —
-tests/capabilities/install).
+tests/capabilities/elves/install).
 
 `elves slot --for $$` шима очереди `.agents/slot.sh`: `elves` только печатает переменные очереди, а команда идёт в
 shell скрипта, без env-файлов Bun.

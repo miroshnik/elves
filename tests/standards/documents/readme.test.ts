@@ -143,7 +143,7 @@ describe("README называет всё, что ставит флоу, и не 
     key: (p) => p.key,
     name: (p) => `README: ${p.name}`,
     check: (p) => {
-      if (!p.mention.test(README)) throw new Error(`README не называет ${p.key} — допиши его в README (tests/standards/readme)`);
+      if (!p.mention.test(README)) throw new Error(`README не называет ${p.key} — допиши его в README (tests/standards/documents/readme)`);
     },
     violator: { name: "скилл, которого README не называет", item: skill("billing") },
     includes: ["skills/spec", "elves install", "elves release", "skills/spec/scripts/spec-break", "skills/ci-wait/scripts/wait-ci", "docs/pr-checks.md"],
@@ -155,7 +155,7 @@ describe("README называет всё, что ставит флоу, и не 
     key: (p) => p.key,
     name: (p) => `README: ${p.name}`,
     check: (p) => {
-      if (!p.mention.test(README)) throw new Error(`README не называет подкоманду ${p.key} — допиши её в строку команд скилла в README (tests/standards/readme)`);
+      if (!p.mention.test(README)) throw new Error(`README не называет подкоманду ${p.key} — допиши её в строку команд скилла в README (tests/standards/documents/readme)`);
     },
     violator: { name: "подкоманда, которой README не называет", item: subcommand("github", ["task", "archive"]) },
     includes: ["github task close", "est cloud-import"],

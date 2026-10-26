@@ -71,11 +71,11 @@ describe("Тест, который запускает процессы, не п�
   it("в реестр попадают установщик, скрипты spec и est", () => {
     expect(spawning(tests, lib).map((f) => f.path)).toEqual(
       expect.arrayContaining([
-        "tests/capabilities/install/install.test.ts",
-        "tests/capabilities/update/update.test.ts",
-        "tests/capabilities/spec-diff/spec-diff.test.ts",
-        "tests/capabilities/spec-doc/spec-doc.test.ts",
-        "tests/capabilities/est/est.test.ts",
+        "tests/capabilities/elves/install.test.ts",
+        "tests/capabilities/elves/update.test.ts",
+        "tests/capabilities/spec/spec-diff.test.ts",
+        "tests/capabilities/spec/spec-doc.test.ts",
+        "tests/capabilities/est/estimate-and-actual.test.ts",
       ]),
     );
   });

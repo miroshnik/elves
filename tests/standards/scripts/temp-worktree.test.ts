@@ -62,7 +62,7 @@ const keyOf = (p: Place) => `${p.file} › ${p.fn}`;
 
 function check(p: Place) {
   if (p.file !== ONE.file || p.fn !== ONE.fn) {
-    throw new Error(`${p.file}:${p.lines.join(",")}: worktree add в ${p.fn} мимо ${ONE.fn} из ${ONE.file} — временный worktree заводит и убирает она (tests/standards/temp-worktree)`);
+    throw new Error(`${p.file}:${p.lines.join(",")}: worktree add в ${p.fn} мимо ${ONE.fn} из ${ONE.file} — временный worktree заводит и убирает она (tests/standards/scripts/temp-worktree)`);
   }
 }
 

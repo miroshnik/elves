@@ -591,7 +591,7 @@ questions and other open tasks (`- question k. …`, `- task #M «…»`); an
 epic's open subtasks; open blockers; each PR with its state and its head's
 checks (`checks: 2 ✅, 1 ⏳ (e2e), 1 ❌ (lint)`; skipped and neutral — ✅,
 cancelled — ❌, of a check's reruns — the latest, as `ci-wait` reads it:
-standard `check-run-state`; GitHub hasn't linked the PR yet
+standard `scripts#check-run-state`; GitHub hasn't linked the PR yet
 — found by the branch or «Closes #N», as `task close` does; an epic has no PR
 line); the questions — open and answered numbers with the `task answer`
 command; a comment that looks like an answer to an open question — a `?`
@@ -710,7 +710,7 @@ queue --assignment`, below) — neither a pin nor a refusal, an `○` line: the
 executor is a subagent with the session's id. No command removes the pin:
 a mistaken one is removed by a human, by deleting the file. A line not of the
 form `owner/repo#N` isn't a pin — for `est` and the dashboard either
-(`tests/standards/session-pin`): In progress replaces it with the task, an `○`
+(`tests/standards/scripts/session-pin`): In progress replaces it with the task, an `○`
 line. `est` counts the actual by the pin: the whole session goes to this task.
 No variable (not Claude Code) — the line `○ session not recognized …`, the
 status is set, no guard. A dispatcher session (`task queue` below) — no pin:
@@ -781,7 +781,7 @@ with a fresh `origin/<base>` in a temporary worktree (`git merge`, like
 GitHub's merge-ref; the worktree is always removed), dependencies by the
 merge's lockfile (the manager — `packageManager`, otherwise the lockfile,
 otherwise `.yarnrc.yml` — Yarn, otherwise npm,
-`tests/standards/package-manager`; the install —
+`tests/standards/scripts/package-manager`; the install —
 `bun install --frozen-lockfile`, `pnpm install --frozen-lockfile`,
 `yarn install --frozen-lockfile`, `npm ci`; no lockfile — no install) and the
 project's fast checks — the `package.json` scripts that exist, in CI order

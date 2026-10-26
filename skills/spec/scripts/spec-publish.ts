@@ -30,7 +30,7 @@ import { sourceOf } from "./speclib.ts";
 
 const USAGE =
   "spec-publish [--dir docs/spec] [--branch spec] [--remote origin] [--source <sha>] [--attempts 3] [--interval 5] [--check] [--root DIR]";
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 Publishes the generated documentation (docs/spec) to the spec branch without touching the working copy; the commit
