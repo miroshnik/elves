@@ -168,10 +168,9 @@ and worktrees") — otherwise there is no actual.
 ### Epic refresh on task close
 
 Once a task is merged, **a subagent with a fresh context** brings the open
-tasks of its epic in line with what shipped: `github task actualize <N>`
-does the mechanics and prints its prompt,
-in the same turn as `ci-wait merged <PR>` in the background; after both —
-`github task close`. The last line of the answer ("Language"): merged,
+tasks of its epic in line with what shipped: `github task finish <N>` waits
+for the deploy, does the mechanics, prints its prompt and, after its report,
+closes the task. The last line of the answer ("Language"): merged,
 deployed, branch removed, epic refreshed, no questions — "all done, can be
 closed"; the owner has something to decide — "all done, but there are
 questions" with them; otherwise — "remaining" with what the session waits for
@@ -200,9 +199,9 @@ it.
   PR's CI — fast checks on the merge with it; red — I fix the root cause;
   `main` red by itself (code 3) — no merge and no fix in the PR: one bug
   for it, I wait for it to close.
-- A merge that deploys — I wait for the deploy on the merge SHA (`ci-wait`)
-  **before `github task close`**; a batch's — its release's CI, deploy,
-  refresh.
+- **The tail — `github task finish <N>`**, resumable: push, PR, labels, CI,
+  `premerge`, the merge command, the deploy on the merge SHA, refresh, close;
+  a batch's — its release's.
   Others' branches, stacks and unmerged work I don't touch.
 - Mechanics — the `github` skill, "Git, PRs and merging — mechanics";
   waiting for checks and deploys — `docs/pr-checks.md`.
