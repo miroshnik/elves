@@ -16,6 +16,7 @@
  *   bun <Elves checkout>/bin/elves.ts pack <tag>       — CI on the release tag: the npm package @miroshnik/elves
  *   bun --no-env-file node_modules/.bin/elves spec-doc … — a project's package: the skills' scripts at its version
  *   elves slot --for <PID>                             — the machine queue's shim .agents/slot.sh in a project
+ *   bun --no-env-file node_modules/.bin/elves precommit — the checks before a commit in one call, the spec skill
  *   bun --no-env-file node_modules/.bin/elves task-env up — a project's scripts and tests: the task's stack, task-env
  *
  * The shebang goes through `sh`: the second line — `exec bun --no-env-file` for sh, a string and a comment for TypeScript
@@ -330,6 +331,7 @@ Examples:
  */
 const SCRIPTS: Record<string, { file: string; helpFirst?: boolean }> = {
   ...Object.fromEntries(["spec-doc", "spec-diff", "spec-publish", "spec-run", "spec-shard", "spec-claims", "spec-break", "spec-exceptions"].map((name) => [name, { file: `skills/spec/scripts/${name}.ts` }])),
+  precommit: { file: "skills/spec/scripts/precommit.ts" },
   slot: { file: "skills/slot/scripts/slot.ts", helpFirst: true },
   "task-env": { file: "skills/task-env/scripts/task-env.ts" },
 };
