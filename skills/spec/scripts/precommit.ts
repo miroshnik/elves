@@ -13,7 +13,7 @@
  * `typecheck` have no summary — their code is the result. A missing script — an `○` line, not a failure.
  *
  * The scripts run by the project's package manager (`projectCommands` of the github skill — the one answer of the flow,
- * tests/standards/package-manager), from the git root. The details of a failed check — its output without the lines of
+ * tests/standards/scripts/package-manager), from the git root. The details of a failed check — its output without the lines of
  * passed tests, the last DETAIL lines, and the file with the whole output.
  *
  * Codes: 0 — all green, 1 — a check failed, 2 — a call error (arguments, no package.json). Runs under Bun, only node:
@@ -29,7 +29,7 @@ import { packageManager, projectCommands } from "../../github/scripts/github.ts"
 import locale from "../../github/scripts/locale.ts";
 
 const USAGE = "precommit [--base <ref>]";
-/** `--help`, `-h` (tests/standards/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
+/** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 The checks before a commit in one call: the project's package.json scripts lint, typecheck, test:spec and test of what
