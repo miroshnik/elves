@@ -2712,6 +2712,16 @@ describe("task close снимает стеки задачи", () => {
     expect(statusSet(crashed.f)).toEqual([[49, "Готово"]]);
   });
 
+  it("task close задачи с уже снятым стеком проходит без ошибки — стек пачки снят при мерже в неё (#765)", () => {
+    // страховка от перегиба: снятие при мерже в пачку не должно сделать снятый стек ошибкой выпуска
+    const gone = "○ stacks elves-49, elves-49-e2e: none on the machine";
+    const r = close([], { status: 0, stdout: `${gone}\n` });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(gone);
+    expect(r.out).not.toContain("! task-env");
+    expect(statusSet(r.f)).toEqual([[49, "Готово"]]);
+  });
+
   it("--no-git стеки снимает: флаг — про ветки", () => {
     const r = close(["--no-git"], { status: 0, stdout: DOWN });
     expect(r.code).toBe(0);
@@ -3654,6 +3664,7 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(lines[0]).toContain(`ветка от свежего origin/${name}, а не от main (\`git fetch origin ${name}\`, затем ветка задачи на \`origin/${name}\`)`);
     expect(lines[0]).toContain(`PR в пачку (\`gh pr create --base ${name}\`), \`pr premerge\`, мерж.`);
     expect(lines.at(-1)).toStartWith("Ответ диспетчеру — одной строкой: `влито #<PR>`");
+    expect(lines.join("\n")).toMatch(/после мержа ждать нечего, но до ответа сними стеки задачи \(`bun --no-env-file \S+skills\/task-env\/scripts\/task-env\.ts down 47`, вне песочницы: Docker\)/);
     // сессия-исполнитель приложения — то же: ветка от пачки, PR в неё, без деплоя
     const session = task(f, ["queue", "--assignment", "47", "--session"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n");
     expect(session[0]).toContain(`ты сессия-исполнитель сессии-диспетчера, задача идёт в пачку \`${name}\``);
@@ -3751,6 +3762,39 @@ describe("task queue собирает задачи диспетчера в ве�
     );
     expect(byOp(f, "CloseIssue")).toEqual([]);
     expect(f.issue(47).state).toBe("OPEN");
+  });
+
+  it("task queue снимает стеки задачи, влитой в пачку, чей исполнитель закончил, — строкой +, уже снятый молча", () => {
+    const work = batchProjectDir(true);
+    const f = new FakeGitHub(REC);
+    const config = scratch();
+    queueIn(f, work, config);
+    const name = `batch/${day()}-1`;
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    f.status(47, "В работе");
+    const calls: string[][] = [];
+    const queue = (answer: string) =>
+      task(f, ["queue", "--epic", "45"], REPO, {
+        ...inSession(config),
+        cwd: work,
+        run: (cmd: string, args: string[], cwd?: string) =>
+          cmd === "bun" && isTaskEnv(args) ? (calls.push(taskEnvArgs(args)), { status: 0, stdout: answer, stderr: "" }) : noEst(cmd, args, cwd),
+      });
+    const DOWN = "+ stack elves-47: down, with its volumes";
+    const first = queue(`${DOWN}\n`);
+    expect(first.code).toBe(0);
+    expect(calls).toEqual([["--no-env-file", "down", "47"]]);
+    expect(headLines(first.out)).toContain(DOWN);
+    // следующая очередь: стека уже нет — task-env говорит ○, очередь об этом молчит
+    const gone = "○ stacks elves-47, elves-47-e2e: none on the machine";
+    const second = queue(`${gone}\n`);
+    expect(calls).toHaveLength(2);
+    expect(second.out).not.toContain(gone);
+    // у задачи открыт PR в пачку — исполнитель ещё работает: стек не трогают
+    f.prs[301] = { ...batchPr(47, "fix/47-more", name), merged: false, state: "OPEN" };
+    calls.length = 0;
+    queue(`${DOWN}\n`);
+    expect(calls).toEqual([]);
   });
 
   it("актуализация эпика видит PR, влитый в ветку пачки, и blocked by до выпуска не снимает", () => {
@@ -5294,18 +5338,19 @@ describe("task finish доводит задачу от ветки до закр�
   function finish(f: FakeGitHub, args: string[], o: { cwd: string; ci?: number[]; deploy?: number[]; config?: string }) {
     const waits: string[][] = [];
     const est: string[][] = [];
+    const stacks: string[][] = [];
     const run = githubOrigin((cmd: string, a: string[], cwd?: string) => {
       if (cmd === "bash") {
         waits.push(a.slice(1));
         const code = (a[1] === "pr" ? o.ci : o.deploy)?.shift() ?? 0;
         return { status: code, stdout: `12:00:00 +1m checks: 3/5 done\n${RESULT[code]}\n`, stderr: "" };
       }
-      if (cmd === "bun") return a.some((x) => x.endsWith("spec-diff.ts")) ? { status: 0, stdout: `${SPEC}\n`, stderr: "" } : (isTaskEnv(a) || est.push(a), { status: 0, stdout: "", stderr: "" });
+      if (cmd === "bun") return a.some((x) => x.endsWith("spec-diff.ts")) ? { status: 0, stdout: `${SPEC}\n`, stderr: "" } : (isTaskEnv(a) ? stacks.push(taskEnvArgs(a)) : est.push(a), { status: 0, stdout: "", stderr: "" });
       return realRun(cmd, a, cwd);
     });
     const config = o.config ?? scratch();
     const r = task(f, ["finish", ...args], REPO, { run, cwd: o.cwd, env: { ELVES_CONFIG_DIR: config, ELVES_SPEC_DIFF: OUTSIDE_SPEC } });
-    return { ...r, waits, est, config, last: r.out.split("\n").at(-1)! };
+    return { ...r, waits, est, stacks, config, last: r.out.split("\n").at(-1)! };
   }
   const created = (f: FakeGitHub) => f.rest.filter((x) => x.method === "POST" && x.route.endsWith("/pulls")).map((x) => x.payload);
   const merge = (f: FakeGitHub, pr: number) => Object.assign(f.prs[pr]!, { merged: true, state: "MERGED" });
@@ -5484,12 +5529,14 @@ describe("task finish доводит задачу от ветки до закр�
     expect(none.out).toContain("○ out of time (--timeout 0) — PR #1 is up, its CI isn't awaited yet");
   });
 
-  it("task finish после мержа в ветку пачки — ничего не ждёт: остальное делает выпуск", () => {
+  it("task finish после мержа в ветку пачки — ничего не ждёт, снимает стеки задачи: остальное делает выпуск", () => {
     const f = new FakeGitHub(REC);
     f.prs[80] = { files: [], closes: [], body: "Closes #49", head: "feat/49-invoice-export", base: "batch/2026-10-26-1", model: null, merged: true };
     const r = finish(f, ["49"], { cwd: worktree().work });
     expect(r.code).toBe(0);
     expect(r.waits).toEqual([]);
+    // задача ждёт выпуска, а её стек — нет (#765)
+    expect(r.stacks).toEqual([["--no-env-file", "down", "49"]]);
     expect(r.out).toContain("✅ PR #80 is merged into batch/2026-10-26-1 — #49 stays «В работе» till the batch's release");
     expect(f.mutations).toEqual([]);
   });

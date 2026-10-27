@@ -1106,7 +1106,12 @@ the merge at once — no CI wait (the PR runs none: the slot is free at the
 merge, #676), no deploy wait, no epic refresh (the release's, one per epic)
 and no `task close` — it refuses a task merged only into a batch branch,
 before any change; a task without a PR isn't in the batch — its refresh and
-close are the executor's. `task actualize` names the batch PR as what
+close are the executor's. The task's stacks don't wait for the release (#765):
+the assignment names `task-env down <N>` after the merge, before the answer,
+`task finish` of a PR merged into the batch takes them down too, and the
+dispatcher's `task queue` — of each task merged into the batch with no open PR
+(its executor is done), only `+` and `!` lines: a stack already down is said
+nothing of; `task close` at the release finds them gone — an `○` line. `task actualize` names the batch PR as what
 shipped and leaves the blocked-by links on the task till the release. A cloud
 executor (`--cloud`) isn't in the batch: its PR goes into the default branch
 with the full CI — the dispatcher learns of its end only by the task's
