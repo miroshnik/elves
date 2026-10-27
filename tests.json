@@ -4938,6 +4938,27 @@
   "describes": [
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
+  "name": "task finish задачи, закрытой без PR, хвост мержа не начинает"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "task finish задачи, которую закрыл Closes #N при мерже, продолжает хвост: деплой, актуализация эпика, task close"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "task finish задачи, которую закрыл task close, — «nothing to finish» с кодом 0"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
   "name": "task finish закрывает задачу, когда комментарий обновления эпика на месте"
  },
  {
