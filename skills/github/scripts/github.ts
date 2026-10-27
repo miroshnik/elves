@@ -2678,6 +2678,12 @@ interface ShownTask {
   prs: ShownPr[];
 }
 
+/** The field values of the task's item in the repository's project (IssueShow) — or of its first item. */
+function itemValues(i: Any, name: string): Any[] {
+  const items: Any[] = i?.projectItems?.nodes ?? [];
+  return (items.find((it) => it.project?.title === name) ?? items[0])?.fieldValues?.nodes ?? [];
+}
+
 function showTask(io: Io, slug: string, number: number): ShownTask {
   const [owner, name] = slug.split("/");
   const cloud = inCloud(io);
@@ -2688,7 +2694,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   const type: string | null = i.issueType?.name ?? (labels.includes(EPIC_LABEL) ? N.issueTypes.epic : null);
   const epic = type !== null && locale.every((n) => n.issueTypes.epic).includes(type);
   const items: Any[] = i.projectItems?.nodes ?? [];
-  const values: Any[] = (items.find((it) => it.project?.title === name) ?? items[0])?.fieldValues?.nodes ?? [];
+  const values = itemValues(i, name!);
   const num = (field: (n: Names) => string) => values.find((v) => v?.__typename === "ProjectV2ItemFieldNumberValue" && locale.every(field).includes(v.field?.name));
   const status: string | null = values.find((v) => v?.field?.name === STATUS && v.name)?.name ?? null;
   const estimate = num((n) => n.fields.estimate);
@@ -4901,7 +4907,8 @@ function pushTaskBranch(io: Io, branch: string): string | null {
  * `--title`, otherwise the branch type's first commit; the body — spec-diff and `Closes #N`; an existing PR — its body
  * updated), decision labels (`pr labels`), the CI wait (ci-wait), `pr premerge` — then the merge command, code 4: the
  * merge stays a separate `gh pr merge <N> --rebase` call — the owner's permission rule in auto mode matches it
- * (claude/CLAUDE.md). After the merge: the deploy wait on the merge SHA, the epic refresh's mechanics and its subagent's
+ * (claude/CLAUDE.md). After the merge (the task is open or already closed by «Closes #N» — the tail is over only by
+ * `task close`'s Status Done and actual, #761): the deploy wait on the merge SHA, the epic refresh's mechanics and its subagent's
  * prompt (code 4), `task close` once its report is on the epic. A PR into a batch branch (#676): no CI to wait for, and
  * after its merge — nothing, the release does the rest. Codes: 0 — finished (closed; merged into a batch), 1 — stopped
  * on something to fix (red CI, a conflict, a push refused, premerge red), 3 — the base is red (premerge), 4 — the agent's
@@ -4914,7 +4921,13 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   const stop = (code: number, why: string, next: string) => (io.out(why), io.out(`Next: ${next}`), code);
   const outOfTime = (what: string) => stop(5, `○ out of time (--timeout ${o.timeout}) — ${what}`, `${again} — it goes on from here`);
   const issue = loadIssue(io, slug, number);
-  if (issue.state !== "OPEN") return io.out(`= #${number} is closed — nothing to finish`), 0;
+  if (issue.state !== "OPEN") {
+    // «Closes #N» of the PR closes the task at the merge (#761): a closed issue isn't a finished tail — task close's marks are
+    const closer = issue.stateReason === "COMPLETED" ? (issue.prs.find((p) => p.merged && !isBatchBranch(p.base)) ?? null) : null;
+    if (!closer || tailOver(io, slug, number)) return io.out(`= #${number} is closed — nothing to finish`), 0;
+    io.out(`○ #${number} is closed by the merge of PR #${closer.number}, the tail isn't over (no ${q(N.status.done)} with the actual) — going on`);
+    return finishMerged(io, slug, number, issue.parent?.number ?? null, closer, { left, again, stop, outOfTime });
+  }
   if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`task finish runs from a checkout of ${slug}: the current directory is not one`);
   const found = unlinkedPrs(io, slug, number);
   const prs = [...issue.prs, ...found.prs, ...found.batched].filter((p, k, all) => all.findIndex((x) => x.number === p.number) === k);
@@ -4973,6 +4986,19 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (premerge !== 0) return stop(1, `❌ PR #${pr} isn't merged: pr premerge — code ${premerge} (above)`, `what premerge names, then ${again}`);
   const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
   return stop(4, `✅ PR #${pr} is ready to merge`, `${yes}gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${again}${isBatchBranch(base) ? "" : " — in the background: it waits for the deploy"}`);
+}
+
+/**
+ * The tail is over — what `task close` leaves (#761, question 1): Status Done and the actual written, not the issue's
+ * state, which «Closes #N» sets at the merge. In the cloud there is no project to read — over, as before.
+ */
+function tailOver(io: Io, slug: string, number: number): boolean {
+  if (inCloud(io)) return true;
+  const [owner, name] = slug.split("/");
+  const values = itemValues(graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue, name!);
+  const done = values.some((v) => v?.field?.name === STATUS && locale.every((n) => n.status.done).includes(v.name));
+  const actual = values.some((v) => v?.__typename === "ProjectV2ItemFieldNumberValue" && locale.every((n) => n.fields.actual).includes(v.field?.name));
+  return done && actual;
 }
 
 /** `task finish` after the merge: the batch's — nothing; the default branch's — the deploy, the epic refresh, `task close`. */
