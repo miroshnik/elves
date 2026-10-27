@@ -4735,6 +4735,13 @@
   "describes": [
    "task close снимает стеки задачи"
   ],
+  "name": "task close задачи с уже снятым стеком проходит без ошибки — стек пачки снят при мерже в неё (#765)"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task close снимает стеки задачи"
+  ],
   "name": "task close снимает стеки закрытой задачи вместе с томами — командой task-env down <N> в чекауте задачи"
  },
  {
@@ -4980,7 +4987,7 @@
   "describes": [
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
-  "name": "task finish после мержа в ветку пачки — ничего не ждёт: остальное делает выпуск"
+  "name": "task finish после мержа в ветку пачки — ничего не ждёт, снимает стеки задачи: остальное делает выпуск"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -5583,6 +5590,13 @@
    "task queue собирает задачи диспетчера в ветку пачки"
   ],
   "name": "task queue --assignment N --main ведёт задачу мимо пачки: ветка от origin/main, PR в main, деплой и task close"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "task queue снимает стеки задачи, влитой в пачку, чей исполнитель закончил, — строкой +, уже снятый молча"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
