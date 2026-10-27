@@ -5415,6 +5415,59 @@ describe("task finish доводит задачу от ветки до закр�
     expect(existsSync(path.join(config, "finishes", "miroshnik__elves__47.json"))).toBe(false);
   });
 
+  /**
+   * #761: PR, который открыл `task finish`, несёт `Closes #N` — GitHub закрывает задачу в момент мержа, и второй вызов
+   * видел закрытую задачу. Хвост завершён по тому, что ставит `task close`: Status «Готово» и записанный факт.
+   */
+  it("task finish задачи, которую закрыл Closes #N при мерже, продолжает хвост: деплой, актуализация эпика, task close", () => {
+    const f = mergedInEpic();
+    f.closed(47);
+    const { work } = worktree();
+    const config = scratch();
+    const r = finish(f, ["47"], { cwd: work, config });
+    expect(r.code).toBe(4);
+    expect(r.out).toContain("○ #47 is closed by the merge of PR #77, the tail isn't over (no «Готово» with the actual) — going on");
+    expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "77"]]);
+    expect(r.out).toContain("The epic refresh's subagent — the two lines below are its whole prompt, pass them as is:");
+    reported(f, 47);
+    const after = finish(f, ["47"], { cwd: work, config });
+    expect(after.code).toBe(0);
+    expect(statusSet(f)).toEqual([[47, "Готово"]]);
+    expect(after.est.map((a) => a.slice(2, 4))).toEqual([["fact", "47"]]);
+    // задачу уже закрыл GitHub — повторно её не закрывают
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+  });
+
+  it("task finish задачи, которую закрыл task close, — «nothing to finish» с кодом 0", () => {
+    const f = mergedInEpic();
+    f.closed(47);
+    f.status(47, "Готово");
+    f.numbers[47] = { "Оценка, ч": 0.5, "Факт, ч": 0.4 };
+    const r = finish(f, ["47"], { cwd: worktree().work });
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("= #47 is closed — nothing to finish");
+    expect(r.waits).toEqual([]);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("task finish задачи, закрытой без PR, хвост мержа не начинает", () => {
+    for (const reason of ["COMPLETED", "NOT_PLANNED"]) {
+      const f = new FakeGitHub(REC);
+      f.closed(49, reason);
+      const r = finish(f, ["49"], { cwd: worktree().work });
+      expect(r.code).toBe(0);
+      expect(r.out).toBe("= #49 is closed — nothing to finish");
+      expect(r.waits).toEqual([]);
+      expect(f.mutations).toEqual([]);
+    }
+    // отменённая задача со смерженным PR — тоже не хвост мержа
+    const dropped = mergedInEpic();
+    dropped.closed(47, "NOT_PLANNED");
+    const r = finish(dropped, ["47"], { cwd: worktree().work });
+    expect(r.out).toBe("= #47 is closed — nothing to finish");
+    expect(r.waits).toEqual([]);
+  });
+
   it("task finish с таймаутом возвращается до таймаута с состоянием и следующим шагом", () => {
     const f = new FakeGitHub(REC);
     const { work } = onBranch();
