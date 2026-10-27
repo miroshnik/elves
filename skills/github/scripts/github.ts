@@ -3141,7 +3141,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const running: string[] = [];
   const waiting: string[] = [];
   /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
-  let settled = 0;
+  const settled: number[] = [];
   /**
    * Of the tasks in work: the batch's live executors — the release waits for them (#696). Without a batch — all of them;
    * with one — a task with an open PR into the batch, or handed out to an executor of the batch (a subagent, an app
@@ -3184,7 +3184,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     if (work.length) {
       running.push(`= ${label} — ${work.join(", ")}`);
       // merged into the batch, no open PR of it: its executor is done, the task waits for the release
-      if (merged !== undefined && pr === undefined) settled++;
+      if (merged !== undefined && pr === undefined) settled.push(i.number);
       else if (batch === null) holding++;
       else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && hand.executor !== "cloud" && !hand.main && !pastBatch(i)) holding++;
       else past.push(`#${i.number}`);
@@ -3217,6 +3217,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   appWorktreeWarning(io);
   // the executor the dispatcher continues with SendMessage — an answered question, a restart — has no lock (#533)
   pruneExecutors(io, slug, handed, isOpen);
+  // a task merged into the batch waits for the release, its stack doesn't (#765): the executor didn't take it down — the queue does
+  if (settled.length && checkoutOfRepo(io, originUrl(io), slug)) for (const n of settled) takeDownStacks(io, n, true);
   const group = o.tasks !== undefined ? `tasks ${numbers.map((n) => `#${n}`).join(", ")}` : null;
   const scope = [o.epic !== undefined ? `epic #${o.epic}` : group ?? "open tasks", want && `type ${q(want)}`, o.priority?.length && `Priority ${o.priority.join("|")}`].filter(Boolean).join(", ");
   io.out(`Queue ${slug} (${scope}): ready ${ready.length}, ${q(N.status.inProgress)} ${running.length}, not ready ${waiting.length}`);
@@ -3229,7 +3231,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const releaseCommand = `bun --no-env-file ${import.meta.path} batch release --repo ${slug}`;
   // the owner's word «release» — the same command with live executors: they go on, their PRs wait for the release
   // (question 2 of epic #645)
-  const now = settled ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
+  const now = settled.length ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
   // outside auto an executor's merge is the owner's «yes» (#667)
   const ask = locale.autoProject(io.cwd ?? process.cwd()) ? "" : `; ${MERGE_ASK}`;
   // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
@@ -3247,8 +3249,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
         `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
     );
-  } else if (holding || (!settled && running.length)) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
-  else if (settled) {
+  } else if (holding || (!settled.length && running.length)) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
+  else if (settled.length) {
     io.out(
       `Next: the batch ${batch} is complete — nothing ready, every task of the batch is merged into it: its release — ${releaseCommand}, ` +
         `once no executor of the batch is still at work${past.length ? `; past the batch — ${past.join(", ")}: they don't hold the release` : ""}; ${SESSION_ARCHIVE}.`,
@@ -4158,6 +4160,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
     repo: slug,
     epic: issue.parent ? locale.fill(N.queue.epic, { epicWord: N.subagentPrompt.epic, epic: issue.parent.number }) : "",
     script: `bun --no-env-file ${import.meta.path}`,
+    taskEnv: `bun --no-env-file ${taskEnvScript(io)}`,
     waitCi: `bash ${waitCi()}`,
     inProgress: N.status.inProgress,
     done: N.lastLine.done,
@@ -5012,6 +5015,8 @@ function finishMerged(
 ): number {
   if (isBatchBranch(merged.base)) {
     io.out(`✅ PR #${merged.number} is merged into ${merged.base} — #${number} stays ${q(N.status.inProgress)} till the batch's release`);
+    // the task's stacks don't wait for the release (#765): the executor is done, its stack only loads the machine
+    if (checkoutOfRepo(io, originUrl(io), slug)) takeDownStacks(io, number);
     io.out(`Next: nothing more for the task — no CI or deploy wait, no epic refresh and no task close: the dispatcher's batch release does them`);
     return 0;
   }
@@ -5206,13 +5211,15 @@ const taskEnvScript = (io: Io) => io.env["ELVES_TASK_ENV"] ?? path.resolve(impor
  * in the checkout takes the dev and e2e stacks down with their volumes and prints a line per stack (`+`, `○`, `!`) —
  * printed as is; it failed without a line — its error as a `!` line. A failure doesn't stop the close: a stack left
  * behind is found by `task-env prune`. Docker doesn't work in the Claude Code sandbox — task close is an unsandboxed
- * call (SKILL.md).
+ * call (SKILL.md). A batch's task (#765) closes only with the release — its stack goes at the merge into the batch:
+ * `task finish` of the executor, and the dispatcher's `task queue` as insurance (`quiet`: only `+` and `!` lines).
  */
-function takeDownStacks(io: Io, number: number): void {
+function takeDownStacks(io: Io, number: number, quiet = false): void {
   const script = taskEnvScript(io);
-  if (!existsSync(script)) return io.out(`○ task stacks: task-env is not installed (${script})`);
+  if (!existsSync(script)) return quiet ? undefined : io.out(`○ task stacks: task-env is not installed (${script})`);
   const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "down", String(number)], io.cwd);
-  const lines = r.stdout.split("\n").filter((l) => l.trim());
+  // quiet — the queue's insurance (#765): a stack already down (`○`) is said nothing of, each queue would repeat it
+  const lines = r.stdout.split("\n").filter((l) => l.trim() && !(quiet && l.startsWith("○")));
   for (const line of lines) io.out(line);
   if (r.status !== 0 && !lines.length) io.out(`! task-env down: ${why(r)}`);
 }
