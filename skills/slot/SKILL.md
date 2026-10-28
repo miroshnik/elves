@@ -138,6 +138,23 @@ memory, the smaller. All slots together get half of the cores. `slot
 positive integer — a warning line and its default. Why these defaults —
 `tests/capabilities/slot/capacity.md` in Elves.
 
+The defaults are a guess; the run log and a measurement check them on this
+machine (`tests/capabilities/slot/runs.md` in Elves):
+
+- **The run log** — every run in the queue appends a line to `runs.jsonl`
+  next to `slots/`: the wait, the duration, the load average at the start and
+  the end, free memory, the neighbors in slots, the command and the directory;
+  it keeps the newest few thousand runs. `slot --log` — the median and the
+  90th percentile of the wait and the duration by the number of neighbors and
+  by the load per core: the wait grows with neighbors — too few slots; the
+  duration grows with the load at the same neighbors — the machine is busy
+  outside the queue; little free memory — fewer executors, not slots.
+- **The measurement** — `slot --measure '<command>' [copies]` on an idle
+  machine: one heavy command (`bun run typecheck`, the full test run) by 1,
+  2, … copies at once (4 by default), each with its share of cores; the time
+  of one run at each count and `{"slots": N}` for `machine.json` — the most
+  copies before the time grows by half.
+
 ## Queue
 
 A run's ticket is a file `<time>-<pid>` in `slots/` of the personal
