@@ -5588,6 +5588,89 @@ describe("task finish доводит задачу от ветки до закр�
     expect(f.mutations).toEqual([]);
   });
 
+  /**
+   * #768: после выпуска пачки маркер диспетчера ещё называл её ветку — `task finish` задачи, ушедшей в main, открыл PR в
+   * выпущенную пачку: заголовок — от коммита пачки, метки решений — по диффу всей пачки. Выпуск ребейзит пачку в main —
+   * её коммиты в main с другими SHA.
+   */
+  const BATCH = "batch/2026-10-27-1";
+  /** Пачка с коммитом чужой задачи на origin и её выпуск в main ребейзом (другой SHA); маркер диспетчера её ещё называет. */
+  function releasedBatch(work: string, o: { released: boolean }) {
+    git(work, "push", "-q", "origin", `origin/main:refs/heads/${BATCH}`);
+    git(work, "fetch", "-q", "origin");
+    git(work, "switch", "-q", "-c", "feat/47-export", "--no-track", `origin/${BATCH}`);
+    commitFile(work, "export.txt", "feat(github): экспорт пачки");
+    git(work, "push", "-q", "origin", `HEAD:refs/heads/${BATCH}`);
+    git(work, "switch", "-q", "--detach", "origin/main");
+    if (o.released) {
+      git(work, "-c", "user.email=release@example.test", "-c", "user.name=release", "-c", "commit.gpgsign=false", "cherry-pick", `origin/${BATCH}`);
+      git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    }
+    git(work, "fetch", "-q", "origin");
+    const config = scratch();
+    writeTree(config, { [`dispatchers/${SESSION}`]: `bun --no-env-file github.ts task queue --epic 45 --repo ${REPO}\nbatch ${REPO} ${BATCH}\n` });
+    return config;
+  }
+  /** Ветка задачи #49 с её коммитом от `from`. */
+  function taskOn(work: string, from: string) {
+    git(work, "switch", "-q", "-c", "fix/49-after-release", "--no-track", from);
+    commitFile(work, "fix.txt", "fix(github): задача после выпуска");
+  }
+  const inBatchSession = (config: string) => ({ ...inSession(config).env!, ELVES_SPEC_DIFF: OUTSIDE_SPEC });
+  function finishIn(f: FakeGitHub, work: string, config: string) {
+    const out: string[] = [];
+    const run = githubOrigin((cmd: string, a: string[], cwd?: string) => (cmd === "bash" ? { status: 0, stdout: "RESULT: PASS\n", stderr: "" } : cmd === "bun" ? { status: 0, stdout: "", stderr: "" } : realRun(cmd, a, cwd)));
+    const code = main(["task", "finish", "49", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run, cwd: work, env: inBatchSession(config) });
+    return { code, out: out.join("\n") };
+  }
+  const labelled = (f: FakeGitHub) => f.rest.filter((x) => x.method === "POST" && x.route.endsWith("/labels"));
+
+  it("task finish задачи после выпуска пачки открывает PR в ветку по умолчанию, а не в выпущенную пачку", () => {
+    const { work } = worktree();
+    const config = releasedBatch(work, { released: true });
+    const f = new FakeGitHub(REC);
+    f.prs[90] = { files: [], closes: [], body: "Closes #47", head: BATCH, base: "main", model: null, merged: true };
+    taskOn(work, "origin/main");
+    const r = finishIn(f, work, config);
+    expect(r.out).toContain(`○ ${BATCH} is released by PR #90 — the PR goes into main`);
+    expect(created(f)).toEqual([{ title: "fix(github): задача после выпуска", head: "fix/49-after-release", base: "main", body: "Closes #49\n" }]);
+    // ветка пачки удалена с origin, PR выпуска среди последних нет — тоже выпущена
+    const gone = worktree().work;
+    const goneConfig = releasedBatch(gone, { released: true });
+    git(gone, "push", "-q", "origin", "--delete", BATCH);
+    taskOn(gone, "origin/main");
+    const g = new FakeGitHub(REC);
+    expect(finishIn(g, gone, goneConfig).out).toContain(`○ ${BATCH} is gone from origin (released) — the PR goes into main`);
+    expect(created(g).map((p) => p.base)).toEqual(["main"]);
+    // пачка не выпущена — PR задачи в неё, как раньше
+    const live = worktree().work;
+    const liveConfig = releasedBatch(live, { released: false });
+    taskOn(live, `origin/${BATCH}`);
+    const l = new FakeGitHub(REC);
+    expect(finishIn(l, live, liveConfig).out).not.toContain("is released");
+    expect(created(l)).toEqual([{ title: "fix(github): задача после выпуска", head: "fix/49-after-release", base: BATCH, body: "Closes #49\n" }]);
+  });
+
+  it("заголовок и метки решений PR задачи — по её коммитам, а не по диффу пачки", () => {
+    const { work } = worktree();
+    const config = releasedBatch(work, { released: true });
+    const f = new FakeGitHub(REC);
+    f.prs[90] = { files: [], closes: [], body: "Closes #47", head: BATCH, base: "main", model: null, merged: true };
+    // ветка задачи — от пачки до её выпуска: коммит пачки в ней со старым SHA, в main — с другим
+    taskOn(work, `origin/${BATCH}`);
+    const r = finishIn(f, work, config);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("! 1 commit of fix/49-after-release is in origin/main already by the changes (a released batch's, a merged PR's) — the PR would take its title and decision labels from them");
+    expect(r.out.split("\n").at(-1)).toStartWith("Next: git rebase origin/main (it drops them), then ");
+    expect(created(f)).toEqual([]);
+    expect(labelled(f)).toEqual([]);
+    expect(git(work, "ls-remote", "--heads", "origin", "fix/49-after-release")).toBe("");
+    // после ребейза — PR в main с заголовком коммита задачи
+    git(work, "rebase", "-q", "origin/main");
+    finishIn(f, work, config);
+    expect(created(f)).toEqual([{ title: "fix(github): задача после выпуска", head: "fix/49-after-release", base: "main", body: "Closes #49\n" }]);
+  });
+
   it("task finish не на ветке задачи и с незакоммиченной правкой — отказ до изменений", () => {
     const f = new FakeGitHub(REC);
     const other = finish(f, ["49"], { cwd: worktree().work });

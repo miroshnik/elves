@@ -672,7 +672,11 @@ subagent). Before the merge: uncommitted changes or no commits past
 `origin/<base>` — code 1; the task branch pushed (origin has the same
 commits rebased — `--force-with-lease` on its head; commits that aren't
 here — code 1), no `-u`; the PR into the dispatcher's batch branch, otherwise
-the default branch: the title — `--title`, otherwise the first commit of the
+— and when that batch is released (its release PR merged, its branch gone
+from origin, #768) — the default branch; commits of the branch already in
+the base by their changes (a released batch's, rebased with other SHAs) —
+code 1 before the PR: `git rebase origin/<base>` drops them, otherwise the
+PR's title and decision labels would be theirs; the title — `--title`, otherwise the first commit of the
 branch type, a conventional commit; the body — `spec-diff` and `Closes #N`
 (an existing PR — the body updated); `pr labels`; `ci-wait pr` (none into a
 batch): FAIL, a conflict — code 1 with the step; `pr premerge` — its code 1
