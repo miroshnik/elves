@@ -4446,6 +4446,28 @@ describe("Красный выпуск чинится в пачке", () => {
     expect(posted(f)).toHaveLength(1);
   });
 
+  it("batch release называет виноватую задачу по логу job, в котором есть escape-последовательности терминала", () => {
+    const { work, f, config, pr } = redRelease({ labels: true });
+    // bun в Actions красит строки и стирает строку прогресса (CSI K), ссылки на файлы — OSC 8: gh без флага такой лог не печатает
+    const esc = "\u001b";
+    f.prs[pr]!.logs = {
+      tests: [
+        `${esc}[2K${esc}[1m${esc}]8;;file://${EXPORT_TEST}${esc}\\${EXPORT_TEST}${esc}]8;;${esc}\\:${esc}[0m`,
+        `${esc}[32m(pass)${esc}[0m экспорт > пустой список ${esc}[2m[0.10ms]${esc}[0m`,
+        `${esc}[31m(fail)${esc}[0m экспорт > выгружает задачи ${esc}[2m[1.00ms]${esc}[0m`,
+        "",
+        ` ${esc}[32m1 pass${esc}[0m`,
+        ` ${esc}[31m1 fail${esc}[0m`,
+      ]
+        .map((l) => `2026-10-22T10:00:00.1234567Z ${l}`)
+        .join("\n"),
+    };
+    const lines = release(f, work, config).out.split("\n");
+    expect(lines.filter((l) => l.startsWith("○ the log of"))).toEqual([]);
+    expect(lines).toContain(`○ the failed checks' logs name ${EXPORT_TEST}`);
+    expect(lines).toContain(`guilty: #47 «${f.issue(47).title}» — the label export — the failed files' decision export`);
+  });
+
   /** Тема export с разделами (#689): метка — у темы, раздел своей не имеет; упал тест раздела csv. */
   const CSV_TEST = "tests/capabilities/export/csv.test.ts";
 

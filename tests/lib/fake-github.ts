@@ -3,6 +3,8 @@
  * ответы так, как это сделал бы GitHub. `gh` — внешний край, поэтому подменяется он, а не модули скилла.
  * Не спека — в документацию не попадает.
  */
+import { GhError } from "../../skills/github/scripts/github.ts";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
@@ -140,7 +142,11 @@ export class FakeGitHub {
       const id = Number(job[1]);
       const n = Math.floor(id / 100);
       const run = this.restCheckRuns(n).find((r) => r.id === id);
-      return (run && this.prs[n]?.logs?.[run.name]) ?? "";
+      const log = (run && this.prs[n]?.logs?.[run.name]) ?? "";
+      // gh не печатает ответ с escape-последовательностями терминала без флага, как realGh — GhError со stderr (#774)
+      if (log.includes("\u001b") && !args.includes("--allow-escape-sequences"))
+        throw new GhError(`gh api ${args[1]}: the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway`);
+      return log;
     }
     if (args[0] !== "api" || args[1] !== "graphql") throw new Error(`fake gh: неожиданный вызов gh ${args.join(" ")}`);
     const { query, variables } = JSON.parse(stdin ?? "{}");

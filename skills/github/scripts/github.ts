@@ -3349,20 +3349,23 @@ function releaseChecks(io: Io, slug: string, release: PrRef): ReleaseChecks {
 const TEST_FILE = /((?:[\w.@-]+\/)*[\w.@-]+\.(?:test|spec|e2e)\.[cm]?[jt]sx?)\b/;
 const isTestFile = (p: string) => new RegExp(`^${TEST_FILE.source}$`).test(p);
 
+/** Terminal escape sequences: OSC (`ESC ] … BEL|ESC \\`, links), CSI (`ESC [ … letter`, colors, erasing), two-byte ones. */
+const ANSI = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[@-Z\\-_]/g;
+
 /**
  * The files a failed job's log names (#650): a failed test's file — in its failure line (Vitest, Jest, Playwright) or in
  * the file header above it (Bun: `tests/…/x.test.ts:`), a compiler error's file — `a.ts(3,5): error TS…` (a `bun check`
  * block too, `asTsc`); failure lines — `FAILED_LINE`, as on the merge. Paths — the checkout's: the runner's workspace
- * prefix (`…/work/<repo>/<repo>/`), the log's timestamps and colors are cut.
+ * prefix (`…/work/<repo>/<repo>/`), the log's timestamps and terminal escape sequences (`ANSI`: colors, erasing, OSC
+ * links — #774) are cut.
  */
 function failedFilesIn(log: string): string[] {
   const out: string[] = [];
   const rel = (p: string) => p.replace(/^.*?\/work\/[^/]+\/[^/]+\//, "").replace(/^\.\//, "");
   const header = new RegExp(`^\\s*/?${TEST_FILE.source}:$`);
   let current: string | null = null;
-  for (const raw of asTsc(log).split("\n")) {
+  for (const raw of asTsc(log.replace(ANSI, "")).split("\n")) {
     const line = raw
-      .replace(/\u001b\[[\d;]*m/g, "")
       .replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, "")
       .trimEnd();
     const file = header.exec(line);
@@ -3383,7 +3386,8 @@ function failedFilesOf(io: Io, slug: string, failed: Any[]): string[] {
   for (const r of failed) {
     let log: string;
     try {
-      log = io.gh(["api", `repos/${slug}/actions/jobs/${r.id}/logs`]);
+      // a runner's log has the terminal's escape sequences (colors, line erasing, links): gh prints it only with the flag (#774)
+      log = io.gh(["api", `repos/${slug}/actions/jobs/${r.id}/logs`, "--allow-escape-sequences"]);
     } catch (e) {
       if (!(e instanceof GhError)) throw e;
       io.out(`○ the log of ${r.name} not read: ${e.message}`);
