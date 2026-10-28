@@ -5435,6 +5435,13 @@
   "describes": [
    "task queue раздаёт задачи эпика или фильтра исполнителям"
   ],
+  "name": "task queue называет число исполнителей машины и откуда оно"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue раздаёт задачи эпика или фильтра исполнителям"
+  ],
   "name": "блокер снят — задача снова среди готовых"
  },
  {
@@ -6513,7 +6520,7 @@
   "describes": [
    "Предел исполнителей диспетчера — по месту исполнителя"
   ],
-  "name": "канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — три"
+  "name": "канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — мощность машины"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -6535,6 +6542,41 @@
    "Статус ставится, даже если проект ещё не показал задачу"
   ],
   "name": "элемент так и не виден — понятная ошибка с тем, что повторить, а не падение"
+ },
+ {
+  "path": "tests/capabilities/slot/capacity.test.ts",
+  "describes": [
+   "Мощность машины — из конфига машины, иначе по ядрам и памяти"
+  ],
+  "name": "check -g печатает мощность машины"
+ },
+ {
+  "path": "tests/capabilities/slot/capacity.test.ts",
+  "describes": [
+   "Мощность машины — из конфига машины, иначе по ядрам и памяти"
+  ],
+  "name": "без конфига машины исполнителей — по ядрам и памяти, меньшее из двух"
+ },
+ {
+  "path": "tests/capabilities/slot/capacity.test.ts",
+  "describes": [
+   "Мощность машины — из конфига машины, иначе по ядрам и памяти"
+  ],
+  "name": "без конфига машины слотов — по ядрам: не меньше двух, на 32 ядрах четыре"
+ },
+ {
+  "path": "tests/capabilities/slot/capacity.test.ts",
+  "describes": [
+   "Мощность машины — из конфига машины, иначе по ядрам и памяти"
+  ],
+  "name": "неверное значение в конфиге машины — предупреждение и умолчание"
+ },
+ {
+  "path": "tests/capabilities/slot/capacity.test.ts",
+  "describes": [
+   "Мощность машины — из конфига машины, иначе по ядрам и памяти"
+  ],
+  "name": "число слотов из конфига машины заменяет умолчание, а все слоты вместе берут половину ядер"
  },
  {
   "path": "tests/capabilities/slot/queue.test.ts",
@@ -19588,6 +19630,13 @@
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
   "name": "tests/capabilities/github/github-task.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/tests/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
+  "name": "tests/capabilities/slot/capacity.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/tests/spawn-timeout.test.ts",
