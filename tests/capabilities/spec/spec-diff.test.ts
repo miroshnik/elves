@@ -494,6 +494,15 @@ describe("Сценарии задачи сверяются с тестами PR"
     expect(out).not.toContain("сверх сценариев");
   });
 
+  // имя теста само цитирует заголовок в ёлочках — «… «## Сценарии» …» — и вложенная » считалась концом цитаты (#767)
+  it("сценарий в ёлочках с вложенными ёлочками совпадает с тестом того же названия, а «a» и «b» — две цитаты, не одна", () => {
+    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
+    const tests = ["раздел «Счета» выставляется", "«a» и «b»"].map((n) => `it(${JSON.stringify(n)}, () => {});`).join(" ");
+    repo.commit({ [BILLING]: ts(`it("x", () => {}); ${tests}`), "issue.md": "## Сценарии\n\n- «раздел «Счета» выставляется»;\n- «a» и «b»\n- a» и «b\n" });
+    const j = JSON.parse(diffFrom(base, "--scenarios", "issue.md", "--json").stdout);
+    expect(j.scenarios.map((s: { tests: unknown[] }) => s.tests.length)).toEqual([1, 1, 0]);
+  });
+
   // spec-diff печатает тест строкой «`<папка>` · <название>», и сценарии в задачу копируют так же (#717)
   const UI = "tests/capabilities/cabinet/cabinet.test.ts";
   const STD = "tests/standards/audit/audit.test.ts";
