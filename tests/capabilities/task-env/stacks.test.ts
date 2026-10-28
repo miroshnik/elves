@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDe
 import { composeEnv, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
 import { elves, sandbox, type Sandbox } from "../../lib/elves.ts";
 import { packageProject } from "../../lib/npm.ts";
-import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
+import { exitOf, NO_LOAD_WAIT, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { calls, COMPOSE, FAKE_GH, run, SCRIPT, untilAnswer } from "../../lib/task-env.ts";
 
@@ -679,7 +679,7 @@ describe("Подъём стека задачи — тяжёлая работа �
 
   /** Своя очередь теста — в конфигурации и во временном каталоге: прогон самого теста в очереди машины не в счёт. */
   const env = (): NodeJS.ProcessEnv => {
-    const e: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_CONFIG_DIR: path.join(project.dir, "config"), TMPDIR: path.join(project.dir, "tmp") };
+    const e: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, ELVES_CONFIG_DIR: path.join(project.dir, "config"), TMPDIR: path.join(project.dir, "tmp"), ...NO_LOAD_WAIT };
     for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) delete e[k];
     return e;
   };

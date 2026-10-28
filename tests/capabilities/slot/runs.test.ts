@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { recommend, record, summarize, type RunRecord } from "../../../skills/slot/scripts/slot.ts";
-import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
+import { exitOf, NO_LOAD_WAIT, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
@@ -33,7 +33,7 @@ afterEach(() => cleanup());
 
 /** Окружение slot: своя очередь в каталоге теста; прогон самого теста — не в слоте и не в CI. */
 function envOf() {
-  const env: Record<string, string | undefined> = { ...process.env, ELVES_CONFIG_DIR: config, TMPDIR: path.join(dir, "tmp") };
+  const env: Record<string, string | undefined> = { ...process.env, ELVES_CONFIG_DIR: config, TMPDIR: path.join(dir, "tmp"), ...NO_LOAD_WAIT };
   for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "CLAUDE_TMPDIR"]) delete env[k];
   return env;
 }

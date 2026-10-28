@@ -7,7 +7,7 @@ import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { unprivileged } from "./spawn.ts";
+import { NO_LOAD_WAIT, unprivileged } from "./spawn.ts";
 import { gitRepo, tmpDir, writeTree } from "./spec.ts";
 
 export const REPO = fileURLToPath(new URL("../../", import.meta.url));
@@ -32,7 +32,7 @@ export interface Sandbox {
  * агента не пускает. BUN_JSC_useJIT — из окружения прогона: дочерний bun на macOS — без JIT
  * (tests/standards/tests/spawn-no-jit). Кеш транспиляции bun выключен: bun кладёт его в HOME (`~/Library/Caches/bun`), а
  * тесты сверяют HOME песочницы снимком — это машина, где установщик пишет только своё; кеш пакетов `bun install`
- * проекта — в каталоге песочницы по той же причине.
+ * проекта — в каталоге песочницы по той же причине. Нагрузка машины slot песочницы не держит (`NO_LOAD_WAIT`).
  */
 export function sandbox(): Sandbox {
   const { dir: tmp, cleanup } = tmpDir();
@@ -47,7 +47,7 @@ export function sandbox(): Sandbox {
   const found = execFileSync("sh", ["-c", `for c in ${cmds.join(" ")}; do command -v "$c"; done`], { encoding: "utf8" }).trim().split("\n");
   cmds.forEach((cmd, i) => symlinkSync(found[i]!, path.join(bin, cmd)));
   symlinkSync(process.execPath, path.join(bin, "bun"));
-  const env: Record<string, string> = { HOME: home, PATH: bin, TMPDIR: tmp, ELVES_REPO: noReleases, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", BUN_INSTALL_CACHE_DIR: path.join(tmp, "bun-cache") };
+  const env: Record<string, string> = { HOME: home, PATH: bin, TMPDIR: tmp, ELVES_REPO: noReleases, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", BUN_INSTALL_CACHE_DIR: path.join(tmp, "bun-cache"), ...NO_LOAD_WAIT };
   if (process.env.BUN_JSC_useJIT) env.BUN_JSC_useJIT = process.env.BUN_JSC_useJIT;
   return { tmp, home, proj, bin, env, cleanup };
 }
