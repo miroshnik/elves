@@ -832,34 +832,6 @@ function asJson(
   );
 }
 
-/**
- * Task scenarios — the list items of the scenarios section (up to the next heading); checkboxes stripped; no section —
- * null. The heading is in any dictionary language (`## Scenarios` or its translation): the task could have been written
- * before the project language changed.
- */
-export function parseScenarios(md: string): string[] | null {
-  // a fenced code block is an example in the task text, not its sections: its lines are blanked out
-  let fence: string | null = null;
-  const lines = md.split(/\r?\n/).map((l) => {
-    const f = /^\s*(`{3,}|~{3,})/.exec(l)?.[1];
-    if (f && (fence === null || (f[0] === fence[0] && f.length >= fence.length))) {
-      fence = fence === null ? f : null;
-      return "";
-    }
-    return fence === null ? l : "";
-  });
-  const heads = locale.every((n) => n.sections.scenarios).map((h) => new RegExp(`^${locale.escapeRe(h).replace(/ +/g, "\\s+")}\\s*$`));
-  const start = lines.findIndex((l) => heads.some((h) => h.test(l.trim())));
-  if (start < 0) return null;
-  const out: string[] = [];
-  for (const l of lines.slice(start + 1)) {
-    if (/^#{1,2}\s/.test(l)) break;
-    const m = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/.exec(l);
-    if (m) out.push(m[1]!);
-  }
-  return out;
-}
-
 /** Quotes that quote a scenario whole: `«…»;` in a task is the same name as the test's. */
 const QUOTES: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["`", "`"]];
 const TAIL = /[.。;,]+$/;
@@ -1150,7 +1122,7 @@ export async function main(argv: string[]): Promise<number> {
   let scenarios: string[] | null = null;
   if (v.scenarios !== undefined) {
     try {
-      scenarios = parseScenarios(readFileSync(v.scenarios === "-" ? 0 : v.scenarios, "utf8"));
+      scenarios = locale.scenarioItems(readFileSync(v.scenarios === "-" ? 0 : v.scenarios, "utf8"));
     } catch (e) {
       console.error(`spec-diff: --scenarios: ${(e as Error).message}`);
       return 2;

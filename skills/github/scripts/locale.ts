@@ -586,4 +586,33 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe };
+/**
+ * A task's scenarios — the list items (`-`, `*`, `+` or numbered) of the description's scenarios section up to the next
+ * heading, checkboxes stripped; no section — null. The heading is in any dictionary language (`## Scenarios` or its
+ * translation): the task could have been written before the project language changed. One parser for `task start`
+ * and `spec-diff` (#767: `task start` read only numbered items and missed `- «…»`).
+ */
+function scenarioItems(md: string): string[] | null {
+  // a fenced code block is an example in the task text, not its sections: its lines are blanked out
+  let fence: string | null = null;
+  const lines = md.split(/\r?\n/).map((l) => {
+    const f = /^\s*(`{3,}|~{3,})/.exec(l)?.[1];
+    if (f && (fence === null || (f[0] === fence[0] && f.length >= fence.length))) {
+      fence = fence === null ? f : null;
+      return "";
+    }
+    return fence === null ? l : "";
+  });
+  const heads = every((n) => n.sections.scenarios).map((h) => new RegExp(`^${escapeRe(h).replace(/ +/g, "\\s+")}\\s*$`));
+  const start = lines.findIndex((l) => heads.some((h) => h.test(l.trim())));
+  if (start < 0) return null;
+  const out: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/.test(l)) break;
+    const m = /^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.+?)\s*$/.exec(l);
+    if (m) out.push(m[1]!);
+  }
+  return out;
+}
+
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe, scenarioItems };
