@@ -53,6 +53,9 @@ beforeEach(() => {
   config = path.join(dir, "config");
   tmp = path.join(dir, "tmp");
   mkdirSync(tmp);
+  // два слота — как у машины до 24 ядер: тесты очереди не зависят от ядер машины, на которой идут (capacity.test.ts)
+  mkdirSync(config);
+  writeFileSync(path.join(config, "machine.json"), JSON.stringify({ slots: 2 }));
   running = [];
   locked = [];
   // тонкий проект: шим установщика и elves пакета из devDependencies — slot.ts этого клона

@@ -84,6 +84,7 @@ import { fileURLToPath } from "node:url";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
 import { PACKAGE_BUNX, PACKAGE_RUN, packageRun } from "../skills/spec/scripts/package-run.ts";
+import { machineCapacity } from "../skills/slot/scripts/slot.ts";
 import { COMPOSE_FILES, proxyName } from "../skills/task-env/scripts/task-env.ts";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
@@ -2207,14 +2208,28 @@ function agentShellLines(): string[] {
 }
 
 /**
- * The check's result plus the machine's lines, installed or not, behind or not: the proxy (`proxyLines`), the agent's
- * Bash environment — the hook passes what writing it gave, `check -g` asks `agentShellLines` — and Claude Code's prompt
- * cache TTL (`cacheTtlLines`).
+ * The machine's capacity (the slot skill, #779): heavy runs at once and the dispatcher's executors, and where they come
+ * from — machine.json of the personal configuration or the cores and memory; a value machine.json gets wrong — its line.
+ * Information, not the flow falling behind: it doesn't change the check's code.
+ */
+function capacityLines(): string[] {
+  const c = machineCapacity();
+  const set = c.from.slots === "machine.json" || c.from.executors === "machine.json";
+  return [
+    `  machine: slots ${c.slots} (${c.from.slots}), executors ${c.executors} (${c.from.executors})${set ? "" : " — ~/.config/elves/machine.json replaces them"}`,
+    ...c.warnings.map((w) => `  ${w}`),
+  ];
+}
+
+/**
+ * The check's result plus the machine's lines, installed or not, behind or not: the capacity (`capacityLines`), the
+ * proxy (`proxyLines`), the agent's Bash environment — the hook passes what writing it gave, `check -g` asks
+ * `agentShellLines` — and Claude Code's prompt cache TTL (`cacheTtlLines`).
  */
 function withMachine(global: boolean, r: Result, shell = agentShellLines()): Result {
   if (!global || r.absent) return r;
   const ttl = cacheTtlLines(os.homedir());
-  const lines = [...proxyLines(os.homedir()), ...shell, ...ttl];
+  const lines = [...capacityLines(), ...proxyLines(os.homedir()), ...shell, ...ttl];
   return lines.length ? { ...r, text: [r.text, ...lines].join("\n"), ...(ttl.length ? { ttl: true } : {}) } : r;
 }
 
