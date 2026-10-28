@@ -4709,6 +4709,53 @@ describe("task queue убирает worktree исполнителей закры
     expect(d.branches()).toEqual([]);
   });
 
+  /**
+   * #769: исполнитель мимо пачки мержит PR с `Closes #N` — GitHub закрывает задачу в момент мержа, а исполнитель ещё ждёт
+   * деплой, гоняет актуализацию эпика и `task close`. Очередь убрала его worktree и отдала зависимые задачи до деплоя
+   * блокера. Раздача живёт до `task close` — до того, что он оставляет: Status «Готово» и записанный факт.
+   */
+  function closedByMerge(d: ReturnType<typeof dispatcher>) {
+    const h = handedOutTo(d);
+    // #46 ждёт #47 — блокер закрывает тот же мерж
+    Object.assign(h.f.issue(46), { state: "OPEN", stateReason: null });
+    h.f.issue(45).subIssues.nodes.find((x: { number: number }) => x.number === 46).state = "OPEN";
+    h.f.status(46, "Бэклог");
+    h.f.blockedBy[46] = [47];
+    h.f.prs[77] = { files: [], closes: [47], head: "fix/47-x", base: "main", model: null, merged: true };
+    h.f.closed(47);
+    return h;
+  }
+
+  it("Очередь не удаляет worktree исполнителя, чья задача закрыта мержем, пока не прошёл task close", () => {
+    const d = dispatcher();
+    const { f, config, executor } = closedByMerge(d);
+    const out = d.queue(f, config);
+    expect(d.cleanupLines(out)).toEqual([]);
+    expect(out).toContain(`= #47 «${f.issue(47).title}» — PR #77 merged and closed the issue — waits for the deploy and task close`);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+    expect(d.branches()).toEqual(["worktree-agent-a1"]);
+  });
+
+  it("Задача, закрытая мержем без task close, держит зависимые задачи", () => {
+    const d = dispatcher();
+    const { f, config } = closedByMerge(d);
+    const out = d.queue(f, config);
+    expect(out).toContain(`○ #46 «${f.issue(46).title}» — blocked by #47 (merged, not closed by task close)`);
+    expect(out.filter((l) => l.startsWith("+ #"))).toEqual([]);
+  });
+
+  // без перегиба: task close прошёл — worktree уходит, зависимые готовы
+  it("после task close задача, закрытая мержем, worktree не держит и зависимые не блокирует", () => {
+    const d = dispatcher();
+    const { f, config, executor } = closedByMerge(d);
+    f.status(47, "Готово");
+    f.numbers[47] = { "Оценка, ч": 0.5, "Факт, ч": 0.4 };
+    const out = d.queue(f, config);
+    expect(d.cleanupLines(out)).toEqual([`+ worktree ${executor} removed with branch worktree-agent-a1: clean, nothing outside origin/main`]);
+    expect(out).toContain(`+ #46 «${f.issue(46).title}»`);
+    expect(out.some((l) => l.startsWith("= #47"))).toBe(false);
+  });
+
   it("ветка worktree-agent-* без worktree: без невлитых коммитов удаляется, с невлитыми — остаётся строкой ○", () => {
     const d = dispatcher();
     // исполнитель завёл ветку задачи от свежего origin/main, ветка worktree-agent-* осталась без worktree

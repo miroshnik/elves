@@ -916,8 +916,12 @@ work, no open blockers — another repository's named `owner/repo#N` —, no
 line — its executor's prompt, «Task #N …» in the project language (`est` links
 the subagent's work by it); then `=` lines — in work: In progress, an open PR
 (linked, or by the task branch and "Closes #N" among recent PRs) with its link,
-handed out to an executor of this session; `○` lines — not ready
-with the reason, and `Next:`. Before the queue, in the repository's checkout,
+handed out to an executor of this session, a hand-out's task closed by its PR's
+merge («Closes #N») before `task close` — «waits for the deploy and task close»
+(#769: its work lives till `task close` leaves Status Done and the actual; a
+release PR's merge isn't one); `○` lines — not ready with the reason (such a
+task holds its dependents: `blocked by #N (merged, not closed by task close)`),
+and `Next:`. Before the queue, in the repository's checkout,
 it removes what finished executors left (#515): an agent's worktree
 (`.claude/worktrees/agent-*`) detached or on a `worktree-agent-*` branch, not
 locked by a live process (Claude Code locks a running agent's worktree; a lock
@@ -926,7 +930,8 @@ whose pid is gone doesn't hold), clean and without commits outside
 uncommitted changes or unmerged commits — left, an `○` line with the reason; a
 `worktree-agent-*` branch without a worktree — the same by its commits. A
 session's worktree, an agent's on an open task's branch and an executor's whose
-handed-out task is open — untouched, no line (#533); an agent's on a closed
+handed-out task is open or awaits `task close` after its merge — untouched,
+no line (#533, #769); an agent's on a closed
 task's branch — as a detached one (#698: a batch executor ends on its task
 branch, the release closes the task): Claude Code unlocks the
 worktree when the agent ends its answer, a question too, and doesn't lock it

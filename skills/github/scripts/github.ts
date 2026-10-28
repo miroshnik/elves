@@ -3077,7 +3077,8 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * the owner's "yes" to an epic's dispatcher becomes work at once, without a new session) — its pin stays, its task is
  * in work. Ready — open, not an epic, not in work, no open blockers (other repositories' too), no external blocker
  * label; order — Priority, then the number. In work (`=`) — "In progress", an open PR (linked, or by the task branch and
- * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`).
+ * "Closes #N" among recent PRs) named with its link, or handed out to an executor of this session (`handedOutFile`);
+ * a hand-out's task closed by its PR's merge stays in work and holds its dependents till `task close` (`awaitingCloseOf`, #769).
  * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
  * doesn't hold. The batch's release (#649): nothing ready and every task of the batch merged into it — `Next:` names
@@ -3098,6 +3099,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   if (!org && (o.type !== undefined || o.priority?.length)) throw new GhError("--type and --priority — only in an organization: a personal account has no issue types and no Priority");
   if (o.epic !== undefined && o.tasks !== undefined) throw new GhError("--epic or --tasks, not both: the group is the epic's open tasks or the ones named");
   let numbers: number[];
+  /** The epic's sub-issues, closed ones included — a hand-out's task closed by a merge is among them (#769). */
+  let subs: Set<number> | null = null;
   if (o.tasks !== undefined) {
     if (!o.tasks.length) throw new GhError("--tasks: the group's task numbers, comma-separated — --tasks 47,49");
     numbers = [...new Set(o.tasks)];
@@ -3106,11 +3109,18 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     if (!isEpic(epic, org)) throw new GhError(`#${o.epic} is not an epic — --epic takes an epic`);
     if (epic.state !== "OPEN") throw new GhError(`epic #${o.epic} is closed`);
     numbers = epic.subIssues.filter((x) => x.state === "OPEN").map((x) => x.number);
+    subs = new Set(epic.subIssues.map((x) => x.number));
   } else {
     const found = graphql(io, Q.IssueSearch, { q: `repo:${slug} is:issue is:open` }).search.nodes as Any[];
     if (found.length >= 100) io.out("○ the search gave 100 open tasks — the queue sees only them: narrow it with --epic");
     numbers = found.filter((x) => x?.state === "OPEN").map((x) => x.number);
   }
+  const handed = handedOut(io, slug);
+  // a hand-out's task closed by its PR's merge is in work till task close (#769): the open tasks don't name it
+  if (o.tasks === undefined) {
+    numbers = [...new Set([...numbers, ...handed.filter((h) => subs === null || subs.has(h.number)).map((h) => h.number)])];
+  }
+  const awaiting = awaitingCloseOf(io, slug, handed);
   const recent = recentPrs(io, slug);
   const openPr = openPrOf(io, slug, recent);
   const args = [o.epic !== undefined && `--epic ${o.epic}`, o.tasks !== undefined && `--tasks ${numbers.join(",")}`, o.type !== undefined && `--type ${o.type}`, o.priority?.length && `--priority ${o.priority.join(",")}`].filter(Boolean).join(" ");
@@ -3132,7 +3142,6 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // the release its CI checked
   const release = batch === null ? undefined : releasePrOf(recent, batch);
   const releasing = release?.state === "OPEN" ? (release.number as number) : null;
-  const handed = handedOut(io, slug);
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
   const read = openOf(io, slug);
@@ -3154,7 +3163,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   for (const n of numbers.sort((a, b) => a - b)) {
     const i = loadIssue(io, slug, n);
     states.set(i.number, i.state);
-    if (i.state !== "OPEN") continue;
+    const closer = i.state === "OPEN" ? null : awaiting(i.number, i);
+    if (i.state !== "OPEN" && closer === null) continue;
     const label = `#${i.number} ${q(i.title)}`;
     if (isEpic(i, org)) {
       waiting.push(`○ ${label} — an epic: its tasks — task queue --epic ${i.number}`);
@@ -3169,7 +3179,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     // merged into the batch branch (question 1 of epic #645): open and In progress till the release — not given out again
     const merged = inBatch?.(i.number, i.prs);
     const work = [
-      status === N.status.inProgress ? q(N.status.inProgress) : "",
+      closer === null ? "" : `PR #${closer} merged and closed the issue — waits for the deploy and task close`,
+      closer === null && status === N.status.inProgress ? q(N.status.inProgress) : "",
       pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`,
       merged === undefined ? "" : `PR #${merged} merged into ${batch} — the task closes with the batch's release`,
     ].filter(Boolean);
@@ -3193,7 +3204,12 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     // a blocker merged into this batch's branch doesn't hold its task: the executor branches from the batch (#648); a
     // blocker outside it — merged into another batch or not merged — holds, as without batches
     const batched = (b: Blocker) => inBatch !== null && b.repo.toLowerCase() === slug.toLowerCase() && inBatch(b.number) !== undefined;
-    const blockers = i.blockers.filter((b) => b.state === "OPEN" && !batched(b)).map((b) => blockerRef(slug, b));
+    // a blocker closed by its PR's merge holds till its task close (#769): the deploy it waits for may not have happened
+    const unclosed = (b: Blocker) => b.state !== "OPEN" && b.repo.toLowerCase() === slug.toLowerCase() && awaiting(b.number) !== null;
+    const blockers = [
+      ...i.blockers.filter((b) => b.state === "OPEN" && !batched(b)).map((b) => blockerRef(slug, b)),
+      ...i.blockers.filter(unclosed).map((b) => `#${b.number} (merged, not closed by task close)`),
+    ];
     const external = i.labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l));
     if (status === N.status.done) waiting.push(`○ ${label} — ${STATUS} ${q(status)}, but the task is open`);
     else if (blockers.length) waiting.push(`○ ${label} — blocked by ${blockers.join(", ")}`);
@@ -3216,7 +3232,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
   appWorktreeWarning(io);
   // the executor the dispatcher continues with SendMessage — an answered question, a restart — has no lock (#533)
-  pruneExecutors(io, slug, handed, isOpen);
+  pruneExecutors(io, slug, handed, isOpen, awaiting);
   // a task merged into the batch waits for the release, its stack doesn't (#765): the executor didn't take it down — the queue does
   if (settled.length && checkoutOfRepo(io, originUrl(io), slug)) for (const n of settled) takeDownStacks(io, n, true);
   const group = o.tasks !== undefined ? `tasks ${numbers.map((n) => `#${n}`).join(", ")}` : null;
@@ -3795,14 +3811,43 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * (#698): an executor's whose handed-out task is open is kept (#533); an agent's on the task branch of a closed task goes
  * too — a batch executor ends on its task branch, and the release closes the task (GitHub, by its «Closes»).
  */
-function pruneExecutors(io: Io, slug: string, handed: HandOut[], isOpen: (n: number) => boolean): void {
+function pruneExecutors(io: Io, slug: string, handed: HandOut[], isOpen: (n: number) => boolean, awaiting = awaitingCloseOf(io, slug, handed)): void {
   const executors = handed.flatMap((h) => (h.worktree === null ? [] : [{ number: h.number, worktree: realPath(h.worktree) }]));
+  // a task closed by its PR's merge, task close not run yet (#769): its executor waits for the deploy in that worktree
+  const live = (n: number) => isOpen(n) || awaiting(n) !== null;
   pruneAgentWorktrees(
     io,
     slug,
-    (dir) => executors.some((h) => h.worktree === realPath(dir) && isOpen(h.number)),
-    (n) => !isOpen(n),
+    (dir) => executors.some((h) => h.worktree === realPath(dir) && live(h.number)),
+    (n) => !live(n),
   );
+}
+
+/**
+ * A handed-out task closed by its PR's merge, the tail not over (#769): «Closes #N» closes the issue at the merge into the
+ * default branch, while its executor still waits for the deploy, runs the epic refresh and `task close`. The task's work
+ * lives till `task close` — what it leaves (`tailOver`: Status Done and the actual), not the issue's state: till then the
+ * queue keeps the executor's worktree, shows the task `=` and holds its dependents. A release PR's merge (its head — a
+ * batch branch) isn't one: the batch's executors are done, the dispatcher closes their tasks. The closing PR's number;
+ * otherwise — null. Read once per number; an issue not read — null.
+ */
+function awaitingCloseOf(io: Io, slug: string, handed: HandOut[]): (n: number, issue?: Issue) => number | null {
+  const memo = new Map<number, number | null>();
+  return (n, issue) => {
+    if (!handed.some((h) => h.number === n)) return null;
+    if (!memo.has(n)) {
+      let pr: number | null = null;
+      try {
+        const i = issue ?? loadIssue(io, slug, n);
+        const closer = i.state === "CLOSED" && i.stateReason === "COMPLETED" ? i.prs.find((p) => p.merged && !isBatchBranch(p.base) && !isBatchBranch(p.head)) : undefined;
+        if (closer && !tailOver(io, slug, n)) pr = closer.number;
+      } catch (e) {
+        if (!(e instanceof GhError)) throw e;
+      }
+      memo.set(n, pr);
+    }
+    return memo.get(n)!;
+  };
 }
 
 /** The issue's state, read once per command: open — true; not read (no such issue) — open, nothing is removed for it. */
