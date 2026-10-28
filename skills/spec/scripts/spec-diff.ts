@@ -836,6 +836,16 @@ function asJson(
 const QUOTES: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["`", "`"]];
 const TAIL = /[.。;,]+$/;
 
+/** Paired quotes are balanced in the text: no close before its open, every open closed. */
+const balanced = (text: string, open: string, close: string): boolean => {
+  let depth = 0;
+  for (const c of text) {
+    if (c === open) depth++;
+    else if (c === close && --depth < 0) return false;
+  }
+  return depth === 0;
+};
+
 /**
  * A name for matching: whitespace collapsed, case-insensitive, without outer quotes and a trailing mark — both before
  * and after the quotes.
@@ -844,8 +854,9 @@ const norm = (s: string): string => {
   let t = s.replace(/\s+/g, " ").trim().replace(TAIL, "");
   for (const [open, close] of QUOTES) {
     const inner = t.slice(open.length, -close.length);
-    // "a" and "b" isn't a whole quote: its own closing quote is inside
-    if (t.length > open.length + close.length && t.startsWith(open) && t.endsWith(close) && !inner.includes(close)) t = inner.trim().replace(TAIL, "");
+    // "a" and "b" isn't a whole quote: its own closing quote is inside; paired quotes nest — «a «b»» is whole
+    // when every inner close has its inner open before it (#767)
+    if (t.length > open.length + close.length && t.startsWith(open) && t.endsWith(close) && (open === close ? !inner.includes(close) : balanced(inner, open, close))) t = inner.trim().replace(TAIL, "");
   }
   return t.toLowerCase();
 };
