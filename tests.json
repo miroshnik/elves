@@ -4945,6 +4945,13 @@
   "describes": [
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
+  "name": "task finish задачи после выпуска пачки открывает PR в ветку по умолчанию, а не в выпущенную пачку"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
   "name": "task finish задачи, закрытой без PR, хвост мержа не начинает"
  },
  {
@@ -5016,6 +5023,13 @@
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
   "name": "task finish с таймаутом возвращается до таймаута с состоянием и следующим шагом"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "заголовок и метки решений PR задачи — по её коммитам, а не по диффу пачки"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -5701,7 +5715,28 @@
   "describes": [
    "task queue убирает worktree исполнителей закрытых задач"
   ],
+  "name": "Задача, закрытая мержем без task close, держит зависимые задачи"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Очередь не удаляет worktree исполнителя, чья задача закрыта мержем, пока не прошёл task close"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
   "name": "ветка worktree-agent-* без worktree: без невлитых коммитов удаляется, с невлитыми — остаётся строкой ○"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "после task close задача, закрытая мержем, worktree не держит и зависимые не блокирует"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -5856,6 +5891,13 @@
    "task start берёт задачу одним вызовом"
   ],
   "name": "task start берёт задачу без открытых вопросов: статус «В работе», закрепление за сессией, ветка по типу и названию"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task start берёт задачу одним вызовом"
+  ],
+  "name": "task start видит сценарии раздела «## Сценарии», пункты которого — имена в ёлочках"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -7459,6 +7501,13 @@
    "Сценарии задачи сверяются с тестами PR"
   ],
   "name": "сценарий в кавычках-ёлочках с точкой с запятой после них совпадает с тестом того же названия"
+ },
+ {
+  "path": "tests/capabilities/spec/spec-diff.test.ts",
+  "describes": [
+   "Сценарии задачи сверяются с тестами PR"
+  ],
+  "name": "сценарий в ёлочках с вложенными ёлочками совпадает с тестом того же названия, а «a» и «b» — две цитаты, не одна"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
@@ -14367,6 +14416,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «waits for subagents» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/documents/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «waits for the deploy and task close» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",

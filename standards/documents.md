@@ -213,7 +213,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 205 тестов</summary>
+<details><summary>✅ 206 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -410,6 +410,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «unsplit: N h» из skills/est/reference.md печатает или пишет скрипт
 - ✅ цитату «violator does not pass: …» из skills/spec/checks.md печатает или пишет скрипт
 - ✅ цитату «waits for subagents» из skills/github/reference.md печатает или пишет скрипт
+- ✅ цитату «waits for the deploy and task close» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «waits for the previous executor» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «working» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «workspace package \<path> is in the code roots» из skills/spec/checks.md печатает или пишет скрипт
