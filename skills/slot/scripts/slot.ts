@@ -21,13 +21,18 @@
  * --for $$`): the ticket carries the script's shell, not this process, and the queue variables are printed for the shell
  * to export — the command runs as a plain command of the script, visible to tools that read package.json (knip).
  *
+ * Every run in the queue leaves a record in the run log `runs.jsonl` next to its ticket's `slots/`: the wait, the
+ * duration, the load and the neighbors (tests/capabilities/slot/runs); `--log` sums it up, `--measure` runs one command
+ * by 1…N copies at once — how many slots the machine holds.
+ *
  * Runs under Bun (`bun slot.ts`), only node: APIs. A project runs it from its package as `elves slot` (bin/elves.ts
  * imports `main` and `HELP`): the queue starts only when this file is the entry point.
  */
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * `--help`, `-h` as the first argument — the rest go to the command (tests/standards/scripts/cli-help): synopsis, what, examples;
@@ -36,6 +41,8 @@ import path from "node:path";
 export const HELP = `slot '<command>' [arguments…]
 slot --for <PID>
 slot --capacity
+slot --log
+slot --measure '<command>' [copies]
 
 Runs the command through sh, the arguments appended to its end, as with npm run; waits while the machine's slots are
 taken by heavy runs, then runs with ELVES_SLOT_CPUS — its share of half of the cores. --for — takes a slot for the shell
@@ -45,10 +52,19 @@ slots, cores per slot, the dispatcher's executors and where each comes from. Slo
 personal configuration ({"slots": N, "executors": M}), otherwise by the cores and memory. No queue in CI and inside a
 slot. The exit code is the command's; with --for — 0, nothing printed without the queue.
 
+Every run in the queue goes to the run log runs.jsonl next to slots/: the wait in the queue, the duration, the load
+average at the start and the end, free memory, the neighbors in slots, the command and the directory; the log keeps the
+newest runs. --log — its summary: the median and the 90th percentile of the wait and the duration by the number of
+neighbors and by the load per core. --measure — the command by 1, 2, … copies (4 by default) at once, outside the queue,
+each with its share of cores: the time of one run at each count and the slots for machine.json — the most copies before
+the time grows by half; run it on an idle machine. Exit code — 1 if a copy failed.
+
 Examples:
   slot 'vitest run'
   slot 'bun test' tests/standards
   slot --capacity
+  slot --log
+  slot --measure 'bun run typecheck' 4
 `;
 
 /** The machine's capacity: heavy runs at once, runner workers per slot, the dispatcher's background executors. */
@@ -224,11 +240,188 @@ function run(command: string, env: Record<string, string>) {
   });
 }
 
+/** A run of the log: what the queue and the machine were like when it got its slot, and how long it went. */
+export interface RunRecord {
+  /** When it got its slot, ms since the epoch. */
+  at: number;
+  /** In the queue, ms. */
+  wait: number;
+  /** In its slot, ms: the command — or the script's shell, held with --for. */
+  ms: number;
+  /** Other runs in slots when it got its own. */
+  neighbors: number;
+  /** Runs waiting in the queue when it got its slot. */
+  queued: number;
+  slots: number;
+  cores: number;
+  /** Load average over a minute at the start and at the end. */
+  load: [number, number];
+  /** Free memory at the start, a share of all. */
+  mem: number;
+  cmd: string;
+  cwd: string;
+  /** The command's exit code; a script's shell (--for) runs the command itself — none. */
+  code?: number;
+}
+
+/** The run log keeps the newest runs: past this size the older half goes — a few thousand runs remain. */
+const LOG_LIMIT = 1 << 20;
+/** The run log of a place — next to its `slots/`. */
+const logOf = (slots: string) => path.join(path.dirname(slots), "runs.jsonl");
+const load1 = () => Math.round((os.loadavg()[0] ?? 0) * 100) / 100;
+
+/**
+ * Appends a run to the log; past `limit` bytes the older half of the runs goes. Two runs trimming at once may lose a
+ * record — the log is a trace for a summary, not an account; a place that refuses doesn't fail the command.
+ */
+export function record(file: string, run: RunRecord, limit = LOG_LIMIT) {
+  try {
+    appendFileSync(file, `${JSON.stringify(run)}\n`);
+    if (statSync(file).size <= limit) return;
+    const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    writeFileSync(file, `${lines.slice(Math.floor(lines.length / 2)).join("\n")}\n`);
+  } catch {
+    /* no log is no reason not to run */
+  }
+}
+
+/**
+ * The end of a script's run (--for): the script's shell runs the command itself, and `slot` exits with the slot taken —
+ * a detached process waits for the shell to exit and writes the run.
+ */
+export async function finish(shell: number, file: string, start: Omit<RunRecord, "ms" | "load"> & { load: number }) {
+  while (alive(shell)) await new Promise((r) => setTimeout(r, POLL));
+  record(file, { ...start, ms: Date.now() - start.at, load: [start.load, load1()] });
+}
+
+/** Runs of all places' logs, oldest first; a broken line is skipped. */
+function readRuns(dirs: string[]): RunRecord[] {
+  const runs: RunRecord[] = [];
+  for (const dir of dirs) {
+    let text = "";
+    try {
+      text = readFileSync(logOf(dir), "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split("\n")) {
+      try {
+        const r = JSON.parse(line);
+        if (typeof r?.wait === "number" && typeof r?.ms === "number") runs.push(r);
+      } catch {
+        /* an empty or cut line */
+      }
+    }
+  }
+  return runs.sort((a, b) => a.at - b.at);
+}
+
+/** The p-th percentile by the nearest rank. */
+const percentile = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.max(0, Math.ceil(p * xs.length) - 1)] ?? 0;
+/** A time for a table: tenths of a second under 10 s. */
+const seconds = (ms: number) => (ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : duration(ms));
+/** Load per core at the start — bands of a quarter: where the duration breaks. */
+const BANDS = ["< 0.25", "0.25–0.5", "0.5–0.75", "0.75–1", "≥ 1"];
+const band = (r: RunRecord) => BANDS[Math.min(4, Math.floor((r.load[0] / r.cores) * 4))] ?? "≥ 1";
+
+/**
+ * The log's summary: the median and the 90th percentile of the wait and the duration by the number of neighbors and by
+ * the load per core at the start — where the wait or the duration breaks, there the machine's limit is.
+ */
+export function summarize(runs: RunRecord[]): string {
+  if (!runs.length) return "slot: the run log is empty — no runs through the queue yet\n";
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const head = ["runs", "wait p50", "wait p90", "run p50", "run p90"];
+  const table = (title: string, groups: [string, RunRecord[]][]) => {
+    const rows = [[title, ...head], ...groups.map(([k, g]) => {
+      const wait = g.map((r) => r.wait);
+      const ms = g.map((r) => r.ms);
+      return [k, String(g.length), seconds(percentile(wait, 0.5)), seconds(percentile(wait, 0.9)), seconds(percentile(ms, 0.5)), seconds(percentile(ms, 0.9))];
+    })];
+    const width = head.map((_, i) => Math.max(...rows.map((r) => (r[i + 1] ?? "").length)));
+    const first = Math.max(...rows.map((r) => (r[0] ?? "").length));
+    return rows.map((r) => [(r[0] ?? "").padEnd(first), ...r.slice(1).map((c, i) => c.padStart(width[i] ?? 0))].join("  ")).join("\n");
+  };
+  const by = <K,>(key: (r: RunRecord) => K) => {
+    const m = new Map<K, RunRecord[]>();
+    for (const r of runs) m.set(key(r), [...(m.get(key(r)) ?? []), r]);
+    return m;
+  };
+  const neighbors = [...by((r) => r.neighbors)].sort(([a], [b]) => a - b).map(([k, g]) => [String(k), g] as [string, RunRecord[]]);
+  const loads = by(band);
+  const last = runs.at(-1)!;
+  return [
+    `slot: ${runs.length} runs ${day(runs[0]!.at)} — ${day(last.at)}; now ${last.slots} slots, ${last.cores} cores`,
+    "",
+    table("neighbors", neighbors),
+    "",
+    table("load/core", BANDS.filter((b) => loads.has(b)).map((b) => [b, loads.get(b)!])),
+    "",
+  ].join("\n");
+}
+
+/** One run's time grows by more than this share over a run alone — the machine is past its slots. */
+const GROWTH = 1.5;
+
+/** Slots by the measurement: `times[k - 1]` — one run's time with k copies at once; the most copies before it grows by half. */
+export function recommend(times: number[]): number {
+  let k = 1;
+  const [alone = 0] = times;
+  while (k < times.length && (times[k] ?? Infinity) <= alone * GROWTH) k++;
+  return k;
+}
+
+/** The command once, its output kept for a failure; the time, ms. */
+function timed(command: string, env: Record<string, string>) {
+  return new Promise<{ code: number; ms: number; out: string }>((resolve) => {
+    const t0 = Date.now();
+    let out = "";
+    const child = spawn(command, { shell: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
+    const keep = (d: Buffer) => (out = (out + d).slice(-2000));
+    child.stdout.on("data", keep);
+    child.stderr.on("data", keep);
+    child.on("error", (e) => resolve({ code: 127, ms: Date.now() - t0, out: e.message }));
+    child.on("close", (code) => resolve({ code: code ?? 1, ms: Date.now() - t0, out }));
+  });
+}
+
+/** --measure: the command by 1…copies at once, each with its share of half of the cores — as in that many slots. */
+async function measure(command: string, copies: number): Promise<number> {
+  const cores = os.availableParallelism();
+  const busy = queue(places()).length;
+  if (busy) process.stderr.write(`slot: ${busy} runs in the queue now — the measurement counts them as the machine's load\n`);
+  const times: number[] = [];
+  for (let k = 1; k <= copies; k++) {
+    const cpus = Math.max(1, Math.floor(cores / 2 / k));
+    const before = load1();
+    const runs = await Promise.all(Array.from({ length: k }, () => timed(command, { ELVES_SLOT: "measure", ELVES_SLOT_CPUS: String(cpus) })));
+    const failed = runs.find((r) => r.code !== 0);
+    if (failed) return process.stderr.write(`slot: a copy failed with code ${failed.code} — nothing to measure:\n${failed.out}\n`), 1;
+    const mean = runs.reduce((s, r) => s + r.ms, 0) / k;
+    times.push(mean);
+    process.stdout.write(`${k} at once: ${seconds(mean)} per run, ${cpus} cores each, load ${before} → ${load1()}\n`);
+  }
+  const k = recommend(times);
+  process.stdout.write(`slots: ${k} — the most copies before one run's time grows by half; machine.json: {"slots": ${k}}\n`);
+  return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const [first, ...rest] = argv;
   if (first === "-h" || first === "--help") return process.stdout.write(HELP), 0;
   if (!first) return process.stderr.write(HELP), 2;
   if (first === "--capacity") return process.stdout.write(`${JSON.stringify(machineCapacity())}\n`), 0;
+  if (first === "--log") {
+    if (rest.length) return process.stderr.write(`slot: --log takes no arguments, got ${rest.join(" ")}\n${HELP}`), 2;
+    return process.stdout.write(summarize(readRuns(places()))), 0;
+  }
+  if (first === "--measure") {
+    const copies = rest[1] === undefined ? 4 : Number(rest[1]);
+    if (!rest[0] || rest.length > 2 || !Number.isInteger(copies) || copies < 1) {
+      return process.stderr.write(`slot: --measure takes a command and the number of copies, got ${rest.join(" ") || "nothing"}\n${HELP}`), 2;
+    }
+    return measure(rest[0], copies);
+  }
   // --for: the slot is the shell's — it holds the ticket, gets the variables and runs the command itself
   const shell = first === "--for" ? Number(rest[0]) : 0;
   if (first === "--for" && !(rest.length === 1 && Number.isInteger(shell) && shell > 0 && alive(shell))) {
@@ -241,13 +434,14 @@ export async function main(argv: string[]): Promise<number> {
   if (ci || process.env.ELVES_SLOT) return free();
 
   const { slots: SLOTS, cpus: CPUS, warnings } = machineCapacity();
+  const cmd = shell ? (scriptCommand() ?? "?") : command;
   for (const w of warnings) process.stderr.write(`slot: ${w}\n`);
   const dirs = places();
   const name = `${String(Date.now()).padStart(15, "0")}-${shell || process.pid}`;
   let file = "";
   const enqueue = () => {
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ cwd: process.cwd(), cmd: shell ? scriptCommand() : command, since: Date.now() }));
+    writeFileSync(file, JSON.stringify({ cwd: process.cwd(), cmd, since: Date.now() }));
   };
   const refused: string[] = [];
   for (const dir of dirs) {
@@ -278,6 +472,8 @@ export async function main(argv: string[]): Promise<number> {
   let confirmed = false;
   let told = "";
   let toldAt = 0;
+  let neighbors = 0;
+  let queued = 0;
   for (;;) {
     // the shell is gone while waiting (killed) — its ticket would be put back forever
     if (shell && !alive(shell)) return 1;
@@ -289,6 +485,7 @@ export async function main(argv: string[]): Promise<number> {
       i = q.findIndex((t) => t.name === name);
     }
     if (i >= 0 && i < SLOTS) {
+      [neighbors, queued] = [Math.min(q.length, SLOTS) - 1, Math.max(0, q.length - SLOTS)];
       if (confirmed) break;
       confirmed = true;
       await new Promise((r) => setTimeout(r, SETTLE));
@@ -307,13 +504,20 @@ export async function main(argv: string[]): Promise<number> {
   for (const s of SIGNALS) process.off(s, quit);
   if (told) process.stderr.write(`slot: waited ${duration(Date.now() - t0)}\n`);
   const env = { ELVES_SLOT: name, ELVES_SLOT_CPUS: String(CPUS) };
+  const at = Date.now();
+  const start = { at, wait: at - t0, neighbors, queued, slots: SLOTS, cores: os.availableParallelism(), load: load1(), mem: Math.round((os.freemem() / os.totalmem()) * 100) / 100, cmd, cwd: process.cwd() };
+  const log = logOf(path.dirname(file));
   if (shell) {
     held = true;
+    const self = fileURLToPath(import.meta.url);
+    const end = `import(${JSON.stringify(self)}).then((m) => m.finish(${shell}, ${JSON.stringify(log)}, ${JSON.stringify(start)}))`;
+    spawn(process.execPath, ["--no-env-file", "-e", end], { detached: true, stdio: "ignore" }).unref();
     process.stdout.write(`export ${Object.entries(env).map(([k, v]) => `${k}=${v}`).join(" ")}\n`);
     return 0;
   }
   const code = await run(command, env);
   drop();
+  record(log, { ...start, ms: Date.now() - at, load: [start.load, load1()], code });
   return code;
 }
 
