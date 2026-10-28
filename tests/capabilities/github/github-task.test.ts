@@ -1212,6 +1212,15 @@ describe("task start берёт задачу одним вызовом", () => {
     expect(n.out).not.toContain("ToolSearch");
   });
 
+  it("task start видит сценарии раздела «## Сценарии», пункты которого — имена в ёлочках", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = "## Что сделать\n- починить разбор\n\n## Сценарии\n- «task start видит сценарии»\n* [ ] «экспорт пустого счёта»\n";
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("Scenarios: 2 in «## Сценарии» — the future it names");
+    expect(r.out).not.toContain("○ no scenarios");
+  });
+
   it("project check в task start идёт один раз за сессию", () => {
     const config = scratch();
     const first = start(new FakeGitHub(REC), ["49", "--branch", "fix/49-invoice-export"], { config });

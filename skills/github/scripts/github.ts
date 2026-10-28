@@ -2392,18 +2392,6 @@ function projectChecked(io: Io, slug: string): boolean {
   return true;
 }
 
-/** The numbered items of the description's scenarios section — the future `it` names; no section — null. */
-export function scenarioItems(body: string, heading: string): string[] | null {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((l) => l.trim().toLowerCase() === heading.toLowerCase());
-  if (start < 0) return null;
-  const end = lines.findIndex((l, k) => k > start && /^#{1,2}\s/.test(l));
-  return lines
-    .slice(start + 1, end < 0 ? undefined : end)
-    .map((l) => /^\s*\d+[.)]\s+(.+)$/.exec(l)?.[1]?.trim())
-    .filter((x): x is string => Boolean(x));
-}
-
 /**
  * Taking a task in one call (#666) instead of ~11 flow turns: `project check` (once per session), the task as `task
  * show` prints it, then the stops before any change — open questions of the task or its epic (they are asked first,
@@ -2445,7 +2433,7 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   const type = taskBranch(branch ?? (here ? current : (others[0] ?? "")))?.type;
   if (!t.estimate && type) runEstimate(io, slug, number, type);
   const now = git(io, io.cwd, "branch", "--show-current").stdout.trim();
-  const scenarios = scenarioItems(t.body, N.sections.scenarios);
+  const scenarios = locale.scenarioItems(t.body);
   io.out(`Next: the session name — «#${number} ${t.title}»`);
   if (resume && !here) io.out(`Branch: continue ${parallel.join(", ")} — checked out in another worktree (git worktree list): work in that one; in none — git switch it here`);
   else io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
