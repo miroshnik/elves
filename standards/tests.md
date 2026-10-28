@@ -136,7 +136,7 @@ preload действует только на первый файл прогон�
 
 ### Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT
 
-<details><summary>✅ 52 теста</summary>
+<details><summary>✅ 54 теста</summary>
 
 - ✅ реестр «тесты Elves, которые запускают процессы» не пуст
 - ✅ нарушитель не проходит: файл с node:child_process без таймаута
@@ -153,7 +153,9 @@ preload действует только на первый файл прогон�
 - ✅ tests/capabilities/github/github-project.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/github/github-task.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/slot/capacity.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
+- ✅ tests/capabilities/slot/load.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/slot/queue.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
+- ✅ tests/capabilities/slot/runs.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/spec/precommit.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/spec/spec-break.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)
 - ✅ tests/capabilities/spec/spec-claims.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)

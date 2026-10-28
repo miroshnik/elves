@@ -6579,6 +6579,34 @@
   "name": "число слотов из конфига машины заменяет умолчание, а все слоты вместе берут половину ядер"
  },
  {
+  "path": "tests/capabilities/slot/load.test.ts",
+  "describes": [
+   "Прогон во главе очереди ждёт нагрузку машины, но не дольше предела ожидания"
+  ],
+  "name": "slot не стартует прогон, пока нагрузка машины выше предела, и печатает, что ждёт нагрузку"
+ },
+ {
+  "path": "tests/capabilities/slot/load.test.ts",
+  "describes": [
+   "Прогон во главе очереди ждёт нагрузку машины, но не дольше предела ожидания"
+  ],
+  "name": "неверный предел — предупреждение и умолчание, ELVES_SLOT_LOAD заменяет предел машины"
+ },
+ {
+  "path": "tests/capabilities/slot/load.test.ts",
+  "describes": [
+   "Прогон во главе очереди ждёт нагрузку машины, но не дольше предела ожидания"
+  ],
+  "name": "прогон, пущенный после предела ожидания нагрузки, печатает нагрузку машины в начале и в конце"
+ },
+ {
+  "path": "tests/capabilities/slot/load.test.ts",
+  "describes": [
+   "Прогон во главе очереди ждёт нагрузку машины, но не дольше предела ожидания"
+  ],
+  "name": "скрипт package.json, пущенный после предела ожидания, получает строку конца, когда его shell вышел"
+ },
+ {
   "path": "tests/capabilities/slot/queue.test.ts",
   "describes": [
    "Без очереди — там, где она лишняя или ждала бы сама себя"
@@ -6731,6 +6759,34 @@
    "Тяжёлые прогоны машины идут очередью: два одновременно, остальные — по порядку прихода"
   ],
   "name": "третья команда ждёт, пока идут две, и стартует, когда одна закончилась"
+ },
+ {
+  "path": "tests/capabilities/slot/runs.test.ts",
+  "describes": [
+   "Журнал прогонов — ожидание, длительность и нагрузка каждого прогона очереди"
+  ],
+  "name": "slot пишет в журнал ожидание, длительность и нагрузку прогона"
+ },
+ {
+  "path": "tests/capabilities/slot/runs.test.ts",
+  "describes": [
+   "Журнал прогонов — ожидание, длительность и нагрузка каждого прогона очереди"
+  ],
+  "name": "журнал ограничен по размеру — остаются последние прогоны"
+ },
+ {
+  "path": "tests/capabilities/slot/runs.test.ts",
+  "describes": [
+   "Журнал прогонов — ожидание, длительность и нагрузка каждого прогона очереди"
+  ],
+  "name": "сводка журнала показывает ожидание и длительность по числу соседей"
+ },
+ {
+  "path": "tests/capabilities/slot/runs.test.ts",
+  "describes": [
+   "Замер мощности — одна команда по 1…N копий разом"
+  ],
+  "name": "замер гоняет команду по 1…N копий разом и называет слоты для machine.json"
  },
  {
   "path": "tests/capabilities/spec/precommit.test.ts",
@@ -19643,7 +19699,21 @@
   "describes": [
    "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
   ],
+  "name": "tests/capabilities/slot/load.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/tests/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
   "name": "tests/capabilities/slot/queue.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
+ },
+ {
+  "path": "tests/standards/tests/spawn-timeout.test.ts",
+  "describes": [
+   "Тест, который запускает процессы, не падает от нагрузки машины: таймаут SPAWN_TIMEOUT"
+  ],
+  "name": "tests/capabilities/slot/runs.test.ts задаёт setDefaultTimeout(SPAWN_TIMEOUT)"
  },
  {
   "path": "tests/standards/tests/spawn-timeout.test.ts",
