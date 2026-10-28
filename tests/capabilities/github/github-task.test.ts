@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { descSize } from "../../../skills/est/scripts/est.ts";
@@ -31,6 +32,8 @@ const silentEst = (cmd: string, args: string[], cwd?: string) => (cmd === "bun" 
 // подтягивал бы его (#517) — сетью и с правкой чужого чекаута; клон скриптов тестам подставляют их тесты
 const { dir: OUTSIDE_GIT, cleanup: outsideGit } = tmpDir();
 const OUTSIDE_EST = path.join(OUTSIDE_GIT, "skills/est/scripts/est.ts");
+/** slot клона: мощность машины для очереди диспетчера (#779). */
+const SLOT_SCRIPT = fileURLToPath(new URL("../../../skills/slot/scripts/slot.ts", import.meta.url));
 // spec-diff выпуска пачки — там же: процесс подменён, скрипт только должен быть
 const OUTSIDE_SPEC = path.join(OUTSIDE_GIT, "skills/spec/scripts/spec-diff.ts");
 writeTree(OUTSIDE_GIT, { "skills/est/scripts/est.ts": "", "skills/spec/scripts/spec-diff.ts": "" });
@@ -3145,6 +3148,21 @@ describe("task queue раздаёт задачи эпика или фильтр�
     expect(lines.at(-1)).toStartWith("Next: each ready task above — a background subagent in its own worktree while fewer than 3 run");
   });
 
+  it("task queue называет число исполнителей машины и откуда оно", () => {
+    const f = new FakeGitHub(REC);
+    f.status(47, "Бэклог");
+    const config = scratch();
+    writeFileSync(path.join(config, "machine.json"), JSON.stringify({ executors: 5 }));
+    const io = dispatcherIo(config);
+    // slot --capacity — настоящий процесс со своим конфигом машины, est молчит
+    const run: Io["run"] = (cmd, args, cwd, env) => (args.includes("--capacity") ? realRun(cmd, args, cwd, env) : silentEst(cmd, args, cwd));
+    const r = task(f, ["queue", "--epic", "45"], REPO, { ...io, run, env: { ...io.env, ELVES_SLOT_SCRIPT: SLOT_SCRIPT } });
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n").at(-1)).toStartWith(
+      "Next: each ready task above — a background subagent in its own worktree while fewer than 5 run (the machine's capacity: machine.json; a number from the request replaces it)",
+    );
+  });
+
   it("не готовые — строкой ○ с причиной: blocked by открытой задачей, эпик; «В работе» — отдельной строкой", () => {
     const f = new FakeGitHub(REC);
     f.status(42, "Бэклог");
@@ -5124,17 +5142,18 @@ describe("Другая задача — вопрос о постановке в 
 });
 
 /**
- * Предел «не больше трёх» держит машину (#611): исполнители-субагенты делят её процессор, порты и очередь `slot`, а та
- * пускает две тяжёлые проверки. Облачный исполнитель идёт в своём контейнере и машину не нагружает — владелец решил:
- * облачных — до пяти сразу. Число из запроса владельца заменяет любой предел. Фраза одна во всех местах, где диспетчер
- * её читает: в каноне, в скилле `github` и его справочнике, в справочнике облачной сессии.
+ * Предел исполнителей-субагентов держит машину (#611): они делят её процессор, память, порты и очередь `slot`. Сколько
+ * их — мощность машины (#779: `machine.json`, иначе по ядрам и памяти; `task queue` называет число), а не зашитое «три».
+ * Облачный исполнитель идёт в своём контейнере и машину не нагружает — владелец решил: облачных — до пяти сразу. Число
+ * из запроса владельца заменяет любой предел. Фраза одна во всех местах, где диспетчер её читает: в каноне, в скилле
+ * `github` и его справочнике, в справочнике облачной сессии.
  */
 describe("Предел исполнителей диспетчера — по месту исполнителя", () => {
   const ROOT = path.resolve(import.meta.dir, "../../..");
-  const LIMIT = "at most 3 subagents and 5 cloud sessions at once, the owner's number replaces either";
+  const LIMIT = "at most the machine's executors in subagents and 5 cloud sessions at once, the owner's number replaces either";
   const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md", "docs/cloud-sessions.md"];
 
-  it("канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — три", () => {
+  it("канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — мощность машины", () => {
     expect(PLACES.filter((f) => !readFileSync(path.join(ROOT, f), "utf8").replace(/\s+/g, " ").includes(LIMIT))).toEqual([]);
   });
 });

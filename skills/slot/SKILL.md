@@ -1,6 +1,6 @@
 ---
 name: slot
-description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) and bringing a task stack up (`task-env`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; two runs at a time, together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (a quarter of the cores) for the runner's workers. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (Vitest, Playwright, Jest) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
+description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) and bringing a task stack up (`task-env`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; as many runs at a time as the machine has slots (`machine.json`, otherwise by the cores), together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (its slot's share) for the runner's workers; the machine's capacity also sets the dispatcher's executors. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (Vitest, Playwright, Jest) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
 allowed-tools: Bash(bun *skills/slot/scripts/slot.ts *)
 ---
 
@@ -9,8 +9,8 @@ allowed-tools: Bash(bun *skills/slot/scripts/slot.ts *)
 Parallel sessions run the full check all at once, and each runner is sized for
 the whole machine: a run that takes seconds alone drags on for minutes next to
 a dozen neighbors and gets cut off by the tool timeout, and a retry adds load.
-The `scripts/slot.ts` script next to this file lets two heavy runs go at a
-time, the rest wait in arrival order; together the slots take half of the
+The `scripts/slot.ts` script next to this file lets as many heavy runs go at a
+time as the machine has slots (below), the rest wait in arrival order; together the slots take half of the
 cores, the other half is for the human, the app and the agents themselves. Why
 it is so and what was rejected — `tests/capabilities/slot/queue.md` in Elves.
 
@@ -90,7 +90,8 @@ what its parent loaded.
 
 ## Runner workers
 
-In a slot the command gets `ELVES_SLOT_CPUS` — a quarter of the cores. A
+In a slot the command gets `ELVES_SLOT_CPUS` — its share of half of the
+cores (a quarter with two slots). A
 runner that counts workers from all cores takes the whole machine even in a
 slot; its config reads the variable, and in CI and outside the queue it keeps
 its own default:
@@ -117,6 +118,25 @@ Not `env` and not `globalEnv`: they go into the cache hash, while
 `ELVES_SLOT` is different for every run and the share of cores depends on the
 machine. A script in `slot` calls turbo without pass-through — `install` and
 `check` warn with a ready-made line.
+
+## The machine's capacity
+
+How many slots and how many executors a dispatcher runs at once (`github task
+queue`, its `Next:` line) is the machine's, not the project's: the same
+repository opens on a laptop, a workstation and in the cloud. `machine.json`
+of the personal configuration directory sets them:
+
+```json
+{ "slots": 3, "executors": 5 }
+```
+
+Either field is optional. Without it — by the machine: slots — one per 8
+cores, never fewer than two; executors — one per 4 cores and per 8 GB of
+memory, the smaller. All slots together get half of the cores. `slot
+--capacity` prints the machine's capacity as JSON, `check -g` — as the
+`machine:` line with where each number comes from; a value that isn't a
+positive integer — a warning line and its default. Why these defaults —
+`tests/capabilities/slot/capacity.md` in Elves.
 
 ## Queue
 

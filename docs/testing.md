@@ -24,7 +24,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   and print whom they wait for (the `slot` skill). Without the queue,
   neighboring sessions, the linter and another worktree's e2e share the cores —
   timeouts and flakes that aren't about the code. Runner workers come from
-  `ELVES_SLOT_CPUS` (a quarter of the cores); CI has its own:
+  `ELVES_SLOT_CPUS` (its slot's share of half of the cores); CI has its own:
 
   ```ts
   maxWorkers: Number(process.env.ELVES_SLOT_CPUS) || undefined,                      // vitest.config.ts

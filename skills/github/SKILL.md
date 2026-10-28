@@ -148,8 +148,8 @@ folder, not a worktree: executors (subagents, cloud sessions) start from
 `main`. `task queue` prints ready
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
 `isolation: "worktree"` and `run_in_background: true`, the prompt — as
-is; at most 3 subagents and 5 cloud sessions at once, the
-owner's number replaces either; another project's task — an app session in
+is; at most the machine's executors in subagents and 5 cloud sessions at
+once, the owner's number replaces either; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
 (`"batch": true` in `.agents/elves.json`) — executors merge into the batch

@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
- * slot — a queue for heavy runs on the machine (the slot skill): a command goes when one of SLOTS slots is free, the rest
- * wait in arrival order and print whom they wait for. Parallel agent sessions ran the full check at once, each runner on
- * all cores, and the runs hit timeouts (tests/capabilities/slot/queue).
+ * slot — a queue for heavy runs on the machine (the slot skill): a command goes when one of the machine's slots is free,
+ * the rest wait in arrival order and print whom they wait for. Parallel agent sessions ran the full check at once, each
+ * runner on all cores, and the runs hit timeouts (tests/capabilities/slot/queue).
  *
  * A slot is a ticket file `<time>-<pid>` in `slots/` of the personal configuration directory: the name sets the order, the
  * PID tells whether the owner is alive. A dead process, even one killed without cleanup, has its ticket ignored and removed
  * by the first one to see it: there are no locks to remove by hand. The command gets ELVES_SLOT_CPUS: all slots together
- * take half of the cores.
+ * take half of the cores. How many slots — machine.json of the personal configuration, otherwise by the cores (#779).
  *
  * An agent's sandbox doesn't let the configuration be written: the ticket goes to `elves/slots` of the temp directory
  * (Claude Code's sandbox gives all sessions of the user one TMPDIR), and the queue is read from all places at once — runs
@@ -35,22 +35,79 @@ import path from "node:path";
  */
 export const HELP = `slot '<command>' [arguments…]
 slot --for <PID>
+slot --capacity
 
-Runs the command through sh, the arguments appended to its end, as with npm run; waits while two heavy runs are going on
-the machine, then runs with ELVES_SLOT_CPUS — a quarter of the cores. --for — takes a slot for the shell <PID> of a
-package.json script, held until the shell exits, and prints the export of ELVES_SLOT, ELVES_SLOT_CPUS for it — the
-project's shim runs it: ". .agents/slot.sh && <command>". No queue in CI and inside a slot. The exit code is the
-command's; with --for — 0, nothing printed without the queue.
+Runs the command through sh, the arguments appended to its end, as with npm run; waits while the machine's slots are
+taken by heavy runs, then runs with ELVES_SLOT_CPUS — its share of half of the cores. --for — takes a slot for the shell
+<PID> of a package.json script, held until the shell exits, and prints the export of ELVES_SLOT, ELVES_SLOT_CPUS for
+it — the project's shim runs it: ". .agents/slot.sh && <command>". --capacity — the machine's capacity as one JSON line:
+slots, cores per slot, the dispatcher's executors and where each comes from. Slots and executors — machine.json of the
+personal configuration ({"slots": N, "executors": M}), otherwise by the cores and memory. No queue in CI and inside a
+slot. The exit code is the command's; with --for — 0, nothing printed without the queue.
 
 Examples:
   slot 'vitest run'
   slot 'bun test' tests/standards
+  slot --capacity
 `;
 
-/** Heavy runs on the machine at once. */
-const SLOTS = 2;
-/** Runner workers per slot: all slots together get half of the cores, the other half is for the human, the app and the agents. */
-const CPUS = Math.max(1, Math.floor(os.availableParallelism() / 2 / SLOTS));
+/** The machine's capacity: heavy runs at once, runner workers per slot, the dispatcher's background executors. */
+export interface Capacity {
+  slots: number;
+  cpus: number;
+  executors: number;
+  /** Where slots and executors come from: `machine.json` or the machine's cores and memory. */
+  from: { slots: string; executors: string };
+  /** A value of machine.json that isn't a positive integer — its default goes instead. */
+  warnings: string[];
+}
+
+/**
+ * The capacity by the machine's cores and memory (bytes) and machine.json's values. Slots — one per 8 cores, never fewer
+ * than two: `lint` and `typecheck` are mostly single-threaded, and two runs by a quarter of the cores pass the queue
+ * faster than one by half (tests/capabilities/slot/queue.md). All slots together get half of the cores, the other half
+ * is for the human, the app and the agents. Executors — one per 4 cores and per 8 GB, the smaller: each brings its task
+ * stack and dev server, and memory runs out before the cores do. machine.json replaces either (#779).
+ */
+export function capacity(cores: number, memory: number, config: Record<string, unknown> = {}): Capacity {
+  const warnings: string[] = [];
+  const given = (key: "slots" | "executors") => {
+    const v = config[key];
+    if (v === undefined) return undefined;
+    if (Number.isInteger(v) && (v as number) > 0) return v as number;
+    warnings.push(`machine.json: ${key} must be a positive integer, got ${JSON.stringify(v)} — the default goes`);
+    return undefined;
+  };
+  const gb = Math.floor(memory / 2 ** 30);
+  const slots = given("slots");
+  const executors = given("executors");
+  const s = slots ?? Math.max(2, Math.floor(cores / 8));
+  return {
+    slots: s,
+    cpus: Math.max(1, Math.floor(cores / 2 / s)),
+    executors: executors ?? Math.max(1, Math.min(Math.floor(cores / 4), Math.floor(gb / 8))),
+    from: { slots: slots ? "machine.json" : `${cores} cores`, executors: executors ? "machine.json" : `${cores} cores, ${gb} GB` },
+    warnings,
+  };
+}
+
+/**
+ * This machine's capacity: machine.json of the personal configuration directory; no file — the defaults, a file that isn't a JSON object — a warning and the defaults.
+ */
+export function machineCapacity(env: Record<string, string | undefined> = process.env): Capacity {
+  const file = path.join(configDir(env), "machine.json");
+  let config: Record<string, unknown> = {};
+  let broken = "";
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed as Record<string, unknown>;
+    else broken = "not a JSON object";
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") broken = (e as Error).message;
+  }
+  const c = capacity(os.availableParallelism(), os.totalmem(), config);
+  return broken ? { ...c, warnings: [`machine.json: ${broken} — the defaults go`, ...c.warnings] } : c;
+}
 /** How often a waiting process looks at the queue, ms: a directory of a few files is read in microseconds. */
 const POLL = 250;
 /**
@@ -82,14 +139,16 @@ function alive(pid: number) {
   }
 }
 
+/** The personal configuration directory — the same expression in all scripts (tests/standards/scripts/config-dir). */
+const configDir = (env: Record<string, string | undefined>) => env.ELVES_CONFIG_DIR || path.join(os.homedir(), ".config", "elves");
+
 /**
  * Where tickets live, in the order a ticket is written: the personal configuration, then the temp directory — an agent's
  * sandbox doesn't let the configuration be written, while its TMPDIR is shared by the sandbox's sessions; Claude Code
  * passes its sandbox's temp directory as CLAUDE_TMPDIR outside the sandbox too, so runs outside wait for runs inside.
- * The personal configuration directory — the same expression in all scripts (tests/standards/scripts/config-dir).
  */
 function places() {
-  const config = process.env.ELVES_CONFIG_DIR || path.join(os.homedir(), ".config", "elves");
+  const config = configDir(process.env);
   const temps = [os.tmpdir(), process.env.CLAUDE_TMPDIR].filter((d): d is string => !!d);
   return [...new Set([config, ...temps.map((d) => path.join(d, "elves"))].map((d) => path.join(path.resolve(d), "slots")))];
 }
@@ -169,6 +228,7 @@ export async function main(argv: string[]): Promise<number> {
   const [first, ...rest] = argv;
   if (first === "-h" || first === "--help") return process.stdout.write(HELP), 0;
   if (!first) return process.stderr.write(HELP), 2;
+  if (first === "--capacity") return process.stdout.write(`${JSON.stringify(machineCapacity())}\n`), 0;
   // --for: the slot is the shell's — it holds the ticket, gets the variables and runs the command itself
   const shell = first === "--for" ? Number(rest[0]) : 0;
   if (first === "--for" && !(rest.length === 1 && Number.isInteger(shell) && shell > 0 && alive(shell))) {
@@ -180,6 +240,8 @@ export async function main(argv: string[]): Promise<number> {
   const ci = process.env.CI && !/^(0|false)$/i.test(process.env.CI);
   if (ci || process.env.ELVES_SLOT) return free();
 
+  const { slots: SLOTS, cpus: CPUS, warnings } = machineCapacity();
+  for (const w of warnings) process.stderr.write(`slot: ${w}\n`);
   const dirs = places();
   const name = `${String(Date.now()).padStart(15, "0")}-${shell || process.pid}`;
   let file = "";

@@ -123,8 +123,9 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   (scope, not merges outside auto) — any session, its task stays; one started
   for it — in the project folder, not a worktree: executors start from `main`.
   `github task queue` prints executors' prompts; an executor — a background
-  subagent (own worktree) or a cloud session: at most 3 subagents and 5 cloud
-  sessions at once, the owner's number replaces either; failed — a task
+  subagent (own worktree) or a cloud session: at most the machine's executors
+  in subagents and 5 cloud sessions at once, the owner's number replaces
+  either (`task queue` names the executors, `slot`'s `machine.json` sets them); failed — a task
   comment, no restart; an executor session whose task closed — the dispatcher
   archives it in an auto project, not one still working in the background or
   awaiting the owner's answer; outside auto the owner closes it. A batch

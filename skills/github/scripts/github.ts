@@ -2944,8 +2944,31 @@ export interface QueueFilter {
   priority?: string[] | undefined;
 }
 
-/** How many executors run at once by default: `slot` lets two heavy runs through, a third executor writes code meanwhile. */
+/** Executors at once without the slot skill: `slot` lets two heavy runs through, a third executor writes code meanwhile. */
 export const QUEUE_EXECUTORS = 3;
+
+/** The slot script next to the skill — laid out like est (`../slot/scripts/slot.ts`). */
+const slotScript = (io: Io) => io.env["ELVES_SLOT_SCRIPT"] ?? path.resolve(import.meta.dir, "../../slot/scripts/slot.ts");
+
+/**
+ * How many executors run at once and where the number comes from: the machine's capacity — `slot --capacity` by
+ * machine.json of the personal configuration, otherwise by the cores and memory (#779); a process, not an import
+ * (tests/standards/scripts/skill-imports). No slot skill or it failed — QUEUE_EXECUTORS with the reason.
+ */
+function queueExecutors(io: Io): { n: number; from: string } {
+  const script = slotScript(io);
+  if (!existsSync(script)) return { n: QUEUE_EXECUTORS, from: "no slot skill" };
+  // the script's environment — its personal configuration directory is slot's too (tests/standards/scripts/config-dir)
+  const env = Object.fromEntries(Object.entries(io.env).filter((e): e is [string, string] => e[1] !== undefined));
+  const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "--capacity"], io.cwd, env);
+  try {
+    const c = JSON.parse(r.stdout) as { executors: number; from: { executors: string } };
+    if (Number.isInteger(c.executors) && c.executors > 0) return { n: c.executors, from: c.from.executors };
+  } catch {
+    /* the number below, with the reason */
+  }
+  return { n: QUEUE_EXECUTORS, from: `slot --capacity: ${why(r)}` };
+}
 
 const priorityRank = (p: string | null) => PRIORITIES.indexOf((p ?? DEFAULT_PRIORITY) as (typeof PRIORITIES)[number]);
 
@@ -3249,8 +3272,9 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
         `after each executor's answer — task queue again; ${SESSION_ARCHIVE}.`,
     );
   } else if (ready.length) {
+    const executors = queueExecutors(io);
     io.out(
-      `Next: each ready task above — a background subagent in its own worktree while fewer than ${QUEUE_EXECUTORS} run (a number from the request replaces it); ` +
+      `Next: each ready task above — a background subagent in its own worktree while fewer than ${executors.n} run (the machine's capacity: ${executors.from}; a number from the request replaces it); ` +
         `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
     );
   } else if (holding || (!settled.length && running.length)) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
