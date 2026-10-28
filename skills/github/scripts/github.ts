@@ -4943,12 +4943,21 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (!isTaskBranch(branch, number)) throw new GhError(`the checkout is on ${q(branch || "a detached HEAD")}, not on a branch of #${number} — task start ${number} --branch <type>/${number}-<slug>`);
   const dirty = git(io, io.cwd, "status", "--porcelain", "--untracked-files=no").stdout.trim();
   if (dirty) return stop(1, `! uncommitted changes in the checkout — the PR would go without them`, `the checks before a commit, git commit, then ${again}`);
-  // a task past the batch (#697) — into the default branch, as outside a batch
-  const base = open?.base ?? (handedPastBatch(io, slug, number) ? null : batchOf(io, slug)) ?? found.base;
+  const base = open?.base ?? finishBase(io, slug, number, found);
   const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base}: ${why(fetched)}`);
   const commits = git(io, io.cwd, "log", "--reverse", "--format=%s", `origin/${base}..HEAD`).stdout.split("\n").filter((l) => l.trim());
   if (!commits.length) return stop(1, `! no commits on ${branch} past origin/${base} — nothing to put into a PR`, `commit the task's work, then ${again}`);
+  // commits already in the base by their changes (#768) — a released batch's, rebased into the default branch with other
+  // SHAs: the PR would take its title from them and its decision labels from their diff; a rebase drops them
+  const applied = git(io, io.cwd, "cherry", `origin/${base}`, "HEAD").stdout.split("\n").filter((l) => l.startsWith("-")).length;
+  if (applied) {
+    return stop(
+      1,
+      `! ${applied} ${applied > 1 ? "commits" : "commit"} of ${branch} ${applied > 1 ? "are" : "is"} in origin/${base} already by the changes (a released batch's, a merged PR's) — the PR would take its title and decision labels from them`,
+      `git rebase origin/${base} (it drops them), then ${again} (it pushes the rebased branch with --force-with-lease)`,
+    );
+  }
   const refused = pushTaskBranch(io, branch);
   if (refused) return stop(1, `! ${refused}`, `then ${again}`);
 
@@ -4989,6 +4998,22 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (premerge !== 0) return stop(1, `❌ PR #${pr} isn't merged: pr premerge — code ${premerge} (above)`, `what premerge names, then ${again}`);
   const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
   return stop(4, `✅ PR #${pr} is ready to merge`, `${yes}gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${again}${isBatchBranch(base) ? "" : " — in the background: it waits for the deploy"}`);
+}
+
+/**
+ * The base of the task's new PR: the dispatcher's batch branch (#648); a task past the batch (#697) — the default branch,
+ * as outside a batch; the batch released (#768: its release PR merged, or its branch gone from origin) — the default
+ * branch too: a released batch takes no more PRs, and the queue starts the next one only with a task to hand out (its
+ * marker names it then).
+ */
+function finishBase(io: Io, slug: string, number: number, found: ReturnType<typeof unlinkedPrs>): string {
+  const batch = handedPastBatch(io, slug, number) ? null : batchOf(io, slug);
+  if (!batch) return found.base;
+  const release = releasePrOf(found.recent, batch);
+  if (release?.merged) return io.out(`○ ${batch} is released by PR #${release.number} — the PR goes into ${found.base}`), found.base;
+  const listed = git(io, io.cwd, "ls-remote", "--heads", "origin", `refs/heads/${batch}`);
+  if (listed.status === 0 && !listed.stdout.trim()) return io.out(`○ ${batch} is gone from origin (released) — the PR goes into ${found.base}`), found.base;
+  return batch;
 }
 
 /**
@@ -5175,8 +5200,9 @@ function renameBranch(io: Io, slug: string, target: string): boolean {
  * `batched` — the same into a batch branch (#648): GitHub never links those, and they don't close the task — the
  * batch's release does.
  */
-function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs: UnlinkedPr[]; batched: UnlinkedPr[] } {
-  const { base, nodes } = recentPrs(io, slug);
+function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs: UnlinkedPr[]; batched: UnlinkedPr[]; recent: Recent } {
+  const recent = recentPrs(io, slug);
+  const { base, nodes } = recent;
   const prs: UnlinkedPr[] = [];
   const batched: UnlinkedPr[] = [];
   for (const p of nodes) {
@@ -5186,7 +5212,7 @@ function unlinkedPrs(io: Io, slug: string, number: number): { base: string; prs:
     const why = taskLinks(p).find((x) => x.number === number)?.why;
     if (why) (into === base ? prs : batched).push({ number: p.number, state: p.state ?? "", merged: Boolean(p.merged), head, base: into, why });
   }
-  return { base, prs, batched };
+  return { base, prs, batched, recent };
 }
 
 type UnlinkedPr = Issue["prs"][number] & { why: string };
@@ -6336,7 +6362,8 @@ Examples:
 The tail of a task from its committed branch to its close, resumable: each call does what is ready within --timeout
 (default ${FINISH_TIMEOUT} s), prints the state and the Next line, a repeat goes on from there. Before the merge: the task
 branch pushed (a rebased one — --force-with-lease), the PR into the dispatcher's batch branch or the default branch
-(the title — --title, otherwise the branch type's first commit; the body — spec-diff and Closes #N; an existing PR —
+(a released batch — the default branch; commits of the branch already in the base by their changes — a stop: git
+rebase drops them; the title — --title, otherwise the branch type's first commit; the body — spec-diff and Closes #N; an existing PR —
 its body updated), pr labels, the CI wait (ci-wait pr; none into a batch), pr premerge, then the merge command — a
 separate gh pr merge <PR> --rebase. After the merge: the deploy wait on the merge SHA (ci-wait merged), the epic
 refresh's mechanics and its subagent's prompt (once), task close once the report is on the epic; merged into a batch —
