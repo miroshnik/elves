@@ -83,6 +83,8 @@ what its parent loaded.
 | Check before a commit, a full run, e2e | via the project's scripts (`npm run test -- --changed=origin/main`, `bun run typecheck`): they are already queued; which tests before a commit — `docs/testing.md`. As a background command with a generous timeout (Claude Code — `run_in_background`, up to 2 h): waiting in the queue doesn't eat the tool timeout, completion wakes the session |
 | `slot: waiting for the machine queue — running …` | not a hang: who holds the slots (directory, command) and how long they have been running. Don't kill someone else's run or delete its ticket |
 | `slot: waited …` | the time in the queue; compare run speed without it — by CI or by `user` from `time` |
+| `slot: waiting for the machine load — …` | the slot is free, but the machine is loaded from outside the queue (dev servers, builds, Docker, e2e browsers); the run goes when the load drops or past the wait limit — below |
+| `slot: the machine is overloaded — …` at the start, `the machine's load at the end of the run` at the end | the run went past the load wait limit: its timeouts are the machine's load, not a defect — don't fix tests or code for them; rerun when the load is down |
 | A targeted run (`vitest run <file>`) | bypasses the queue — it's cheap |
 | A heavy command bypassing the project's scripts | `bun --no-env-file <skill dir>/scripts/slot.ts '<command>'` |
 | Bringing a task's stack up | heavy work too — containers with databases and a broker start at once: `task-env up` and `e2e` hold a slot until the containers are healthy, not for the stack's life; not `docker compose up` by hand — `check` names a package.json script that does it |
@@ -154,6 +156,18 @@ machine (`tests/capabilities/slot/runs.md` in Elves):
   2, … copies at once (4 by default), each with its share of cores; the time
   of one run at each count and `{"slots": N}` for `machine.json` — the most
   copies before the time grows by half.
+
+## The machine's load
+
+The queue counts only its own runs. A run whose slot is free also waits while
+the machine's load average for a minute is at the limit per core or above,
+printing the load; past the wait limit it goes anyway and prints the load at
+its start and end (for a `package.json` script — once its shell exits).
+`machine.json` sets both: `{"load": 1, "loadWait": 300}` — the limit per core
+and the wait in seconds, these are the defaults; the variable
+`ELVES_SLOT_LOAD` replaces the limit for a run. The limit is read anew while
+waiting: raising it lets a waiting run go. Why — `tests/capabilities/slot/load.md`
+in Elves.
 
 ## Queue
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { elves, sandbox } from "../../lib/elves.ts";
-import { exitOf, SPAWN_TIMEOUT, unprivileged, unprivilegedOwns } from "../../lib/spawn.ts";
+import { exitOf, NO_LOAD_WAIT, SPAWN_TIMEOUT, unprivileged, unprivilegedOwns } from "../../lib/spawn.ts";
 import { tmpDir } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
@@ -85,7 +85,7 @@ afterEach(() => {
  * очередь машины; прогон самого теста может идти в CI, внутри слота, в Claude Code или скриптом `bun run` — не в счёт.
  */
 function envOf(extra: Record<string, string> = {}) {
-  const env: Record<string, string | undefined> = { ...process.env, ELVES_CONFIG_DIR: config, TMPDIR: tmp, ...extra };
+  const env: Record<string, string | undefined> = { ...process.env, ELVES_CONFIG_DIR: config, TMPDIR: tmp, ...NO_LOAD_WAIT, ...extra };
   for (const k of ["CI", "ELVES_SLOT", "ELVES_SLOT_CPUS", "CLAUDE_TMPDIR", "npm_lifecycle_script", "npm_lifecycle_event"]) if (!(k in extra)) delete env[k];
   return env;
 }
