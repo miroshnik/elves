@@ -5675,7 +5675,7 @@ describe("task finish доводит задачу от ветки до закр�
     expect(labelled(f)).toEqual([]);
     expect(git(work, "ls-remote", "--heads", "origin", "fix/49-after-release")).toBe("");
     // после ребейза — PR в main с заголовком коммита задачи
-    git(work, "rebase", "-q", "origin/main");
+    git(work, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "rebase", "-q", "origin/main");
     finishIn(f, work, config);
     expect(created(f)).toEqual([{ title: "fix(github): задача после выпуска", head: "fix/49-after-release", base: "main", body: "Closes #49\n" }]);
   });
