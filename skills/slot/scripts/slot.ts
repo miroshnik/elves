@@ -14,6 +14,11 @@
  * inside and outside the sandbox wait for each other. No place takes the ticket — one warning line and the command runs
  * without the queue.
  *
+ * The queue counts only its own runs, while parallel sessions' dev servers, builds, Docker VMs and e2e browsers load the
+ * machine past it: a run at the head of the queue also waits while the machine's load average is at the limit per core,
+ * at most the wait limit — then it goes and says at its start and end that the machine is overloaded, so its timeouts
+ * read as load, not as a defect (#778).
+ *
  * No queue in CI (the machine is given to the run) and inside a slot (ELVES_SLOT): a script that calls another script
  * through the queue would otherwise wait for itself.
  *
@@ -50,7 +55,10 @@ taken by heavy runs, then runs with ELVES_SLOT_CPUS — its share of half of the
 it — the project's shim runs it: ". .agents/slot.sh && <command>". --capacity — the machine's capacity as one JSON line:
 slots, cores per slot, the dispatcher's executors and where each comes from. Slots and executors — machine.json of the
 personal configuration ({"slots": N, "executors": M}), otherwise by the cores and memory. No queue in CI and inside a
-slot. The exit code is the command's; with --for — 0, nothing printed without the queue.
+slot. A run at the head of the queue also waits while the machine's load average (1 min) is at the limit per core or
+above — machine.json {"load": L, "loadWait": S}, 1 and 300 s by default, ELVES_SLOT_LOAD replaces L; past S seconds it
+goes and prints the machine's load at its start and end. The exit code is the command's; with --for — 0, nothing
+printed without the queue.
 
 Every run in the queue goes to the run log runs.jsonl next to slots/: the wait in the queue, the duration, the load
 average at the start and the end, free memory, the neighbors in slots, the command and the directory; the log keeps the
@@ -107,23 +115,68 @@ export function capacity(cores: number, memory: number, config: Record<string, u
   };
 }
 
+/** machine.json of the personal configuration directory: no file — `{}`, a file that isn't a JSON object — `{}` and why. */
+function machineConfig(env: Record<string, string | undefined>): { config: Record<string, unknown>; broken: string } {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path.join(configDir(env), "machine.json"), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return { config: parsed as Record<string, unknown>, broken: "" };
+    return { config: {}, broken: "not a JSON object" };
+  } catch (e) {
+    return { config: {}, broken: (e as NodeJS.ErrnoException).code === "ENOENT" ? "" : (e as Error).message };
+  }
+}
+
 /**
  * This machine's capacity: machine.json of the personal configuration directory; no file — the defaults, a file that isn't a JSON object — a warning and the defaults.
  */
 export function machineCapacity(env: Record<string, string | undefined> = process.env): Capacity {
-  const file = path.join(configDir(env), "machine.json");
-  let config: Record<string, unknown> = {};
-  let broken = "";
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed as Record<string, unknown>;
-    else broken = "not a JSON object";
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") broken = (e as Error).message;
-  }
+  const { config, broken } = machineConfig(env);
   const c = capacity(os.availableParallelism(), os.totalmem(), config);
   return broken ? { ...c, warnings: [`machine.json: ${broken} — the defaults go`, ...c.warnings] } : c;
 }
+
+/** When the machine counts as overloaded for a heavy run and how long a run waits for its load to drop. */
+export interface LoadLimit {
+  /** The load average (1 min) per core at which the machine is overloaded. */
+  perCore: number;
+  /** How long a run at the head of the queue waits for the load to drop, ms; past it the run goes anyway. */
+  wait: number;
+  /** A value that isn't a non-negative number — its default goes instead. */
+  warnings: string[];
+}
+
+/**
+ * The load limit by machine.json's `load` and `loadWait` and the ELVES_SLOT_LOAD variable, which replaces `load` for a
+ * run. A load of 1 per core — every core has a runnable process: the queue's own slots take half of the cores, so at
+ * the limit the other half is taken from outside the queue. 300 s — longer than a project's full check usually goes,
+ * shorter than an agent's tool timeout (10 min), which would cut off a run that never started (#778).
+ */
+export function loadLimit(config: Record<string, unknown> = {}, env: Record<string, string | undefined> = {}): LoadLimit {
+  const warnings: string[] = [];
+  const given = (from: string, v: unknown, integer: boolean) => {
+    if (v === undefined || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0 && (!integer || Number.isInteger(n))) return n;
+    warnings.push(`${from} must be a non-negative ${integer ? "integer" : "number"}, got ${JSON.stringify(v)} — the default goes`);
+    return undefined;
+  };
+  const perCore = given("ELVES_SLOT_LOAD", env.ELVES_SLOT_LOAD, false) ?? given("machine.json: load", config.load, false) ?? 1;
+  const wait = given("machine.json: loadWait", config.loadWait, true) ?? 300;
+  return { perCore, wait: wait * 1000, warnings };
+}
+
+/** This machine's load limit, machine.json read anew: the owner may raise the limit while a run waits. */
+const machineLoadLimit = () => loadLimit(machineConfig(process.env).config, process.env);
+
+/** The machine's load now against the limit: the load average for a minute (Windows has none — 0) and the cores. */
+function machineLoad(limit: LoadLimit) {
+  const cores = os.availableParallelism();
+  const load = os.loadavg()[0]!;
+  return { over: load >= limit.perCore * cores, text: `load ${load.toFixed(1)} on ${cores} cores, the limit ${+(limit.perCore * cores).toFixed(1)} (${limit.perCore} per core)` };
+}
+
+/** The line of the end of a run admitted on an overloaded machine: the machine's load then. */
+const endLine = () => `slot: the machine's load at the end of the run — ${machineLoad(machineLoadLimit()).text}\n`;
 /** How often a waiting process looks at the queue, ms: a directory of a few files is read in microseconds. */
 const POLL = 250;
 /**
@@ -287,11 +340,13 @@ export function record(file: string, run: RunRecord, limit = LOG_LIMIT) {
 
 /**
  * The end of a script's run (--for): the script's shell runs the command itself, and `slot` exits with the slot taken —
- * a detached process waits for the shell to exit and writes the run.
+ * a detached process waits for the shell to exit and writes the run; a run admitted on an overloaded machine also gets
+ * its end line, on the script's stderr.
  */
-export async function finish(shell: number, file: string, start: Omit<RunRecord, "ms" | "load"> & { load: number }) {
+export async function finish(shell: number, file: string, start: Omit<RunRecord, "ms" | "load"> & { load: number }, overloaded = false) {
   while (alive(shell)) await new Promise((r) => setTimeout(r, POLL));
   record(file, { ...start, ms: Date.now() - start.at, load: [start.load, load1()] });
+  if (overloaded) process.stderr.write(endLine());
 }
 
 /** Runs of all places' logs, oldest first; a broken line is skipped. */
@@ -474,6 +529,10 @@ export async function main(argv: string[]): Promise<number> {
   let toldAt = 0;
   let neighbors = 0;
   let queued = 0;
+  /** Since when the run stands at a free slot on an overloaded machine; the start line of a run admitted past the wait limit. */
+  let loadSince = 0;
+  let overloaded = "";
+  const warned = new Set<string>();
   for (;;) {
     // the shell is gone while waiting (killed) — its ticket would be put back forever
     if (shell && !alive(shell)) return 1;
@@ -486,9 +545,27 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (i >= 0 && i < SLOTS) {
       [neighbors, queued] = [Math.min(q.length, SLOTS) - 1, Math.max(0, q.length - SLOTS)];
-      if (confirmed) break;
-      confirmed = true;
-      await new Promise((r) => setTimeout(r, SETTLE));
+      if (!confirmed) {
+        confirmed = true;
+        await new Promise((r) => setTimeout(r, SETTLE));
+        continue;
+      }
+      // a free slot — and the machine's load from outside the queue
+      const limit = machineLoadLimit();
+      for (const w of limit.warnings) if (!warned.has(w)) warned.add(w), process.stderr.write(`slot: ${w}\n`);
+      const load = machineLoad(limit);
+      if (!load.over) break;
+      loadSince ||= Date.now();
+      const waited = Date.now() - loadSince;
+      if (waited >= limit.wait) {
+        overloaded = `slot: the machine is overloaded — ${load.text}; the run goes after ${duration(waited)} of waiting for the load: its timeouts are the machine's load, not a defect of the tests or the code\n`;
+        break;
+      }
+      if (told !== "load" || Date.now() - toldAt >= REMIND) {
+        process.stderr.write(`slot: waiting for the machine load — ${load.text}; the run goes when it drops, at most in ${duration(limit.wait - waited)}\n`);
+        [told, toldAt] = ["load", Date.now()];
+      }
+      await new Promise((r) => setTimeout(r, POLL));
       continue;
     }
     confirmed = false;
@@ -503,21 +580,24 @@ export async function main(argv: string[]): Promise<number> {
   }
   for (const s of SIGNALS) process.off(s, quit);
   if (told) process.stderr.write(`slot: waited ${duration(Date.now() - t0)}\n`);
+  if (overloaded) process.stderr.write(overloaded);
   const env = { ELVES_SLOT: name, ELVES_SLOT_CPUS: String(CPUS) };
   const at = Date.now();
   const start = { at, wait: at - t0, neighbors, queued, slots: SLOTS, cores: os.availableParallelism(), load: load1(), mem: Math.round((os.freemem() / os.totalmem()) * 100) / 100, cmd, cwd: process.cwd() };
   const log = logOf(path.dirname(file));
   if (shell) {
     held = true;
+    // an overloaded run's end line goes to the script's stderr; its stdout the shim reads to its end — never held
     const self = fileURLToPath(import.meta.url);
-    const end = `import(${JSON.stringify(self)}).then((m) => m.finish(${shell}, ${JSON.stringify(log)}, ${JSON.stringify(start)}))`;
-    spawn(process.execPath, ["--no-env-file", "-e", end], { detached: true, stdio: "ignore" }).unref();
+    const end = `import(${JSON.stringify(self)}).then((m) => m.finish(${shell}, ${JSON.stringify(log)}, ${JSON.stringify(start)}, ${!!overloaded}))`;
+    spawn(process.execPath, ["--no-env-file", "-e", end], { detached: true, stdio: ["ignore", "ignore", overloaded ? "inherit" : "ignore"] }).unref();
     process.stdout.write(`export ${Object.entries(env).map(([k, v]) => `${k}=${v}`).join(" ")}\n`);
     return 0;
   }
   const code = await run(command, env);
   drop();
   record(log, { ...start, ms: Date.now() - at, load: [start.load, load1()], code });
+  if (overloaded) process.stderr.write(endLine());
   return code;
 }
 
