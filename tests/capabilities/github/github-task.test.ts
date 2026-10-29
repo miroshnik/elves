@@ -3449,7 +3449,7 @@ describe("task queue раздаёт задачи эпика или фильтр�
       const r = task(new FakeGitHub(REC), ["queue", "--assignment", "47", ...more], REPO, { ...io, cwd: projectDir() });
       expect(r.code).toBe(0);
       const lead = r.out.split("\n")[0]!;
-      expect(lead).toMatch(/`bun --no-env-file \S+github\.ts task start 47 --branch <тип>\/47-<slug>` \(вопросы задачи и её параллельная работа — в нём\)/);
+      expect(lead).toMatch(/`bun --no-env-file \S+github\.ts task start 47 --branch (?:exec\/)?<тип>\/47-<slug>` \(вопросы задачи и её параллельная работа — в нём\)/);
       expect(lead).not.toContain("task status 47");
     }
   });
@@ -3868,6 +3868,28 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(session[1]).toBe(lines[1]);
     // без --assignment флаг не принимается
     expect(task(f, ["queue", "--epic", "45", "--main"], REPO, inSession(config)).err).toBe("error: --main — only with --assignment <N>: one task's assignment past the batch");
+  });
+
+  /**
+   * Хост превью (Vercel) собирает каждую запушенную ветку и комментирует её PR — письмо владельцу на каждую задачу пачки
+   * (#785). Решает он по имени ветки, не по базе PR: ветка исполнителя пачки — в области `exec`, правило хоста
+   * `"git": {"deploymentEnabled": {"exec/**": false}}` её пропускает; превью остаётся у PR выпуска.
+   */
+  it("задание исполнителя пачки называет ветку задачи в области exec — превью хоста её пропускает", () => {
+    const config = batchSession(`batch/${day()}-1`);
+    const f = new FakeGitHub(REC);
+    const lead = (...more: string[]) => task(f, ["queue", "--assignment", "47", ...more], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n")[0]!;
+    for (const line of [lead(), lead("--session")]) expect(line).toContain("task start 47 --branch exec/<тип>/47-<slug>`");
+  });
+
+  it("задание мимо пачки и вне пачки называет ветку задачи без области", () => {
+    const f = new FakeGitHub(REC);
+    const lead = (io: Partial<Io>, ...more: string[]) => task(f, ["queue", "--assignment", "47", ...more], REPO, { ...io, cwd: projectDir() }).out.split("\n")[0]!;
+    const past = inSession(batchSession(`batch/${day()}-1`));
+    for (const line of [lead({}), lead({}, "--session"), lead(past, "--main"), lead(past, "--session", "--main")]) {
+      expect(line).toContain("task start 47 --branch <тип>/47-<slug>`");
+      expect(line).not.toContain("exec/");
+    }
   });
 
   it("задача, выданная с --main, в очереди — «мимо пачки» и выпуск пачки не держит", () => {
@@ -4587,7 +4609,7 @@ describe("Красный выпуск чинится в пачке", () => {
       `Задача #47 «${f.issue(47).title}» в ${REPO} (эпик #45): ты исполнитель сессии-диспетчера — починка в пачке \`${name}\`: её PR выпуска #${pr} красный (tests), а задача, уже влитая в пачку, названа виновной — `,
     );
     expect(lines[0]).toContain(
-      `task status 47 "В работе" --branch fix/47-<slug>\`, новая ветка от свежего origin/${name} (\`git fetch origin ${name}\`, затем ветка на \`origin/${name}\`), а не от прежней ветки задачи \`feat/47-export\` — она уже в пачке, влита rebase-мержем, причина — по упавшим проверкам (\`gh pr checks ${pr}\`, их логи)`,
+      `task status 47 "В работе" --branch exec/fix/47-<slug>\`, новая ветка от свежего origin/${name} (\`git fetch origin ${name}\`, затем ветка на \`origin/${name}\`), а не от прежней ветки задачи \`feat/47-export\` — она уже в пачке, влита rebase-мержем, причина — по упавшим проверкам (\`gh pr checks ${pr}\`, их логи)`,
     );
     expect(lines[0]).toContain(`коммиты с \`Refs #47\`, проверки перед коммитом, PR в пачку (\`gh pr create --base ${name}\`, в теле \`Refs #47\`)`);
     expect(lines[0]).toEndWith(`Ожидания CI, деплоя, актуализации эпика и \`task close\` нет: после мержа диспетчер гонит выпуск заново — полный прогон на том же PR #${pr}.`);

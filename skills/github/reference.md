@@ -1110,7 +1110,13 @@ PR till the release — open and In progress (question 1 of the epic); a blocker
 merged into it doesn't hold a task of the same batch, one outside it — merged
 into another batch or not merged — holds. The assignment (`--assignment`,
 `--session`) reads the batch from the marker — a subagent shares the session's
-id: the task branch from `origin/<batch>`, the checks before a commit, the PR
+id: the task branch from `origin/<batch>` in the area `exec` —
+`exec/<type>/<N>-<slug>`, a fix of a red release `exec/fix/<N>-<slug>`
+(#785): a preview host builds every pushed branch and comments on its PR, one
+notification per batch task, and decides by the branch's name, not the PR's
+base — Vercel: `"git": {"deploymentEnabled": {"exec/**": false}}` in
+`vercel.json` skips them, the release PR keeps its preview; past the batch
+(`--main`) and outside it — no area. Then the checks before a commit, the PR
 `--base <batch>`, `pr premerge` (it checks against the PR's base: by git, #676),
 the merge at once — no CI wait (the PR runs none: the slot is free at the
 merge, #676), no deploy wait, no epic refresh (the release's, one per epic)
