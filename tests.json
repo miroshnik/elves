@@ -5652,7 +5652,21 @@
   "describes": [
    "task queue собирает задачи диспетчера в ветку пачки"
   ],
+  "name": "задание исполнителя пачки называет ветку задачи в области exec — превью хоста её пропускает"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
   "name": "задание исполнителя пачки — мерж в пачку после проверок перед коммитом и pr premerge, без ожидания CI и без актуализации эпика"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue собирает задачи диспетчера в ветку пачки"
+  ],
+  "name": "задание мимо пачки и вне пачки называет ветку задачи без области"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
