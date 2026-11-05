@@ -368,6 +368,17 @@ describe("Длительности — из отчётов последнего 
     expect([late.code, late.stdout, late.stderr]).toEqual([0, "", `${why}43 success (finished later) https://github.test/runs/43\n`]);
   });
 
+  // API отдаёт артефакты по убыванию id, а id расходится со временем выкладки на десятки минут
+  it("spec-run --artifact берёт самый новый зелёный прогон, в каком бы порядке API ни вернул артефакты", () => {
+    const green = { 43: [attempt(43, "completed", "success", 14, 18)], 42: [attempt(42, "completed", "success", 11, 13)], 41: [done(41)] };
+    const shuffled = lastGreen({ artifacts: [reports(41), reports(43, { uploaded: 17 }), reports(42, { uploaded: 12 })], runs: green });
+    expect([shuffled.code, shuffled.stdout, shuffled.calls]).toEqual([0, "43\n", [START, ARTIFACTS, ...runCalls(43)]]);
+    // перезапуск выложил отчёты прогона 41 заново — прогон идёт по новой выкладке, а не по первой
+    const rerun = { 42: green[42], 41: [attempt(41, "completed", "success", 15, 19, 2)] };
+    const again = lastGreen({ artifacts: [reports(42, { uploaded: 12 }), reports(41), reports(41, { uploaded: 18 })], runs: rerun });
+    expect([again.code, again.stdout, again.calls]).toEqual([0, "41\n", [START, ARTIFACTS, ...runCalls(41)]]);
+  });
+
   // артефакт с любым именем может выложить и прогон PR из форка
   it("отчёты прогона из форка и истёкшие не берутся", () => {
     const r = lastGreen({ artifacts: [reports(42, { from: FORK }), reports(41, { expired: true })], runs: { 41: [done(41)], 42: [done(42)] } });
