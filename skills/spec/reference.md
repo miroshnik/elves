@@ -228,10 +228,12 @@ names the folders and asks for a full run's report, `--json` lists the tests
 in `unreported`. A file without such a call or test in the head — its tests
 are removed.
 
-A test's identity is the folder path + the `describe` chain + `it`: a move
-between files of one folder isn't a change, a move to another folder is
-removed and added (the requirement changed home). The output is a ready
-section for the PR body:
+A test's identity is its place (the folder, in a topic's section —
+`<folder>#<section>`), the `describe` chain and `it`: a move between files of
+one section (`<section>.<part>.test.ts`, `<package>/<section>.test.ts`) isn't a
+change; same-named tests of two sections are two requirements, a move to
+another section or folder is removed and added (the requirement changed home).
+The output is a ready section for the PR body:
 
 ```markdown
 ## Spec (tests)
@@ -838,16 +840,19 @@ the project's CI" below.
 
 ## Identity and renames
 
-- A test key is the folder path + the `describe` chain + the name. The file
-  isn't part of the key: the rule treats the folder as the spec's unit, and
-  moving tests between files of one capability doesn't change requirements.
+- A test key is its place, the `describe` chain and the name; the place is
+  the folder, in a topic's section — `<folder>#<section>`. A topic's section
+  is a decision of its own (#685), so it's part of the key (#794): same-named
+  tests of two sections are two requirements. The file isn't: moving tests
+  between files of one section doesn't change requirements.
 - A rename is searched for in two steps: (1) the same file and `describe`, a
   similar name, similarity ≥ 0.6 by Ratcliff/Obershelp (like
   `difflib.SequenceMatcher.ratio`), greedily by descending similarity; (2) the
-  same folder and the same name, a different `describe` — the `describe` was
-  renamed or the test was moved to another section, including from another
-  file. The threshold is deliberately high: hiding a removed requirement as a
-  rename is worse than showing a rename as a deletion and an addition. Step 2
+  same place and the same name, a different `describe` — the `describe` was
+  renamed or the test was moved under another one, including from another
+  file of the section. The threshold is deliberately high: hiding a removed
+  requirement as a rename is worse than showing a rename as a deletion and an
+  addition. Step 2
   isn't limited to one file since #63: the requirement text is the same, and
   regrouping into the main file's capability sections (unit and e2e of one
   capability under one `describe`, files renamed to `<name>.test.ts`) would

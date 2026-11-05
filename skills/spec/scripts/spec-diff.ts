@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /**
- * spec-diff — the spec diff: test names (folder path + describe + it) between the base branch and HEAD, by static
- * parsing of the files at the two revisions (git cat-file, no runs and no checkouts). Prints a markdown section for the
- * PR body: removed (first), changed (renamed in the same file), added, moved into the tree (a test vanished from a file
- * outside tests/ and appeared in the tree under the same name — a summary by folders); plus test files changed outside
- * the tests/ tree and the number of the PR's new names that aren't statements in the project language.
+ * spec-diff — the spec diff: test names (the place — a topic and its section — + describe + it) between the base
+ * branch and HEAD, by static parsing of the files at the two revisions (git cat-file, no runs and no checkouts). Prints
+ * a markdown section for the PR body: removed (first), changed (renamed in the same file), added, moved into the tree
+ * (a test vanished from a file outside tests/ and appeared in the tree under the same name — a summary by folders);
+ * plus test files changed outside the tests/ tree and the number of the PR's new names that aren't statements in the
+ * project language.
  *
  *   bun spec-diff.ts [--base origin/main] [--head HEAD | --worktree] [--root DIR] [--no-merge-base] [--json]
  *                    [--scenarios issue.md | -]
@@ -337,13 +338,14 @@ export function diff(
   const changed = pair(removed, added, (r, a) => unique(r) && bodyKey(r) === bodyKey(a), () => 1, 1);
   // 2) the same file and describe, a similar name — the test is renamed
   changed.push(...pair(removed, added, (r, a) => r.path === a.path && sameDescribes(r, a), (r, a) => ratio(r.name, a.name), RENAME_RATIO));
-  // 3) the same folder and name, a different describe — the describe is renamed or the test moved to another section,
-  // including from another file of the folder: the requirement text is the same, the section changed
+  // 3) the same place and name, a different describe — the describe is renamed or the test moved under another
+  // describe, including from another file of the topic's section: the requirement text is the same, the describe
+  // changed. Another section of the topic is another decision (#794): the move is removed and added
   changed.push(
     ...pair(
       removed,
       added,
-      (r, a) => L.folderOf(r) === L.folderOf(a) && r.name === a.name,
+      (r, a) => placeOf(r) === placeOf(a) && r.name === a.name,
       (r, a) => ratio(r.describes.join(" › "), a.describes.join(" › ")),
       0,
     ),
@@ -365,19 +367,10 @@ export function unmovedFiles(outFiles: string[], moved: Moved[], count: Map<stri
 const outMark = (t: Test) => (L.classify(t.path)[0] === "out" ? ` ⚠️ ${N.spec.diff.outsideMark}` : "");
 
 /**
- * A test's place in the lists — its folder and, in a topic's section (#685), the section after `#`, as in the spec-doc
- * anchor: `tests/standards/routes#permissions`; the topic's own statements (a file named after the folder) — the
- * folder. The lists go by place.
+ * A test's place in the lists (`L.placeOf`) — its folder and, in a topic's section (#685), the section after `#`:
+ * `tests/standards/routes#permissions`. The lists go by place, and a harness check's place is by its file the same way.
  */
-export const placeOf = (t: Test): string => placeAt(t.path);
-
-/** A harness check's place by its file — as in the test lists: a topic's section `<folder>#<section>` or the folder. */
-function placeAt(file: string): string {
-  const folder = L.decisionFolder(file);
-  if (folder === null) return path.posix.dirname(file);
-  const section = L.sectionOf(file);
-  return section === null ? folder : `${folder}#${section}`;
-}
+export const placeOf = (t: Test): string => L.placeOf(t.path);
 
 /** The lists by place — topic and section; within a place — the order of the difference. */
 const byPlace = <T>(list: T[], test: (x: T) => Test): T[] =>
@@ -1112,7 +1105,7 @@ export async function main(argv: string[]): Promise<number> {
     const changedOut = outOfTreeFiles(base, v.head, top, prefix, v.worktree);
     const { pool, count, gone } = outOfTreePool(base, v.head, top, root, prefix, changedOut, v.worktree);
     ({ removed, changed, added, moved } = diff(baseTests, headTests, pool));
-    checks = freshChecks(baseScan.checks, headScan.checks, [placeAt, placeAt]);
+    checks = freshChecks(baseScan.checks, headScan.checks, [L.placeOf, L.placeOf]);
     notStatements = newNotStatements([...added, ...changed.map(([, n]) => n)], baseTests, LANG);
     outFiles = unmovedFiles(changedOut, moved, count, gone);
     // lint disables — only in changed code files: a removed or added exception is always in the PR diff
@@ -1124,8 +1117,8 @@ export async function main(argv: string[]): Promise<number> {
     const untracked = v.worktree ? gitText(["ls-files", "--others", "--exclude-standard", "-z", "--", "."], top).split("\0") : [];
     const changedAll = [...changedPaths, ...untracked].filter((f) => f.startsWith(prefix) && CODE.test(f) && !FLOW_COPY.test(f.slice(prefix.length)));
     decisionData = {
-      base: await decisionsAt(base, top, prefix, changedAll, baseScan.checks, placeAt),
-      head: await decisionsAt(v.worktree ? null : v.head, top, prefix, changedAll, headScan.checks, placeAt),
+      base: await decisionsAt(base, top, prefix, changedAll, baseScan.checks, L.placeOf),
+      head: await decisionsAt(v.worktree ? null : v.head, top, prefix, changedAll, headScan.checks, L.placeOf),
     };
     decisions = decisionLines(decisionData.base, decisionData.head, limit);
   } catch (e) {

@@ -79,7 +79,7 @@ describe("Снятые требования — первыми, потом из�
 
 /**
  * Переименованный тест ищется только в том же файле и том же describe (похожесть имени ≥ 0,6); тест с тем же
- * именем под другим describe — в любом файле папки; тест с тем же телом — в том же файле, даже если сменились и
+ * именем под другим describe — в любом файле того же места (темы или её раздела); тест с тем же телом — в том же файле, даже если сменились и
  * describe, и имя. Тело сравнивается без пробелов и завершающих запятых: перенос вызова prettier, когда название
  * стало длиннее строки, проверку не меняет. Порог высокий: спрятать снятое требование под видом переименования хуже, чем показать
  * переименование как удаление и добавление.
@@ -189,15 +189,46 @@ describe("Списки PR — по теме и разделу", () => {
 });
 
 /**
- * Файл в идентичность не входит: единица спеки — папка capability, тесты внутри неё можно перекладывать между
- * файлами.
+ * Раздел темы в идентичность входит, файл — нет: раздел — отдельное решение (#685), одноимённые тесты двух разделов —
+ * два требования, а тесты раздела можно перекладывать между его файлами (`<раздел>.<часть>.test.ts`,
+ * `<пакет>/<раздел>.test.ts`) (#794).
  */
-describe("Тест — это папка, цепочка describe и имя: перекладка между файлами папки — не изменение", () => {
-  it("перенос между файлами одной папки — не изменение", () => {
-    const OLD = "tests/capabilities/billing/old.test.ts";
-    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`), [OLD]: ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
-    repo.commit({ [OLD]: null, "tests/capabilities/billing/moved.test.ts": ts(`describe("Счета", () => { it("выставляется", () => {}); });`) });
+describe("Тест — это место (тема и раздел), цепочка describe и имя: перекладка между файлами раздела — не изменение", () => {
+  it("перенос между файлами одного раздела — не изменение", () => {
+    const OLD = "tests/capabilities/billing/invoices.test.ts";
+    const base = repo.commit({
+      [BILLING]: ts(`it("x", () => {});`),
+      [OLD]: ts(`describe("Счета", () => { it("выставляется", () => {}); }); it("отправляется", () => {});`),
+    });
+    repo.commit({
+      [OLD]: null,
+      "tests/capabilities/billing/invoices.monthly.test.ts": ts(`describe("Счета", () => { it("выставляется", () => {}); });`),
+      "tests/capabilities/billing/web/invoices.test.ts": ts(`it("отправляется", () => {});`),
+    });
     expect(diffFrom(base).stdout).toContain("Тесты не менялись.");
+  });
+
+  it("одноимённые тесты двух разделов одной темы — два требования в дельте спеки", () => {
+    const ROUTES = "tests/capabilities/routes";
+    const base = repo.commit({ [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {});`) });
+    repo.commit({
+      [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {}); it("гость видит 403", () => {});`),
+      [`${ROUTES}/permissions.test.ts`]: ts(`it("гость видит 403", () => {});`),
+    });
+    expect(diffFrom(base).stdout).toContain(
+      "**Добавлены (2):**\n\n- `tests/capabilities/routes` · гость видит 403\n- `tests/capabilities/routes#permissions` · гость видит 403\n",
+    );
+  });
+
+  it("перенос в другой раздел той же темы — снят в одном разделе, добавлен в другом", () => {
+    const ROUTES = "tests/capabilities/routes";
+    const test = ts(`describe("Доступ", () => { it("гость видит 403", () => {}); });`);
+    const base = repo.commit({ [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {});`), [`${ROUTES}/permissions.test.ts`]: test });
+    repo.commit({ [`${ROUTES}/permissions.test.ts`]: null, [`${ROUTES}/errors.test.ts`]: test });
+    const out = diffFrom(base).stdout;
+    expect(out).toContain("**Удалены (1):**\n\n- `tests/capabilities/routes#permissions` · Доступ › гость видит 403\n");
+    expect(out).toContain("**Изменены:** нет.");
+    expect(out).toContain("**Добавлены (1):**\n\n- `tests/capabilities/routes#errors` · Доступ › гость видит 403\n");
   });
 
   it("перенос в другую capability — удалён и добавлен", () => {
@@ -543,9 +574,8 @@ describe("Сценарии задачи сверяются с тестами PR"
   const sectioned = (issue: string) => {
     const base = repo.commit({ [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {});`) });
     const same = `it("гость видит 403", () => {});`;
-    // собственное утверждение темы — в describe: тот же it в той же папке без него — одно требование с разделом
     repo.commit({
-      [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {}); describe("Маршруты", () => { ${same} });`),
+      [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {}); ${same}`),
       [`${ROUTES}/permissions.test.ts`]: ts(same),
       [`${ROUTES}/web/naming.test.ts`]: ts(same),
       "issue.md": issue,
