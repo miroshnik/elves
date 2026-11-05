@@ -269,6 +269,37 @@ describe("fix доводит проект до канона: через API — 
   });
 });
 
+/**
+ * #791: GitHub порой не отдаёт в ProjectV2.items элемент, который у задачи есть, — до переиндексации проекта; задача,
+ * которую список не отдаёт, перепроверяется по её projectItems. Здесь — что перепроверка не прячет задачу, которой в
+ * проекте действительно нет: ни по списку, ни живым элементом этого проекта у самой задачи.
+ */
+describe("Задача вне списка проекта перепроверяется по её projectItems", () => {
+  it("Задача вне проекта по обоим источникам остаётся ❌ и project fix добавляет её", () => {
+    const f = fake();
+    f.items().splice(f.items().indexOf(f.item(47)), 1);
+    // элемент задачи в другом проекте владельца — не элемент этого проекта
+    const other = f.ownerProject("Другой");
+    f.items(other.id).push({ id: "PVTI_other47", content: { __typename: "Issue", id: openIssueId(47), number: 47, state: "OPEN", stateReason: null }, status: null });
+    const r = check(f);
+    expect(r.code).toBe(1);
+    expect(marks(r.out).Open).toBe("❌");
+    expect(r.out).toContain("· not in the project: #47");
+    expect(r.out).not.toContain("GitHub doesn't return");
+    const fixed = fix(f);
+    expect(byOp(f, "AddItem")).toEqual([{ projectId: f.project().id, contentId: openIssueId(47) }]);
+    expect(fixed.code).toBe(0);
+
+    // элемент в архиве список не отдаёт, а у задачи он архивный — в проекте задачи нет
+    const archived = fake();
+    archived.item(47).isArchived = true;
+    const a = check(archived);
+    expect(a.code).toBe(1);
+    expect(a.out).toContain("· not in the project: #47");
+    expect(a.out).not.toContain("GitHub doesn't return");
+  });
+});
+
 /** Колонки представления — поля проекта с этими именами, в этом порядке. */
 function setColumns(f: FakeGitHub, view: string, names: string[]): void {
   f.view(view).fields.nodes = names.map((n) => ({ id: f.field(n).id, name: n, dataType: f.field(n).dataType }));

@@ -333,7 +333,11 @@ export interface Merge {
 export interface State {
   repo: { id: string; name: string; nameWithOwner: string; owner: Owner; linked: ProjectRef[] };
   project: Project | null;
-  openIssues: { id: string; number: number }[];
+  /**
+   * `unlisted` — the id of the project's item that the project's item list doesn't return, though the issue's own
+   * `projectItems` has it (`markUnlisted`).
+   */
+  openIssues: { id: string; number: number; unlisted?: string }[];
   labels: Label[];
   decisions: Decisions;
   /** An empty repository (no default branch) — null. */
@@ -413,6 +417,10 @@ export const Q = {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id number } }
   }
+}`,
+  /** The project items of issues by their ids — as the issue sees them (`markUnlisted`), at most `NODES_PAGE` ids. */
+  IssueItems: `query IssueItems($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on Issue { id projectItems(first: 20) { nodes { id isArchived project { id } } } } }
 }`,
   OwnerProjects: `query OwnerProjects($login: String!, $query: String!) {
   repositoryOwner(login: $login) { ... on ProjectV2Owner { projectsV2(first: 20, query: $query) { nodes { ${REF} } } } }
@@ -834,9 +842,33 @@ const mainProject = (repo: State["repo"]) => repo.linked.find((p) => p.title ===
 export function loadState(io: Io, slug: string): State {
   const [owner, name] = slug.split("/") as [string, string];
   const repo = loadRepo(io, slug);
-  const openIssues = pages<{ id: string; number: number }>((after) => graphql(io, Q.RepoIssues, { owner, name, after }).repository.issues);
+  const openIssues = pages<State["openIssues"][number]>((after) => graphql(io, Q.RepoIssues, { owner, name, after }).repository.issues);
   const main = mainProject(repo);
-  return { repo, project: main ? loadProject(io, main.id) : null, openIssues, labels: loadLabels(io, slug), decisions: loadDecisions(io, slug), merge: loadMerge(io, slug) };
+  const project = main ? loadProject(io, main.id) : null;
+  if (project) markUnlisted(io, project, openIssues);
+  return { repo, project, openIssues, labels: loadLabels(io, slug), decisions: loadDecisions(io, slug), merge: loadMerge(io, slug) };
+}
+
+/** How many ids one `nodes(ids:)` query takes — GitHub's limit. */
+const NODES_PAGE = 100;
+
+/**
+ * GitHub sometimes leaves an item out of `ProjectV2.items` that the issue has (#791): `issue.projectItems` returns it,
+ * `AddItem` answers with that same item, and the list doesn't change until GitHub reindexes the project. An open issue
+ * missing from the list is asked by its own `projectItems`: a live (not archived) item of this project marks it
+ * `unlisted` — the task is in the project, it isn't added again.
+ */
+function markUnlisted(io: Io, project: Project, issues: State["openIssues"]): void {
+  const listed = new Set(project.items.map((it) => it.issue?.id));
+  const missing = issues.filter((i) => !listed.has(i.id));
+  for (let k = 0; k < missing.length; k += NODES_PAGE) {
+    const batch = missing.slice(k, k + NODES_PAGE);
+    for (const n of graphql(io, Q.IssueItems, { ids: batch.map((i) => i.id) })?.nodes ?? []) {
+      const item = (n?.projectItems?.nodes ?? []).find((it: Any) => it?.project?.id === project.id && !it.isArchived);
+      const issue = batch.find((i) => i.id === n?.id);
+      if (item && issue) issue.unlisted = item.id;
+    }
+  }
 }
 
 const statusChecks = (rule: Any): { strict: boolean; contexts: string[] } | null =>
@@ -1319,8 +1351,13 @@ export function analyze(s: State): Check[] {
 
   const open = add("open", `Open tasks of the repository — in the project, with ${STATUS}`);
   const inProject = new Set(issues.map((it) => it.issue!.id));
-  const missing = s.openIssues.filter((i) => !inProject.has(i.id));
+  // the item the issue has but the project's list doesn't return — the task is in the project: AddItem would answer
+  // with the same item and change nothing (#791)
+  const outside = s.openIssues.filter((i) => !inProject.has(i.id));
+  const unlisted = outside.filter((i) => i.unlisted);
+  const missing = outside.filter((i) => !i.unlisted);
   if (missing.length) open(`not in the project: ${nums(missing)}`, api(`add to the project ${nums(missing)}`, ...missing.map((i) => ({ op: "AddItem", input: { projectId: p.id, contentId: i.id } }))));
+  if (unlisted.length) open.note(`GitHub doesn't return the item in the project's list: ${unlisted.map((i) => `#${i.number} (${i.unlisted})`).join(", ")} — the issue's projectItems has it`);
   const noStatus = issues.filter((it) => it.issue!.state === "OPEN" && !it.status);
   if (noStatus.length) open(`without ${STATUS}: ${nums(noStatus.map((it) => it.issue!))}`, ...(statusReady ? [api(`${STATUS} ${q(N.status.backlog)}: ${nums(noStatus.map((it) => it.issue!))}`, ...noStatus.map((it) => setStatus(it, N.status.backlog)))] : []));
 

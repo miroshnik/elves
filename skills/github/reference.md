@@ -372,7 +372,12 @@ outside git — ❌, `update` puts it into its commit.
    Others aren't checked.
 7. Closed tasks — in Done; those closed without being done (not planned,
    duplicate) — outside the project.
-8. The repository's open tasks — in the project, each has a `Status`.
+8. The repository's open tasks — in the project, each has a `Status`. A
+   task the project's item list doesn't return is rechecked by its own
+   `projectItems`: a live (not archived) item of this project — GitHub
+   hasn't reindexed the project yet, and `AddItem` would answer with that
+   same item — is an `○` line with the item's id, item ✅, `task start`
+   goes on.
 9. Decision labels — by the spec tree of the default branch (via the API): the
    label name is the topic name (folder
    `tests/capabilities|standards|architecture/<topic>` or a model module), kind
