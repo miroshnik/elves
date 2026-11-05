@@ -2881,13 +2881,18 @@ const CHECKLIST_RE = /^(\s*[-*+]\s+)\[ \](\s)/;
 const LIST_ITEM_RE = /^(?:[-*+]|\d+\.)\s/;
 /** A Markdown heading's level (`## …` — 2), not a heading — 0. */
 const headingLevel = (line: string) => /^(#{1,6})\s/.exec(line)?.[1]?.length ?? 0;
+/** The questions section's heading in any language of the dictionary: `questionItems` reads it, `task edit --add` numbers its first item. */
+const QUESTIONS_SECTION_RE = new RegExp(`^(?:${locale.every((n) => n.sections.questions).map(locale.escapeRe).join("|")})\\s*$`);
 
-/** The marker of an item added after `prev`, the section's last item: `- [ ]` after a checklist item, the next number, its bullet; none — `- `. */
-function itemMarker(prev: string | undefined): string {
+/**
+ * The marker of an item added after `prev`, the section's last item: `- [ ]` after a checklist item, the next number,
+ * its bullet; none — `none`.
+ */
+function itemMarker(prev: string | undefined, none: string): string {
   const numbered = /^(\d+)\.\s/.exec(prev ?? "");
   if (numbered) return `${Number(numbered[1]) + 1}. `;
   const bullet = /^([-*+]\s+)(\[[ xX]\]\s)?/.exec(prev ?? "");
-  if (!bullet) return "- ";
+  if (!bullet) return none;
   return bullet[2] ? `${bullet[1]}[ ] ` : bullet[1]!;
 }
 
@@ -2895,7 +2900,8 @@ function itemMarker(prev: string | undefined): string {
  * The edits applied in order to the description, each to the result of the previous one; an edit that is ambiguous or
  * finds nothing — an error, so none is written. `--add` — after the section's last non-blank line (the section ends at
  * a heading of its level or higher, or a thematic break: the cloud proxy's signature isn't the section's); an item
- * without a list marker gets the one of the section's last item: `- [ ]`, the next number, or `-`.
+ * without a list marker gets the one of the section's last item: `- [ ]`, the next number, or `-`; the first one of the
+ * questions section — `1.`: `task answer <N> <k>` finds a question by its number (#795).
  */
 export function applyEdits(number: number, body: string, edits: Edit[]): { body: string; done: string[] } {
   const eol = body.includes("\r\n") ? "\r\n" : "\n";
@@ -2925,7 +2931,7 @@ export function applyEdits(number: number, body: string, edits: Edit[]): { body:
       const item = e.item.trim().replace(/\s*\r?\n\s*/g, " ");
       // the section's last top-level item: a nested one under it isn't the list's
       const prev = lines.slice(from + 1, last + 1).filter((l) => LIST_ITEM_RE.test(l)).at(-1);
-      const line = `${LIST_ITEM_RE.test(item) ? "" : itemMarker(prev)}${item}`;
+      const line = `${LIST_ITEM_RE.test(item) ? "" : itemMarker(prev, QUESTIONS_SECTION_RE.test(heading) ? "1. " : "- ")}${item}`;
       // a heading right before the item — a blank line between them, as the section's own items have
       lines.splice(last + 1, 0, ...(last === from ? ["", line] : [line]));
       done.push(`added to ${q(heading)}`);
@@ -4341,9 +4347,8 @@ const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
  * into the item.
  */
 export function questionItems(body: string): { k: number; text: string; lines: string[]; answered: boolean; first: number; last: number }[] {
-  const section = new RegExp(`^(?:${locale.every((n) => n.sections.questions).map(locale.escapeRe).join("|")})\\s*$`);
   const lines = body.split(/\r?\n/);
-  const from = lines.findIndex((l) => section.test(l));
+  const from = lines.findIndex((l) => QUESTIONS_SECTION_RE.test(l));
   if (from < 0) return [];
   const items: { first: number; last: number }[] = [];
   for (let i = from + 1; i < lines.length && !/^##\s/.test(lines[i]!) && !THEMATIC_BREAK_RE.test(lines[i]!); i++) {
@@ -6431,10 +6436,10 @@ Examples:
 
 An edit of the description in one call, not gh issue view --json body, a file and gh issue edit --body-file: --replace —
 the text must occur exactly once; --add — an item at the end of the section «## …» (without a list marker — the one of
-the section's last item: «- [ ]», the next number, its bullet); --check — «- [ ]» → «- [x]» of the one unchecked item
-with the text. Several edits — in order, each sees the previous one's result, written together; any not found or
-ambiguous — refused (code 2), the description untouched. Questions are answered by task answer. A cloud session — over
-the repository's REST.
+the section's last item: «- [ ]», the next number, its bullet; the questions section's first — «1.»); --check —
+«- [ ]» → «- [x]» of the one unchecked item with the text. Several edits — in order, each sees the previous one's result,
+written together; any not found or ambiguous — refused (code 2), the description untouched. Questions are answered by
+task answer. A cloud session — over the repository's REST.
 
 Examples:
   github task edit 42 --replace "PDF only" "PDF and CSV"
