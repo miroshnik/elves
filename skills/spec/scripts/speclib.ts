@@ -56,9 +56,14 @@ export function folderOf(t: Test): string {
   return posix.dirname(t.path);
 }
 
-/** Requirement identity: folder path + describe + it (the file inside the folder doesn't matter). */
+/**
+ * Requirement identity: the test's place (`placeOf` — the topic and its section) + describe + it. A topic's section is
+ * a decision of its own (#685): same-named tests of two sections are two requirements, a move between sections is
+ * removed and added; the file inside a section (`<section>.<part>.test.ts`, `<package>/<section>.test.ts`) doesn't
+ * matter (#794).
+ */
 export function keyOf(t: Test): string {
-  return JSON.stringify([folderOf(t), t.describes, t.name]);
+  return JSON.stringify([placeOf(t.path), t.describes, t.name]);
 }
 
 export function titleOf(t: Test): string {
@@ -121,6 +126,19 @@ export function sectionOf(file: string): string | null {
   if (folder === null) return null;
   const section = posix.basename(file).split(".")[0]!;
   return section === folder.split("/")[2] ? null : section;
+}
+
+/**
+ * A test file's place in the spec — its decision folder and, in a topic's section (#685), the section after `#`, as
+ * the spec-doc anchor: `tests/standards/routes#permissions`; the topic's own statements (a file named after the
+ * folder) — the folder; outside the decision tree — the file's folder. spec-diff's lists and the requirement identity
+ * (`keyOf`) go by place.
+ */
+export function placeOf(file: string): string {
+  const folder = decisionFolder(file);
+  if (folder === null) return posix.dirname(file);
+  const section = sectionOf(file);
+  return section === null ? folder : `${folder}#${section}`;
 }
 
 /** Decision folder exceptions — the `exceptions/` directory, a file per harness registry element (`exceptionsIn`). */
