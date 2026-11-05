@@ -4001,6 +4001,13 @@
  {
   "path": "tests/capabilities/github/github-project.test.ts",
   "describes": [
+   "Задача вне списка проекта перепроверяется по её projectItems"
+  ],
+  "name": "Задача вне проекта по обоим источникам остаётся ❌ и project fix добавляет её"
+ },
+ {
+  "path": "tests/capabilities/github/github-project.test.ts",
+  "describes": [
    "Канон проекта — на языке проекта из .agents/elves.json чекаута"
   ],
   "name": "project check с манифестом language ru сверяет проект с русскими именами — как прежде"
@@ -5967,6 +5974,13 @@
   "describes": [
    "task start берёт задачу одним вызовом"
   ],
+  "name": "Задача, которую список проекта не отдаёт, а её projectItems — отдаёт, не останавливает task start"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task start берёт задачу одним вызовом"
+  ],
   "name": "задание перезапуска исполнителя продолжает его ветку без отказа task start"
  },
  {
@@ -7662,6 +7676,27 @@
    "Сценарии задачи сверяются с тестами PR"
   ],
   "name": "сценарий с префиксом папки не находит тест с тем же именем в другой папке"
+ },
+ {
+  "path": "tests/capabilities/spec/spec-diff.test.ts",
+  "describes": [
+   "Сценарии задачи сверяются с тестами PR"
+  ],
+  "name": "сценарий с разделом впереди не находит одноимённый тест другого раздела"
+ },
+ {
+  "path": "tests/capabilities/spec/spec-diff.test.ts",
+  "describes": [
+   "Сценарии задачи сверяются с тестами PR"
+  ],
+  "name": "сценарий с разделом темы впереди находит тест этого раздела"
+ },
+ {
+  "path": "tests/capabilities/spec/spec-diff.test.ts",
+  "describes": [
+   "Сценарии задачи сверяются с тестами PR"
+  ],
+  "name": "сценарий с темой впереди находит тест любого её раздела"
  },
  {
   "path": "tests/capabilities/spec/spec-diff.test.ts",
