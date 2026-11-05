@@ -1645,6 +1645,22 @@ describe("task edit правит описание задачи одним выз
     expect(r.out.split("\n")).toEqual(["+ #47: description — 3 edits: added to «## Что сделать», added to «## Сценарии», checked «PDF»"]);
   });
 
+  it("task edit --add в пустой раздел вопросов нумерует вопрос с 1", () => {
+    // `task answer <N> <k>` ищет вопрос по номеру: пункт `- ` в пустом разделе вопросов он не находил (#795)
+    const body = "Экспорт.\n\n## Готово, когда\n\n## Вопросы\n";
+    const { f, r } = edit(["--add", "## Вопросы", "Формат?", "--add", "## Готово, когда", "файл открывается"], body);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    // другой пустой раздел — `- `, как прежде
+    expect(bodyOf(f)).toBe("Экспорт.\n\n## Готово, когда\n\n- файл открывается\n\n## Вопросы\n\n1. Формат?\n");
+    const answered = task(f, ["answer", "47", "1", "PDF."]);
+    expect(answered.err).toBe("");
+    expect(answered.code).toBe(0);
+    expect(bodyOf(f)).toContain("\n1. ✅ Формат? **Ответ:** PDF.\n");
+    // раздел вопросов на другом языке словаря — тоже с 1
+    expect(bodyOf(edit(["--add", "## Questions", "Format?"], "Export.\n\n## Questions\n").f)).toBe("Export.\n\n## Questions\n\n1. Format?\n");
+  });
+
   it("несколько правок task edit в одном вызове применяются вместе или не применяются", () => {
     const together = edit(["--replace", "Экспорт счетов.", "Экспорт.", "--check", "CSV"]);
     expect(together.r.code).toBe(0);

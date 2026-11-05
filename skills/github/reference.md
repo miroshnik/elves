@@ -627,11 +627,12 @@ text must occur exactly once; `--add "## <section>" "<item>"` — at the end of
 the section (it ends at a heading of its level or higher, or `---`: the cloud
 proxy's signature isn't in it); an item without a list marker gets the one of
 the section's last top-level item — `- [ ]` after a checklist, the next
-number after a numbered list, its bullet, otherwise `- `; `--check "<text>"`
-— `- [ ]` → `- [x]` of the one unchecked item containing the text. Several
-edits — in order, each sees the previous one's result, one write. Refused
-before any change (code 2), none of the call's edits written: a text not
-found or found twice, no such section or two of them, no or two unchecked
+number after a numbered list, its bullet, otherwise `- `, in the questions
+section `1.` (`task answer` finds a question by its number); `--check
+"<text>"` — `- [ ]` → `- [x]` of the one unchecked item containing the text.
+Several edits — in order, each sees the previous one's result, one write.
+Refused before any change (code 2), none of the call's edits written: a text
+not found or found twice, no such section or two of them, no or two unchecked
 items, an edit missing a value. Questions — `task answer`. A cloud session —
 over the repository's REST.
 
