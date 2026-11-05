@@ -1941,17 +1941,18 @@ function localDay(): string {
 }
 
 /**
- * The dispatcher's batch branch of the repository (epic #645). The first queue of a batch project (`batchProject` of
- * the locale module — `"batch": true` in `.agents/elves.json` of the checkout's root: a project setting, not the owner's
- * word on a run — a batch saves only with the project's CI that runs nothing on a PR into a batch branch)
- * creates it from a fresh origin/<base> and pushes it without a local branch — the dispatcher's checkout stays where it
- * is; `k` — the first free number of the day on origin, in the marker and among the recent PRs' branches: a released
- * batch's name taken again would read as released at once. The next queues take the same one: the marker keeps it
- * (`batchesIn`). Released — its release PR merged (#649), the branch may still be on origin — or gone from origin: the
- * next batch is `start`, called by the queue only with a ready task to hand out — a dispatcher that is done leaves no
- * empty batch branch on origin; its `+` line names the previous one. A released batch branch on origin without an open
- * PR into it goes (`dropReleased`). Not a batch project — null, no line; the session not identified, the directory not
- * the repository's checkout — a `○`/`!` line and null: the executors go into the default branch, as without batches.
+ * The dispatcher's batch branch of the repository (epic #645). A batch project (`batchProject` of the locale module —
+ * `"batch": true` in `.agents/elves.json` of the checkout's root: a project setting, not the owner's word on a run — a
+ * batch saves only with the project's CI that runs nothing on a PR into a batch branch) without a batch in the marker
+ * gets `start`, called by the queue only with a ready task to hand out (#787): a dispatcher with nothing to hand out
+ * leaves no empty batch branch on origin. It creates the branch from a fresh origin/<base> and pushes it without a local
+ * branch — the dispatcher's checkout stays where it is; `k` — the first free number of the day on origin, in the marker
+ * and among the recent PRs' branches: a released batch's name taken again would read as released at once. The next
+ * queues take the same one: the marker keeps it (`batchesIn`). Released — its release PR merged (#649), the branch may
+ * still be on origin — or gone from origin: `start` too, its `+` line names the previous one. A released batch branch on
+ * origin without an open PR into it goes (`dropReleased`). Not a batch project — null, no line; the session not
+ * identified, the directory not the repository's checkout — a `○`/`!` line and null: the executors go into the default
+ * branch, as without batches.
  * Origin not read — the kept one stays (a `!` line): a new batch next to it would split the dispatcher's tasks; a new
  * one not created — null.
  */
@@ -1992,8 +1993,7 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
     io.out(`+ batch branch ${name} from origin/${base} (${sha.slice(0, 7)}) pushed${previous}: the executors branch from it and merge into it`);
     return name;
   };
-  // the first queue starts the batch at once; after a release — the queue, once it has a task to hand out
-  return kept ? { batch: null, start } : { batch: start(), start: null };
+  return { batch: null, start };
 }
 
 /**
@@ -3136,8 +3136,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const openPr = openPrOf(io, slug, recent);
   const args = [o.epic !== undefined && `--epic ${o.epic}`, o.tasks !== undefined && `--tasks ${numbers.join(",")}`, o.type !== undefined && `--type ${o.type}`, o.priority?.length && `--priority ${o.priority.join(",")}`].filter(Boolean).join(" ");
   const file = dispatcherFile(io);
-  // the batch branch before the readiness: a blocker merged into it doesn't hold a task of the same batch (#648); the
-  // next one after a release — after it, only with a task to hand out (nothing is merged into a new batch yet)
+  // the kept batch before the readiness: a blocker merged into it doesn't hold a task of the same batch (#648); a new one
+  // — after it, only with a task to hand out (#787): nothing is merged into a new batch yet, the readiness reads the same
   const dispatched = dispatcherBatch(io, slug, recent, file);
   let batch = dispatched.batch;
   const inBatch = batch === null ? null : batchPrOf(recent, batch);
@@ -3231,7 +3231,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   ready.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
   if (dispatched.start) {
     if (ready.length) batch = dispatched.start();
-    else io.out(`○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it`);
+    else io.out(`○ no new batch branch: nothing ready to hand out — a queue with a ready task starts it`);
   }
   if (file) {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -6510,18 +6510,18 @@ waits for the task's closing (ci-wait issue N, background) and closes it locally
 queue's = line names that wait. --session — printed by the dispatcher: the prompt of an app executor session
 (start_session in the folder of another project, its own worktree) — a session by its project's canon and mode, named
 by the task, waiting in the background, ending with the canon's last line — and how to start it; the hand-out has no
-worktree, the task is = in the queue. A batch project ("batch": true in .agents/elves.json): the first queue pushes the
-dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), the next ones take the same (○), it is
-kept in the marker; the assignment — the task branch from it and the PR into it, merged after the checks before a
-commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
+worktree, the task is = in the queue. A batch project ("batch": true in .agents/elves.json): the first queue with a ready
+task pushes the dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), nothing ready — no branch
+(○), the next ones take the same (○), it is kept in the marker; the assignment — the task branch from it and the PR
+into it, merged after the checks before a commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
 release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
 cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task of the batch
 merged into it — Next: names batch release, a task past the batch (a PR into the default branch, a cloud executor)
 doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
 Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
 assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N; --cloud
-refused); released — a new batch, a released batch branch without an open PR into it is deleted (+). --main — the
-owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
+refused); released — a new batch with a ready task, a released batch branch without an open PR into it is deleted (+).
+--main — the owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
 into it with the full CI, the deploy, the epic refresh, task close), the hand-out marked — a restart keeps it, task
 finish opens the PR into the default branch, the queue's = line says «past the batch» and the release doesn't wait for
 it; a task of a red release refuses it; with --cloud — the same, a cloud executor isn't in the batch anyway.
