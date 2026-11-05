@@ -1234,6 +1234,26 @@ describe("task start берёт задачу одним вызовом", () => {
     expect(other.out.split("\n")[0]).toBe("✅ project check: miroshnik/elves per the canon");
   });
 
+  /**
+   * #791: GitHub порой не отдаёт в ProjectV2.items элемент, который у задачи есть, — до переиндексации проекта; AddItem
+   * отвечает тем же элементом, и ❌ «not in the project» останавливал task start любой задачи репозитория. Задача,
+   * которую список не отдаёт, перепроверяется по её projectItems: живой элемент этого проекта — строка ○, не ❌.
+   */
+  it("Задача, которую список проекта не отдаёт, а её projectItems — отдаёт, не останавливает task start", () => {
+    const f = new FakeGitHub(REC);
+    f.unlistedItems = [47];
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n")[0]).toBe("✅ project check: miroshnik/elves per the canon");
+    expect(statusSet(f)).toEqual([[49, "В работе"]]);
+
+    const out: string[] = [];
+    const check = main(["project", "check", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: () => {}, env: {} });
+    expect(check).toBe(0);
+    expect(out).toContain(`   ○ GitHub doesn't return the item in the project's list: #47 (${f.item(47).id}) — the issue's projectItems has it`);
+    expect(byOp(f, "AddItem")).toEqual([]);
+  });
+
   it("task start эпика и задачи с --branch не по канону — отказ до изменений", () => {
     const f = new FakeGitHub(REC);
     const epic = start(f, ["45"]);

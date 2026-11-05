@@ -41,6 +41,11 @@ export class FakeGitHub {
   createIssueHidesItems = false;
   /** Номер задачи → сколько следующих чтений IssueRef ещё не покажут её элементы проекта. */
   issueRefLag: Record<number, number> = {};
+  /**
+   * Номера задач, чьи элементы список проекта (ProjectItems) не отдаёт, хотя они есть: projectItems задачи
+   * (IssueItems, IssueRef) их отдаёт — GitHub ещё не переиндексировал проект (#791).
+   */
+  unlistedItems: number[] = [];
   /** Метки репозитория (RepoLabels): создаёт, переименовывает и удаляет их fix и task new. */
   labels: { id: string; name: string; color: string; description: string }[] = [];
   /**
@@ -190,6 +195,8 @@ export class FakeGitHub {
     if (op === "RecentPrs") return JSON.stringify(this.recentPrs());
     if (op === "BatchPrs") return JSON.stringify(this.batchPrs(variables.batch));
     if (op === "MergeRules") return JSON.stringify(this.mergeRules());
+    if (op === "ProjectItems") return JSON.stringify(this.listedItems(variables.id));
+    if (op === "IssueItems") return JSON.stringify(this.issueItems(variables.ids));
     if (op === "ModelAt") {
       const pr = Object.values(this.prs).find((x) => x.head === variables.expression.split(":")[0]);
       return JSON.stringify({ data: { repository: { object: pr?.model == null ? null : { text: pr.model } } } });
@@ -230,7 +237,7 @@ export class FakeGitHub {
       out.projectItems = { nodes: [] };
       return { data: { repository: { issue: out } } };
     }
-    out.projectItems = { nodes: this.allProjects().flatMap((p) => this.items(p.id).filter((it: Any) => it.content?.id === i.id).map((it: Any) => ({ id: it.id, project: { id: p.id }, status: it.status ?? null }))) };
+    out.projectItems = { nodes: this.itemsOf(i.id).map(({ p, it }) => ({ id: it.id, project: { id: p.id }, status: it.status ?? null })) };
     out.closedByPullRequestsReferences = {
       nodes: Object.entries(this.prs)
         .filter(([, p]) => p.closes.includes(number))
@@ -239,6 +246,23 @@ export class FakeGitHub {
     const m = this.milestoneOf(number);
     out.milestone = m && { id: m.id, number: m.number, title: m.title, issues: m.issues };
     return { data: { repository: { issue: out } } };
+  }
+  /** Список элементов проекта, как его отдаёт ProjectV2.items: без архивных и без элементов задач `unlistedItems`. */
+  private listedItems(id: string): Any {
+    const key = keyOf("ProjectItems", { id });
+    if (!(key in this.rec)) throw new Error(`fake gh: нет записи ${key}`);
+    const out = structuredClone(this.rec[key]);
+    out.data.node.items.nodes = out.data.node.items.nodes.filter((it: Any) => !it.isArchived && !this.unlistedItems.includes(it.content?.number));
+    return out;
+  }
+  /** Элементы проектов задач по их id, как их видит задача (`nodes(ids:)`): архивные — с `isArchived`. */
+  private issueItems(ids: string[]): Any {
+    const nodes = ids.map((id) => ({ id, projectItems: { nodes: this.itemsOf(id).map(({ p, it }) => ({ id: it.id, isArchived: Boolean(it.isArchived), project: { id: p.id } })) } }));
+    return { data: { nodes } };
+  }
+  /** Элементы задачи во всех проектах — с проектом каждого. */
+  private itemsOf(issueId: string): { p: Any; it: Any }[] {
+    return this.allProjects().flatMap((p) => this.items(p.id).filter((it: Any) => it.content?.id === issueId).map((it: Any) => ({ p, it })));
   }
   /** Milestone задачи: закрыт ли он и сколько в нём открытых задач — по состоянию записей. */
   private milestoneOf(number: number): Any {
@@ -297,7 +321,7 @@ export class FakeGitHub {
     const subs = (x: Any) => ({ nodes: x.subIssues.nodes.map(brief) });
     const parent = i.parent ? this.issue(i.parent.number) : null;
     const m = this.milestoneOf(number);
-    const items = this.allProjects().flatMap((p) => this.items(p.id).filter((it: Any) => it.content?.id === i.id).map((it: Any) => ({ p, it })));
+    const items = this.itemsOf(i.id);
     // comments(last: 100): последние сто, старые первыми, и сколько их всего
     const comments = (n: number) => {
       const all = this.comments[n] ?? [];
