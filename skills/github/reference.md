@@ -1095,13 +1095,14 @@ dispatcher's checkout (`install` and `update` carry it over): the dispatcher's
 tasks go into the default branch with one release — one full CI run and one
 deploy — instead of each its own, and a task PR into the batch runs no CI
 (`skills/spec/ci.md`, "Batches").
-The first `task queue` creates the batch branch
+The first `task queue` with a ready task creates the batch branch
 `batch/<YYYY-MM-DD>-<k>` (not `release/*`: git-flow projects have it) from a
 fresh `origin/<base>`, `k` — the first free number of the day, and pushes it
-without a local branch — a `+` line; the next ones take the same — an `○`
-line: the marker keeps it as `batch <owner/repo> <branch>` after the queue
-command (`task resume` reads only the command). Gone from origin — released or
-deleted — a new one. No session id, not a checkout of the repository, git
+without a local branch — a `+` line; nothing ready — no branch, an `○` line
+(#787). The next ones take the same — an `○` line: the marker keeps it as
+`batch <owner/repo> <branch>` after the queue command (`task resume` reads only
+the command). Gone from origin — released or deleted — a new one, with a ready
+task too. No session id, not a checkout of the repository, git
 failed — an `○`/`!` line, no batch: executors go into the default branch.
 GitHub links a PR to a task and closes it only by a merge into the default
 branch, so the script finds a batch PR itself, by the task branch or `Closes
@@ -1165,9 +1166,11 @@ task's earlier branch (rebase-merged into the batch already, so no restart
 line), the commits and the PR body with `Refs #N`; `--cloud` — refused: a
 cloud executor isn't in the batch. Released — its release PR merged,
 the branch maybe still on origin — the next batch starts only with a ready
-task to hand out (`○ no new batch branch` otherwise): a dispatcher that is
-done leaves no empty batch branch on origin, and the marker drops the batch
-line. A released batch branch still on origin without an open PR into it is
+task to hand out (`○ no new batch branch` otherwise), like the first one: a
+dispatcher with nothing to hand out leaves no empty batch branch on origin, and
+the marker drops the batch line. Nothing is merged into a new batch yet, so
+starting it after the readiness check changes no blocker's reading. A released
+batch branch still on origin without an open PR into it is
 deleted (`+`), with one — kept (`○`) till its executor moves the PR (`pr
 premerge`); a new batch's `k` skips the names of the recent PRs' branches too:
 a released name taken again would read as released at once.

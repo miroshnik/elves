@@ -3632,6 +3632,14 @@ const remoteBatches = (work: string) =>
     .filter((r) => r.startsWith("refs/heads/batch/"))
     .map((r) => r.slice("refs/heads/".length));
 const queueIn = (f: FakeGitHub, work: string, config: string, id = SESSION) => task(f, ["queue", "--epic", "45"], REPO, { ...inSession(config, id), cwd: work, run: noEst });
+const NO_NEW_BATCH = "○ no new batch branch: nothing ready to hand out — a queue with a ready task starts it";
+/** Очередь, заводящая пачку: ей есть что раздать (#787) — #47 на её время готова, затем снова «В работе», как в записи. */
+function startBatch(f: FakeGitHub, work: string, config: string) {
+  f.status(47, "Бэклог");
+  const r = queueIn(f, work, config);
+  f.status(47, "В работе");
+  return r;
+}
 /** PR задачи, влитый в ветку пачки: GitHub его с задачей не связывает — только ветка и «Closes #N» в теле. */
 const batchPr = (number: number, head: string, base: string) => ({ files: [], closes: [], body: `Closes #${number}`, head, base, model: null, merged: true });
 
@@ -3680,6 +3688,50 @@ describe("task queue собирает задачи диспетчера в ве�
     expect(third.out.split("\n")[0]).toBe(
       `+ batch branch batch/${day()}-3 from origin/main (${git(work, "rev-parse", "origin/main").slice(0, 7)}) pushed — ${name} is gone from origin (released): the executors branch from it and merge into it`,
     );
+  });
+
+  /**
+   * Пустая ветка пачки (#787): очередь без пачки в маркере считала себя первой и пушила ветку до проверки готовности —
+   * на origin оставалась ветка на SHA `main` без PR, её не убирает и `dropReleased`: выпуска у неё нет.
+   */
+  it("Первая очередь диспетчера без готовых задач не создаёт ветку пачки на origin", () => {
+    const work = batchProjectDir(true);
+    const f = new FakeGitHub(REC);
+    f.status(47, "В работе");
+    const config = scratch();
+    const r = queueIn(f, work, config);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ready 0");
+    expect(headLines(r.out)).toContain(NO_NEW_BATCH);
+    expect(remoteBatches(work)).toEqual([]);
+    expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
+  });
+
+  // блокер из #648: в отложенной пачке читается как в заведённой сразу — блокер, влитый в неё, задачу не держит
+  it("Очередь с готовой задачей после очереди без готовых создаёт ветку пачки и выдаёт задачу в неё", () => {
+    const work = batchProjectDir(true);
+    const f = new FakeGitHub(REC);
+    f.status(47, "В работе");
+    const dependent = subtaskOf45(f, "Ждёт #47", "--blocked-by", "47");
+    const config = scratch();
+    expect(headLines(queueIn(f, work, config).out)).toContain(`○ #${dependent} «GitHub · Ждёт #47» — blocked by #47`);
+    expect(remoteBatches(work)).toEqual([]);
+    f.status(47, "Бэклог");
+    const name = `batch/${day()}-1`;
+    const main = git(work, "rev-parse", "origin/main");
+    const second = queueIn(f, work, config);
+    const lines = headLines(second.out);
+    expect(lines[0]).toBe(`+ batch branch ${name} from origin/main (${main.slice(0, 7)}) pushed: the executors branch from it and merge into it`);
+    expect(lines).toContain(`+ #47 «${f.issue(47).title}»`);
+    expect(lines).toContain(`○ #${dependent} «GitHub · Ждёт #47» — blocked by #47`);
+    expect(second.out).not.toContain("no new batch branch");
+    expect(git(work, "ls-remote", "--heads", "origin", name)).toBe(`${main}\trefs/heads/${name}`);
+    expect(readFileSync(marker(config), "utf8")).toEndWith(`\nbatch ${REPO} ${name}\n`);
+    const assignment = task(f, ["queue", "--assignment", "47"], REPO, { ...inSession(config), cwd: projectDir() }).out.split("\n")[0];
+    expect(assignment).toContain(`задача идёт в пачку \`${name}\``);
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    expect(headLines(queueIn(f, work, config).out)).toContain(`+ #${dependent} «GitHub · Ждёт #47»`);
+    expect(remoteBatches(work)).toEqual([name]);
   });
 
   it("задание исполнителя ведёт ветку задачи от ветки пачки и PR в неё", () => {
@@ -3739,7 +3791,7 @@ describe("task queue собирает задачи диспетчера в ве�
     const work = batchProjectDir(true);
     const f = new FakeGitHub(REC);
     const config = scratch();
-    queueIn(f, work, config);
+    startBatch(f, work, config);
     const name = `batch/${day()}-1`;
     f.status(47, "В работе");
     const inside = subtaskOf45(f, "Ждёт влитую в пачку", "--blocked-by", "47");
@@ -3773,7 +3825,7 @@ describe("task queue собирает задачи диспетчера в ве�
     const work = batchProjectDir(true);
     const f = new FakeGitHub(REC);
     const config = scratch();
-    queueIn(f, work, config);
+    startBatch(f, work, config);
     const name = `batch/${day()}-1`;
     f.prs[300] = batchPr(47, "feat/47-export", name);
     const merged = `PR #300 merged into ${name} — the task closes with the batch's release`;
@@ -3795,7 +3847,7 @@ describe("task queue собирает задачи диспетчера в ве�
     const work = batchProjectDir(true);
     const f = new FakeGitHub(REC);
     const config = scratch();
-    queueIn(f, work, config);
+    startBatch(f, work, config);
     const name = `batch/${day()}-1`;
     f.prs[300] = batchPr(47, "feat/47-export", name);
     f.status(47, "В работе");
@@ -3986,7 +4038,7 @@ function started(files: Record<string, string> = {}) {
   }
   const f = new FakeGitHub(REC);
   const config = scratch();
-  queueIn(f, work, config);
+  startBatch(f, work, config);
   return { work, f, config, name: `batch/${day()}-1` };
 }
 
@@ -4210,7 +4262,7 @@ describe("Выпуск пачки — один PR в main", () => {
     // диспетчеру раздавать нечего — пустой новой пачки на origin он не оставляет
     const q = queueIn(f, work, config);
     expect(headLines(q.out)).toContain(`○ #${blocked} «GitHub · Ждёт блокера» — blocked by #42`);
-    expect(q.out).toContain("○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it");
+    expect(q.out).toContain(NO_NEW_BATCH);
     expect(remoteBatches(work)).toEqual([]);
     expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
   });
@@ -4373,12 +4425,38 @@ describe("Группа диспетчера — пачки только из в�
     shipped(b, `batch/${day()}-2`, 302);
     const r = queue();
     expect(r.code).toBe(0);
-    expect(r.out).toContain("○ no new batch branch: the previous one is released, nothing ready to hand out — a queue with a ready task starts it");
+    expect(r.out).toContain(NO_NEW_BATCH);
     expect(r.out).not.toContain(`#${outside} `);
     expect(r.out.split("\n").at(-1)).toContain(
       `The group (tasks #${a}, #${b}) has nothing left — no new batch: a task outside it joins only by the owner's word, task queue --tasks with it.`,
     );
     expect(remoteBatches(work).filter((b) => b === `batch/${day()}-3`)).toEqual([]);
+  });
+
+  /**
+   * Наблюдалось на настоящем диспетчере (#787): очередь группы после выпуска убрала строку пачки из маркера, поэтому
+   * следующая очередь — по эпику, в той же сессии — не нашла пачку и завела новую, хотя раздавать ей было нечего.
+   */
+  it("После выпуска очередь группы, затем очередь эпика без готовых задач не создают ветку пачки на origin", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    expect(release(f, work, config).code).toBe(0);
+    Object.assign(f.prs[301]!, { merged: true, state: "MERGED" });
+    f.closed(47);
+    const blocked = subtaskOf45(f, "Ждёт блокера", "--blocked-by", "42");
+    const closed = task(f, ["queue", "--tasks", "47"], REPO, { ...inSession(config), cwd: work, run: noEst });
+    expect(closed.code).toBe(0);
+    expect(closed.out).toContain(`+ batch branch ${name} deleted: released by PR #301, no open PR into it`);
+    expect(closed.out).toContain(NO_NEW_BATCH);
+    expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
+    const epic = queueIn(f, work, config);
+    expect(epic.code).toBe(0);
+    expect(headLines(epic.out)).toContain(`○ #${blocked} «GitHub · Ждёт блокера» — blocked by #42`);
+    expect(epic.out).toContain("ready 0");
+    expect(epic.out).toContain(NO_NEW_BATCH);
+    expect(remoteBatches(work)).toEqual([]);
+    expect(readFileSync(marker(config), "utf8")).not.toContain("\nbatch ");
   });
 
   // без перегиба: группа задаётся либо эпиком, либо списком
