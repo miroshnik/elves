@@ -802,6 +802,9 @@ export function render(
   return lines.join("\n").trimEnd() + "\n";
 }
 
+/** A test in `--json` — the same in the lists and the scenarios: the file tells apart the sections of one folder. */
+const testJson = (t: Test) => ({ file: t.path, folder: L.folderOf(t), describes: t.describes, name: t.name });
+
 /** `unreported` — base tests only a run names, of files a partial report didn't run: not compared (`unreportedTests`). */
 function asJson(
   baseLabel: string,
@@ -813,18 +816,17 @@ function asJson(
   notStatements: number,
   unreported: Test[],
 ): string {
-  const d = (t: Test) => ({ file: t.path, folder: L.folderOf(t), describes: t.describes, name: t.name });
   return (
     JSON.stringify(
       {
         base: baseLabel,
-        removed: removed.map(d),
-        changed: changed.map(([o, n]) => ({ old: d(o), new: d(n) })),
-        added: added.map(d),
-        moved: moved.map((m) => ({ from: m.from, ...d(m.test) })),
+        removed: removed.map(testJson),
+        changed: changed.map(([o, n]) => ({ old: testJson(o), new: testJson(n) })),
+        added: added.map(testJson),
+        moved: moved.map((m) => ({ from: m.from, ...testJson(m.test) })),
         out_of_tree_files: outFiles,
         not_statements: notStatements,
-        unreported: unreported.map(d),
+        unreported: unreported.map(testJson),
       },
       null,
       2,
@@ -871,11 +873,17 @@ export function scenarioFolder(scenario: string): { folder: string | null; name:
 }
 
 /**
- * The prefix names the folder as spec-diff prints it (`tests/capabilities/billing`, with `#section` in a topic with
- * sections) or by its tail (`billing`, `capabilities/billing`).
+ * The prefix names the place as spec-diff prints it (`tests/capabilities/billing`, `tests/capabilities/routes#permissions`
+ * in a topic with sections) or by its tail (`billing`, `capabilities/billing`, `routes#permissions`). In a topic with
+ * sections (#685) the decision is a section, and the prefix is its name alone (`permissions`) — only that section's
+ * tests; the topic in front — any of its sections, as the decision folder before sections (#790).
  */
 const inFolder = (folder: string | null, places: string[]): boolean =>
-  folder === null || places.some((p) => p === folder || p.endsWith(`/${folder}`));
+  folder === null ||
+  places.some((p) => {
+    const [topic, section] = p.split("#");
+    return section === folder || [p, topic!].some((q) => q === folder || q.endsWith(`/${folder}`));
+  });
 
 /** A scenario and what it became: new tests, a harness check's describe, or nothing. */
 export interface Found {
@@ -888,7 +896,7 @@ export interface Found {
  * Scenario ↔ new tests: each one whose it name or "describe › it" chain matches it (case-insensitive, without outer
  * quotes and a trailing mark) — one scenario is checked both on the server and in the UI; no test — the describe of a
  * new harness check, its name or chain. A scenario with the decision folder in front (`scenarioFolder`) is matched only
- * within that folder; without it — in any. Tests that check generated (`generated` — only from the report) are tests of
+ * within that folder or topic's section (`inFolder`); without it — in any. Tests that check generated (`generated` — only from the report) are tests of
  * its scenario, not beyond the scenarios.
  */
 export function matchScenarios(
@@ -1163,16 +1171,15 @@ export async function main(argv: string[]): Promise<number> {
   if (v.scenarios !== undefined) {
     if (v.json) {
       const j = JSON.parse(text);
-      const d = (t: Test) => ({ folder: L.folderOf(t), describes: t.describes, name: t.name });
       j.scenarios =
         scenarios === null
           ? null
           : match.found.map(({ scenario, tests, harness: h }) => ({
               scenario,
-              tests: tests.map(d),
+              tests: tests.map(testJson),
               harness: h ? { folder: h.folder, describes: h.describes, checks: h.checks } : null,
             }));
-      j.extra_tests = match.extra.map(d);
+      j.extra_tests = match.extra.map(testJson);
       text = JSON.stringify(j, null, 2) + "\n";
     } else {
       const listed = !summarized(removed, changed, added, limit);
