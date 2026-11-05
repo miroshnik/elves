@@ -537,6 +537,44 @@ describe("Сценарии задачи сверяются с тестами PR"
     expect(j.scenarios[0].tests.map((t: { folder: string }) => t.folder)).toEqual(["tests/capabilities/billing", "tests/capabilities/cabinet"]);
   });
 
+  // в теме с разделами (#685) решение — раздел, и сценарий пишут его именем, а место теста в списках —
+  // `<тема>#<раздел>`: префикс сверялся только с папкой, и каждый сценарий раздела выходил «теста нет» (#790)
+  const ROUTES = "tests/capabilities/routes";
+  const sectioned = (issue: string) => {
+    const base = repo.commit({ [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {});`) });
+    const same = `it("гость видит 403", () => {});`;
+    // собственное утверждение темы — в describe: тот же it в той же папке без него — одно требование с разделом
+    repo.commit({
+      [`${ROUTES}/routes.test.ts`]: ts(`it("x", () => {}); describe("Маршруты", () => { ${same} });`),
+      [`${ROUTES}/permissions.test.ts`]: ts(same),
+      [`${ROUTES}/web/naming.test.ts`]: ts(same),
+      "issue.md": issue,
+    });
+    return JSON.parse(diffFrom(base, "--scenarios", "issue.md", "--json").stdout);
+  };
+  const filesOf = (j: { scenarios: { tests: { file: string }[] }[] }) => j.scenarios.map((s) => s.tests.map((t) => t.file).sort());
+
+  it("сценарий с разделом темы впереди находит тест этого раздела", () => {
+    const j = sectioned(
+      "## Сценарии\n\n- `permissions` · гость видит 403\n- `routes#permissions` · гость видит 403\n- `tests/capabilities/routes#naming` · гость видит 403\n",
+    );
+    expect(filesOf(j)).toEqual([[`${ROUTES}/permissions.test.ts`], [`${ROUTES}/permissions.test.ts`], [`${ROUTES}/web/naming.test.ts`]]);
+  });
+
+  it("сценарий с разделом впереди не находит одноимённый тест другого раздела", () => {
+    const j = sectioned("## Сценарии\n\n- `permissions` · гость видит 403\n- `errors` · гость видит 403\n");
+    expect(filesOf(j)).toEqual([[`${ROUTES}/permissions.test.ts`], []]);
+    expect(j.extra_tests.map((t: { file: string }) => t.file).sort()).toEqual([`${ROUTES}/routes.test.ts`, `${ROUTES}/web/naming.test.ts`]);
+  });
+
+  // тема впереди — папка решения, как до разделов: сценарии, написанные папкой, не ломаются; раздел только сужает
+  it("сценарий с темой впереди находит тест любого её раздела", () => {
+    const j = sectioned("## Сценарии\n\n- `routes` · гость видит 403\n- `tests/capabilities/routes` · гость видит 403\n");
+    const all = [`${ROUTES}/permissions.test.ts`, `${ROUTES}/routes.test.ts`, `${ROUTES}/web/naming.test.ts`];
+    expect(filesOf(j)).toEqual([all, all]);
+    expect(j.extra_tests).toEqual([]);
+  });
+
   // пример раздела в блоке кода в контексте задачи сверка брала за сам раздел (#717)
   it("раздел «## Сценарии» в блоке кода — пример в тексте задачи, а не её сценарии", () => {
     const j = prefixed("## Контекст\n\n```markdown\n## Сценарии\n\n- пример из текста\n```\n\n## Сценарии\n\n- выставляется за месяц\n");
