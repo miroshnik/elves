@@ -79,16 +79,18 @@ function api<T>(endpoint: string): T {
 const time = (iso: string | undefined): number => Date.parse(iso ?? "");
 
 /**
- * Ids of the runs with a live artifact, newest first. Only this repository's runs count: a PR run from a fork can upload
- * an artifact with any name too. `before` — only artifacts uploaded by then: a run finished by a moment uploaded its
- * artifact before it. A page of 100: newer artifacts keep coming while a run lasts, an older source stays on it.
+ * Ids of the runs with a live artifact, newest upload first. Only this repository's runs count: a PR run from a fork can
+ * upload an artifact with any name too. `before` — only artifacts uploaded by then: a run finished by a moment uploaded
+ * its artifact before it. The API lists artifacts by id, descending, not by upload time — the two differ by tens of
+ * minutes, so they are sorted by `created_at` here. A page of 100: the id order strays from time by minutes, not by a
+ * page, and newer artifacts keep coming while a run lasts — an older source stays on it.
  */
 function runIds(artifact: string, before?: number): number[] {
   const { artifacts } = api<{ artifacts: Artifact[] }>(`repos/{owner}/{repo}/actions/artifacts?name=${encodeURIComponent(artifact)}&per_page=100`);
-  const own = artifacts.filter(
-    (a) => !a.expired && a.workflow_run && a.workflow_run.head_repository_id === a.workflow_run.repository_id && !(time(a.created_at) > (before ?? Infinity)),
-  );
-  // a rerun uploads the artifact again under the same run id
+  const own = artifacts
+    .filter((a) => !a.expired && a.workflow_run && a.workflow_run.head_repository_id === a.workflow_run.repository_id && !(time(a.created_at) > (before ?? Infinity)))
+    .sort((a, b) => time(b.created_at) - time(a.created_at));
+  // a rerun uploads the artifact again under the same run id: the run counts by its newest upload
   return [...new Set(own.map((a) => a.workflow_run!.id))];
 }
 
