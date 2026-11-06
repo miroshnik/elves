@@ -15,6 +15,15 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
 
 - **A flake suspicion — the same run on the base branch.** Red there too — I
   compare the delta: otherwise someone else's flake becomes my regression.
+- **A timeout suspected of load — first `slot`'s overload line.** A run that
+  went past the load wait prints `slot: the machine is overloaded — …` at its
+  start and the machine's load at its end: a test that usually takes tens of
+  milliseconds stands 15–19 s there because the worker or the database server
+  stands, and in isolation it doesn't reproduce. The line is there — no fix in
+  the test or the code: the same run again on an idle machine (no `slot:
+  waiting for the machine load` line); red there too — the timeout is the
+  test's, its root cause goes as any failure's. No line — the run started
+  below the limit: the cause is looked for in the test or the code first.
 - **A green test may lock in wrong behavior.** An external API's test is
   checked against its schema or docs, not intuition about how such APIs
   usually work; on a mismatch the test is fixed, not the code to fit the test.

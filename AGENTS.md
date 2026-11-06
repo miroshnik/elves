@@ -236,7 +236,8 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
   unrelated to my changes or a rerun is green — no "pre-existing flake",
   timeouts or retries; a race goes by its cause (the real event, not a
   pause). A flake suspicion — the same run on the base branch: red there too
-  — I compare the delta.
+  — I compare the delta; a timeout — first `slot`'s overload line, it's there
+  — a rerun on an idle machine (`docs/testing.md`).
 - **A run's result — by the runner's summary**, not the wrapper's exit code.
   Project checks go through the machine queue (the `slot` skill), a full run
   — in the background; e2e and UI in a browser — `docs/testing.md`.
