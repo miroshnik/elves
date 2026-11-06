@@ -605,6 +605,23 @@ describe("Сценарии задачи сверяются с тестами PR"
     expect(j.extra_tests).toEqual([]);
   });
 
+  // проверка харнесса в разделе темы: её место — `<тема>#<раздел>`, и папка впереди сценария с ним не сходилась (#802)
+  it("сценарий с папкой решения впереди закрывается проверкой харнесса раздела этой папки", () => {
+    const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
+    const check = ts(
+      `import { invariant } from "../../../harness.ts";\n` +
+        `describe("Каждый счёт хранит валюту", () => { invariant(it, { registry: "счета", items, name: (m) => m + " хранит валюту" }); });`,
+    );
+    repo.commit({ "tests/capabilities/billing/invoices.test.ts": check });
+    const harnessOf = (scenario: string) => {
+      repo.commit({ "issue.md": `## Сценарии\n\n- ${scenario}\n` });
+      return JSON.parse(diffFrom(base, "--scenarios", "issue.md", "--json").stdout).scenarios[0].harness?.folder ?? null;
+    };
+    const place = "tests/capabilities/billing#invoices";
+    expect(["`billing` · Каждый счёт хранит валюту", "`invoices` · Каждый счёт хранит валюту", "`billing#invoices` · Каждый счёт хранит валюту", "Каждый счёт хранит валюту"].map(harnessOf)).toEqual([place, place, place, place]);
+    expect(harnessOf("`cabinet` · Каждый счёт хранит валюту")).toBeNull();
+  });
+
   // пример раздела в блоке кода в контексте задачи сверка брала за сам раздел (#717)
   it("раздел «## Сценарии» в блоке кода — пример в тексте задачи, а не её сценарии", () => {
     const j = prefixed("## Контекст\n\n```markdown\n## Сценарии\n\n- пример из текста\n```\n\n## Сценарии\n\n- выставляется за месяц\n");
