@@ -88,6 +88,13 @@ describe("Прогон во главе очереди ждёт нагрузку 
     expect({ wait: at(/^slot: waiting for the machine load/) >= 0, begin, ran: at(/^ran$/), end }).toEqual({ wait: true, begin: lines.indexOf("ran") - 1, ran: lines.indexOf("ran"), end: lines.indexOf("ran") + 1 });
   });
 
+  it("прогон на свободной машине предупреждения не печатает", () => {
+    machine(IDLE, 0);
+    const r = spawnSync("bun", ["--no-env-file", SLOT, "echo ran >&2"], { cwd: dir, env: envOf(), encoding: "utf8", timeout: PATIENCE });
+    expect(exitOf(r)).toBe(0);
+    expect(r.stderr).toBe("ran\n");
+  });
+
   it("скрипт package.json, пущенный после предела ожидания, получает строку конца, когда его shell вышел", async () => {
     machine(OVERLOADED, 0);
     const shell = spawn("sleep", ["60"]);
