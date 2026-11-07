@@ -18,7 +18,7 @@ no host port per app, no port search. The scheme and the reasons — epic
 ```bash
 bun --no-env-file <skill dir>/scripts/task-env.ts up [<N>] [--profile <p>]...            # the task's stack by the branch, its addresses
 bun --no-env-file <skill dir>/scripts/task-env.ts e2e [--profile <p>]... [-- <command>]  # the e2e stack anew, the command with its addresses
-bun --no-env-file <skill dir>/scripts/task-env.ts down [<N>]                             # the task's stacks with their volumes
+bun --no-env-file <skill dir>/scripts/task-env.ts down [<N>]                             # the task's stacks with their volumes and built images
 bun --no-env-file <skill dir>/scripts/task-env.ts prune                                  # stacks of the project's closed tasks
 bun --no-env-file <skill dir>/scripts/task-env.ts proxy up       # start it (or bring it to the compose file), wait until healthy
 bun --no-env-file <skill dir>/scripts/task-env.ts proxy status   # 0 — running, 1 — not running (the start command), 2 — no Docker
@@ -98,12 +98,12 @@ with the addresses of the e2e stack:
 `e2e` only brings the stack up. The stack stays until the next run: a failed run is examined on it
 (`docker compose -p <project>-<N>-e2e logs`).
 
-**down** — both stacks of the task with their volumes; without a number — the branch's task; other tasks' stacks and
-the main checkout's aren't touched; `task close` of the `github` skill calls it — reference.md, "Taking a task's
-stacks down". **prune** — the stacks of the project's closed tasks left on the machine go with their volumes, without
-a question: a closed task's stack is nobody's; what is left — reference.md, "Stacks of closed tasks". **A stack that
-didn't come up** — code 1, each failed service with its state and log — reference.md, "A stack that didn't come up".
-Exit codes — reference.md, "Exit codes".
+**down** — both stacks of the task with their volumes and the images they built (pulled ones stay); without a number —
+the branch's task; other tasks' stacks and the main checkout's aren't touched; `task close` of the `github` skill calls
+it — reference.md, "Taking a task's stacks down". **prune** — the stacks of the project's closed tasks left on the
+machine go with their volumes and built images, without a question: a closed task's stack is nobody's; what is left —
+reference.md, "Stacks of closed tasks". **A stack that didn't come up** — code 1, each failed service with its state
+and log — reference.md, "A stack that didn't come up". Exit codes — reference.md, "Exit codes".
 
 **Machine queue** — a bring-up is heavy work: `up` and `e2e` hold a place in the `slot` queue until the containers
 are healthy, the e2e command runs outside it; a package.json script with its own `docker compose up` — `check` names it.

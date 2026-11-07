@@ -33,27 +33,39 @@ stacks and the main checkout's aren't touched. `down` without a number — the b
 
 ```
 + stack shop-42: down, with its volumes
++ stack shop-43: down, with its volumes and images app/web:shop-43, shop-43-worker:latest
+○ image app/api:shop-43 of stack shop-43: left — container shop-44-api-1 uses it
 ○ stacks shop-42, shop-42-e2e: none on the machine
 ! stack shop-42: not removed — <Docker's reason>
 ```
 
-Only the stacks that are on the machine are taken down — found by the label of containers, volumes and networks
-(`com.docker.compose.project`), not by `docker compose ls`: a stack left with volumes only (`down` without `-v`,
-containers removed by hand) isn't in its list. No compose file in the checkout — `○ no compose file … — the project
-has no task stacks`, Docker isn't called: `task close` of a project without Compose doesn't depend on Docker running.
-No docker on the machine — an `○` line; Docker doesn't answer — a `!` line with the reason.
+**The images the stack built go with it** (#807): Compose labels a built image with the stack's project
+(`com.docker.compose.project`), a pulled one — a database, a broker, a base — has no such label and stays. A compose
+file may tag a built image by the stack, `image: app/web:${COMPOSE_PROJECT_NAME}`, so that a parallel stack's build
+doesn't move a machine-wide tag to another tree's code; such an image outlives its stack — a shared tag's previous
+build lost its name and went by itself. `docker image rm` of each `repo:tag` (a dangling one — by its ID), without
+`--force`: an image a container still runs on — another stack's, a test's own — stays, an `○` line names it and the
+containers; another failure — a `!` line, code 2. `e2e` re-creates its stack on the same images: `up --build` rebuilds
+them.
+
+Only the stacks that are on the machine are taken down — found by the label of containers, volumes, networks and
+built images (`com.docker.compose.project`), not by `docker compose ls`: a stack left with volumes only (`down`
+without `-v`, containers removed by hand) or with its images only isn't in its list. No compose file in the checkout —
+`○ no compose file … — the project has no task stacks`, Docker isn't called: `task close` of a project without Compose
+doesn't depend on Docker running. No docker on the machine — an `○` line; Docker doesn't answer — a `!` line with the
+reason.
 
 ## Stacks of closed tasks — prune
 
 **prune** — the stacks of the project's closed tasks left on the machine (orphans: a task closed without `task
 close`, a close that couldn't reach Docker, a task that removed the compose file): every stack `<project>-<N>` and
 `<project>-<N>-e2e` on the machine, the task's state by GitHub (`gh api repos/<owner>/<repo>/issues/<N>`, the
-repository — the checkout's `origin`). Closed — the stacks go with their volumes right away, without a question: a
-closed task's stack is nobody's.
+repository — the checkout's `origin`). Closed — the stacks go with their volumes and built images right away, without
+a question: a closed task's stack is nobody's; a stack left with its images only — taken down before #807 — goes too.
 
 ```
 ○ stack shop-7: no task #7 in acme/shop — left
-+ stack shop-41: down, with its volumes — task #41 is closed
++ stack shop-41: down, with its volumes and image app/web:shop-41 — task #41 is closed
 ○ stack shop-42: task #42 is open — left
 ○ stack shop-9: its containers are from /work/shop-9 — another project, left
 ```
@@ -77,8 +89,8 @@ stack shop-42: not up — container shop-42-api-1 exited (3)
 ## Exit codes
 
 `up` — 0 up, 1 not up, 2 not tried (no compose file, broken settings, Docker unavailable, `docker compose config`
-fails); `e2e` — the command's, otherwise as `up`; `down` and `prune` — 0, 2 if a stack isn't removed, Docker is
-unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 running, 1 not running (the start command),
+fails); `e2e` — the command's, otherwise as `up`; `down` and `prune` — 0 (an image a container uses, left, too), 2
+if a stack or an image isn't removed, Docker is unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 running, 1 not running (the start command),
 2 no Docker; `check` — 0 the rules hold or no compose file, 1 violations, 2 not checked.
 
 ## The proxy — container, routes, API

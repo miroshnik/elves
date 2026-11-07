@@ -126,6 +126,12 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: root, encoding: "utf8", env });
     return { code: exitOf(r), stdout: r.stdout, stderr: r.stderr, out: r.stdout + r.stderr };
   };
+  /** Команда скрипта, которая должна пройти: не прошла — в сообщении её вывод, причина видна в отчёте. */
+  const passes = (...args: string[]) => {
+    const r = taskEnv(...args);
+    expect(r.code, r.out).toBe(0);
+    return r;
+  };
   const dockerOut = (...args: string[]) => {
     const r = run("docker", args, env);
     if (r.status !== 0) throw new Error(`docker ${args.join(" ")}: ${r.stderr.trim()}`);
@@ -136,6 +142,16 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
   const services = (stack: string) =>
     dockerOut("ps", "--all", "--filter", byProject(stack), "--format", '{{.Label "com.docker.compose.service"}}').split("\n").filter(Boolean).sort();
   const volumes = (stack: string) => dockerOut("volume", "ls", "--quiet", "--filter", byProject(stack)).split("\n").filter(Boolean);
+  /** Образы, которые собрал стек, — по метке проекта Compose на собранном образе: `репозиторий:тег`, отсортированные. */
+  const images = (stack: string) =>
+    dockerOut("image", "ls", "--filter", byProject(stack), "--format", "{{.Repository}}:{{.Tag}}").split("\n").filter(Boolean).sort();
+  /** Образы стеков теста — id: метку `image ls` не печатает, её читает `image inspect`. */
+  const testImages = () => {
+    const ids = [...new Set(dockerOut("image", "ls", "--quiet", "--filter", "label=com.docker.compose.project").split("\n").filter(Boolean))];
+    if (!ids.length) return [];
+    const rows = dockerOut("image", "inspect", "--format", '{{.Id}}\t{{index .Config.Labels "com.docker.compose.project"}}', ...ids).split("\n");
+    return rows.map((r) => r.split("\t")).filter(([, p]) => p === PROJECT || p?.startsWith(`${PROJECT}-`)).map(([id]) => id!);
+  };
   /** Стеки теста на машине — по метке проекта Compose у контейнеров, томов и сетей: от стека бывают одни тома. */
   const testStacks = () => {
     const names = new Set<string>();
@@ -169,7 +185,8 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     root = path.join(repo.dir, "session-379-499083");
     mkdirSync(root);
     // db — «база»: порт опубликован на loopback, данные в томе; sleep не ловит SIGTERM — SIGKILL, чтобы down не ждал 10 с
-    const db = `    image: ${BUSYBOX}\n    command: [sleep, "86400"]\n    stop_signal: SIGKILL\n`;
+    const sleeper = '    command: [sleep, "86400"]\n    stop_signal: SIGKILL\n';
+    const db = `    image: ${BUSYBOX}\n${sleeper}`;
     writeTree(root, {
       "compose.yaml": [
         "services:",
@@ -193,10 +210,20 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
         "  missing:",
         "    image: elves-task-env-test/no-such-image:0",
         "    profiles: [missing]",
+        // собранные образы: app — с тегом стека (параллельная сборка не переставляет общий тег), worker — с именем
+        // образа по умолчанию от Compose, `<стек>-worker`
+        "  app:",
+        "    build: ./app",
+        `    image: ${PROJECT}/app:\${COMPOSE_PROJECT_NAME}`,
+        sleeper + "    profiles: [build]",
+        "  worker:",
+        "    build: ./app",
+        sleeper + "    profiles: [build]",
         "volumes:",
         "  data: {}",
         "",
       ].join("\n"),
+      "app/Dockerfile": `FROM ${BUSYBOX}\n`,
       ".agents/elves.json": JSON.stringify({ env: { http: { web: 80, search: 80, ghost: 3000 } } }) + "\n",
     });
     git("init", "-q", "-b", "main");
@@ -211,6 +238,8 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
    */
   afterEach(() => {
     for (const stack of testStacks()) run("docker", ["compose", "-p", stack, "down", "--volumes", "--remove-orphans"], env);
+    const built = testImages();
+    if (built.length) run("docker", ["image", "rm", "--force", ...built], env);
   });
   afterAll(() => {
     run("bun", [SCRIPT, "proxy", "down"], env);
@@ -264,7 +293,7 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     // сервис настройки, которого нет в compose-файле, — строка, а не ошибка
     expect(r.stdout).toContain("! env.http: service ghost isn't in the compose file — no address for it\n");
     expect(git("status", "--porcelain")).toBe("");
-    expect(taskEnv("check").code).toBe(0);
+    passes("check");
   });
 
   /**
@@ -320,7 +349,7 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
 
   it("у e2e свой стек с чистыми томами, отличный от dev той же задачи", async () => {
     on("feat/42-checkout");
-    expect(taskEnv("up").code).toBe(0);
+    passes("up");
     dockerOut("compose", "-p", `${PROJECT}-42`, "exec", "-T", "db", "touch", "/data/dev-marker");
     const write = taskEnv("e2e", "--", "sh", "-c", 'docker compose -p "$TASK_ENV_PROJECT" exec -T db touch /data/e2e-run-marker');
     expect(write.code, write.out).toBe(0);
@@ -365,7 +394,7 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
    */
   it("без `task-env` переменных нет — работает значение по умолчанию compose-файла", () => {
     on("feat/42-checkout");
-    expect(taskEnv("up").code).toBe(0);
+    passes("up");
     // `docker compose` руками (CI) в том же чекауте
     const config = spawnSync("docker", ["compose", "config", "--format", "json"], { cwd: root, encoding: "utf8", env });
     expect(exitOf(config), config.stderr).toBe(0);
@@ -390,10 +419,10 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
   /** `task close` снимает стеки задачи этой командой (скилл github). */
   it("снятие убирает контейнеры и тома только своей задачи — стеки другой задачи и основного чекаута остаются", () => {
     on("feat/42-checkout");
-    expect(taskEnv("up").code).toBe(0);
-    expect(taskEnv("e2e").code).toBe(0);
+    passes("up");
+    passes("e2e");
     on("feat/43-other");
-    expect(taskEnv("up").code).toBe(0);
+    passes("up");
     // основной чекаут — одними томами: подсетей у Docker немного (SKILL.md, «Network subnets»), а стек без контейнеров
     // снятие находит так же
     volumeOnly(PROJECT);
@@ -417,6 +446,44 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     expect(volumes(`${PROJECT}-46`)).toEqual([]);
   });
 
+  /**
+   * Тег стека (`image: app:${COMPOSE_PROJECT_NAME}`) копил бы образы: прежняя сборка с общим тегом теряла имя и уходила
+   * сама, а образ с тегом стека после снятия стека остаётся (#807). Скачанные образы — базы, брокера — нужны и другим.
+   */
+  it("`down` убирает образы, которые собрал стек, и не трогает скачанные", () => {
+    on("feat/47-build");
+    const up = taskEnv("up", "--profile", "build");
+    expect(up.code, up.out).toBe(0);
+    const built = [`${PROJECT}/app:${PROJECT}-47`, `${PROJECT}-47-worker:latest`].sort();
+    expect(images(`${PROJECT}-47`)).toEqual(built);
+    const r = taskEnv("down");
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toBe(`+ stack ${PROJECT}-47: down, with its volumes and images ${built.join(", ")}\n`);
+    expect(images(`${PROJECT}-47`)).toEqual([]);
+    for (const pulled of [WHOAMI, BUSYBOX]) expect(dockerOut("image", "ls", "--quiet", pulled), pulled).not.toBe("");
+  });
+
+  /** Без `--force`: образ, на котором идёт контейнер другого стека или теста, снятие этого стека не ломает. */
+  it("образ, который держит контейнер, `down` оставляет и называет", () => {
+    on("feat/48-held");
+    const up = taskEnv("up", "--profile", "build");
+    expect(up.code, up.out).toBe(0);
+    const held = `${PROJECT}/app:${PROJECT}-48`;
+    // контейнер другого стека: метки образа контейнер наследует, своя метка проекта их перекрывает
+    const holder = `${PROJECT}-49-holder`;
+    dockerOut("create", "--name", holder, "--label", `com.docker.compose.project=${PROJECT}-49`, held);
+    try {
+      const r = taskEnv("down");
+      expect(r.code, r.out).toBe(0);
+      expect(r.stdout).toBe(
+        `+ stack ${PROJECT}-48: down, with its volumes and image ${PROJECT}-48-worker:latest\n○ image ${held} of stack ${PROJECT}-48: left — container ${holder} uses it\n`,
+      );
+      expect(images(`${PROJECT}-48`)).toEqual([held]);
+    } finally {
+      run("docker", ["rm", "--force", holder], env);
+    }
+  });
+
   /** gh — подставной (FAKE_GH): состояние задач — из states, журнал вызовов — ghLog. */
   let ghLog = "";
   function prune(states: Record<number, string>) {
@@ -432,9 +499,9 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
 
   it("поиск сирот находит только стеки закрытых задач: снимает их с томами, стеки открытых задач, основного чекаута и номеров, которых нет в GitHub, не трогает", () => {
     on("feat/41-done");
-    expect(taskEnv("up").code).toBe(0);
+    passes("up");
     on("feat/42-checkout");
-    expect(taskEnv("up").code).toBe(0);
+    passes("up");
     // от стеков остались одни тома: e2e закрытой задачи, стек номера, которого в GitHub нет, и основной чекаут — так
     // меньше сетей (SKILL.md, «Network subnets»)
     for (const stack of [`${PROJECT}-41-e2e`, `${PROJECT}-7`, PROJECT]) volumeOnly(stack);
@@ -472,5 +539,19 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).toMatch(new RegExp(`^○ stack ${PROJECT}-9: its containers are from \\S*/other — another project, left\n$`));
     expect(services(`${PROJECT}-9`)).toEqual(["db"]);
+  });
+
+  /** Так остались образы задач, закрытых до #807: `down` снимал стек без них. */
+  it("`prune` убирает образы стека закрытой задачи, от которого остались одни образы", () => {
+    on("feat/41-done");
+    const up = taskEnv("up", "--profile", "build");
+    expect(up.code, up.out).toBe(0);
+    expect(exitOf(run("docker", ["compose", "-p", `${PROJECT}-41`, "down", "--volumes", "--remove-orphans"], env))).toBe(0);
+    const built = [`${PROJECT}/app:${PROJECT}-41`, `${PROJECT}-41-worker:latest`].sort();
+    expect(images(`${PROJECT}-41`)).toEqual(built);
+    const r = prune({ 41: "closed" });
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toBe(`+ stack ${PROJECT}-41: down, with its volumes and images ${built.join(", ")} — task #41 is closed\n`);
+    expect(images(`${PROJECT}-41`)).toEqual([]);
   });
 });
