@@ -9,9 +9,9 @@
  * proxy's labels and network for the HTTP services of `env.http` in `.agents/elves.json`; their addresses go to Compose's
  * interpolation in `TASK_ENV_<SERVICE>_URL` (the compose file gives the app its own address); it prints the addresses.
  * `e2e` brings `<project>-<N>-e2e` up anew with clean volumes and runs the command on the host with the e2e addresses
- * in `TASK_ENV_*` variables; `down` takes both stacks of a task down with their volumes — `task close` calls it; `prune`
- * takes down the stacks of the project's closed tasks left on the machine — orphans, the task's state by GitHub. A stack
- * that didn't come up — each failed service with its state and the end of its log.
+ * in `TASK_ENV_*` variables; `down` takes both stacks of a task down with their volumes and the images they built —
+ * `task close` calls it; `prune` takes down the stacks of the project's closed tasks left on the machine — orphans, the
+ * task's state by GitHub. A stack that didn't come up — each failed service with its state and the end of its log.
  *
  * `check` holds the project's compose file to the isolation rules: Compose keeps two stacks of one project apart by the
  * project name — containers, volumes and networks get its prefix — and four entries bypass the prefix and break
@@ -81,18 +81,19 @@ Examples:
   task-env e2e --profile worker -- bun test e2e`,
   down: `task-env down [<N>]
 
-Takes the stacks of task N (default — the branch's) down with their volumes: dev and e2e; a line per stack: + down,
-○ none, ! not removed (code 2); no compose file in the checkout — nothing to take down, Docker isn't called; task close of
-the github skill calls it.
+Takes the stacks of task N (default — the branch's) down with their volumes and the images they built (pulled ones
+stay): dev and e2e; a line per stack: + down, ○ none, ! not removed (code 2); an image another container still uses —
+left, named by a ○ line; no compose file in the checkout — nothing to take down, Docker isn't called; task close of the
+github skill calls it.
 
 Examples:
   task-env down
   task-env down 42`,
   prune: `task-env prune
 
-Takes down the stacks of the project's closed tasks left on the machine (orphans) with their volumes: the task's state —
-by GitHub (gh); stacks of open tasks, of the main checkout, of numbers that aren't tasks and of another repository with
-the same name — left.
+Takes down the stacks of the project's closed tasks left on the machine (orphans) with their volumes and built images —
+a stack left with its images only too: the task's state — by GitHub (gh); stacks of open tasks, of the main checkout,
+of numbers that aren't tasks and of another repository with the same name — left.
 
 Examples:
   task-env prune`,
@@ -834,38 +835,93 @@ function upStack(project: Project, stack: Stack, profiles: string[], env: NodeJS
  * Takes a stack down with its volumes — by the Compose project from `/`, without the compose file: it may be gone
  * already (`task close` after the worktree), and a compose file found by Compose would hide services of other profiles.
  * Compose finds the stack's containers, networks and volumes by their labels — a stack left with volumes only too.
+ * withImages — the images the stack built go too (`removeImages`): `down` and `prune`; `e2e` brings its stack up anew on
+ * the same images, `up --build` rebuilds them.
  */
-function downStack(stack: string, env: NodeJS.ProcessEnv): { ok: boolean; line: string } {
+function downStack(stack: string, env: NodeJS.ProcessEnv, withImages = false): { ok: boolean; lines: string[] } {
   const r = dc(["-p", stack, "down", "--volumes", "--remove-orphans"], "/");
-  const ok = !r.error && r.status === 0;
-  return { ok, line: ok ? `+ stack ${stack}: down, with its volumes` : `! stack ${stack}: not removed — ${why(r)}${hint(why(r), env)}` };
+  if (r.error || r.status !== 0) return { ok: false, lines: [`! stack ${stack}: not removed — ${why(r)}${hint(why(r), env)}`] };
+  if (!withImages) return { ok: true, lines: [`+ stack ${stack}: down, with its volumes`] };
+  const images = removeImages(stack, env);
+  const removed = images.removed.length ? ` and ${images.removed.length === 1 ? "image" : "images"} ${images.removed.join(", ")}` : "";
+  return { ok: images.ok, lines: [`+ stack ${stack}: down, with its volumes${removed}`, ...images.lines] };
 }
 
-/** The label Compose marks a stack's containers, volumes and networks with: the Compose project. */
+/** The label Compose marks a stack's containers, volumes and networks with — and the images it built: the Compose project. */
 const PROJECT_LABEL = "com.docker.compose.project";
+
+/**
+ * Removes the images a stack built — Compose labels a built image with the stack's project (#807; Compose 5.6), a pulled
+ * one (a database, a broker, a base) has no such label and stays. A compose file may tag a built image by the stack
+ * (`image: app/web:${COMPOSE_PROJECT_NAME}` — a parallel stack's build doesn't move a machine-wide tag to another
+ * tree's code), and such an image outlives its stack: a shared tag's previous build lost its name and went by itself.
+ * By reference, `repo:tag` (a dangling one — by its ID), one by one, without `--force`: an image another container still
+ * runs on — another stack's, a test's own — stays, named by a `○` line with the containers; another failure — a `!`
+ * line. The references are sorted: the lines don't depend on Docker's order.
+ */
+function removeImages(stack: string, env: NodeJS.ProcessEnv): { removed: string[]; lines: string[]; ok: boolean } {
+  const label = `label=${PROJECT_LABEL}=${stack}`;
+  const list = spawnSync("docker", ["image", "ls", "--filter", label, "--format", "{{.ID}}\t{{.Repository}}:{{.Tag}}"], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+  if (list.error || list.status !== 0) return { removed: [], lines: [`! images of stack ${stack}: not listed — ${why(list)}`], ok: false };
+  const refs = new Set<string>();
+  for (const row of list.stdout.split("\n").filter(Boolean)) {
+    const [id, ref] = row.split("\t");
+    refs.add(!ref || ref.includes("<none>") ? id! : ref);
+  }
+  const out = { removed: [] as string[], lines: [] as string[], ok: true };
+  for (const ref of [...refs].sort()) {
+    const r = spawnSync("docker", ["image", "rm", ref], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+    if (!r.error && r.status === 0) {
+      out.removed.push(ref);
+      continue;
+    }
+    const users = spawnSync("docker", ["ps", "--all", "--filter", `ancestor=${ref}`, "--format", "{{.Names}}"], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+    const names = users.status === 0 ? users.stdout.split("\n").filter(Boolean).sort() : [];
+    if (names.length) out.lines.push(`○ image ${ref} of stack ${stack}: left — ${names.length === 1 ? "container" : "containers"} ${names.join(", ")} ${names.length === 1 ? "uses" : "use"} it`);
+    else {
+      out.lines.push(`! image ${ref} of stack ${stack}: not removed — ${why(r)}`);
+      out.ok = false;
+    }
+  }
+  return out;
+}
+
 /** Compose projects on the machine → the directories of their containers; no docker — missing, Docker unavailable — the reason. */
 type Machine = Map<string, Set<string>> | { missing: true } | string;
 
 /**
- * Stacks on the machine — by the label of containers, volumes and networks, not `docker compose ls`: a stack whose
- * containers are gone but volumes stay (`down` without `-v`, containers removed by hand) isn't in its list (#395,
- * question 2). A container's directory (`working_dir` — where Compose ran) tells a stack of another repository with the
- * same name (`prune`).
+ * Stacks on the machine — by the label of containers, volumes, networks and built images, not `docker compose ls`: a
+ * stack whose containers are gone but volumes stay (`down` without `-v`, containers removed by hand) isn't in its list
+ * (#395, question 2), nor one left with its built images only (taken down before #807). A container's directory
+ * (`working_dir` — where Compose ran) tells a stack of another repository with the same name (`prune`).
  */
 function machineStacks(env: NodeJS.ProcessEnv): Machine {
   const stacks = new Map<string, Set<string>>();
+  const add = (name: string, dir = "") => {
+    if (!name.trim()) return;
+    const dirs = stacks.get(name.trim()) ?? new Set<string>();
+    if (dir.trim()) dirs.add(dir.trim());
+    stacks.set(name.trim(), dirs);
+  };
   for (const list of [["ps", "--all"], ["volume", "ls"], ["network", "ls"]]) {
     const format = list[0] === "ps" ? `{{.Label "${PROJECT_LABEL}"}}\t{{.Label "${PROJECT_LABEL}.working_dir"}}` : `{{.Label "${PROJECT_LABEL}"}}`;
     const r = spawnSync("docker", [...list, "--filter", `label=${PROJECT_LABEL}`, "--format", format], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
     if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return { missing: true };
     if (r.error || r.status !== 0) return why(r);
     for (const line of r.stdout.split("\n")) {
-      const [name, dir] = line.split("\t");
-      if (!name?.trim()) continue;
-      const dirs = stacks.get(name.trim()) ?? new Set<string>();
-      if (dir?.trim()) dirs.add(dir.trim());
-      stacks.set(name.trim(), dirs);
+      const [name = "", dir] = line.split("\t");
+      add(name, dir);
     }
+  }
+  // `image ls --format` has no labels: the IDs, then `image inspect`
+  const ids = spawnSync("docker", ["image", "ls", "--quiet", "--filter", `label=${PROJECT_LABEL}`], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+  if (ids.error || ids.status !== 0) return why(ids);
+  const unique = [...new Set(ids.stdout.split("\n").filter(Boolean))];
+  if (unique.length) {
+    const r = spawnSync("docker", ["image", "inspect", "--format", `{{index .Config.Labels "${PROJECT_LABEL}"}}`, ...unique], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+    // an image removed between the two calls — not a failure: the others are printed
+    if (r.error || (r.status !== 0 && !/no such image/i.test(r.stderr))) return why(r);
+    for (const name of r.stdout.split("\n")) add(name);
   }
   return stacks;
 }
@@ -895,7 +951,7 @@ function stackUp(project: Project, profiles: string[], env: NodeJS.ProcessEnv): 
 function stackE2e(project: Project, profiles: string[], command: string[], env: NodeJS.ProcessEnv): number {
   const stack = stackOf(project.name, project.task, true);
   const clean = downStack(stack.name, env);
-  if (!clean.ok) return console.log(clean.line), stackFailed(env, "e2e", 2, [clean.line]);
+  if (!clean.ok) return console.log(clean.lines.join("\n")), stackFailed(env, "e2e", 2, clean.lines);
   const r = inSlot(`e2e ${stack.name}`, () => upStack(project, stack, profiles, env));
   if (r.code) return console.log(r.lines.join("\n")), stackFailed(env, "e2e", r.code, r.lines);
   const addresses = addressesOf(project, stack, env);
@@ -908,9 +964,10 @@ function stackE2e(project: Project, profiles: string[], command: string[], env: 
 }
 
 /**
- * `down`: the task's stacks — dev and e2e — with their volumes, those that are on the machine; stacks of other tasks
- * aren't touched. A checkout without a compose file has no task stacks: Docker isn't called — `task close` of every
- * project calls `down`, and with Docker stopped a project without Compose would get a `!` line (#395, question 4).
+ * `down`: the task's stacks — dev and e2e — with their volumes and the images they built (`removeImages`), those that
+ * are on the machine; stacks of other tasks aren't touched. A checkout without a compose file has no task stacks: Docker
+ * isn't called — `task close` of every project calls `down`, and with Docker stopped a project without Compose would get
+ * a `!` line (#395, question 4).
  */
 function stackDown(root: string, task: number | undefined, env: NodeJS.ProcessEnv): number {
   if (!COMPOSE_FILES.some((f) => existsSync(path.join(root, f)))) return console.log(`○ no compose file in ${root} — the project has no task stacks`), 0;
@@ -921,8 +978,8 @@ function stackDown(root: string, task: number | undefined, env: NodeJS.ProcessEn
   if (!(machine instanceof Map)) return console.log("○ no Docker on the machine — no task stacks"), 0;
   const present = stacks.filter((s) => machine.has(s));
   if (!present.length) return console.log(`○ stacks ${stacks.join(", ")}: none on the machine`), 0;
-  const done = present.map((s) => downStack(s, env));
-  console.log(done.map((d) => d.line).join("\n"));
+  const done = present.map((s) => downStack(s, env, true));
+  console.log(done.flatMap((d) => d.lines).join("\n"));
   return done.every((d) => d.ok) ? 0 : 2;
 }
 
@@ -955,10 +1012,11 @@ function taskState(repo: string, n: number, env: NodeJS.ProcessEnv): "open" | "c
 /**
  * `prune`: stacks of the project's closed tasks left on the machine — orphans: a task closed without `task close`, a
  * close that couldn't reach Docker, a task that removed the compose file. The stacks `<project>-<N>` and
- * `<project>-<N>-e2e` of the machine (containers, volumes and networks, #395, question 2); the task's state — by GitHub:
- * closed — the stacks go with their volumes; open, not an issue, not checked — left. A stack whose containers ran in an
- * existing directory of another project — another repository with the same name (`shop-2` at the project `shop`) —
- * left (#395, question 3). Without confirmation: a closed task's stack is nobody's (#395, question 1).
+ * `<project>-<N>-e2e` of the machine (containers, volumes, networks and built images, #395, question 2); the task's state
+ * — by GitHub: closed — the stacks go with their volumes and built images (#807: a stack taken down before it left its
+ * images); open, not an issue, not checked — left. A stack whose containers ran in an existing directory of another
+ * project — another repository with the same name (`shop-2` at the project `shop`) — left (#395, question 3). Without
+ * confirmation: a closed task's stack is nobody's (#395, question 1).
  */
 function prune(root: string, env: NodeJS.ProcessEnv): number {
   const name = projectName(root);
@@ -985,8 +1043,9 @@ function prune(root: string, env: NodeJS.ProcessEnv): number {
     if (!states.has(task)) states.set(task, taskState(repo, task, env));
     const state = states.get(task)!;
     if (state === "closed") {
-      const d = downStack(stack, env);
-      console.log(d.ok ? `${d.line} — task #${task} is closed` : d.line);
+      const d = downStack(stack, env, true);
+      const [first = "", ...rest] = d.lines;
+      console.log([first.startsWith("+") ? `${first} — task #${task} is closed` : first, ...rest].join("\n"));
       ok &&= d.ok;
     } else if (state === "open") console.log(`○ stack ${stack}: task #${task} is open — left`);
     else if (state === "missing") console.log(`○ stack ${stack}: no task #${task} in ${repo} — left`);
