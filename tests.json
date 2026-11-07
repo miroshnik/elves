@@ -9786,6 +9786,20 @@
   "describes": [
    "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
   ],
+  "name": "`down` убирает образы, которые собрал стек, и не трогает скачанные"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
+  "describes": [
+   "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
+  ],
+  "name": "`prune` убирает образы стека закрытой задачи, от которого остались одни образы"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
+  "describes": [
+   "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
+  ],
   "name": "compose-файл получает адрес HTTP-сервиса стека задачи в `TASK_ENV_<СЕРВИС>_URL`"
  },
  {
@@ -9829,6 +9843,13 @@
    "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
   ],
   "name": "номер задачи берётся из ветки `<type>/<N>-slug`"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
+  "describes": [
+   "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
+  ],
+  "name": "образ, который держит контейнер, `down` оставляет и называет"
  },
  {
   "path": "tests/capabilities/task-env/stacks.slow.test.ts",
