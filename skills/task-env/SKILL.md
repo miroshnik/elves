@@ -57,7 +57,8 @@ The settings — `env.http` in the project's `.agents/elves.json`, a service →
 ```
 
 A service of `env.http` that isn't in the compose file — a `!` line, not an error. No `env.http` — no labels, no
-proxy, only published ports.
+proxy, only published ports. `env.memoryMb` — what the stack needs, measured: a stack the Docker VM can't fit doesn't
+come up (`reference.md`, "The Docker VM's memory").
 
 **The app's own address** — from the compose file: `up` and `e2e` give Compose's process the address of each
 `env.http` service in `TASK_ENV_<SERVICE>_URL` (the names the e2e command gets), and the compose file passes them to the app — a base URL,

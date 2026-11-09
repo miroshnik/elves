@@ -86,10 +86,45 @@ stack shop-42: not up — container shop-42-api-1 exited (3)
     | Error: connect ECONNREFUSED db:5432
 ```
 
+## The Docker VM's memory
+
+Containers' limits don't protect the VM: the sum of several stacks' limits is far above it. So `up` and `e2e`, before
+anything starts and inside the machine queue, compare what the stack needs with the VM's `MemAvailable` plus
+`SwapFree` (`/proc/meminfo` from a one-off container of the proxy's image):
+
+```json
+{ "env": { "memoryMb": 6144 } }
+```
+
+`env.memoryMb` in `.agents/elves.json` — MiB, a number from the project's measurement of a full stack under load; not
+the sum of `mem_limit`: that upper bound is far above real use, and a full stack would never come up. No field — a
+reserve of 1024 MiB. A stack with a running container is in the VM's numbers itself and isn't checked.
+
+```
+stack shop-42: not started — the Docker VM lacks memory: needs 6144 MiB, has 2560 MiB (available 2048 + free swap 512); stacks on it: shop-41, shop-43-e2e — take down one nobody needs: task-env down <N>
+○ Docker VM memory not checked — <Docker's reason>
+```
+
+The first — code 2, nothing is started; the second — the bring-up goes on.
+
+**A container killed: the VM's memory or its own limit.** From outside both look alike: `docker inspect` gives
+`OOMKilled: true`, exit code 137, and it reads as a code failure or a low limit. The difference is inside:
+
+| | the container's `memory.events` | VM kernel log (`dmesg`) | what to do |
+|---|---|---|---|
+| its own limit | `oom` > 0, `oom_kill` > 0 | `constraint=CONSTRAINT_MEMCG`, `oom_memcg=…` | raise the limit or fix the code |
+| the VM's memory | `oom` 0, `oom_kill` 1 | `constraint=CONSTRAINT_NONE`, `global_oom` | take down stacks, enlarge the VM or raise `env.memoryMb` |
+
+`memory.events` — `docker exec <container> cat /sys/fs/cgroup/memory.events` in a container still running (a dead
+one's counters are gone: read the kernel log). The kernel log of Docker Desktop's VM — `docker run --rm --privileged
+--entrypoint dmesg traefik:v3.7`. On a VM OOM the victim is the largest process with `oom_score_adj` 0, usually a JVM
+or a database, and not necessarily of the stack that gave the load: the task that sees the failure may not be its
+cause.
+
 ## Exit codes
 
 `up` — 0 up, 1 not up, 2 not tried (no compose file, broken settings, Docker unavailable, `docker compose config`
-fails); `e2e` — the command's, otherwise as `up`; `down` and `prune` — 0 (an image a container uses, left, too), 2
+fails, the Docker VM can't fit the stack); `e2e` — the command's, otherwise as `up`; `down` and `prune` — 0 (an image a container uses, left, too), 2
 if a stack or an image isn't removed, Docker is unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 running, 1 not running (the start command),
 2 no Docker; `check` — 0 the rules hold or no compose file, 1 violations, 2 not checked.
 

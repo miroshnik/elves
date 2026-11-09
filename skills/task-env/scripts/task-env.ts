@@ -61,9 +61,11 @@ Brings the task's stack up — the Compose project <project>-<N> by the branch <
 number (in the middle of a rebase — the branch being rebased; a linked worktree without a task branch — the task of
 ELVES_TASK=<N>, without it refused: give N) — and prints its addresses: env.http services of .agents/elves.json through the proxy, published ports on
 127.0.0.1; the HTTP addresses go to the compose file's interpolation in TASK_ENV_<SERVICE>_URL; --profile — Compose
-profiles. The bring-up takes a place in the machine queue (slot) until the containers are healthy. Code 0 — up, 1 — a
-service failed (its state and log), 2 — not tried; not up — the reason is appended to the file of
-ELVES_TASK_ENV_FAILED, if given (pr premerge of the github skill: «couldn't check», not a red check).
+profiles. The bring-up takes a place in the machine queue (slot) until the containers are healthy. A stack not running
+yet that the Docker VM can't fit — env.memoryMb of .agents/elves.json, without it a reserve, against its available
+memory and free swap — isn't brought up: the numbers and the stacks on the VM. Code 0 — up, 1 — a service failed (its
+state and log), 2 — not tried; not up — the reason is appended to the file of ELVES_TASK_ENV_FAILED, if given (pr
+premerge of the github skill: «couldn't check», not a red check).
 
 Examples:
   task-env up
@@ -74,7 +76,7 @@ Examples:
 The e2e stack <project>-<N>-e2e anew with clean volumes (its own addresses in the interpolation), then the command with
 its addresses in TASK_ENV_PROJECT, TASK_ENV_<SERVICE>_URL, TASK_ENV_<SERVICE>_<PORT>; the exit code is the command's; the
 stack stays until the next run. The bring-up takes a place in the machine queue (slot) until the containers are healthy,
-the command runs outside it.
+the command runs outside it; the Docker VM's memory is checked as in up.
 
 Examples:
   task-env e2e -- npx playwright test
@@ -644,6 +646,17 @@ export function httpServices(root: string): Record<string, number> | string {
   return Object.values(ports).every((p) => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536) ? (ports as Record<string, number>) : bad;
 }
 
+/**
+ * What the project's stack needs of the Docker VM, MiB — `env.memoryMb` of the project's settings, a number from the
+ * project's measurement (#809, question 1); no field — undefined, a broken one — the reason.
+ */
+export function stackMemory(root: string): number | undefined | string {
+  const { file, fields } = manifestOf(root);
+  const memory = (fields.env as { memoryMb?: unknown } | null | undefined)?.memoryMb;
+  if (memory === undefined) return undefined;
+  return Number.isInteger(memory) && (memory as number) > 0 ? (memory as number) : `env.memoryMb of ${file}: what the stack needs of the Docker VM in MiB expected, a positive integer like 6144`;
+}
+
 /** Where the task's stack lives: the worktree's root, its compose files, the project's name, the task and HTTP services. */
 interface Project {
   root: string;
@@ -652,6 +665,8 @@ interface Project {
   name: string;
   task: number | undefined;
   http: Record<string, number>;
+  /** `env.memoryMb`: what the stack needs of the Docker VM, MiB. */
+  memoryMb: number | undefined;
 }
 
 function projectOf(cwd: string, task?: number): Project | string {
@@ -661,8 +676,10 @@ function projectOf(cwd: string, task?: number): Project | string {
   const extra = OVERRIDE_FILES.find((f) => existsSync(path.join(root, f)));
   const http = httpServices(root);
   if (typeof http === "string") return http;
+  const memoryMb = stackMemory(root);
+  if (typeof memoryMb === "string") return memoryMb;
   const files = [file, ...(extra ? [extra] : [])].flatMap((f) => ["-f", f]);
-  return { root, files, name: projectName(root), task: task ?? taskBranch(currentBranch(root))?.issue, http };
+  return { root, files, name: projectName(root), task: task ?? taskBranch(currentBranch(root))?.issue, http, memoryMb };
 }
 
 /** `docker compose` in cwd; vars — over the script's environment: Compose takes them into interpolation. */
@@ -793,11 +810,57 @@ function addressesOf(project: Project, stack: Stack, env: NodeJS.ProcessEnv): Ad
   return out;
 }
 
+/** What a stack without `env.memoryMb` must find free on the Docker VM, MiB: below it nothing starts safely (#809). */
+const VM_RESERVE_MB = 1024;
+/** `docker run` of a present image takes under a second; the first run pulls it — longer than this, not checked. */
+const VM_TIMEOUT = 30_000;
+
+/**
+ * The Docker VM's memory in MiB: `/proc/meminfo` from a one-off container isn't namespaced, it is the VM's (the host's
+ * on Linux); `docker info` knows only the total. In the proxy's image — it is on the machine already, the version lives
+ * in its compose file. Not read — the reason.
+ */
+function vmMemory(env: NodeJS.ProcessEnv): { availableMb: number; swapFreeMb: number } | string {
+  const image = /^\s*image:\s*(\S+)/m.exec(readFileSync(PROXY_FILE, "utf8"))?.[1];
+  if (!image) return `no image in ${PROXY_FILE}`;
+  const r = spawnSync("docker", ["run", "--rm", "--network", "none", "--entrypoint", "cat", image, "/proc/meminfo"], { encoding: "utf8", env, timeout: VM_TIMEOUT });
+  if (r.error || r.status !== 0) return why(r);
+  const mib = (field: string) => Math.floor(Number(new RegExp(`^${field}:\\s+(\\d+) kB`, "m").exec(r.stdout)?.[1] ?? NaN) / 1024);
+  const [availableMb, swapFreeMb] = [mib("MemAvailable"), mib("SwapFree")] as [number, number];
+  return Number.isNaN(availableMb + swapFreeMb) ? "no MemAvailable or SwapFree in /proc/meminfo" : { availableMb, swapFreeMb };
+}
+
+/** The Compose stacks running on the VM, without the proxy: names sorted; not listed — the reason. */
+function vmStacks(env: NodeJS.ProcessEnv): string {
+  const r = spawnSync("docker", ["ps", "--filter", `label=${PROJECT_LABEL}`, "--format", `{{.Label "${PROJECT_LABEL}"}}`], { encoding: "utf8", env, timeout: CONFIG_TIMEOUT });
+  if (r.error || r.status !== 0) return `not listed — ${why(r)}`;
+  return [...new Set(r.stdout.split("\n").filter((s) => s && s !== proxyName(env)))].sort().join(", ") || "none";
+}
+
+/**
+ * The gate before a stack comes up (#809): containers' limits don't protect the VM — the sum of several stacks' limits
+ * is far above it, and the kernel kills the largest process, not necessarily of the stack that gave the load. Available
+ * memory plus free swap against what the stack needs: `env.memoryMb`, without it — the reserve. A stack already running
+ * is in the VM's numbers itself, so it isn't checked. The refusal, the `○` line of a VM that didn't answer (the bring-up
+ * goes on: the gate protects neighbours, it isn't a precondition) or nothing.
+ */
+function vmGate(project: Project, stack: Stack, env: NodeJS.ProcessEnv): { refusal?: string; note?: string } {
+  if (containers(stack.name).some((c) => c.State === "running")) return {};
+  const vm = vmMemory(env);
+  if (typeof vm === "string") return { note: `○ Docker VM memory not checked — ${vm}${hint(vm, env)}` };
+  const need = project.memoryMb ?? VM_RESERVE_MB;
+  const has = vm.availableMb + vm.swapFreeMb;
+  if (has >= need) return {};
+  const source = project.memoryMb === undefined ? " (the reserve; env.memoryMb of .agents/elves.json sets what the stack needs)" : "";
+  return { refusal: `stack ${stack.name}: not started — the Docker VM lacks memory: needs ${need} MiB${source}, has ${has} MiB (available ${vm.availableMb} + free swap ${vm.swapFreeMb}); stacks on it: ${vmStacks(env)} — take down one nobody needs: task-env down <N>` };
+}
+
 /**
  * Brings the stack up: the project's compose files plus the override, `up --wait` with a build — the stack runs the
- * worktree's code, not an image from another task's run. The proxy goes up first when the override joins its network
- * and it isn't running (#393, question 8); a running one isn't touched. Both Compose calls get the stack's addresses
- * for interpolation — `config` too: a required `${TASK_ENV_WEB_URL:?…}` would fail it.
+ * worktree's code, not an image from another task's run. Before anything starts — the VM's memory (`vmGate`), inside
+ * the machine queue: two bring-ups don't count the same free memory. The proxy goes up first when the override joins its
+ * network and it isn't running (#393, question 8); a running one isn't touched. Both Compose calls get the stack's
+ * addresses for interpolation — `config` too: a required `${TASK_ENV_WEB_URL:?…}` would fail it.
  */
 function upStack(project: Project, stack: Stack, profiles: string[], env: NodeJS.ProcessEnv): { code: number; lines: string[] } {
   const vars = urlVars(project, stack, env);
@@ -807,6 +870,9 @@ function upStack(project: Project, stack: Stack, profiles: string[], env: NodeJS
   const lines = Object.keys(project.http)
     .filter((s) => !parsed.services?.[s])
     .map((s) => `! env.http: service ${s} isn't in the compose file — no address for it`);
+  const gate = vmGate(project, stack, env);
+  if (gate.refusal) return { code: 2, lines: [...lines, gate.refusal] };
+  if (gate.note) lines.push(gate.note);
   const override = overrideOf(parsed, project.http, stack, proxyName(env));
   if (override) {
     const running = proxyRunning(env);

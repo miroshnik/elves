@@ -735,6 +735,111 @@ describe("Подъём стека задачи — тяжёлая работа �
  * дошло, ведёт запрос на остановленный контейнер, и тот висит до таймаута Traefik. Здесь прокси — сервер, первый запрос
  * которого не отвечает никогда.
  */
+/**
+ * Память VM Docker (#809): лимиты контейнеров её не защищают — сумма лимитов нескольких стеков намного больше VM, и ядро
+ * убивает самый большой процесс, не обязательно в стеке, который дал нагрузку. Подставной docker отвечает памятью VM из
+ * FAKE_MEMINFO (нет файла — как демон, который не ответил), контейнерами стека из FAKE_STACK_PS и стеками VM из FAKE_STACKS.
+ */
+describe("Стек, который VM Docker не вместит, не поднимается: сверка до подъёма", () => {
+  projectPerTest();
+  let bin: string;
+  let log: string;
+  const MIB = 1024;
+  const meminfo = (availableMb: number, swapFreeMb = 0) =>
+    writeFileSync(path.join(project.dir, "meminfo"), `MemTotal: 8388608 kB\nMemAvailable:   ${availableMb * MIB} kB\nSwapTotal: 1048576 kB\nSwapFree:   ${swapFreeMb * MIB} kB\n`);
+
+  beforeEach(() => {
+    bin = noDockerPath();
+    log = path.join(project.dir, "docker.log");
+    writeFileSync(log, "");
+    const docker = [
+      'case " $* " in',
+      "  *\" config \"*) echo '{\"services\":{}}';;",
+      '  *" /proc/meminfo "*) cat "$FAKE_MEMINFO" || exit 1;;',
+      '  *"compose -p proj-42 ps "*) printf \'%s\' "$FAKE_STACK_PS";;',
+      '  " ps "*) printf \'%s\\n\' $FAKE_STACKS;;',
+      "esac",
+    ].join("\n");
+    writeFileSync(path.join(bin, "docker"), FAKE_DOCKER + docker + "\n", { mode: 0o755 });
+    writeFileSync(path.join(proj, "compose.yaml"), "services:\n  db:\n    image: postgres\n");
+  });
+
+  function taskEnv(args: string[], extra: Record<string, string> = {}) {
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_LOG: log, FAKE_MEMINFO: path.join(project.dir, "meminfo"), FAKE_STACK_PS: "", FAKE_STACKS: "proj-43-e2e proj-41 elves-proxy", ELVES_SLOT: "test", ...extra };
+    delete env.ELVES_PROXY;
+    const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: proj, encoding: "utf8", env });
+    return { code: exitOf(r), stdout: r.stdout, out: r.stdout + r.stderr };
+  }
+  const settings = (env: object) => writeTree(proj, { ".agents/elves.json": JSON.stringify({ env }) + "\n" });
+  const broughtUp = () => calls(log).some((c) => / up( |$)/.test(c));
+  const probed = () => calls(log).some((c) => c.includes("/proc/meminfo"));
+
+  it("Стек, которому не хватает доступной памяти VM, не поднимается, и отказ называет нужный объём, доступный объём и занявшие VM стеки", () => {
+    settings({ memoryMb: 6144 });
+    meminfo(2048, 512);
+    const r = taskEnv(["up", "42"]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.stdout).toContain("stack proj-42: not started — the Docker VM lacks memory: needs 6144 MiB, has 2560 MiB (available 2048 + free swap 512); stacks on it: proj-41, proj-43-e2e");
+    expect(broughtUp()).toBe(false);
+  });
+
+  it("Стек, которому памяти хватает, поднимается как раньше", () => {
+    settings({ memoryMb: 6144 });
+    meminfo(6000, 144);
+    const r = taskEnv(["up", "42"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("stack proj-42: up");
+    expect(r.out).not.toContain("memory");
+    expect(broughtUp()).toBe(true);
+  });
+
+  it("Повторный up уже поднятого стека память не сверяет", () => {
+    settings({ memoryMb: 6144 });
+    meminfo(1);
+    const r = taskEnv(["up", "42"], { FAKE_STACK_PS: JSON.stringify({ Name: "proj-42-db-1", Service: "db", State: "running" }) });
+    expect(r.code, r.out).toBe(0);
+    expect(probed()).toBe(false);
+    expect(broughtUp()).toBe(true);
+  });
+
+  it("Память VM, которую не удалось спросить, названа в выводе и подъём не останавливает", () => {
+    settings({ memoryMb: 6144 });
+    const r = taskEnv(["up", "42"]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toMatch(/^○ Docker VM memory not checked — /m);
+    expect(broughtUp()).toBe(true);
+  });
+
+  it("Без `env.memoryMb` порог — запас доступной памяти VM", () => {
+    meminfo(1023);
+    expect(taskEnv(["up", "42"]).stdout).toContain("needs 1024 MiB (the reserve; env.memoryMb of .agents/elves.json sets what the stack needs), has 1023 MiB");
+    expect(broughtUp()).toBe(false);
+    meminfo(1024);
+    expect(taskEnv(["up", "42"]).code).toBe(0);
+    expect(broughtUp()).toBe(true);
+  });
+
+  it("`e2e` сверяет память так же: стек не поднят, команда не запущена", () => {
+    settings({ memoryMb: 6144 });
+    meminfo(2048);
+    const file = path.join(project.dir, "failed");
+    const ran = path.join(project.dir, "ran");
+    const r = taskEnv(["e2e", "--", "touch", ran], { ELVES_TASK_ENV_FAILED: file });
+    expect(r.code, r.out).toBe(2);
+    expect(existsSync(ran)).toBe(false);
+    // pr premerge: «не смог проверить», а не красная проверка
+    expect(readFileSync(file, "utf8")).toContain("the Docker VM lacks memory");
+  });
+
+  it("`env.memoryMb` не положительное целое — отказ называет поле и файл, стек не поднят", () => {
+    settings({ memoryMb: "6G" });
+    const r = taskEnv(["up", "42"]);
+    expect(r.code, r.out).toBe(2);
+    expect(r.stdout).toContain("env.memoryMb of .agents/elves.json: ");
+    expect(calls(log)).toEqual([]);
+  });
+});
+
 describe("Ожидание адреса стека повторяет висящий запрос", () => {
   it("адрес стека, пересозданного с чистыми томами, тест дожидается, даже если первый запрос висит на остановленном контейнере", async () => {
     let asked = 0;
