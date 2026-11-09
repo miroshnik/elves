@@ -431,6 +431,19 @@ describe("check проекта держит compose-файл правил изо
     expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(upToDate) });
   });
 
+  it("адрес сервиса из env.http по короткому имени — строка ! скрипта task-env, код по-прежнему 0", () => {
+    withDocker();
+    elves(sb, ["install"]);
+    const settings = path.join(sb.proj, ".agents/elves.json");
+    writeFileSync(settings, JSON.stringify({ ...JSON.parse(readFileSync(settings, "utf8")), env: { http: { web: 3000 } } }));
+    composeFile("services:\n  web:\n    image: app\n  worker:\n    image: app\n    environment: { API_URL: 'http://web:3000' }\n");
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("  ! compose.yaml: service worker — environment API_URL: the short name web of an env.http service may reach another task's stack; use the container name ${COMPOSE_PROJECT_NAME}-web-1\n");
+    expect(r.stdout).not.toContain("the task isolation rules hold");
+    expect(r.stdout).toEndWith(MODE_ASK);
+  });
+
   it("без Docker — строка ○ «not checked» с причиной, код по-прежнему 0", () => {
     elves(sb, ["install"]);
     composeFile(CONTAINER_NAME);

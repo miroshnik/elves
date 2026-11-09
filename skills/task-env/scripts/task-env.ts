@@ -43,7 +43,7 @@
  * unsandboxed call — an `excludedCommands` entry for it doesn't take it out (SKILL.md, «Docker and the sandbox»).
  */
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,8 +103,10 @@ Examples:
 
 Holds the compose file in <dir> (default — the current directory) to the task isolation rules: no container_name, no
 fixed host port, volumes and networks without name and external, code by paths relative to the compose file; one ❌ line
-per violation. Code 0 — the rules hold or there is no compose file, 1 — violations, 2 — not checked (no docker compose,
-the config doesn't parse).
+per violation. A ! line — a service addresses an env.http service by its short name (a variable, command, entrypoint, a
+mounted config): that name isn't guaranteed to stay in the stack, the container name \${COMPOSE_PROJECT_NAME}-<service>-1
+is; the code doesn't change. Code 0 — the rules hold or there is no compose file, 1 — violations, 2 — not checked (no
+docker compose, the config doesn't parse).
 
 Examples:
   task-env check
@@ -389,6 +391,8 @@ export const COMPOSE_FILES = ["compose.yaml", "compose.yml", "docker-compose.yam
 const MACHINE = /^\/(?:var\/run|run|etc|dev|proc|sys)(?:\/|$)/;
 /** `docker compose config` reads a few files — longer than this is a hang, not work. */
 const CONFIG_TIMEOUT = 20_000;
+/** A mounted file bigger than this is data, not a config: `check` doesn't read it for addresses. */
+const MOUNTED_LIMIT = 1024 * 1024;
 
 interface Port {
   target: number;
@@ -406,6 +410,10 @@ interface Service {
   volumes?: Mount[];
   build?: { context?: string; dockerfile?: string };
   networks?: Record<string, unknown>;
+  environment?: Record<string, string | null>;
+  command?: string[] | null;
+  entrypoint?: string[] | null;
+  configs?: { source: string }[];
 }
 interface Resource {
   name?: string;
@@ -417,6 +425,7 @@ interface Config {
   services?: Record<string, Service>;
   volumes?: Record<string, Resource>;
   networks?: Record<string, Resource>;
+  configs?: Record<string, { file?: string; content?: string }>;
 }
 
 const absolute = (p: string) => p.startsWith("/") || p === "~" || p.startsWith("~/");
@@ -462,6 +471,63 @@ function violations(config: Config, file: string): string[] {
   return out;
 }
 
+/**
+ * An address that names `service` by its short name: the host of a URL or `host:port`. A longer name doesn't count —
+ * `<stack>-web-1`, `web.42.shop.localhost`, `webapp`, and neither does the last segment of a path or an image
+ * (`registry.test/web:3000`).
+ */
+function shortAddress(service: string): RegExp {
+  const name = service.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[a-z][a-z0-9+.-]*://(?:[^/\\s@]*@)?${name}(?![\\w.-])|(?<![\\w./-])${name}:\\d{1,5}(?!\\d)`, "i");
+}
+
+/** The text of a mounted file relative to the compose file; a directory (code), a missing or an oversized file — nothing. */
+function mountedText(dir: string, source: string): string {
+  try {
+    const file = path.resolve(dir, source);
+    const stat = statSync(file);
+    return stat.isFile() && stat.size <= MOUNTED_LIMIT ? readFileSync(file, "utf8") : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * `!` lines (#806): a service of the stack addresses an `env.http` service by its short name. Docker looks a name up over
+ * the container's networks in the order of their names, the proxy's network comes before `<stack>_<network>`, so a short
+ * name that got into the proxy's network — it happened, how is not established — leads to another task's stack; the
+ * container's name is one on the machine. A warning, not a violation: short names are the norm in compose files, and
+ * normally the name stays the stack's. Environment (with `env_file`, Compose merged it), `command`, `entrypoint`, bind
+ * mounted files and `configs`.
+ */
+function shortNames(config: Config, http: Record<string, number>, dir: string, file: string): string[] {
+  const targets = Object.keys(http).filter((s) => config.services?.[s]);
+  const out: string[] = [];
+  for (const [name, s] of Object.entries(config.services ?? {})) {
+    const places: [string, string][] = [
+      ...Object.entries(s.environment ?? {}).map(([k, v]): [string, string] => [`environment ${k}`, v ?? ""]),
+      ["command", (s.command ?? []).join(" ")],
+      ["entrypoint", (s.entrypoint ?? []).join(" ")],
+    ];
+    for (const v of s.volumes ?? []) {
+      if (v.type === "bind" && v.source && !absolute(v.source)) places.push([`mounted file ${v.source}`, mountedText(dir, v.source)]);
+    }
+    for (const c of s.configs ?? []) {
+      const { file: source, content } = config.configs?.[c.source] ?? {};
+      if (source) places.push([`mounted file ${source}`, mountedText(dir, source)]);
+      if (content) places.push([`config ${c.source}`, content]);
+    }
+    for (const [where, text] of places) {
+      for (const target of targets) {
+        if (shortAddress(target).test(text)) {
+          out.push(`! ${file}: service ${name} — ${where}: the short name ${target} of an env.http service may reach another task's stack; use the container name \${COMPOSE_PROJECT_NAME}-${target}-1`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** `check`: the exit code; all lines go to stdout — `check` of the installer reads them from there. */
 function check(dir: string): number {
   const file = COMPOSE_FILES.find((f) => existsSync(path.join(dir, f)));
@@ -479,9 +545,11 @@ function check(dir: string): number {
     return notChecked("docker compose config printed no JSON");
   }
   const lines = violations(config, file);
-  if (!lines.length) return console.log(`${file}: the task isolation rules hold`), 0;
-  console.log(lines.join("\n"));
-  return 1;
+  // the settings are the repository's, the compose file may be in a subdirectory of it
+  const http = httpServices(git(dir, "rev-parse", "--show-toplevel") || dir);
+  const notes = typeof http === "string" ? [`○ ${http} — short names of env.http services not checked`] : shortNames(config, http, dir, file);
+  console.log([...lines, ...notes, ...(lines.length ? [] : [`${file}: the task isolation rules hold`])].join("\n"));
+  return lines.length ? 1 : 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -701,7 +769,8 @@ const urlVars = (project: Project, stack: Stack, env: NodeJS.ProcessEnv) =>
  * services of the settings, nothing to the others (a database isn't published). The proxy's network isn't in it:
  * Compose gives a service in each of its networks the alias of its short name, and in the proxy's network same-named
  * services of two stacks would answer one name — a neighbour inside the stack (`http://storage:9000`) would reach
- * another stack by chance (#700); `upStack` joins the network itself (`joinProxy`). The override goes to Compose's
+ * another stack by chance (#700); `upStack` joins the network itself (`joinProxy`), which doesn't guarantee the short
+ * name either (#806, `shortNames`). The override goes to Compose's
  * stdin (`-f -`), not into a file: a `compose.override.yaml` would be the project's. No HTTP service in the compose
  * file — no override.
  */

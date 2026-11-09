@@ -324,7 +324,7 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
       expect(askFrom([PROXY], `${PROJECT}-43-web-1`)).toEqual([`Hostname: ${containerId(`${PROJECT}-43`, "web")}`]);
     });
 
-    it("сосед внутри стека по короткому имени всегда попадает в свой стек", async () => {
+    it("пока короткое имя никто не занял в сети прокси, сосед внутри стека по нему попадает в свой стек", async () => {
       upTwo();
       const own = `Hostname: ${containerId(`${PROJECT}-42`, "web")}`;
       expect(new Set(askFrom([`${PROJECT}-42_default`, PROXY], "web", 12))).toEqual(new Set([own]));
