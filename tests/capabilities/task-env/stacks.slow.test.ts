@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 
@@ -539,6 +539,22 @@ describe.skipIf(!dockerUp && !process.env.CI)("Стек задачи — про�
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).toMatch(new RegExp(`^○ stack ${PROJECT}-9: its containers are from \\S*/other — another project, left\n$`));
     expect(services(`${PROJECT}-9`)).toEqual(["db"]);
+  });
+
+  /** Настоящий Docker: `/proc/meminfo` контейнера — память VM, подставной docker этого не докажет (#809). */
+  it("`up` сверяет настоящую память VM Docker: стек больше неё не поднимается", () => {
+    on("feat/42-checkout");
+    const file = path.join(root, ".agents/elves.json");
+    const settings = readFileSync(file, "utf8");
+    writeFileSync(file, JSON.stringify({ env: { http: { web: 80 }, memoryMb: 999_999_999 } }) + "\n");
+    try {
+      const r = taskEnv("up");
+      expect(r.code, r.out).toBe(2);
+      expect(r.stdout).toMatch(/not started — the Docker VM lacks memory: needs 999999999 MiB, has [1-9]\d* MiB \(available \d+ \+ free swap \d+\)/);
+      expect(services(`${PROJECT}-42`)).toEqual([]);
+    } finally {
+      writeFileSync(file, settings);
+    }
   });
 
   /** Так остались образы задач, закрытых до #807: `down` снимал стек без них. */
