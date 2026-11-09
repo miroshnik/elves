@@ -1740,6 +1740,13 @@
   "describes": [
    "check проекта держит compose-файл правил изоляции стеков задач: нарушение — строка ❌ с правилом и сервисом"
   ],
+  "name": "адрес сервиса из env.http по короткому имени — строка ! скрипта task-env, код по-прежнему 0"
+ },
+ {
+  "path": "tests/capabilities/elves/update.test.ts",
+  "describes": [
+   "check проекта держит compose-файл правил изоляции стеков задач: нарушение — строка ❌ с правилом и сервисом"
+  ],
   "name": "без Docker — строка ○ «not checked» с причиной, код по-прежнему 0"
  },
  {
@@ -9771,7 +9778,7 @@
    "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси",
    "короткое имя сервиса в сети прокси"
   ],
-  "name": "сервис стека в сети прокси не виден другому стеку под коротким именем"
+  "name": "пока короткое имя никто не занял в сети прокси, сосед внутри стека по нему попадает в свой стек"
  },
  {
   "path": "tests/capabilities/task-env/stacks.slow.test.ts",
@@ -9779,7 +9786,7 @@
    "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси",
    "короткое имя сервиса в сети прокси"
   ],
-  "name": "сосед внутри стека по короткому имени всегда попадает в свой стек"
+  "name": "сервис стека в сети прокси не виден другому стеку под коротким именем"
  },
  {
   "path": "tests/capabilities/task-env/stacks.slow.test.ts",
@@ -9794,6 +9801,13 @@
    "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
   ],
   "name": "`prune` убирает образы стека закрытой задачи, от которого остались одни образы"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.slow.test.ts",
+  "describes": [
+   "Стек задачи — проект Compose `<проект>-<N>` по ветке; адреса HTTP-сервисов — через прокси"
+  ],
+  "name": "`up` сверяет настоящую память VM Docker: стек больше неё не поднимается"
  },
  {
   "path": "tests/capabilities/task-env/stacks.slow.test.ts",
@@ -10001,6 +10015,48 @@
  {
   "path": "tests/capabilities/task-env/stacks.test.ts",
   "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "`task-env check` молчит, если сервис из `env.http` зовут по имени контейнера `${COMPOSE_PROJECT_NAME}-<service>-1`"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "`task-env check` предупреждает, если сервис стека зовёт сервис из `env.http` по короткому имени в переменной, команде или смонтированном конфиге"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "Справка task-env не обещает, что короткое имя сервиса из `env.http` внутри стека ведёт в свой стек"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "битые настройки проекта — строка ○ «короткие имена не проверены», правила изоляции проверяются, код их"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "другое имя, адрес через прокси и сервис не из env.http предупреждения не дают; смонтированный каталог не читается"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени"
+  ],
+  "name": "предупреждение идёт после нарушений и кода 1 не заменяет: нарушение — код 1, одно предупреждение — код 0"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
    "Адреса задачи и маршруты прокси — для дашборда, без сокета Docker",
    "API прокси"
   ],
@@ -10202,6 +10258,55 @@
    "Снять нечего или нечем — строка ○, а не ошибка; Docker не отвечает — строка ! с причиной"
   ],
   "name": "у задачи нет стеков на машине — строка ○, Compose ничего не снимает"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "`e2e` сверяет память так же: стек не поднят, команда не запущена"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "`env.memoryMb` не положительное целое — отказ называет поле и файл, стек не поднят"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "Без `env.memoryMb` порог — запас доступной памяти VM"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "Память VM, которую не удалось спросить, названа в выводе и подъём не останавливает"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "Повторный up уже поднятого стека память не сверяет"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "Стек, которому не хватает доступной памяти VM, не поднимается, и отказ называет нужный объём, доступный объём и занявшие VM стеки"
+ },
+ {
+  "path": "tests/capabilities/task-env/stacks.test.ts",
+  "describes": [
+   "Стек, который VM Docker не вместит, не поднимается: сверка до подъёма"
+  ],
+  "name": "Стек, которому памяти хватает, поднимается как раньше"
  },
  {
   "path": "tests/standards/documents/canon-size.test.ts",
@@ -16762,6 +16867,13 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
+  "name": "skills/task-env/SKILL.md: skills/task-env/reference.md, «The Docker VM's memory» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/documents/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
   "name": "skills/task-env/SKILL.md: skills/task-env/reference.md, «The proxy» — есть такой раздел"
  },
  {
@@ -16840,6 +16952,13 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "tests/capabilities/task-env/stacks.md: skills/task-env/SKILL.md, «Network subnets» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/documents/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "tests/capabilities/task-env/stacks.md: skills/task-env/reference.md, «The Docker VM's memory» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
