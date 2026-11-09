@@ -80,9 +80,10 @@ variables live only in the environment of the script's Compose process — no `.
 goes into `build.args` the same way: Compose interpolates them too.
 
 **The override** — the proxy's labels for the `env.http` services (a database isn't published), on Compose's stdin,
-not a file; the script joins those services to the proxy's network itself, without their short name — inside the
-stack `http://storage:9000` always reaches the stack's own `storage`; `up` starts the proxy first if it isn't running
-— reference.md, "Override and compose files"; the labels — reference.md, "Labels of a task stack's service".
+not a file; the script joins those services to the proxy's network itself, without their short name; still, the short
+name of an `env.http` service isn't guaranteed inside the stack — address it by the container name
+`${COMPOSE_PROJECT_NAME}-<service>-1` (`check` warns with `!`); `up` starts the proxy first if it isn't running —
+reference.md, "Override and compose files"; the labels — reference.md, "Labels of a task stack's service".
 
 **e2e** — `<project>-<N>-e2e`, apart from the dev stack of the task: `down --volumes` and `up` again on every run, so
 the run starts on clean volumes; then the command runs on the host (the current directory, the script's environment)
