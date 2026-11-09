@@ -24,6 +24,15 @@ chance. Connected by hand, a container is named in the proxy's network only by i
 `<stack>-<service>-<n>`, and the short name stays in the stack's own networks. The connect goes between creating and
 starting: Traefik sees the network on the start event, and the next `up` doesn't recreate the container.
 
+**Inside the stack the short name of an `env.http` service isn't guaranteed** (#806). Docker looks a name up over the
+container's networks in the order of their names, and `elves-proxy` comes before `<stack>_<network>`: a short name that
+got into the proxy's network overrides the stack's own. It happened with two stacks up — a name from stack A led to a
+container of stack B; how the name got there isn't established, and repeating the steps gives no alias. Address such a
+service by the container name `${COMPOSE_PROJECT_NAME}-<service>-1`, one on the machine. `task-env check` warns with a
+`!` line (the exit code doesn't change, the project's `check` prints it too) when a URL or `host:port` in a service's
+variables, `command`, `entrypoint`, a bind-mounted file or `configs` names an `env.http` service by its short name; a
+mounted directory isn't read — it is code.
+
 ## Taking a task's stacks down
 
 **down** — `down --volumes --remove-orphans` of `<project>-<N>` and `<project>-<N>-e2e` by the Compose project, from
@@ -126,7 +135,7 @@ cause.
 `up` — 0 up, 1 not up, 2 not tried (no compose file, broken settings, Docker unavailable, `docker compose config`
 fails, the Docker VM can't fit the stack); `e2e` — the command's, otherwise as `up`; `down` and `prune` — 0 (an image a container uses, left, too), 2
 if a stack or an image isn't removed, Docker is unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 running, 1 not running (the start command),
-2 no Docker; `check` — 0 the rules hold or no compose file, 1 violations, 2 not checked.
+2 no Docker; `check` — 0 the rules hold or no compose file (`!` lines too), 1 violations, 2 not checked.
 
 ## The proxy — container, routes, API
 

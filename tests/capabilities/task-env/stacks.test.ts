@@ -265,6 +265,118 @@ describe("task-env check называет каждое нарушение пра
   });
 });
 
+/**
+ * Docker ищет имя по сетям контейнера в порядке их имён, и `elves-proxy` идёт раньше `<проект>-<N>_<сеть>`: короткое имя
+ * сервиса из `env.http`, попавшее в сеть прокси, уводит в чужой стек (#806). Имя контейнера на машине одно.
+ */
+describe("task-env check предупреждает строкой ! об адресе сервиса из env.http по короткому имени", () => {
+  projectPerTest();
+
+  const httpWeb = () => writeTree(proj, { ".agents/elves.json": JSON.stringify({ env: { http: { web: 3000 } } }) });
+  const warning = (service: string, where: string) =>
+    `! compose.yaml: service ${service} — ${where}: the short name web of an env.http service may reach another task's stack; use the container name \${COMPOSE_PROJECT_NAME}-web-1\n`;
+
+  it("`task-env check` предупреждает, если сервис стека зовёт сервис из `env.http` по короткому имени в переменной, команде или смонтированном конфиге", () => {
+    httpWeb();
+    writeTree(proj, { "conf/app.ini": "[upstream]\nurl = http://web:3000/api\n", "conf/nginx.conf": "proxy_pass http://web:3000;\n" });
+    composeFile(
+      [
+        "services:",
+        "  web:",
+        "    image: app",
+        "  worker:",
+        "    image: app",
+        '    command: sh -c "curl http://web:3000/health"',
+        '    entrypoint: ["wait-for", "web:3000", "--"]',
+        "    environment:",
+        "      API_URL: http://user:secret@web:3000/v1",
+        "      API_HOST: web:3000",
+        "    volumes: [./conf/app.ini:/etc/app.ini]",
+        "    configs:",
+        "      - source: nginx",
+        "        target: /etc/nginx.conf",
+        "      - source: inline",
+        "        target: /etc/inline.conf",
+        "configs:",
+        "  nginx: { file: ./conf/nginx.conf }",
+        '  inline: { content: "upstream=web:3000" }',
+        "",
+      ].join("\n"),
+    );
+    const r = composeCheck();
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(
+      [
+        "environment API_HOST",
+        "environment API_URL",
+        "command",
+        "entrypoint",
+        "mounted file ./conf/app.ini",
+        "mounted file ./conf/nginx.conf",
+        "config inline",
+      ]
+        .map((where) => warning("worker", where))
+        .join("") + "compose.yaml: the task isolation rules hold\n",
+    );
+  });
+
+  it("`task-env check` молчит, если сервис из `env.http` зовут по имени контейнера `${COMPOSE_PROJECT_NAME}-<service>-1`", () => {
+    httpWeb();
+    composeFile(["services:", "  web:", "    image: app", "  worker:", "    image: app", "    environment:", "      API_URL: http://${COMPOSE_PROJECT_NAME}-web-1:3000", "      API_HOST: ${COMPOSE_PROJECT_NAME}-web-1:3000", ""].join("\n"));
+    expect(composeCheck()).toEqual({ code: 0, stdout: "compose.yaml: the task isolation rules hold\n", stderr: "" });
+  });
+
+  it("другое имя, адрес через прокси и сервис не из env.http предупреждения не дают; смонтированный каталог не читается", () => {
+    httpWeb();
+    writeTree(proj, { "src/client.ts": 'fetch("http://web:3000")\n' });
+    composeFile(
+      [
+        "services:",
+        "  web:",
+        "    image: app",
+        "  db:",
+        "    image: postgres",
+        "  worker:",
+        "    image: app",
+        "    volumes: [./src:/app/src]",
+        "    environment:",
+        "      PUBLIC_URL: http://web.42.proj.localhost",
+        "      OTHER_URL: http://webapp:3000",
+        "      IMAGE: registry.test/web:3000",
+        "      PLAIN: web",
+        "      DATABASE_URL: postgres://db:5432/app",
+        "",
+      ].join("\n"),
+    );
+    expect(composeCheck()).toEqual({ code: 0, stdout: "compose.yaml: the task isolation rules hold\n", stderr: "" });
+  });
+
+  it("предупреждение идёт после нарушений и кода 1 не заменяет: нарушение — код 1, одно предупреждение — код 0", () => {
+    httpWeb();
+    composeFile("services:\n  web:\n    image: app\n    container_name: site\n  worker:\n    image: app\n    environment: { API_URL: 'http://web:3000' }\n");
+    const r = composeCheck();
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe(`❌ compose.yaml: service web — container_name site: a second task stack can't start; remove it, Compose names containers by the project\n${warning("worker", "environment API_URL")}`);
+  });
+
+  it("битые настройки проекта — строка ○ «короткие имена не проверены», правила изоляции проверяются, код их", () => {
+    writeTree(proj, { ".agents/elves.json": "{" });
+    composeFile("services:\n  web:\n    image: app\n");
+    const r = composeCheck();
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/^○ \.agents\/elves\.json: [^\n]* — short names of env\.http services not checked\ncompose\.yaml: the task isolation rules hold\n$/);
+  });
+
+  it("Справка task-env не обещает, что короткое имя сервиса из `env.http` внутри стека ведёт в свой стек", () => {
+    for (const doc of ["SKILL.md", "reference.md"]) {
+      const text = readFileSync(new URL(`../../../skills/task-env/${doc}`, import.meta.url), "utf8").replace(/\s+/g, " ");
+      expect(text).not.toMatch(/always reaches the stack's own/);
+      expect(text).toContain("the short name of an `env.http` service isn't guaranteed");
+      expect(text).toContain("`${COMPOSE_PROJECT_NAME}-<service>-1`");
+    }
+  });
+});
+
 describe("Проверить нечего или нечем — проверка молчит или говорит «не проверено», а не ошибку", () => {
   projectPerTest();
 

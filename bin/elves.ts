@@ -209,7 +209,7 @@ breaks task isolation, standards and architecture have no test:spec script or th
 Elves clone too) with "batch": true runs a workflow on a PR into a batch branch — on.pull_request lets a batch branch in,
 its gate is the checks before a commit and pr premerge (ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
 package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
-mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ○ — not checked: no
+mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ! — a warning, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
 ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
 to tasks (the exit code stays the same); for the machine the elves command missing or of another release is falling
@@ -1668,8 +1668,8 @@ interface Result {
 
 /**
  * The project's compose file against the task isolation rules (the task-env skill, tests/capabilities/task-env/stacks): a `❌`
- * line per violation, `○` — not checked (no docker compose, the config doesn't parse): that isn't a violation, and the
- * exit code of `check` doesn't change. No compose file — no lines, the script doesn't start. The script runs under the
+ * line per violation, `!` — a warning, `○` — not checked (no docker compose, the config doesn't parse): neither is a
+ * violation, and the exit code of `check` doesn't change. No compose file — no lines, the script doesn't start. The script runs under the
  * same Bun as the installer.
  */
 function composeCheck(root: string): { lines: string[]; violations: boolean } {
@@ -1678,8 +1678,8 @@ function composeCheck(root: string): { lines: string[]; violations: boolean } {
   const r = spawnSync(process.execPath, ["--no-env-file", TASK_ENV, "check", root], { encoding: "utf8", timeout: TASK_ENV_TIMEOUT });
   const notChecked = (why: string) => ({ lines: [`  ○ ${file}: not checked — ${why}`], violations: false });
   if (r.error) return notChecked(`task-env: ${r.error.message}`);
-  if (r.status === 0) return { lines: [], violations: false };
   const lines = r.stdout.split("\n").filter(Boolean).map((l) => `  ${l}`);
+  if (r.status === 0) return { lines: lines.filter((l) => l.startsWith("  !")), violations: false };
   if (r.status === 1 || (r.status === 2 && lines.length)) return { lines, violations: r.status === 1 };
   return notChecked(`task-env: ${r.stderr.trim().split("\n")[0] || `exit code ${r.status ?? r.signal}`}`);
 }
