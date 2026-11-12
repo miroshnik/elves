@@ -691,7 +691,12 @@ or 3. Then the merge command, code 4: the merge stays a separate `gh pr merge
 into a batch — code 0, nothing more (the release does it); otherwise
 `ci-wait merged`, the refresh's mechanics and its prompt (code 4 — the
 subagent), and `task close` once its report is on the epic (no epic or no
-other open tasks — right away). Code 5 — out of time: the same command
+other open tasks — right away). A task reopened after its merge (#813): an
+open PR of the task or the checkout's task branch with commits not in the
+base (`git cherry`; the merged PR's own branch — commits past its pushed
+head) is the tail, not the merged PR — the latest merged PR is the one
+awaited after the merge; closed with such work — reopened and «In progress»
+(not planned — code 1 with `gh issue reopen`). Code 5 — out of time: the same command
 again. A session runs it in the background — once before the merge and once
 after; a subagent — `--timeout 240` (540 with the hour cache,
 `docs/pr-checks.md`), again on code 5. The separate commands stay for manual
