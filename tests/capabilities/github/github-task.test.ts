@@ -5250,16 +5250,13 @@ describe("task queue --assignment N --cloud — бриф облачного ис
   });
 });
 
-/**
- * Другую задачу сессия отдавала карточкой новой сессии: её запускал владелец кликом, и сессия о ней больше не знала
- * (#546). Канон, скиллы и их скрипты — источник всего, что агент читает и что печатают команды, — её больше не
- * предлагают: только вопрос владельцу, ставить ли задачу в очередь (на новый эпик — запускать ли диспетчера), а «да» —
- * исполнитель, фоновый субагент этой же сессии.
- */
-describe("Другая задача — вопрос о постановке в очередь, а не карточка новой сессии", () => {
-  const ROOT = path.resolve(import.meta.dir, "../../..");
-  /** Файлы канона, скиллов и скриптов: корневые документы и всё в каталогах. */
-  const files = ["AGENTS.md", "README.md", "claude", "docs", "skills", "bin"].flatMap((p) =>
+/** Корень клона: канон, скиллы и их скрипты — то, что читает агент и что печатают команды. */
+const ROOT = path.resolve(import.meta.dir, "../../..");
+/** Текст файла клона в одну строку: фраза канона, перенесённая по строкам, ищется целиком. */
+const flowText = (file: string) => readFileSync(path.join(ROOT, file), "utf8").replace(/\s+/g, " ");
+/** Файлы флоу — корневые документы и всё в каталогах канона, скиллов и установщика — пути от корня клона. */
+const flowFiles = () =>
+  ["AGENTS.md", "README.md", "claude", "docs", "skills", "bin"].flatMap((p) =>
     statSync(path.join(ROOT, p)).isDirectory()
       ? readdirSync(path.join(ROOT, p), { recursive: true, withFileTypes: true })
           .filter((e) => e.isFile())
@@ -5267,10 +5264,18 @@ describe("Другая задача — вопрос о постановке в 
       : [p],
   );
 
+/**
+ * Другую задачу сессия отдавала карточкой новой сессии: её запускал владелец кликом, и сессия о ней больше не знала
+ * (#546). Канон, скиллы и их скрипты — источник всего, что агент читает и что печатают команды, — её больше не
+ * предлагают: только вопрос владельцу, ставить ли задачу в очередь (на новый эпик — запускать ли диспетчера), а «да» —
+ * исполнитель, фоновый субагент этой же сессии.
+ */
+describe("Другая задача — вопрос о постановке в очередь, а не карточка новой сессии", () => {
   it("канон, скиллы и вывод скриптов не предлагают чип — только вопрос о постановке в очередь", () => {
+    const files = flowFiles();
     expect(files.length).toBeGreaterThan(40);
-    expect(files.filter((f) => /\bchips?\b|чип/i.test(readFileSync(path.join(ROOT, f), "utf8")))).toEqual([]);
-    const canon = readFileSync(path.join(ROOT, "AGENTS.md"), "utf8").replace(/\s+/g, " ");
+    expect(files.filter((f) => /\bchips?\b|чип/i.test(flowText(f)))).toEqual([]);
+    const canon = flowText("AGENTS.md");
     expect(canon).toContain("Another task — Backlog and the question «queue #263?»");
     expect(canon).toContain("A new epic — the question «run the dispatcher on epic #M?»");
     expect(canon).toContain("work outside the task — a Backlog task and the question «queue it?»");
@@ -5285,12 +5290,61 @@ describe("Другая задача — вопрос о постановке в 
  * `github` и его справочнике, в справочнике облачной сессии.
  */
 describe("Предел исполнителей диспетчера — по месту исполнителя", () => {
-  const ROOT = path.resolve(import.meta.dir, "../../..");
   const LIMIT = "at most the machine's executors in subagents and 5 cloud sessions at once, the owner's number replaces either";
   const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md", "docs/cloud-sessions.md"];
 
   it("канон и справочник github называют предел облачных исполнителей диспетчера — пять, локальных — мощность машины", () => {
-    expect(PLACES.filter((f) => !readFileSync(path.join(ROOT, f), "utf8").replace(/\s+/g, " ").includes(LIMIT))).toEqual([]);
+    expect(PLACES.filter((f) => !flowText(f).includes(LIMIT))).toEqual([]);
+  });
+});
+
+/**
+ * Перед каждым запуском исполнителя диспетчер читает `get_usage` (#815). Правило проверяло пятичасовое окно, а у тарифа
+ * его больше нет: `get_usage` отдаёт недельные окна — общее и по моделям — и extra usage, так что диспетчер либо не
+ * останавливался никогда, либо читал порог по-своему. Владелец решил 2026-11-12: стоп — любое окно на 85% и выше, кроме
+ * окна модели, на которой исполнители не идут (в замере окно другой модели стояло на 99%, а общее — на 73%); порог по темпу
+ * недели — отдельной задачей, если 85% окажется поздно. Extra usage стоп не снимает: деньги сверх тарифа — решение
+ * владельца, после его «да» запуски идут до 85% месячного лимита. Без лимитов тарифа (`not_applicable`: API-ключ, Bedrock,
+ * Vertex, шлюз) — по ёмкости машины; лимиты не прочитались (`unavailable`) и повтор не помог — новых нет: запуск мог бы
+ * пройти по исчерпанному окну. Правило — в справочнике `github` («task queue»), скилл ссылается на него; окно в правиле не
+ * названо по длине — так окно, которое тариф добавит, тоже останавливает запуск.
+ */
+describe("Диспетчер · лимит перед запуском исполнителя — по окнам get_usage", () => {
+  /** Правило лимита в справочнике — от «Before each launch — `get_usage`» до ответа исполнителя. */
+  const RULE = /Before each launch — `get_usage`.*?(?= An answer arrives)/.exec(flowText("skills/github/reference.md"))?.[0] ?? "";
+
+  it("Диспетчер не запускает нового исполнителя, когда общее недельное окно на пороге или выше", () => {
+    expect(RULE).toContain("a window of `plan.windows` at 85% and more");
+    expect(RULE).toContain("— no new executors, the running ones finish");
+    expect(flowText("skills/github/SKILL.md")).toContain('Before each launch — `get_usage` (its limit — `reference.md`, "task queue")');
+  });
+
+  it("Окно модели, на которой исполнители не идут, запуск не останавливает", () => {
+    expect(RULE).toContain("any but the window of a model the executors don't run on (`Weekly · <model>`; theirs — the dispatcher's own unless the launch names another)");
+  });
+
+  it("Исчерпанные окна при включённом extra usage останавливают запуск; после «да» владельца на extra usage — по порогу месячного лимита", () => {
+    expect(RULE).toContain("Extra usage doesn't lift the stop: money past the plan is the owner's decision");
+    expect(RULE).toContain("after the owner's «yes» to it — launches until `plan.extraUsage.percentUsed` is at 85%");
+  });
+
+  it("Без данных о лимитах (`not_applicable`) диспетчер запускает исполнителей по ёмкости машины", () => {
+    expect(RULE).toContain("`not_applicable` (an API key, Bedrock, Vertex, a gateway) — no plan limits: executors by the machine's capacity");
+  });
+
+  it("Без данных о лимитах (`unavailable`, повтор не помог) диспетчер новых исполнителей не запускает", () => {
+    expect(RULE).toContain("`unavailable` — asked again if its note says that helps, otherwise no new executors, the running ones finish, `Remaining: N tasks, limits unavailable`");
+  });
+
+  it("Строка Remaining называет сработавшее окно и остаток extra usage", () => {
+    expect(RULE).toContain("`Remaining: N tasks, the limit: <its label> <percent>%, extra usage <percent>% of <monthly limit>`");
+    expect(RULE).toContain("`Remaining: N tasks, the limit: extra usage <percent>%`");
+  });
+
+  it("Пятичасовое окно нигде во флоу не упоминается", () => {
+    const flow = flowFiles();
+    expect(flow).toContain("skills/github/reference.md");
+    expect(flow.filter((f) => /\b(5|five)[- ]hour/i.test(flowText(f)))).toEqual([]);
   });
 });
 
@@ -5305,13 +5359,11 @@ describe("Предел исполнителей диспетчера — по м
  * скилле `github` и его справочнике; шаг называет `Next:` очереди — её диспетчер читает после каждого ответа исполнителя.
  */
 describe("Диспетчер архивирует свои завершённые сессии-исполнители в режиме auto", () => {
-  const ROOT = path.resolve(import.meta.dir, "../../..");
   const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md"];
   const ARCHIVE = "an executor session whose task closed — the dispatcher archives it in an auto project";
   const BUSY = "not one still working in the background or awaiting the owner's answer";
   const OWNER = "outside auto the owner closes it";
-  const text = (file: string) => readFileSync(path.join(ROOT, file), "utf8").replace(/\s+/g, " ");
-  const missing = (phrase: string) => PLACES.filter((f) => !text(f).includes(phrase));
+  const missing = (phrase: string) => PLACES.filter((f) => !flowText(f).includes(phrase));
   /** Каталог с языком проекта, но не чекаут: очередь не трогает worktree репозитория, где запущен тест. */
   const projectDir = () => {
     const dir = scratch();
@@ -5352,22 +5404,16 @@ describe("Диспетчер архивирует свои завершённы�
   });
 
   it("канон называет исполнителя задачи другого проекта — сессию приложения, а не пишет, что её ещё не выдают", () => {
-    const files = ["AGENTS.md", "claude", "docs", "skills"].flatMap((p) =>
-      statSync(path.join(ROOT, p)).isDirectory()
-        ? readdirSync(path.join(ROOT, p), { recursive: true, withFileTypes: true })
-            .filter((e) => e.isFile() && e.name.endsWith(".md"))
-            .map((e) => path.relative(ROOT, path.join(e.parentPath, e.name)))
-        : [p],
-    );
+    const files = flowFiles().filter((f) => f.endsWith(".md"));
     expect(files.length).toBeGreaterThan(10);
-    expect(files.filter((f) => /aren't given out yet|a server flag/.test(text(f)))).toEqual([]);
+    expect(files.filter((f) => /aren't given out yet|a server flag/.test(flowText(f)))).toEqual([]);
     // ядро канона — в бюджете слов: исполнителей диспетчера по видам называет скилл `github`
     const skill = ["skills/github/SKILL.md", "skills/github/reference.md"];
-    expect(skill.filter((f) => !text(f).includes("another project's task — an app session in its folder"))).toEqual([]);
+    expect(skill.filter((f) => !flowText(f).includes("another project's task — an app session in its folder"))).toEqual([]);
   });
 
   it("claude/CLAUDE.md: сессию-исполнителя диспетчер архивирует archive_session по её id, отказ не повторяет", () => {
-    expect(text("claude/CLAUDE.md")).toContain(
+    expect(flowText("claude/CLAUDE.md")).toContain(
       "in auto mode `archive_session` with `self` archives it, ending the conversation: the last action, after the \"can be closed\" line. " +
         "Before it — `TaskStop` for each own background task still running: a live one gives \"still has live work\". " +
         "A dispatcher archives an executor session with its id. Refused — don't retry: the owner archives from the sidebar.",
