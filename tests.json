@@ -5001,6 +5001,27 @@
   "describes": [
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
+  "name": "task finish закрытой задачи с невлитой веткой задачи не печатает «nothing to finish»"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "task finish на переоткрытой задаче с невлитой веткой отправляет эту ветку и открывает её PR, а не ведёт влитый раньше PR"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "task finish не закрывает задачу, пока её открытый PR не влит"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
   "name": "task finish не на ветке задачи и с незакоммиченной правкой — отказ до изменений"
  },
  {
@@ -5058,6 +5079,13 @@
    "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
   ],
   "name": "повторный task finish продолжает с шага, на котором остановился"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task finish доводит задачу от ветки до закрытия одной возобновляемой командой"
+  ],
+  "name": "после мержа второго PR task finish ждёт выкатку его мержа и убирает его ветку"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -13716,6 +13744,13 @@
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
   "name": "цитату «Harness checks» из skills/spec/SKILL.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/documents/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
+  "name": "цитату «In progress» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
   "path": "tests/standards/documents/flow-english.test.ts",
