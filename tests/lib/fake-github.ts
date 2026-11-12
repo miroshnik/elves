@@ -983,6 +983,15 @@ export class FakeGitHub {
       }
       return { closeIssue: { issue: { id: issueId, state: "CLOSED" } } };
     },
+    // Переоткрытая задача — снова открыта, и у подзадачи эпика тоже.
+    ReopenIssue: ({ issueId }: Any) => {
+      const i = this.allIssues().find((x) => x.id === issueId);
+      Object.assign(i, { state: "OPEN", stateReason: "REOPENED" });
+      for (const x of this.allIssues()) for (const sub of x.subIssues.nodes) if (sub.number === i.number) sub.state = "OPEN";
+      const it = this.item(i.number);
+      if (it) Object.assign(it.content, { state: "OPEN", stateReason: "REOPENED" });
+      return { reopenIssue: { issue: { id: issueId, state: "OPEN" } } };
+    },
     LinkProject: ({ projectId }: Any) => {
       this.repo.projectsV2.nodes.push(this.ref(this.project(projectId)));
       return { linkProjectV2ToRepository: { repository: { id: this.repo.id } } };

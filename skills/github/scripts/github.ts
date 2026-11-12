@@ -641,6 +641,7 @@ const M: Record<string, [field: string, inputType: string, select: string]> = {
   RemoveBlockedBy: ["removeBlockedBy", "RemoveBlockedByInput", "issue { id }"],
   SetIssueField: ["setIssueFieldValue", "SetIssueFieldValueInput", "issue { id }"],
   CloseIssue: ["closeIssue", "CloseIssueInput", "issue { id state }"],
+  ReopenIssue: ["reopenIssue", "ReopenIssueInput", "issue { id state }"],
   UpdateIssue: ["updateIssue", "UpdateIssueInput", "issue { id }"],
   AddComment: ["addComment", "AddCommentInput", "subject { id }"],
   CreateRuleset: ["createRepositoryRuleset", "CreateRepositoryRulesetInput", "ruleset { id }"],
@@ -5029,7 +5030,19 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   const issue = loadIssue(io, slug, number);
   if (issue.state !== "OPEN") {
     // «Closes #N» of the PR closes the task at the merge (#761): a closed issue isn't a finished tail — task close's marks are
-    const closer = issue.stateReason === "COMPLETED" ? (issue.prs.find((p) => p.merged && !isBatchBranch(p.base)) ?? null) : null;
+    const closer = issue.stateReason === "COMPLETED" ? (lastMerged(issue.prs.filter((p) => !isBatchBranch(p.base))) ?? null) : null;
+    // a task reopened after its merge (#813): its open PR or its branch's unmerged work is the tail, not the merged PR
+    const work = workPastMerge(io, slug, number, issue, closer);
+    if (work) {
+      if (issue.stateReason !== "COMPLETED") return stop(1, `! #${number} is closed as ${issue.stateReason ?? "not planned"}, but ${work}`, `gh issue reopen ${number} --repo ${slug}, then ${again}`);
+      mutate(io, { op: "ReopenIssue", input: { issueId: issue.id } });
+      if (!inCloud(io)) {
+        const ctx = taskContext(io, slug);
+        setStatus(io, ctx, ensureItem(io, ctx, issue).id, N.status.inProgress);
+      }
+      io.out(`+ #${number} reopened, ${STATUS} ${q(N.status.inProgress)}: ${work} — the task's merged PR isn't its finish`);
+      return cmdTaskFinish(io, slug, number, { ...o, timeout: Math.max(0, left()) });
+    }
     if (!closer || tailOver(io, slug, number)) return io.out(`= #${number} is closed — nothing to finish`), 0;
     io.out(`○ #${number} is closed by the merge of PR #${closer.number}, the tail isn't over (no ${q(N.status.done)} with the actual) — going on`);
     return finishMerged(io, slug, number, issue.parent?.number ?? null, closer, { left, again, stop, outOfTime });
@@ -5037,8 +5050,11 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`task finish runs from a checkout of ${slug}: the current directory is not one`);
   const found = unlinkedPrs(io, slug, number);
   const prs = [...issue.prs, ...found.prs, ...found.batched].filter((p, k, all) => all.findIndex((x) => x.number === p.number) === k);
-  const merged = prs.find((p) => p.merged);
-  if (merged) return finishMerged(io, slug, number, issue.parent?.number ?? null, merged, { left, again, stop, outOfTime });
+  // the latest merged PR is the task's finish only without an open PR and without unmerged work on its branch (#813):
+  // a task reopened after the merge goes on with its new branch — its push, its PR, its merge
+  const merged = lastMerged(prs);
+  const pending = prs.some((p) => p.state === "OPEN") || (merged && unmergedBranch(io, number, merged.base, merged.head));
+  if (merged && !pending) return finishMerged(io, slug, number, issue.parent?.number ?? null, merged, { left, again, stop, outOfTime });
 
   const branch = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const open = prs.find((p) => p.state === "OPEN");
@@ -5101,6 +5117,43 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   if (premerge !== 0) return stop(1, `❌ PR #${pr} isn't merged: pr premerge — code ${premerge} (above)`, `what premerge names, then ${again}`);
   const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
   return stop(4, `✅ PR #${pr} is ready to merge`, `${yes}gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${again}${isBatchBranch(base) ? "" : " — in the background: it waits for the deploy"}`);
+}
+
+/** The task's latest merged PR — the highest number: a task reopened after a merge has several (#813). */
+function lastMerged<T extends { number: number; merged: boolean }>(prs: T[]): T | undefined {
+  return prs.filter((p) => p.merged).sort((a, b) => b.number - a.number)[0];
+}
+
+/**
+ * The checkout's branch of the task with commits that aren't in `origin/<base>` by their changes (`git cherry`: a
+ * rebase merge gives other SHAs) — the work of a task reopened after its merge (#813); none — null. The merged PR's own
+ * branch — by the commits past its pushed head while it is on origin: a squash merge has no commit-for-commit match.
+ */
+function unmergedBranch(io: Io, number: number, base: string, mergedHead?: string): string | null {
+  const branch = git(io, io.cwd, "branch", "--show-current").stdout.trim();
+  if (!isTaskBranch(branch, number)) return null;
+  if (branch === mergedHead) {
+    git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+    const past = git(io, io.cwd, "rev-list", "--count", `refs/remotes/origin/${branch}..HEAD`);
+    if (past.status === 0) return Number(past.stdout.trim()) > 0 ? branch : null;
+  }
+  if (git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`).status !== 0) return null;
+  const cherry = git(io, io.cwd, "cherry", `origin/${base}`, "HEAD");
+  return cherry.status === 0 && cherry.stdout.split("\n").some((l) => l.startsWith("+")) ? branch : null;
+}
+
+/**
+ * What a closed task still has after its merged PR (#813): an open PR of the task, or the checkout's task branch with
+ * work its base hasn't got. Nothing — null; the checkout isn't the repository's — only the PR counts.
+ */
+function workPastMerge(io: Io, slug: string, number: number, issue: Issue, closer: Issue["prs"][number] | null): string | null {
+  const open = issue.prs.find((p) => p.state === "OPEN");
+  if (open) return `its PR #${open.number} is open`;
+  const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
+  if (!isTaskBranch(current, number) || !checkoutOfRepo(io, originUrl(io), slug)) return null;
+  const base = closer?.base ?? unlinkedPrs(io, slug, number).base;
+  const branch = unmergedBranch(io, number, base, closer?.head);
+  return branch ? `branch ${branch} has commits that aren't in origin/${base}` : null;
 }
 
 /**

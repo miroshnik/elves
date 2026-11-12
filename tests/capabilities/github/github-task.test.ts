@@ -5869,4 +5869,91 @@ describe("task finish доводит задачу от ветки до закр�
     expect(dirty.out).toContain("! uncommitted changes in the checkout");
     expect(created(f)).toEqual([]);
   });
+
+  /**
+   * #813: задачу доделывают вторым PR после мержа первого — переоткрыта, новая ветка от свежего main. `task finish`
+   * брал влитый PR A: снова закрывал задачу, новую ветку не отправлял, а после мержа PR B — «nothing to finish».
+   */
+  const REDO = "fix/49-redo-export";
+  /** #49 закрыта мержем PR #77 (ветка удалена), хвост тогда завершён; чекаут — на новой ветке задачи с коммитом. */
+  function reopened(o: { closed: boolean }) {
+    const f = new FakeGitHub(REC);
+    f.prs[77] = { files: [], closes: [49], head: "feat/49-invoice-export", base: "main", model: null, merged: true, state: "MERGED" };
+    if (o.closed) {
+      f.closed(49);
+      f.status(49, "Готово");
+      f.numbers[49] = { "Оценка, ч": 0.5, "Факт, ч": 0.4 };
+    }
+    const { work } = onBranch(REDO, "fix(github): переделка экспорта");
+    return { f, work };
+  }
+  /** Мерж ребейзом: коммиты ветки — в main с другими SHA, ветка на origin остаётся. */
+  function rebaseMerged(f: FakeGitHub, work: string, pr: number) {
+    git(work, "switch", "-q", "--detach", "origin/main");
+    git(work, "-c", "user.email=merge@example.test", "-c", "user.name=merge", "-c", "commit.gpgsign=false", "cherry-pick", REDO);
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    git(work, "switch", "-q", REDO);
+    merge(f, pr);
+    f.closed(49);
+  }
+
+  it("task finish на переоткрытой задаче с невлитой веткой отправляет эту ветку и открывает её PR, а не ведёт влитый раньше PR", () => {
+    const { f, work } = reopened({ closed: false });
+    const r = finish(f, ["49"], { cwd: work });
+    expect(r.code).toBe(4);
+    expect(created(f)).toEqual([{ title: "fix(github): переделка экспорта", head: REDO, base: "main", body: `${SPEC}\n\nCloses #49\n` }]);
+    expect(git(work, "ls-remote", "--heads", "origin", REDO)).toStartWith(git(work, "rev-parse", "HEAD"));
+    expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["pr", "78"]]);
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+  });
+
+  it("task finish не закрывает задачу, пока её открытый PR не влит", () => {
+    const { f, work } = reopened({ closed: false });
+    expect(finish(f, ["49"], { cwd: work, ci: [2] }).code).toBe(5);
+    // PR #78 открыт, его CI идёт — повтор ведёт его, влитый #77 не трогает
+    const again = finish(f, ["49"], { cwd: work });
+    expect(again.code).toBe(4);
+    expect(again.out).toContain("= PR #78 into main: the body is current");
+    expect(again.waits.map((w) => w.slice(0, 2))).toEqual([["pr", "78"]]);
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+    expect(statusSet(f)).toEqual([]);
+    // задачу с открытым PR закрыли раньше — finish её переоткрывает и ведёт PR
+    f.closed(49);
+    const closed = finish(f, ["49"], { cwd: work });
+    expect(closed.code).toBe(4);
+    expect(closed.out).toContain("+ #49 reopened, Status «В работе»: its PR #78 is open — the task's merged PR isn't its finish");
+    expect(byOp(f, "CloseIssue")).toEqual([]);
+  });
+
+  it("task finish закрытой задачи с невлитой веткой задачи не печатает «nothing to finish»", () => {
+    const { f, work } = reopened({ closed: true });
+    const r = finish(f, ["49"], { cwd: work });
+    expect(r.out).not.toContain("nothing to finish");
+    expect(r.out).toContain(`+ #49 reopened, Status «В работе»: branch ${REDO} has commits that aren't in origin/main — the task's merged PR isn't its finish`);
+    expect(byOp(f, "ReopenIssue")).toEqual([{ issueId: f.issue(49).id }]);
+    expect(statusSet(f)).toEqual([[49, "В работе"]]);
+    expect(r.code).toBe(4);
+    expect(created(f).map((p) => p.head)).toEqual([REDO]);
+    // отменённая задача не переоткрывается сама — отказ с командой
+    const dropped = reopened({ closed: false });
+    dropped.f.closed(49, "NOT_PLANNED");
+    const d = finish(dropped.f, ["49"], { cwd: dropped.work });
+    expect(d.code).toBe(1);
+    expect(d.last).toStartWith(`Next: gh issue reopen 49 --repo ${REPO}, then `);
+    expect(dropped.f.mutations).toEqual([]);
+  });
+
+  it("после мержа второго PR task finish ждёт выкатку его мержа и убирает его ветку", () => {
+    const { f, work } = reopened({ closed: true });
+    expect(finish(f, ["49"], { cwd: work }).code).toBe(4);
+    rebaseMerged(f, work, 78);
+    const r = finish(f, ["49"], { cwd: work });
+    expect(r.out).not.toContain("nothing to finish");
+    expect(r.out).toContain("○ #49 is closed by the merge of PR #78, the tail isn't over");
+    expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "78"]]);
+    expect(r.code).toBe(0);
+    expect(statusSet(f).at(-1)).toEqual([49, "Готово"]);
+    expect(git(work, "ls-remote", "--heads", "origin", REDO)).toBe("");
+    expect(git(work, "branch", "--list", REDO)).toBe("");
+  });
 });
