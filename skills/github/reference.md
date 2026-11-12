@@ -941,9 +941,21 @@ it removes what finished executors left (#515): an agent's worktree
 (`.claude/worktrees/agent-*`) detached or on a `worktree-agent-*` branch, not
 locked by a live process (Claude Code locks a running agent's worktree; a lock
 whose pid is gone doesn't hold), clean and without commits outside
-`origin/<base>` by `git cherry` — removed with its branch, a `+` line;
-uncommitted changes or unmerged commits — left, an `○` line with the reason; a
-`worktree-agent-*` branch without a worktree — the same by its commits. A
+`origin/<base>` by `git cherry`, or clean with its HEAD in a merged PR of its
+closed task — removed with its branch, a `+` line; uncommitted changes or
+unmerged commits — left, an `○` line with the reason; a `worktree-agent-*`
+branch without a worktree — the same by its commits (`git cherry`). "Merged by
+the PR" (#816): a batch's release rebases the batch onto a fresh
+`origin/<base>`, a task's commit reaches it rewritten twice and differs there by
+context — `git cherry` counts it unmerged, and the executors' worktrees piled
+up with each batch. For a clean worktree `git cherry` counts unmerged, the
+queue asks GitHub for the PRs of its HEAD (`commits/<sha>/pulls`): one counts
+when it is merged, its head is the HEAD or a descendant of it (a commit a
+force-push dropped from the PR doesn't count), its tasks are closed and its
+base is the default branch or a batch branch its merged release PR shipped; a
+commit on top of the PR's head, no such PR, or GitHub not read — `git cherry`
+decides, as before. The `+` line names the PR (`its HEAD is in PR #77 merged
+into batch/… (released by PR #80), #47 closed`). A
 session's worktree, an agent's on an open task's branch and an executor's whose
 handed-out task is open or awaits `task close` after its merge — untouched,
 no line (#533, #769); an agent's on a closed

@@ -3930,8 +3930,9 @@ function openOf(io: Io, slug: string): (n: number) => boolean {
  * Executors' worktrees go away with the dispatcher's next queue (#515): an executor can't remove its own — it works in it,
  * and `task close` leaves it detached on origin/<base>; its subagents leave theirs on `worktree-agent-*` branches.
  * Only agents' worktrees (`AGENT_WORKTREE`), detached or on a `worktree-agent-*` branch, not locked by a live process
- * (a running agent): clean and without commits outside origin/<base> (`git cherry` — a rebase merge gives new SHAs) —
- * removed with their branch, a `+` line each; uncommitted changes or unmerged commits — left, a `○` line with the
+ * (a running agent): clean and without commits outside origin/<base> (`git cherry` — a rebase merge gives new SHAs), or
+ * clean with its HEAD in a merged PR of its closed task (`mergedByPr`, #816: a batch's release rewrites the commits
+ * past `git cherry`) — removed with their branch, a `+` line each; uncommitted changes or unmerged commits — left, a `○` line with the
  * reason. A `worktree-agent-*` branch without a worktree — the same by its commits. A session's worktree, an agent's on
  * a task branch of an open task (`closed` — #698: a closed one's goes with its branch, as above), an executor's whose handed-out task is open (`kept`, #533: Claude Code unlocks
  * an agent's worktree when it ends its answer — a question too — and doesn't lock it again when the agent is continued
@@ -3953,6 +3954,48 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
     if (r.status !== 0) return `git cherry ${upstream}: ${why(r)}`;
     const n = r.stdout.split("\n").filter((l) => l.startsWith("+")).length;
     return n ? `${plural(n, "commit", "commits")} not in ${upstream}` : null;
+  };
+  /** A batch branch's merged release PR (`releasePrOf`), read once per batch; not released or not read — null. */
+  const releases = new Map<string, number | null>();
+  const releasedBy = (batch: string): number | null => {
+    if (!releases.has(batch)) {
+      let pr: number | null = null;
+      try {
+        const release = releasePrOf(batchPrs(io, slug, batch), batch);
+        pr = release?.merged ? release.number : null;
+      } catch (e) {
+        if (!(e instanceof GhError)) throw e;
+      }
+      releases.set(batch, pr);
+    }
+    return releases.get(batch)!;
+  };
+  /**
+   * Merged by its PR (#816): a batch's release rebases the batch onto a fresh origin/<base>, and a task's commit reaches
+   * the default branch rewritten twice — its patch differs there by context, and `git cherry` counts it unmerged. GitHub
+   * names the PRs of a commit (`commits/<sha>/pulls`); one counts when it is merged, its head is the HEAD or a descendant
+   * of it, its tasks are closed (`closed`), and its base is the default branch or a batch branch its merged release PR
+   * shipped. The reason for the `+` line; none, or not read — null: `git cherry` decides.
+   */
+  const mergedByPr = (sha: string): string | null => {
+    let pulls: Any[];
+    try {
+      pulls = rest(io, `repos/${slug}/commits/${sha}/pulls`) ?? [];
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      return null;
+    }
+    for (const p of pulls) {
+      const r = prRef(p);
+      const tasks = prTasks(p);
+      if (!r.merged || !r.sha || !tasks.length || !tasks.every(closed)) continue;
+      if (r.sha !== sha && git(io, io.cwd, "merge-base", "--is-ancestor", sha, r.sha).status !== 0) continue;
+      const release = isBatchBranch(r.base) ? releasedBy(r.base) : null;
+      if (r.base !== base && release === null) continue;
+      const into = release === null ? r.base : `${r.base} (released by PR #${release})`;
+      return `its HEAD is in PR #${r.number} merged into ${into}, ${tasks.map((n) => `#${n}`).join(", ")} closed`;
+    }
+    return null;
   };
   const deleteBranch = (branch: string) => {
     const d = git(io, io.cwd, "branch", "-D", branch);
@@ -3982,7 +4025,10 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
       continue;
     }
     const dirty = status.stdout.split("\n").filter((l) => l.trim()).length;
-    const reasons = [dirty ? `${plural(dirty, "uncommitted file", "uncommitted files")}` : null, unmerged(w.head)].filter((r): r is string => r !== null);
+    const cherry = unmerged(w.head);
+    // git cherry first — local; the PR only for a clean worktree it counts unmerged: the API call is for the doubt alone
+    const byPr = !dirty && cherry !== null ? mergedByPr(w.head) : null;
+    const reasons = [dirty ? `${plural(dirty, "uncommitted file", "uncommitted files")}` : null, byPr ? null : cherry].filter((r): r is string => r !== null);
     if (reasons.length) {
       io.out(`○ worktree ${w.path} left: ${reasons.join(", ")}`);
       continue;
@@ -3995,7 +4041,7 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
       continue;
     }
     const withBranch = w.branch !== null && deleteBranch(w.branch) ? ` with branch ${w.branch}` : "";
-    io.out(`+ worktree ${w.path} removed${withBranch}: clean, nothing outside ${upstream}`);
+    io.out(`+ worktree ${w.path} removed${withBranch}: clean, ${byPr ?? `nothing outside ${upstream}`}`);
   }
   // a branch checked out anywhere — a locked worktree's included — isn't loose
   const checkedOut = new Set(all.map((w) => w.branch).filter(Boolean));
@@ -6589,7 +6635,7 @@ label's — from the latest «External blocker: …» comment). Marks the sessio
 with the session's id; a session with a pinned task keeps it. Before the queue, in the repository's checkout —
 finished agents' worktrees (.claude/worktrees/agent-*, detached or on worktree-agent-*, not locked by a live process,
 not an executor's whose handed-out task is open; on a task branch — when its task is closed): clean and merged (git
-cherry) — removed with the branch (+),
+cherry, or its HEAD in a merged PR of its closed task into the default branch or a released batch) — removed with the branch (+),
 otherwise left (○ with the reason), and so is one a subagent works in without a worktree of its own (its transcript
 written in the last ${QUIET_MINUTES} min); loose worktree-agent-* branches — the same. --type and --priority — in an
 organization. --assignment N (the executor's first call; read-only on GitHub) — its whole assignment; in a session

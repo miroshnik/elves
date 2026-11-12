@@ -4953,6 +4953,93 @@ describe("task queue убирает worktree исполнителей закры
   });
 
   /**
+   * #816: коммит задачи пачки доходит до main дважды переписанным — rebase-мерж PR в ветку пачки и rebase пачки на свежий
+   * main при выпуске. Соседние строки меняли другие задачи и хотфиксы — у двойника в main та же тема и другой patch-id,
+   * `git cherry` даёт `+`, и worktree исполнителя закрытой задачи копились с каждой пачкой. Слито — по PR: GitHub
+   * называет PR коммита (`commits/<sha>/pulls`).
+   */
+  const BATCH = "batch/2026-11-10-1";
+  function releasedTask(d: ReturnType<typeof dispatcher>, prs = true) {
+    const f = new FakeGitHub(REC);
+    f.closed(47);
+    // исполнитель пачки кончает на ветке задачи: её закрывает выпуск
+    const executor = d.add("agent-a1", ["-b", "fix/47-x"], "main");
+    const head = d.commit(executor, "work.md");
+    // двойник в main после выпуска: та же тема, другой контекст
+    writeTree(d.work, { "work.md": "work.md\nстрока соседней задачи\n" });
+    git(d.work, "add", "work.md");
+    git(d.work, ...AUTHOR, "commit", "-q", "-m", "work.md");
+    git(d.work, "push", "-q", "origin", "main");
+    if (prs) {
+      f.prs[77] = { files: [], closes: [47], head: "fix/47-x", base: BATCH, model: null, merged: true, sha: head };
+      f.prs[80] = { files: [], closes: [47], head: BATCH, base: "main", model: null, merged: true };
+    }
+    return { f, executor, head };
+  }
+
+  it("Worktree исполнителя, чей HEAD — голова смерженного PR закрытой задачи, убирается, даже если выпуск пачки переписал его коммиты", () => {
+    const d = dispatcher();
+    const { f, executor } = releasedTask(d);
+    expect(d.cleanupLines(d.queue(f))).toEqual([
+      `+ worktree ${executor} removed with branch fix/47-x: clean, its HEAD is in PR #77 merged into ${BATCH} (released by PR #80), #47 closed`,
+    ]);
+    expect(d.worktrees()).toEqual([d.work]);
+    expect(git(d.work, "branch", "--list", "fix/47-x")).toBe("");
+  });
+
+  it("Worktree, чей HEAD — предок головы смерженного PR закрытой задачи в main, убирается", () => {
+    const d = dispatcher();
+    const { f, executor, head } = releasedTask(d, false);
+    // в PR ушёл ещё коммит поверх HEAD worktree
+    const tip = d.commit(executor, "more.md");
+    git(executor, "reset", "-q", "--hard", head);
+    f.prs[77] = { files: [], closes: [47], head: "fix/47-x", base: "main", model: null, merged: true, sha: tip, commits: [head, tip] };
+    expect(d.cleanupLines(d.queue(f))).toEqual([`+ worktree ${executor} removed with branch fix/47-x: clean, its HEAD is in PR #77 merged into main, #47 closed`]);
+    expect(d.worktrees()).toEqual([d.work]);
+  });
+
+  // без перегиба: слитый PR задачи не уносит коммит, которого в нём нет, — судит голова worktree, а не задача
+  it("Worktree с коммитом поверх головы смерженного PR остаётся", () => {
+    const d = dispatcher();
+    const { f, executor } = releasedTask(d);
+    d.commit(executor, "more.md");
+    expect(d.cleanupLines(d.queue(f))).toEqual([`○ worktree ${executor} left: 2 commits not in origin/main`]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+  });
+
+  // без перегиба: GitHub связывает с PR и коммит, который force-push из него выкинул, — его правок в PR нет
+  it("Worktree, чей HEAD выпал из PR при force-push, остаётся", () => {
+    const d = dispatcher();
+    const { f, executor, head } = releasedTask(d, false);
+    git(executor, ...AUTHOR, "commit", "-q", "--amend", "-m", "work.md, переписан");
+    const amended = git(executor, "rev-parse", "HEAD");
+    git(executor, "reset", "-q", "--hard", head);
+    f.prs[77] = { files: [], closes: [47], head: "fix/47-x", base: "main", model: null, merged: true, sha: amended, commits: [head, amended] };
+    expect(d.cleanupLines(d.queue(f))).toEqual([`○ worktree ${executor} left: 1 commit not in origin/main`]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+  });
+
+  // без перегиба: PR влит в пачку, которую не выпустили, — её коммитов в main нет, worktree остаётся
+  it("Worktree, чей HEAD — голова PR в невыпущенную пачку, остаётся", () => {
+    const d = dispatcher();
+    const { f, executor } = releasedTask(d);
+    f.prs[80]!.merged = false;
+    expect(d.cleanupLines(d.queue(f))).toEqual([`○ worktree ${executor} left: 1 commit not in origin/main`]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+  });
+
+  // без перегиба: без PR тот же переписанный коммит — `+` по git cherry, worktree остаётся
+  it("Worktree без PR задачи судится по git cherry, как раньше", () => {
+    const d = dispatcher();
+    const { f, executor } = releasedTask(d, false);
+    // соседний worktree: его коммит влит rebase-мержем, patch тот же
+    const merged = d.add("agent-a2");
+    d.rebaseMerged(d.commit(merged, "budget.md"));
+    expect(d.cleanupLines(d.queue(f))).toEqual([`○ worktree ${executor} left: 1 commit not in origin/main`, `+ worktree ${merged} removed: clean, nothing outside origin/main`]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+  });
+
+  /**
    * Субагент без своего worktree работает в каталоге того, кто его запустил (#571): исполнитель закрыл задачу и ответил,
    * а его актуализация эпика ещё шла в его worktree — блокировки нет, HEAD на origin/main, правок нет, и очередь убрала
    * worktree: субагент остался без каталога, Bash отказывал в любой команде. Такого субагента называют метаданные
