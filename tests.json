@@ -6364,6 +6364,55 @@
  {
   "path": "tests/capabilities/github/github-task.test.ts",
   "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Без данных о лимитах (`not_applicable`) диспетчер запускает исполнителей по ёмкости машины"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Без данных о лимитах (`unavailable`, повтор не помог) диспетчер новых исполнителей не запускает"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Диспетчер не запускает нового исполнителя, когда общее недельное окно на пороге или выше"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Исчерпанные окна при включённом extra usage останавливают запуск; после «да» владельца на extra usage — по порогу месячного лимита"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Окно модели, на которой исполнители не идут, запуск не останавливает"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Пятичасовое окно нигде во флоу не упоминается"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Диспетчер · лимит перед запуском исполнителя — по окнам get_usage"
+  ],
+  "name": "Строка Remaining называет сработавшее окно и остаток extra usage"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
    "Диспетчер архивирует свои завершённые сессии-исполнители в режиме auto"
   ],
   "name": "claude/CLAUDE.md: сессию-исполнителя диспетчер архивирует archive_session по её id, отказ не повторяет"
