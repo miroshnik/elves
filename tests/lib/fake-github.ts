@@ -58,7 +58,11 @@ export class FakeGitHub {
    * задачи, с которыми GitHub связал PR (`closes`; тело может называть и другие), голова, модель архитектуры в ней (ModelAt);
    * `merged`, `state`, `base` — для `task close`.
    */
-  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]>; logs?: Record<string, string> }> = {};
+  /**
+   * PR записи; `sha` — коммит головы (без него — `sha<номер>`), `commits` — коммиты PR, которые GitHub с ним связывает
+   * (`commits/<sha>/pulls`; без них — голова).
+   */
+  prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]>; logs?: Record<string, string>; sha?: string; commits?: string[] }> = {};
   /** Задача → числовые поля проекта по имени поля (IssueShow): оценка, факт. */
   numbers: Record<number, Record<string, number>> = {};
   /** Задача → id milestone (IssueRef.milestone); открытые задачи milestone считаются по состоянию записей. */
@@ -453,7 +457,7 @@ export class FakeGitHub {
   }
   private livePrs(): Any[] {
     return Object.entries(this.prs)
-      .map(([n, p]) => ({ number: Number(n), state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), headRefName: p.head, headRefOid: `sha${n}`, baseRefName: p.base ?? "main", body: p.body ?? "" }))
+      .map(([n, p]) => ({ number: Number(n), state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), headRefName: p.head, headRefOid: p.sha ?? `sha${n}`, baseRefName: p.base ?? "main", body: p.body ?? "" }))
       .filter((p) => p.state !== "CLOSED")
       .sort((a, b) => b.number - a.number);
   }
@@ -466,23 +470,25 @@ export class FakeGitHub {
    * REST PR вне облака — что читает `pr premerge` у PR в ветку пачки: PR по номеру и PR по голове (`?head=владелец:ветка`),
    * новые первыми; другой запрос — null.
    */
+  /** PR записи строкой REST (`pulls/<N>`, `commits/<sha>/pulls`). */
+  private restPr(n: number): Any {
+    const p = this.prs[n]!;
+    const state = p.state ?? (p.merged ? "MERGED" : "OPEN");
+    const owner = { type: this.repo.owner.__typename === "Organization" ? "Organization" : "User" };
+    return {
+      id: 5000 + n,
+      number: n,
+      state: state === "OPEN" ? "open" : "closed",
+      merged: state === "MERGED",
+      merged_at: state === "MERGED" ? "2026-10-17T12:00:00Z" : null,
+      body: p.body ?? "",
+      head: { ref: p.head, sha: p.sha ?? `sha${n}` },
+      base: { ref: p.base ?? "main", repo: { default_branch: "main", owner } },
+    };
+  }
   private restPulls(route: string): Any {
     const [tail, query] = route.slice(`repos/${this.repo.nameWithOwner}/pulls`.length).split("?") as [string, string | undefined];
-    const shown = (n: number) => {
-      const p = this.prs[n]!;
-      const state = p.state ?? (p.merged ? "MERGED" : "OPEN");
-      const owner = { type: this.repo.owner.__typename === "Organization" ? "Organization" : "User" };
-      return {
-        id: 5000 + n,
-        number: n,
-        state: state === "OPEN" ? "open" : "closed",
-        merged: state === "MERGED",
-        merged_at: state === "MERGED" ? "2026-10-17T12:00:00Z" : null,
-        body: p.body ?? "",
-        head: { ref: p.head, sha: `sha${n}` },
-        base: { ref: p.base ?? "main", repo: { default_branch: "main", owner } },
-      };
-    };
+    const shown = (n: number) => this.restPr(n);
     const one = /^\/(\d+)$/.exec(tail);
     if (one) return this.prs[Number(one[1])] ? shown(Number(one[1])) : { message: "Not Found", status: "404" };
     const head = new URLSearchParams(query ?? "").get("head");
@@ -514,6 +520,12 @@ export class FakeGitHub {
     if (new RegExp(`^repos/${repo}/actions/jobs/\\d+$`).test(route)) return { steps: [] };
     if (route.startsWith(`repos/${repo}/commits/c0ffee1/check-suites`)) return { check_suites: [] };
     if (route === `repos/${repo}/commits/c0ffee1/pulls`) return [];
+    // PR коммита (уборка worktree исполнителей, #816): его голова или один из его коммитов
+    const ofCommit = new RegExp(`^repos/${repo}/commits/([0-9a-f]{40})/pulls$`).exec(route);
+    if (ofCommit) {
+      const sha = ofCommit[1]!;
+      return Object.keys(this.prs).map(Number).filter((n) => (this.prs[n]!.commits ?? [this.prs[n]!.sha]).includes(sha)).sort((a, b) => b - a).map((n) => this.restPr(n));
+    }
     if (route === `repos/${repo}/commits/c0ffee1`) return { sha: "c0ffee1", commit: { message: "" } };
     const suites = new RegExp(`^repos/${repo}/commits/sha(\\d+)/check-suites\\b`).exec(route);
     if (suites) return { check_suites: [{ created_at: this.ciAt }] };
