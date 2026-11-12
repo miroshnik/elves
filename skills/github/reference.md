@@ -1044,8 +1044,18 @@ machine's executors in subagents and 5 cloud sessions at once, the owner's
 number replaces either (subagents share the machine: `Next:` names the
 executors of its capacity — `slot --capacity`, `machine.json` or the cores and
 memory, without the slot skill — 3; a cloud session has its own container); a task in work (`=`) isn't launched again.
-Before each launch — `get_usage`: the 5-hour limit at 85% and more — no new
-executors, the running ones finish, then `Remaining: N tasks, the limit`. An
+Before each launch — `get_usage` (#815): a window of `plan.windows` at 85% and
+more — any but the window of a model the executors don't run on (`Weekly ·
+<model>`; theirs — the dispatcher's own unless the launch names another) — no
+new executors, the running ones finish, then `Remaining: N tasks, the limit:
+<its label> <percent>%, extra usage <percent>% of <monthly limit>` (or `extra
+usage off`). Extra usage doesn't lift the stop: money past the plan is the
+owner's decision; after the owner's «yes» to it — launches until
+`plan.extraUsage.percentUsed` is at 85%, then `Remaining: N tasks, the limit:
+extra usage <percent>%`. `not_applicable` (an API key, Bedrock, Vertex, a
+gateway) — no plan limits: executors by the machine's capacity; `unavailable`
+— asked again if its note says that helps, otherwise no new executors, the
+running ones finish, `Remaining: N tasks, limits unavailable`. An
 answer arrives as the subagent's notification; after each — `task queue`
 again. A question — to the owner in text; the answer — ✅ in the task's
 questions section and to the same executor with `SendMessage` (its context is
