@@ -5764,6 +5764,48 @@
   "describes": [
    "task queue убирает worktree исполнителей закрытых задач"
   ],
+  "name": "Worktree без PR задачи судится по git cherry, как раньше"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Worktree исполнителя, чей HEAD — голова смерженного PR закрытой задачи, убирается, даже если выпуск пачки переписал его коммиты"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Worktree с коммитом поверх головы смерженного PR остаётся"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Worktree, чей HEAD выпал из PR при force-push, остаётся"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Worktree, чей HEAD — голова PR в невыпущенную пачку, остаётся"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
+  "name": "Worktree, чей HEAD — предок головы смерженного PR закрытой задачи в main, убирается"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "task queue убирает worktree исполнителей закрытых задач"
+  ],
   "name": "task queue не убирает чистый worktree исполнителя, чья выданная задача открыта"
  },
  {
