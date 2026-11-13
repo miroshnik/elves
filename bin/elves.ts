@@ -247,7 +247,7 @@ Examples:
 
 From an Elves clone: a vYYYY.MM.DD tag on origin/main and a GitHub Release listing the flow changes since the previous
 release; --dry-run — only show them. CI publishes the tag to npm (.github/workflows/npm.yml, pack --help) by trusted
-publishing, without a token; the owner's step once — README, "Installation".
+publishing, without a token; the owner's step once — docs/installation.md, "Releases and the up-to-date check".
 
 Examples:
   elves release --dry-run`,
