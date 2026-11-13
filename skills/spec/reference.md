@@ -672,7 +672,7 @@ the project's CI" below.
   test names; the md holds what a test doesn't express — why, the reason for
   the decision, rejected alternatives (formerly `//`, invisible in the spec) —
   and GitHub renders it as is, with headings and diagrams. It is checked
-  mechanically: no md — a `--strict` error; a header on a test file — one too
+  deterministically: no md — a `--strict` error; a header on a test file — one too
   (a second source of the introduction).
 - **A test file's header is dropped, not glued in:** gluing is what made the
   quilt (#63). `--strict` makes it a CI error; the text moves into

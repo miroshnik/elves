@@ -211,7 +211,7 @@ it.
 
 ## Specification — decisions
 
-A project's spec is **decisions with a mechanical check**, functional and
+A project's spec is **decisions with a deterministic check**, functional and
 non-functional (a test, a lint rule, an architecture check).
 **No check — no decision; no decision — no code:** behavior without a check
 may change without agreement; code no decision claims is dead. A check is
