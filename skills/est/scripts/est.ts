@@ -149,7 +149,7 @@ const BRANCH_CONV_RE = new RegExp("^(?:[\\p{L}\\p{N}_.-]+/)?(" + EST_TYPES.join(
 const PR_PAGE = 50;
 const PR_MAX = 500;
 const ISSUES_MAX = 500; // how many closed issues the index of closing commits keeps
-const SESSION_CACHE_V = 24; // transcript cache format version (changed — reparse); 11 = session name history
+const SESSION_CACHE_V = 25; // transcript cache format version (changed — reparse); 11 = session name history
 // (title_hist), 12 = cloud sessions, 13 = all session directories (cwds), 14 = PR repository on pr-link, 16 = git and
 // gh listing hashes — only own ones, 17 = shell keywords in a listing, 18 = agent number on a record (task fan-out),
 // 19 = a subagent's branch in its own worktree — from that checkout, not gitBranch, 20 = a record in the session's
@@ -1067,16 +1067,25 @@ const EPIC_WORDS = locale.every((n) => n.subagentPrompt.epic).map((w) => `${loca
 const TASK_WORD_RE = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${TASK_WORDS})\s+(?:${ISSUE_ALT})`, "iu");
 const TASK_LEAD_RE = new RegExp(String.raw`^\s*(?:${ISSUE_ALT})`, "u");
 const NOT_TASK_RE = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${EPIC_WORDS}|PR)\s*[:—-]?\s*(?:${ISSUE_ALT})`, "giu");
+// The repository after the task in a dispatcher executor's assignment — "Task #42 in o/r: …", "Task #42 «title» in o/r
+// (epic #40): …" (`queue` of the github skill): the word before it is the one `queue.prompt` has in every dictionary
+// language; the repository is followed by the epic or the colon. Each repository has its own numbers (#824).
+const REPO_WORDS = locale.every((n) => /#\{number\}\s+(\p{L}+)\s+\{repo\}/u.exec(n.queue.prompt)?.[1] ?? "").filter(Boolean).map(locale.escapeRe).join("|");
+const TASK_REPO_RE = REPO_WORDS ? new RegExp(String.raw`^(?:\s+«[^\n]*?»)?\s+(?:${REPO_WORDS})\s+([\p{L}\p{N}_.-]+\/[\p{L}\p{N}_.-]+)(?=\s*[(:])`, "iu") : null;
 
 /**
- * The task from a subagent assignment: "Task #42 (epic #40). …" — 42, "#42 (epic #40): …" — 42, an issue link — with
- * the repository (`o/r#42`). Without these signs — as before: exactly one number without links or exactly one link
- * (and the number matching it), not counting numbers after "epic" and "PR". The hint is hard (its own record — whole,
- * someone else's — zero, branches and windows aren't looked at), so when unclear there is none: "look at #42 and #39"
- * — empty, records go by branch.
+ * The task from a subagent assignment: "Task #42 (epic #40). …" — 42, "#42 (epic #40): …" — 42, an issue link or the
+ * repository after the number ("Task #42 in o/r: …" — a dispatcher's executor) — with the repository (`o/r#42`).
+ * Without these signs — as before: exactly one number without links or exactly one link (and the number matching it),
+ * not counting numbers after "epic" and "PR". The hint is hard (its own record — whole, someone else's — zero, branches
+ * and windows aren't looked at), so when unclear there is none: "look at #42 and #39" — empty, records go by branch.
  */
 function taskHintIn(txt: string): string {
-  const key = (m: RegExpExecArray) => (m[1] ? String(parseInt(m[1], 10)) : `${m[2]}#${parseInt(m[3]!, 10)}`);
+  const key = (m: RegExpExecArray) => {
+    if (!m[1]) return `${m[2]}#${parseInt(m[3]!, 10)}`;
+    const repo = TASK_REPO_RE?.exec(txt.slice(m.index + m[0].length))?.[1];
+    return repo ? `${repo}#${parseInt(m[1], 10)}` : String(parseInt(m[1], 10));
+  };
   const m = TASK_WORD_RE.exec(txt) ?? TASK_LEAD_RE.exec(txt);
   if (m) return key(m);
   const rest = txt.replace(NOT_TASK_RE, " ");
@@ -2829,6 +2838,8 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
   const recorded: Recorded = repo.recorded?.() ?? new Map();
   const sharedWith = new Set(shared.flatMap((x) => x.with)); // a shared PR/commit: an overlap is a share, not an error
   const ourKey = `${repo.full}#${number}`;
+  const isOurKey = (k: string) => k.toLowerCase() === ourKey.toLowerCase();
+  const hintOf = (e: Any[]): string => (e.length > 3 ? e[3] : "");
   const cmpAnchor = (a: Anchor, b: Anchor) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0) || a[3] - b[3];
 
   const sameRepo = (r: string) => r.toLowerCase() === repo.full.toLowerCase();
@@ -2843,15 +2854,16 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     // has. Without a pin — features. Except a subagent whose assignment names a task (the hint): an executor the
     // session queued (#546) — its records go to that task, not to the pin.
     const pin = pins.get(s.sid);
-    const ourHint = (h: string) => h === String(number) || h === ourKey;
-    const hintOf = (e: Any[]): string => (e.length > 3 ? e[3] : "");
-    const pinnedElsewhere = pin !== undefined && pin.toLowerCase() !== ourKey.toLowerCase();
-    if (pinnedElsewhere && !ev.some((e) => ourHint(hintOf(e)))) continue;
-    const pinned = pin !== undefined;
     // A guest is a transcript from another repository's directory: task numbers and branches there are its own. Its
     // branch is ours only if it's exactly our PR's branch; foreign — only if it's the branch of a foreign PR of our
     // repository.
     const guest = !!s.guest;
+    // a subagent's task: with a repository — ours only if it's our repository (#824); without one — a task of the
+    // session's repository: a guest's isn't ours, like its pr-link without a repository
+    const ourHint = (h: string) => isOurKey(h) || (!guest && h === String(number));
+    const pinnedElsewhere = pin !== undefined && !isOurKey(pin);
+    if (pinnedElsewhere && !ev.some((e) => ourHint(hintOf(e)))) continue;
+    const pinned = pin !== undefined;
     const ourBr = (b: string) => (guest ? !!b && ourBranches.has(b) : isOurBranch(b));
     const foreignBr = (b: string) => {
       if (!guest) return isForeignBranch(b);
@@ -2891,7 +2903,7 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
       guest &&
       !pinned &&
       !anchors.some((a) => a[1] === "own") &&
-      !ev.some((e) => ourBranches.has(e[1]) || e[3] === ourKey) &&
+      !ev.some((e) => ourBranches.has(e[1]) || ourHint(hintOf(e))) &&
       !urlRefs(s.first_urls ?? []).includes(number) &&
       !(s.title_hist ?? []).some(([, t]) => urlRefs(urlsIn(t)).includes(number))
     ) {
@@ -2991,7 +3003,7 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
       if (hint) {
         // a record of a subagent whose assignment names the task: ours — whole,
         // someone else's — not ours, whatever branches/windows there are
-        if (hint === String(number) || hint === ourKey) {
+        if (ourHint(hint)) {
           w = 1.0;
           rules["subagent"] = (rules["subagent"] ?? 0) + 1;
         }
