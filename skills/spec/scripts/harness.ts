@@ -1,5 +1,5 @@
 /**
- * harness — tests of mechanical checks for the spec tree (tests/capabilities, tests/architecture, tests/standards):
+ * harness — tests of deterministic checks for the spec tree (tests/capabilities, tests/architecture, tests/standards):
  * a check registers ordinary runner tests, so it shows up in the runner's report and in the spec-doc documentation.
  *
  * "Registry + invariant" — a behavior convention ("every mutation writes an audit record") is checked on every element
