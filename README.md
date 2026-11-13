@@ -27,29 +27,6 @@ Elves is how an agent carries a task from issue to production, written down once
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, estimates from actuals, the spec from tests, waiting for CI.
 - **The installer** — puts the canon, the skills and the hook onto the machine, for all agents at once; a project keeps only the package version in `devDependencies` — CI, colleagues and the cloud session get it from npm — and gets the flow through releases.
 
-One task — from issue to actual:
-
-```mermaid
-flowchart LR
-  subgraph task ["1 · Task"]
-    direction TB
-    I["Issue<br>goal · questions · scenarios"] --> E["task new estimates it<br>from analogs with actuals"] --> S["Session #42<br>branch feat/42-slug"]
-  end
-  subgraph work ["2 · Work"]
-    direction TB
-    T["Checks<br>red first"] --> C["Code<br>checks green"]
-  end
-  subgraph ship ["3 · Rollout"]
-    direction TB
-    P["PR<br>spec-diff · Closes #42"] --> G["Green checks<br>ci-wait"] --> M["Merge and deploy<br>spec to the spec branch"]
-  end
-  subgraph done ["4 · Closing"]
-    direction TB
-    U["Epic refresh<br>in parallel with deploy"] --> F["est actual<br>hours · tokens · $"]
-  end
-  task --> work --> ship --> done
-```
-
 ## The idea
 
 Developing any software is making decisions, of two kinds:
