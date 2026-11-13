@@ -147,7 +147,8 @@ A session from the folder of another registry repository (the conversation there
 grew into a task of this one: the task was created, the session renamed, the
 commit and PR are here) is a guest: a candidate only if its transcript contains
 the task repository's name, and linked only by this repository's features (the
-task's PR and commits, the exact branch of its PR, the issue URL); the number in
+task's PR and commits, the exact branch of its PR, the issue URL, a subagent's
+assignment naming the task with this repository); the number in
 the name and in the first prompt counts only together with them, that
 repository's branches don't count. Records before the rename stay with that
 repository's task, and the "#N …" period with this repository's PR doesn't go to
@@ -396,7 +397,12 @@ cache write — in total and per PR.
   roughly). The task is the number after the word «Task» or at the very start
   of the assignment (`Task #263 (epic #250). …`, `#263 …`); a number after
   «epic» isn't the task; two numbers without these markers
-  (`look at #263 and #261`) give no hint.
+  (`look at #263 and #261`) give no hint. The repository after the number
+  (a dispatcher's executor: `Task #263 in owner/repo: …`, `Task #263
+  «title» in owner/repo (epic #250): …`) or in an issue link makes it that
+  repository's task: another repository's task with the same number isn't
+  this one (#824). A guest's number without a repository is its own
+  repository's task.
 - A transcript record's branch is the branch of the session's folder, so work
   in a neighboring worktree from the same session is on a "foreign" branch. A
   subagent working in its own worktree (its folder isn't one of the session's)

@@ -10,6 +10,7 @@ import {
   factsWithModel, parsePeriods, periodSummary, periodTable, pickAnalogs, priceFor, PRICES, roundScale, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
 } from "../../../skills/est/scripts/est.ts";
 import type { CloudPart, FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
+import locale from "../../../skills/github/scripts/locale.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir } from "../../lib/spec.ts";
 
@@ -969,6 +970,44 @@ describe("Сессия из каталога другого репозитори
     const found = guestTranscripts("o/a", ["/work/a"], ["/work/b"], projects).map((f) => path.relative(projects, f));
     expect(found).toEqual(["-work-b/s1.jsonl", "-work-b/s3.jsonl"]);
   });
+
+  /**
+   * Диспетчер репозитория o/b запускает исполнителей субагентами: задание называет задачу и её репозиторий
+   * («Задача #57 в o/b: …» — `queue` скилла github), а у o/a своя #57 (#824). Ветка исполнителя — worktree без номера.
+   */
+  const dispatcher = [prompt("10:00", "сделай все задачи эпика #50", "main"), work("10:02", "…", "main")];
+  function withExecutor(assignment: string): Session {
+    mkdirSync(path.join(dir, SID, "subagents"), { recursive: true });
+    const WT = "claude/agent-1a2b3c";
+    writeFileSync(path.join(dir, SID, "subagents", "agent-1.jsonl"), jsonl([{ ...prompt("10:05", assignment, WT), origin: undefined }, work("10:15", "…", WT), work("10:25", "…", WT)]));
+    return session(dispatcher);
+  }
+  const pinnedToB = () => new Map([[SID, "o/b#50"]]);
+
+  it("Субагент, чьё задание называет задачу с тем же номером в другом репозитории, не попадает в факт нашей задачи", () => {
+    const s = withExecutor("Задача #57 в o/b: ты исполнитель сессии-диспетчера.");
+    // гость, закреплённый за задачей своего репозитория, — как сессия, что отдала нашей задаче чужого исполнителя
+    expect(computeFact({ ...inA(s), pins: pinnedToB }, 57, [], []).cov).toBe("none");
+    // та же сессия из каталога o/a — тоже не наша задача
+    expect(computeFact({ ...stubRepo([s], []), full: "o/a" }, 57, [], []).cov).toBe("none");
+    // задание гостя без репозитория — номер задачи его репозитория
+    expect(computeFact({ ...inA(withExecutor("Задача #57: проверь тесты")), pins: pinnedToB }, 57, [], []).cov).toBe("none");
+  });
+
+  it("Субагент, чьё задание называет нашу задачу с нашим репозиторием, попадает в её факт и из каталога другого репозитория", () => {
+    for (const assignment of [
+      "Задача #57 в o/a: ты исполнитель сессии-диспетчера.",
+      "Задача #57 «Правила · «новое»» в O/A (эпик #50): ты исполнитель сессии-диспетчера — сделай задачу целиком",
+      "Task #57 «Rules» in o/a (epic #50): you are an executor of the dispatcher session",
+    ]) {
+      const s = withExecutor(assignment);
+      const res = computeFact(inA(s), 57, [], []);
+      expect(res.h).toBe(0.33); // 10:05–10:25 — исполнитель; записи диспетчера — не задача
+      expect(res.details[0]!.rules).toEqual({ subagent: 3 });
+      // закреплённый за задачей своего репозитория диспетчер отдаёт нашей задаче её исполнителя
+      expect(computeFact({ ...inA(s), pins: pinnedToB }, 57, [], []).h).toBe(0.33);
+    }
+  });
 });
 
 /**
@@ -1154,6 +1193,16 @@ describe("Транскрипт Claude Code даёт привязки к зада
 
   it("ссылка на issue и «(эпик #40)» в задании — подсказка по ссылке, с репозиторием", () => {
     expect(subHints("Задача https://github.com/o/r/issues/42 (эпик #40): перенеси спеку")).toEqual(["o/r#42", "o/r#42"]);
+  });
+
+  it("Задание исполнителя диспетчера на любом языке словаря даёт подсказку с репозиторием задачи", () => {
+    // все задания `queue` скилла github, что начинаются с задачи, — их пишет `task queue`, est читает обратно
+    const leads = locale.everyNames().flatMap((n) => Object.values(n.queue).filter((t) => t.startsWith("{task} #{number}")).map((t) => [n, t] as const));
+    expect(leads.length).toBeGreaterThan(10);
+    for (const [n, t] of leads) {
+      const epic = locale.fill(n.queue.epic, { epicWord: n.subagentPrompt.epic, epic: 40 });
+      expect([t, subHints(locale.fill(t, { task: n.subagentPrompt.task, number: 42, title: "Экспорт «счетов»", repo: "o/r", epic }))]).toEqual([t, ["o/r#42", "o/r#42"]]);
+    }
   });
 
   it("два номера без слов «Задача» и «эпик» и не в начале — подсказки нет, записи субагента идут по ветке и окнам", () => {
