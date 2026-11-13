@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (Vitest/Jest, Playwright, bun JUnit) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — mechanical checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
+description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (Vitest/Jest, Playwright, bun JUnit) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — deterministic checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
 allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(pnpm spec:*) Bash(bunx vitest run *) Bash(git status *) Bash(git diff *)
 ---
 
@@ -37,7 +37,7 @@ per-repository configuration:
 - `spec-break.ts` — check by breaking: edit the code, run the test, always
   revert (even after an interruption); ✅ failed / ❌ didn't fail for each
   breakage;
-- `harness.ts` — a library for the project's tests: a mechanical check
+- `harness.ts` — a library for the project's tests: a deterministic check
   registers ordinary runner tests and gets into the spec (section "Checks").
 
 Running: `bun --no-env-file <skill dir>/scripts/spec-doc.ts …` — TypeScript
@@ -161,7 +161,7 @@ even without a breakage — exit code 2. After an interruption without a revert
 
 ## Checks — `harness.ts`, `architecture.ts`, `spec-claims.ts`
 
-A mechanical check is runner tests (or a report in the runner's format): they
+A deterministic check is runner tests (or a report in the runner's format): they
 are in the report, and so in `docs/spec` and in `spec-diff`. Import — from the
 project's package (`@miroshnik/elves/spec/harness`, `…/spec/architecture`,
 `…/spec/eslint-config`), the runner doesn't matter — `it` passes the test in. Which check for what and how to wire

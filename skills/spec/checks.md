@@ -1,6 +1,6 @@
 # spec skill checks — the harness, the architecture model, the entry-point log
 
-Reference for the "Checks" section in `SKILL.md`: how to wire each mechanical check into the project's tests.
+Reference for the "Checks" section in `SKILL.md`: how to wire each deterministic check into the project's tests.
 
 Which check for what:
 
@@ -21,7 +21,7 @@ Which check for what:
 | Environment variables are declared and read (monorepo — per app) | `envVars`, `dotenvNames`, `configGet` in `readers` | `standards/env/` |
 
 
-A mechanical check is runner tests: they are in the report, and so in
+A deterministic check is runner tests: they are in the report, and so in
 `docs/spec` and in `spec-diff`. The harness doesn't depend on the runner — you
 pass it the runner's `it` (Vitest, Jest, bun test, `node:test`). Import it from
 the project's package: `@miroshnik/elves/spec/harness` (the model —

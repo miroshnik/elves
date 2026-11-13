@@ -5,7 +5,7 @@ project; the core keeps a paragraph of it and a link here. Read it when you
 write or migrate a test, add a check, an exception or a standard; how to wire
 each mechanism — `checks.md` next to this file, the tools — `SKILL.md`.
 
-A project's spec is **decisions with a mechanical check**, functional and
+A project's spec is **decisions with a deterministic check**, functional and
 non-functional: what the system does, what it's made of, which rules the code
 obeys and which qualities it holds. A check is how the system should work,
 code is how it does work: whatever the code is, that's how the system works,
@@ -90,7 +90,7 @@ no decision claims is dead and is deleted.
     scenario in the area: an operation, a screen, a command.
   - `standards/` — "which rules does what I'm writing now obey?": a topic is
     the kind of code element the rule applies to — forms, routes, migrations,
-    CI workflows, scripts, tests, documents; mechanically — the registry its
+    CI workflows, scripts, tests, documents; deterministically — the registry its
     check walks ("registry + invariant"). A section — one rule for that kind.
   - `architecture/` — the same for the model: a topic is the kind of model
     element its check walks (modules, containers, external systems).
