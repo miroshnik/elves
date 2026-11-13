@@ -4,7 +4,7 @@
 
 *Elves at work*
 
-**A development flow with AI agents: one canon of rules, skills with scripts<br>and a specification checked by the machine, not by the agent's memory.**
+**A development flow for AI agents: deterministic checks instead of prose specs.**
 
 Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
 
@@ -13,7 +13,7 @@ Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-6f42c1)](https://agentskills.io)
 [![Spec](https://img.shields.io/badge/spec-branch-0e8a16)](https://github.com/miroshnik/elves/tree/spec)
 
-[The idea](#the-idea) · [Why](#why) · [Principles](#principles) · [Elves and OpenSpec](#elves-and-openspec) · [Installation](#installation) · [Skills](#skills) · [Layout](#repository-layout)
+[The idea](#the-idea) · [Why](#why) · [Elves and OpenSpec](#elves-and-openspec) · [Installation](#installation) · [Skills](#skills) · [Layout](#repository-layout)
 
 </div>
 
@@ -54,66 +54,39 @@ flowchart LR
 
 Developing any software is making decisions, of two kinds:
 
-- **functional** — what the system does: what it stores and for how long (an order — for good, a cart — for the session), what it shows and to whom, which interface it gives;
-- **non-functional** — what it's made of and which rules it obeys: data in Postgres, code in TypeScript, every input form has a reset button, search answers in under 300 ms.
+- **functional** — what the system does: what it stores and for how long (an order — for good, a cart — for the session), what it shows and to whom;
+- **non-functional** — what it's made of and which rules it obeys: data in Postgres, every input form has a reset button, search answers in under 300 ms.
 
-Every decision has a **mechanical check** — deterministic and concrete, run by the machine rather than judged by a person or an agent — that the decision holds. A decision without a check is a wish: nothing tells when the code stops following it.
+Every decision has a **deterministic check** — run by the machine, not judged by a person or an agent — that the decision holds. A decision without a check is a wish: nothing tells when the code stops following it, and a prose spec is a list of such wishes. So the code answers what the system does and how it is built now, and the checks — what it should do and how it should be built: they are its specification.
 
-So the project answers two questions in two places:
+A check is written before the code and fails — the decision isn't implemented yet: that's its acceptance test. The code makes it pass, and from then on the check holds the decision against every later change: that's its regression test. A decision changes the same way — its check first, red on the current code, then the code follows it to green. A check that can't fail holds nothing: a regression test is proven by reverting the fix and seeing red.
 
-| Question | Answered by |
-|---|---|
-| What does the system do and how is it built — now | the code |
-| What should it do and how should it be built | the checks — they are the system's specification |
+| Decision | Kind | Check | Lives in |
+|---|---|---|---|
+| An order survives a restart | functional | an integration test | `tests/capabilities/orders/persistence` |
+| Search answers in under 300 ms | non-functional, a quality of one capability | a load test with the budget | `tests/capabilities/search/latency` |
+| Every input form has a reset button | non-functional, a standard | "registry + invariant": a test per form from the code | `tests/standards/forms/reset-button` |
+| Data is stored in Postgres | non-functional, architecture | the model: a module importing another driver — red | `tests/architecture/model.ts` |
 
-TDD follows by itself. A check is written before the code and fails — the decision isn't implemented yet: that's its acceptance test. The code makes it pass, and from then on the same check holds the decision against every later change: that's its regression test. Not only behavior: "fast" is a decision too, and its check is a load test with a budget.
-
-Any decision can be changed — through its check: the check changes first and goes red on the current code, then the code follows it to green. The spec leads, the code follows: a code change that breaks a decision turns its check red.
-
-| Decision | Kind | Check | Lives in | Label |
-|---|---|---|---|---|
-| An order survives a restart, a cart lives for the session | functional | an integration test | `tests/capabilities/orders/persistence` | 🟩 |
-| The manager sees overdue invoices first | functional | an e2e test | `tests/capabilities/invoices/overdue-first` | 🟩 |
-| Search answers in under 300 ms at 100 requests per second | non-functional, a quality of one capability | a load test with the budget | `tests/capabilities/search/latency` | 🟩 |
-| Every input form has a reset button | non-functional, a standard | "registry + invariant": every form from the code, a test per form | `tests/standards/forms/reset-button` | 🟦 |
-| Code is TypeScript | non-functional, a standard | "registry + invariant": every source file is `.ts` | `tests/standards/source-files/typescript` | 🟦 |
-| Data is stored in Postgres | non-functional, architecture | the model: the `db` container and its `pg` client; a module importing another driver — red | `tests/architecture/model.ts` | 🟧 |
-
-A decision is a **topic with sections**: the topic is the subject (`orders`, `forms`) — a product area as the user names it, or the kind of element a rule applies to; a section is one statement about it (`reset-button`), with its reason in `<section>.md` and its checks in `<section>.test.ts`. A new rule goes in as a section of the topic whose subject covers it, not as a new folder.
-
-**Decision labels** on GitHub tasks name the topic — a section has none — and show its kind by color: 🟩 green — a capability, functional; 🟦 blue — a standard and 🟧 orange — architecture, both non-functional. The color follows where the decision lives, so the budget of one capability, kept next to its behavior, is green; `github project check` holds the colors. How each check is wired — the [`spec`](skills/spec/SKILL.md) skill.
+A decision is a **topic with sections**: the topic is the subject (`orders`, `forms`) — a product area as the user names it, or the kind of element a rule applies to; a section is one statement about it (`reset-button`), with its reason in `<section>.md` and its checks in `<section>.test.ts`. A new rule goes in as a section of the topic whose subject covers it, not as a new folder. Decision labels on GitHub tasks name the topic and show its kind by color — 🟩 a capability, 🟦 a standard, 🟧 architecture; how each check is wired — the [`spec`](skills/spec/SKILL.md) skill.
 
 ## Why
 
-An agent writes code fast. Everything around the code is what becomes slow and expensive:
+An agent writes code fast; everything around the code is what becomes slow and expensive. Each row is a section of the canon, [`AGENTS.md`](AGENTS.md).
 
-| Without the flow | With Elves |
-|---|---|
-| Knowledge lives in the chat and in the agent's memory — the next session, another agent or account starts from scratch | Everything decided is in the issue and the repository; before a pause — a State comment, and any agent can continue |
-| Specs and rules-as-text go stale silently — you see it only once a bug has happened | Every decision — functional and non-functional — is held by a check; a change without one turns CI red |
-| Estimates are guesses — they can't be checked or learned from | An estimate comes from analogs with a measured actual; the actual comes from the agent's transcripts |
-| Every project has its own process; one project's lesson doesn't reach another | One canon for all projects and agents; an improvement reaches everyone with a release |
-| The agent commits, pushes and merges on its own — or asks about everything every time | Reversible — on its own, irreversible — on an explicit "yes" to a specific action |
-
-## Principles
-
-The full canon is [`AGENTS.md`](AGENTS.md); here is what it stands on.
-
-1. **Code is what is; checks are what should be.** Code describes what the system does and how it is built now, so it can't be the source of what should be. What should be lives in checks, and they are all of the project's decisions: functional — tests in `tests/capabilities`, what the system must do; non-functional — architectural (`tests/architecture`, what it's made of) and standards (`tests/standards`, which rules the code obeys and which qualities it holds: performance, security, accessibility). They diverge — red CI, not silent drift. A decision changes through its check: the check first, red on the current code, then the code. → [Specification — decisions](AGENTS.md#specification--decisions)
-2. **No check — no decision.** A decision exists while a mechanism checks it: behavior — a test, a convention — a lint rule or "registry + invariant", architecture — a C1–C3 model with checks over it, a quality — a budget in a capability's test or a standard's cross-cutting invariant. Prose doesn't have to be true; a test fails. Documentation is generated from test names and published to the `spec` branch after merge: it isn't in `main` — a derived copy would conflict in every parallel PR, and review goes by the diff of requirements (`spec-diff`). → [Specification — decisions](AGENTS.md#specification--decisions)
-3. **One fact — one home.** Every fact has exactly one place: a cross-cutting rule — in a standard, behavior — in its capability, a decision's reason — in `<section>.md` next to its check, the plan and agreements — in the issue, what is shared by all projects — in Elves, what is project-specific — in the project's spec. A copy goes stale silently: that's how specs diverge — a change edits one place out of several. → [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff)
-4. **A check must be able to fail.** A test is written before the code and is red first — the decision's acceptance test; green after the code, it stays as its regression test. A regression test is proven by reverting the fix, an inherited one — by breaking the code. A test that can't fail is worse than a missing one. → [Tests and code](AGENTS.md#tests-and-code)
-5. **The issue is the only place to agree.** The goal, `## Questions` with answers, `## Scenarios` — future test names, visible before code; status and links — GitHub fields and relationships. No proposal files, no TODOs, no plan in the agent's memory. → [Task tracking](AGENTS.md#task-tracking)
-6. **Session = task = branch = PR.** Session `#42 …`, branch `feat/42-slug`, `Closes #42` in the PR: work is always linked to a task, so the task has an actual. A session won't take a second task into work (`task status` refuses): it goes to Backlog, and on the owner's "yes" to queuing it — to a background executor, a subagent in its own worktree. → [Session and branch](AGENTS.md#session-and-branch--one-task)
-7. **Estimates from actuals.** Analogs with a measured actual instead of a guess; the actual is the agent's active hours, tokens and their API equivalent in dollars. → [Estimate and actual](AGENTS.md#estimate-and-actual--the-est-skill)
-8. **A script instead of memory.** Everything deterministic is in the skills' scripts (TypeScript under Bun, no dependencies): the agent decides, the script does — the same way in every project. → [This file and skills](AGENTS.md#this-file-and-skills)
-9. **Irreversible — on an explicit "yes".** Reading, tests, local edits and task tracking — without asking; commit, push, merge, deploy and writes to live databases — with permission for that action and for this time. A project can let the agent run a task entirely by itself — up to merging its own PR on green checks — with the `auto` setting at install; the same install sets the project language the agent talks and writes in. → [What I do without asking and what needs a yes](AGENTS.md#what-i-do-without-asking-and-what-needs-a-yes)
-10. **Into `main` — each green on its own.** Merge as soon as the PR's own checks are green, without a queue or an up-to-date-branch requirement; before merging, if `main` moved after the PR's CI — fast checks on the merge with a fresh `main`; after a deploy — waiting for its statuses; a test failed — the root cause is fixed, not a retry added. → [Git, PRs and merging](AGENTS.md#git-prs-and-merging)
-11. **One canon, versions by releases.** A project pins the package version, not a copy of the flow, and updates by release — a few lines in the current task; a session starts by checking whether the flow is behind. → [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow)
+| Without the flow | With Elves | Canon |
+|---|---|---|
+| Knowledge lives in the chat and the agent's memory; the next session starts from scratch | Agreed — in the issue: the goal, `## Questions` with answers, `## Scenarios` — future test names; every fact has one home; before a pause — a State comment | [Task tracking](AGENTS.md#task-tracking) · [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff) |
+| Rules-as-text go stale silently; a green test may catch nothing | Every decision is held by a deterministic check; a test failed — its root cause is fixed, not a retry added | [Specification — decisions](AGENTS.md#specification--decisions) · [Tests and code](AGENTS.md#tests-and-code) |
+| Work isn't linked to a task | Session = task = branch = PR (`#42 …`, `feat/42-slug`, `Closes #42`); a second task — to Backlog and, on a "yes", to a background executor | [Session and branch](AGENTS.md#session-and-branch--one-task) |
+| Estimates are guesses | From analogs with a measured actual: active hours, tokens and $ from the agent's transcripts | [Estimate and actual](AGENTS.md#estimate-and-actual--the-est-skill) |
+| The agent merges on its own — or asks about everything | Reversible — on its own, irreversible — on an explicit "yes"; `auto` runs a task by itself, up to merging its own PR on green checks | [What I do without asking](AGENTS.md#what-i-do-without-asking-and-what-needs-a-yes) |
+| PRs wait in a merge queue | Each PR merges on its own green checks; `main` moved after its CI — fast checks on the merge first; after a deploy — its statuses | [Git, PRs and merging](AGENTS.md#git-prs-and-merging) |
+| Each project has its own process, and the agent improvises its routine | One canon for all projects and agents, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow) |
 
 ## Elves and OpenSpec
 
-[OpenSpec](https://github.com/Fission-AI/OpenSpec) is a popular spec-driven framework: requirements in Markdown (`SHALL`, `WHEN` / `THEN` scenarios), every change is a folder in `openspec/changes/` with `proposal.md`, `tasks.md`, `design.md` and spec deltas that are merged into `openspec/specs/` after rollout (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`). Elves used to run on top of OpenSpec; now it replaces it entirely.
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) is a popular spec-driven framework: requirements in Markdown (`SHALL`, `WHEN` / `THEN` scenarios), every change is a folder in `openspec/changes/` with `proposal.md`, `tasks.md`, `design.md` and spec deltas merged into `openspec/specs/` after rollout. Elves used to run on top of OpenSpec; now it replaces it entirely.
 
 | | OpenSpec | Elves |
 |---|---|---|
@@ -121,186 +94,70 @@ The full canon is [`AGENTS.md`](AGENTS.md); here is what it stands on.
 | **What keeps the spec true** | the agent's discipline; `validate` checks structure, not truth | CI: behavior changed without a test — red |
 | **Agreement before code** | `proposal.md`, `tasks.md` | the issue: `## Questions` and `## Scenarios` — future test names |
 | **A change in the PR** | ADDED / MODIFIED / REMOVED deltas — separate files written by the agent | `spec-diff` from git: added, changed and removed requirements |
-| **Code standards** | text in `config.yaml` and specs | `tests/standards/`: a lint rule or an invariant with a violator, exceptions with a ratchet |
-| **Architecture and "why"** | `design.md` in the change archive | a C1–C3 model with checks; the reason — in `<section>.md` next to the check |
-| **Qualities** (performance, security, accessibility) | a prose requirement, like behavior | cross-cutting — a "registry + invariant" standard (audit on every mutation, axe on every page); one capability's budget — in its tests |
-| **Documentation** | the specs themselves — read them whole | generated from test names into the `spec` branch |
-| **Uncheckable (look, copy)** | a prose requirement | not called spec — acceptance in the issue; where the look is a decision, it's a screenshot test |
-| **Tasks, estimates, CI, merge** | out of scope | the canon and skills: GitHub Projects, `est`, `ci-wait` |
+| **Documentation** | the specs themselves — read them whole | generated from test names into the `spec` branch after merge, not into `main` |
 
-### What a live project showed
-
-A product project on OpenSpec: 68 specs, ≈1000 requirements and ≈4000 scenarios — 3 MB of Markdown, plus the change archive.
-
-**Audit before the switch**
-
-- **Specs go stale silently.** Of 11 requirements checked, 6 were stale; three direct contradictions between specs; 23 of 68 specs have "TBD" as their purpose; 14 of 347 file paths lead nowhere. `openspec validate --strict` is green all the while — it checks structure, not truth. The cause is one: a fact is written in several specs, and a change edits its own.
-- **The spec and the tests are two independent records of the same behavior.** Of 40 random spec scenarios, 5 were found among test names.
-- **Standards are held by code, not by text.** Those built into code are followed (an audit record in 64 of 65 mutations), those written in prose aren't: 26 forbidden constructs, 6 of them added after the rule.
-- **Specs are expensive to read.** One spec is 463 KB, over 100k tokens, and to "check against the spec" the agent reads it whole. The archive of 237 changes is 10.9 MB, 19–29% of it makes it into the live specs; `proposal.md` and `tasks.md` repeat the issue. In a measured task ≈26% of what the agent read was OpenSpec artifacts.
-
-**Migration into tests** — 1052 requirements, 13 PRs
-
-- Only 585 requirements (56%) had a test, 255 had one partially, 149 had none at all.
-- ≈950 requirements became tests; ≈102 were removed with a reason (look, copy, one-off migrations, infrastructure outside the repository); ≈105 were rewritten from the code — the spec had fallen behind an intentional decision.
-- Check by breaking — over 3.6k targeted code breakages — found at least 165 tests that counted as coverage but didn't catch the breakage.
-- Along the way, 70 bugs (2 Urgent, 6 High) and 58 standard candidates were found.
-
-How to migrate — the reference [`skills/spec/migration.md`](skills/spec/migration.md): an outcome for every requirement, check by breaking, removal categories, "the spec fell behind the code".
-
-No exaggeration: the spec format isn't the main token cost; what costs more is how many subagents are launched and what they are told to read. Task hours and cost before and after are to be compared by `est` actuals, once a sample accumulates.
+**What a live project showed.** A product project on OpenSpec — 68 specs, ≈1000 requirements, 3 MB of Markdown — with `openspec validate --strict` green: 6 of 11 requirements checked were stale, and in a measured task ≈26% of what the agent read was OpenSpec artifacts. Its 1052 requirements moved into tests in 13 PRs: only 56% had a test; check by breaking found at least 165 tests that counted as coverage but didn't catch the breakage, and 70 bugs turned up along the way. How to migrate — [`skills/spec/migration.md`](skills/spec/migration.md). The spec format isn't the main token cost, though: subagents and what they are told to read cost more.
 
 **When OpenSpec fits better:** you need a requirements document for people outside the code; the project has no tests and won't have them; you need a "proposal before code" gate as a separate artifact. Elves moves this gate into the issue — scenarios are visible before code — but not into a file.
 
 ## Installation
 
-You need `git` and [Bun](https://bun.sh) ≥ 1.2 — the installer (`bunx`) and the skill scripts run under it; a project's CI on Node adds the `oven-sh/setup-bun` step; the `github`, `est` and `dashboard` skills need [`gh`](https://cli.github.com) with the `project` scope (`gh auth refresh -s project`); `task-env` needs Docker with Compose (Docker Desktop on macOS).
+You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github`, `est` and `dashboard` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose.
 
 ```bash
-# onto the machine — the canon, skills and the hook for every agent it has, and the elves command on PATH; or a global package:
-# bun add -g @miroshnik/elves && elves install -g
-bunx @miroshnik/elves install -g
-
-# into a project — from the root of a git repository; the package version, the manifest, the shim and the AGENTS.md block are committed with the project
-bunx @miroshnik/elves install
-
-# the fallback — straight from GitHub, any command: bunx github:miroshnik/elves <command>
+bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the hook for every agent it has
+bunx @miroshnik/elves install      # into a project, from its git root: the package version and the manifest, committed with it
+bunx @miroshnik/elves check -g     # is the flow behind the latest release: 0 — no, 1 — yes, 2 — can't check; changes nothing
+bunx @miroshnik/elves update -g    # bring it to the latest release
 ```
 
-Keeping the flow up to date:
+Without `-g` — the same for the project. `install` in a project asks whether the agent runs a task entirely by itself, up to merging its own PR on green checks (`auto`, no by default), and which language it works in; in Claude Code the `SessionStart` hook puts the `check` output at the start of every session. The flow follows releases — date tags that `elves release` cuts as the owner's step and CI publishes to npm with `elves pack <tag>`. In a project the skills' scripts run at its package version, as `bun --no-env-file node_modules/.bin/elves <script>`: `elves spec-doc`, `elves spec-diff`, `elves spec-publish`, `elves spec-run`, `elves spec-shard`, `elves spec-claims`, `elves spec-break`, `elves precommit`, `elves slot`, `elves task-env up`, `elves task-env e2e`, `elves task-env down`, `elves task-env prune`, `elves task-env check`, `elves task-env proxy up`, `elves task-env proxy down`, `elves task-env proxy status`.
 
-```bash
-bunx @miroshnik/elves check -g    # 0 — up to date, 1 — behind (in a project also: git ignores flow files, the compose file breaks task isolation, standards or architecture without a test:spec script), 2 — can't check; changes nothing
-bunx @miroshnik/elves update -g   # bring it to the latest release
-```
-
-Without `-g` — the same for the project. Claude Code checks the machine and the project by itself: `install -g` sets up the `SessionStart` hook, and the `check` output lands at the start of every session; a session resumed after the app restarted also gets the wait of its task to restart — background waits die with the app's process. The same hook sets up the agent's Bash: in zsh a glob without matches and `====` go to the command as is, as in bash, and `timeout` works on macOS without coreutils (`bin/shims`); `check -g` run from the agent's Bash names it if the session didn't get that. With Docker on the machine `check -g` also names the `task-env` proxy of task addresses — running or not, with the command to start it; it doesn't change the exit code.
-
-An agent's sandbox (Claude Code's Bash) doesn't let bunx write its cache `~/.bun/install/cache` — prefix the command with `BUN_INSTALL_CACHE_DIR="$TMPDIR/bun"` — nor the install write `.claude/skills`: then run the command in your own terminal — the refusal names it, and a repeat run finishes a cut-off install.
-
-`install` in a project asks in the terminal whether the agent should do tasks entirely by itself — answer the task's questions by recommendation, commit, push, fix CI and merge its own PR on green checks (default — no); without a terminal — `install --auto` or `--no-auto`, without the flag the previous answer stays. `check` names the mode. With auto, `install` prints a hint for Claude Code: the app rejects a merge without human review in this mode too, and the session merges its own PR by itself only with the `Bash(gh pr merge *)` rule in `permissions.allow` of `~/.claude/settings.json` — the owner adds it, `install` doesn't change the machine's permission settings.
-
-`install` also asks for the **project language** the agent works in: dialog, tasks, prompts, documents; the flow itself is written in English. It is stored in `.agents/elves.json` as `language` — a BCP 47 code (`ru`, `en`, `pt-BR`), `en` by default. Without a terminal — `install --lang <code>`, without the flag the previous language stays; `update` keeps it, `check` and the hook name it. The manifest belongs in git: in a checkout without it the language is unknown, the `github` skill refuses to write names to GitHub, and `check` names a manifest that is missing or not committed. The flow isn't installed into an Elves clone — `install` writes only its manifest there: these two settings, `env` and `batch` carried over as in a project.
-
-<details>
-<summary><b>What goes where</b></summary>
-
-**Into a project** — thin: no copy of the flow, its agents get the canon and the skills from the machine. Committed with the project:
-
-- `@miroshnik/elves` in `devDependencies` of `package.json` — the exact version of the release, the project's package manager updates its lockfile: the harness and the skills' scripts at the project's version for its tests and CI, colleagues and the cloud session ("The package in a project" below); a project without `package.json` has nothing to pin.
-- `.agents/elves.json` — `auto` — whether the agent runs a task entirely by itself, without a "yes" for commit, push and merge, `language` — the project language, `env` — the task stack settings of `task-env`, and `batch` — whether a dispatcher merges its tasks into a batch branch instead of `main` (`github task queue`).
-- `.agents/slot.sh` — the machine queue's shim the `package.json` checks source (`slot` below).
-- A block at the top of the project's `AGENTS.md` linking to the canon on the machine, `~/.agents/elves/AGENTS.md` — for the agents that read the project's file.
-- The cloud session's `SessionStart` hook in `.claude/settings.json` (your own settings and hooks stay): in a Claude Code cloud session (`CLAUDE_CODE_REMOTE=true`) it installs a fresh Bun and the flow onto the session's machine and runs `check --hook`, outside the cloud it exits at once — no setup script in the environment is needed (`docs/cloud-sessions.md`).
-- Updating — `update` bumps the package version: `package.json` and the lockfile, a few lines in the branch of the current task, committed with it.
-- The manifest, the shim, `AGENTS.md` and `.claude/settings.json`, if the project's git ignores them (`.agents/` or `.claude/` in `.gitignore`), are un-ignored by `install` and `update` with exceptions — an Elves block at the end of `.gitignore`, committed with them; what an exception can't un-ignore (a directory excluded by a personal rule), and anything ignored until `update` runs — `❌` in the output of the install and of `check`.
-
-**Onto the machine** (`-g`) — the canon, the skills and the hook: a thin project keeps no copy of the canon, its agents get it from the machine. `~/.agents/elves/` — `AGENTS.md`, `claude/CLAUDE.md`, `docs/*.md`; Claude Code — symlinks `~/.claude/rules/elves.md` and `elves-claude.md` (loaded in every project without the external-imports dialog), `~/.claude/skills` and the `SessionStart` hook in `~/.claude/settings.json`; the other agents — their global rule file linking to the canon (`~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md`, `~/.config/opencode/AGENTS.md`, `~/.config/amp/AGENTS.md`; a file of your own stays) and `~/.agents/skills`. The `elves` command in the terminal — in `~/.local/bin`, or the first directory of `PATH` inside the home directory you can write to: with `--link` a symlink to the clone's `bin/elves.ts`, otherwise a shim to the machine's release (`bunx @miroshnik/elves@<version>`) that `update -g` rewrites; an `elves` of your own (a script, a global package) stays, and `check -g` names it, a command missing or of another release, an `elves` earlier on `PATH`, and — when `PATH` has no such directory — the command that adds `~/.local/bin`. A project that still has a copy loads the canon twice until it moves — the hook names it. Claude Code's prompt cache TTL is your choice: with `promptCacheTtl` or `subagentPromptCacheTtl` not set, `install -g`, `update -g`, `check -g` and the hook print a command that sets the hour and leaves the rest of `~/.claude/settings.json` alone — none of them edits the file (`docs/prompt-cache.md`). A Claude Code cloud session gets the same from the project's `SessionStart` hook — `npm i -g bun@latest @miroshnik/elves && elves install -g` (the image's Bun lags behind), then `check --hook`; the machine's hook isn't there (the cloud doesn't read `~/.claude/settings.json`), an environment's setup script with the same command is an optional faster start. In an Elves clone with `--link` the machine's canon is the clone; its `.claude/CLAUDE.md` keeps the root `AGENTS.md` from loading a second time.
-
-**Personal configuration** — everything that depends on specific repositories (the registry for `est`, your own model prices, notes) — lives outside the flow, in `~/.config/elves`; another directory — the `ELVES_CONFIG_DIR` variable, read by all skill scripts. `ELVES_PRIVATE=<path>` with `install -g` makes `~/.config/elves` a symlink to a private checkout; with `ELVES_CONFIG_DIR` the symlink isn't needed — the variable points at the checkout itself.
-
-</details>
-
-<details>
-<summary><b>Releases and the up-to-date check</b></summary>
-
-The machine's copy and a project's package version follow the flow **by releases** — tags `vYYYY.MM.DD` (a same-day patch is `.N`), not the head of `main`: a commit to the rules without a release doesn't make anyone "behind". The commands go through the npm package, and it is a release itself: `install` from it installs its own version without the network, `check` and `update` restart from the latest release's npm package. The fallback `bunx github:miroshnik/elves` installs the package from `main` once and then runs it from its cache, so that package is only a launcher: it finds the latest tag and restarts from it by its SHA; in a cloud session `github:` gives 403.
-
-- `check` changes nothing: it compares the machine's copy and a project's package version with the latest release (the same install as a dry run, a list of differences), a `--link` clone — with `origin/main` after `git fetch`.
-- `update`: the machine's copy — reinstalled from the latest release; a project — the package version raised to it; a clone — `git pull --ff-only` and links to new skills (a clone not on `main` or with edits — refused with a reason). It says what changed, and the agent tells the user: the machine's copy and a project — every release after the installed one (a project — after its package version), newest first, with the list of its GitHub Release; a clone — the flow commits it pulled. A project's update is committed into the current task's branch; no task branch — the agent doesn't commit it and says so.
-- `release` — the owner's step: a date tag (UTC) on `origin/main` and a GitHub Release listing the flow and installer changes since the previous release (the same list `update` prints); nothing to release — refused.
-- The npm package `@miroshnik/elves` — CI publishes every release tag (`.github/workflows/npm.yml`): `elves pack <tag>` sets the version (`vYYYY.MM.DD.N` → `YYYY.MMDD.N`, versions sort as tags) and builds for Node the modules a project imports, then `npm publish` by npm [trusted publishing](https://docs.npmjs.com/trusted-publishers) — OIDC, no token or secret, provenance included. The owner's step, once: a trusted publisher is set in the package settings on npmjs.com, so first a `0.0.0` stub published from the owner's machine; then the trusted publisher — GitHub Actions, `miroshnik/elves`, workflow `npm.yml` — no earlier than 2 days before the first release from CI (a new one expires without a successful publish within 2 days: delete it and create it again); after that release the stub may be `npm deprecate`d.
-
-</details>
-
-<details>
-<summary><b>The package in a project — the harness and the scripts at the project's version</b></summary>
-
-With `@miroshnik/elves` in a project's `devDependencies`, `bun install` brings the flow at the project's version — for CI, colleagues and a cloud session too (npm works there, `github:` gives 403). Tests import `@miroshnik/elves/spec/harness`, `@miroshnik/elves/spec/architecture`, `@miroshnik/elves/spec/eslint-config` and `@miroshnik/elves/github`: Bun and the type checker take the TypeScript source, any runner on Node (Jest, Playwright, `node:test`, the project's `eslint.config.js`) — the build; the knip reporter `@miroshnik/elves/spec/knip-hints` is CommonJS as is, its `file` — the path for `knip --reporter`. The skills' scripts run from `node_modules/.bin` with the same arguments as the scripts themselves, under `bun --no-env-file` — in `package.json` and CI alike: `bun` reads the TypeScript bin `elves` itself, past its shebang, and without the flag it would get the project's env files (`.env.local` with production keys) and pass their keys on to `gh`, `git` and the checked command. On Yarn 2+ — `bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)" <script>`, the form `install` writes there: Yarn 2+ runs a `.ts` bin by Node with any `nodeLinker`, and PnP has no `node_modules`.
-
-```bash
-bun --no-env-file node_modules/.bin/elves spec-doc …
-bun --no-env-file node_modules/.bin/elves spec-diff …
-bun --no-env-file node_modules/.bin/elves spec-publish …
-bun --no-env-file node_modules/.bin/elves spec-run …
-bun --no-env-file node_modules/.bin/elves spec-shard …
-bun --no-env-file node_modules/.bin/elves spec-claims …
-bun --no-env-file node_modules/.bin/elves spec-break …
-bun --no-env-file node_modules/.bin/elves precommit
-bun --no-env-file node_modules/.bin/elves task-env up …
-bun --no-env-file node_modules/.bin/elves task-env e2e …
-bun --no-env-file node_modules/.bin/elves task-env down …
-bun --no-env-file node_modules/.bin/elves task-env prune
-bun --no-env-file node_modules/.bin/elves task-env check …
-bun --no-env-file node_modules/.bin/elves task-env proxy up
-bun --no-env-file node_modules/.bin/elves task-env proxy down
-bun --no-env-file node_modules/.bin/elves task-env proxy status
-```
-
-The project's own scripts and tests (the stack before the dev server, the e2e wrapper) bring the task's stack up with `elves task-env up` — the `task-env` skill at the project's version. The machine queue — `elves slot --for <PID>` of the shim `.agents/slot.sh`: it only prints the queue variables, the command runs in the script's own shell. A GitHub Actions step doesn't see `node_modules/.bin`, and `bunx elves` without the package in `node_modules` would fetch someone else's `elves` from npm; a job that doesn't install the project's dependencies — `bunx @miroshnik/elves@<version> <script>` (the `spec` skill's `ci.md`).
-
-</details>
-
-<details>
-<summary><b>Working on the flow itself — from a clone</b></summary>
-
-```bash
-git clone https://github.com/miroshnik/elves && cd elves
-bun bin/elves.ts install -g --link   # symlinks to the clone instead of copies: edits show up immediately
-bun bin/elves.ts release --dry-run   # what goes into the release; without --dry-run — cut it
-```
-
-</details>
+What goes where, the agent's sandbox, the mode and the language, releases, the package in a project and working from a clone — [`docs/installation.md`](docs/installation.md).
 
 ## Skills
 
-Skills are installed onto the machine with the flow (`install -g`); the agent picks them up by itself — from the description in `SKILL.md`, there's no need to invoke them by hand.
+Installed onto the machine with the flow; the agent picks a skill up by itself from its `SKILL.md`, which has the details.
 
 ### [`github`](skills/github/SKILL.md) — project and tasks by the canon
 
-Checks and fixes the GitHub project and the default-branch rule, creates a task with all its fields in one command, takes a task's tail from its branch to its close by one resumable command — the PR, CI, the merge command, the deploy, the refresh, the close — shows a task with its epic, blockers, PR checks and open questions in one output, puts an answer at a question and edits the description in one call, before merging checks the PR's merge with a fresh `main` if it moved after CI, after merging does the epic refresh's mechanics and prints the subagent's prompt, and closes the task in one call — `est` actual, Done, epic and milestone, the task's Compose stacks and its merged branches removed — sets decision labels from the PR diff, names the wait a resumed session restarts for its task, and gives a dispatcher its queue — the ready tasks of an epic or a filter in order, each with the prompt of its executor, a background subagent; in a batch project the executors merge into the dispatcher's batch branch, and it reaches `main` by one release PR — one full CI run and one deploy.
+The GitHub project and tasks, a command per step: a task with its fields and estimate, its questions and answers, its tail from branch to close — PR, CI, merge, deploy, epic refresh — and a dispatcher's queue of background executors.
 
 `github project check` · `github project fix` · `github task new | show | answer | edit | start | status | drop | actualize | close | finish | resume | queue` · `github batch release` · `github pr labels | premerge`
 
 ### [`est`](skills/est/SKILL.md) — estimates from actuals
 
-An estimate from analogs with a measured actual, set by `github task new` itself — the script picks the analogs, the agent has no step; the actual — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts; a backtest checks the mechanics against manual estimates; a period summary over all of a repo's sessions compares the flow before and after a change.
+An estimate from analogs with a measured actual, set by `github task new` itself; the actual — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts.
 
 `est estimate` · `est fact` · `est history` · `est backtest` · `est period` · `est cloud-import`
 
 ### [`dashboard`](skills/dashboard/SKILL.md) — sessions at work, estimate, actual and cost
 
-A browser page the script serves itself, with two tabs. Sessions (the main one) — tasks In progress, their sessions and what each one waits for: CI, merge, deploy, a human's answer, working or silent; on top — questions to the owner from the sessions' answers and from tasks, at the bottom — questions the sessions answered themselves (✅ auto) within the last day. When to call it — "what's up with the sessions", "is anything stuck", "which tasks are hanging". Estimate and actual — estimate and actual in hours by task close date, actual to estimate, tokens, cost and the actual split by waits (CI, merge, checks), with a rolling median and the $ share per model: whether estimates converge and whether a task gets cheaper after a flow change.
+A browser page: sessions at work and what each waits for — CI, merge, deploy, a human's answer — with the owner's open questions; estimate against actual, tokens and cost by task close date.
 
 `dashboard [--repo o/r | --all-repos] [--since 90d]`
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
-- `spec-doc` — runner reports (Vitest/Jest, Playwright, `bun test`) over the `tests/` tree → a page per decision, C4 architecture from the model, sequence diagrams from scenario traces.
-- `spec-diff` — the spec section for a PR (`## Spec (tests)`): added, changed and removed requirements, the model, exceptions, a check against the task's scenarios section.
-- `spec-publish` — after merge, publishes the documentation to the `spec` branch: it isn't in `main`.
-- `spec-run` — for publishing on PR merge, finds a green run that checked exactly the merge commit's tree; there is none (a PR that fell behind was merged) — publishing is skipped, the `spec` branch isn't rolled back.
-- `spec-shard` — a CI shard's test files by the durations of the last green run, not by the count of tests: the heavy tests of one folder don't all land in one shard.
-- `spec-claims` — every entry point (route, page, job, command) is called by a capability test — by the call log, not by coverage.
-- `spec-break` — proves that a check catches a breakage: break the code → run the test → always revert.
-- `precommit` — the checks before a commit in one call: `lint`, `typecheck`, `test:spec` and `test --changed=<base>` at once, each through the machine queue; a line per check, the details of the failed ones only; a test check's result — by the runner's summary, not the exit code.
-- `harness.ts` — mechanical checks: "registry + invariant" with a violator, lint-rule examples, exceptions with a ratchet (an element with its own file — a mark in it), the C1–C3 architecture model, dead code (knip, with the config-hints reporter `knip-hints.cjs`), the environment.
+The spec from tests: documentation from runner reports into the `spec` branch, the PR's requirement diff, CI shards, entry points called by tests, check by breaking, the checks before a commit and the harness of deterministic checks.
+
+`spec-doc` · `spec-diff` · `spec-publish` · `spec-run` · `spec-shard` · `spec-claims` · `spec-break` · `precommit` · `harness.ts`
 
 ### [`ci-wait`](skills/ci-wait/SKILL.md) — wait for checks, don't guess
 
-Waits for all checks of a PR or a commit (a merge commit — by the PR number) — CI, deploy, an external check — with visible progress and PASS / FAIL / TIMEOUT / ERROR outcomes instead of `gh pr checks --watch` and `sleep` in a loop; an Actions run that didn't become a check (the workflow wasn't parsed or didn't start on the PR) is not a PASS; it also waits for a bug about a red `main` to close.
+Waits for all checks of a PR or a commit — CI, deploy, an external check — with progress and PASS / FAIL / TIMEOUT / ERROR outcomes instead of `gh pr checks --watch` and `sleep` in a loop.
 
 `wait-ci pr | status | merged | issue`
 
 ### [`slot`](skills/slot/SKILL.md) — the machine's heavy runs in a queue
 
-Project checks — `lint`, `typecheck`, `test`, `test:*` — go through the machine queue: two runs at once, together half the cores, the rest wait in arrival order and print whom they are waiting for; the runner takes its workers from `ELVES_SLOT_CPUS`. The flow install puts the wrapper into the `package.json` scripts — both agents and a human in the terminal join the queue; in CI — no queue.
+Project checks and task stacks wait in the machine queue: as many runs at a time as the machine has slots, the rest in arrival order; the runner takes its workers from `ELVES_SLOT_CPUS`.
 
 `slot '<command>' [args…]` · in `package.json`: `. .agents/slot.sh && <command>`
 
 ### [`task-env`](skills/task-env/SKILL.md) — a task's environment: its Compose stack and addresses `*.localhost`
 
-A task's stack is the Docker Compose project `<project>-<N>`: parallel sessions of one project keep their own apps and databases without touching each other. One proxy per machine — Traefik in Docker — gives containers of task stacks the addresses `http://<service>.<N>.<project>.localhost` by their labels: no host port per app, and different hosts keep their own cookies, so parallel sessions and the owner's browser don't log each other out. A container without labels isn't published, a stopped one leaves the routes; `check -g` and the session start name whether the proxy runs, with the command to start it. `task-env up` brings the task's stack up by the number in the branch — the project's compose file plus the proxy's labels for the HTTP services named in `.agents/elves.json` — and prints the addresses; `task-env e2e` brings the e2e stack `<project>-<N>-e2e` up anew with clean volumes and runs the command with its addresses in `TASK_ENV_*` variables; `task-env down` takes both stacks of the task down with their volumes and the images they built — `github task close` calls it; `task-env prune` finds the stacks of closed tasks left on the machine by the tasks' state on GitHub and takes them down; a stack that didn't come up is named by the failed service, its state and the end of its log. The project's `check` holds the compose file to the isolation rules — no `container_name`, no fixed host port, volumes and networks without `name:` and `external`, code by relative paths — and names each violation with the rule and the service; it reads `docker compose config`, so every form of writing is covered.
+A task's own Docker Compose stack `<project>-<N>` with addresses `http://<service>.<N>.<project>.localhost` through one Traefik proxy per machine — no host ports, separate cookies, parallel sessions don't touch each other; `check` holds the compose file to the isolation rules.
 
 `task-env up | e2e | down | prune` · `task-env proxy up | down | status` · `task-env check [<dir>]`
 
@@ -308,14 +165,15 @@ A task's stack is the Docker Compose project `<project>-<N>`: parallel sessions 
 
 Mechanics the canon refers to; the agent reads them as needed.
 
-- [`docs/pr-checks.md`](docs/pr-checks.md) — waiting for PR and commit checks: polling, `bucket`, empty-list traps; a deploy — by the commit status, not by polling the site; the app's Auto-fix — off: a conflict is a rebase, not a merge of the base.
-- [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — CI for parallel tasks: the full rule and workflow fragments — parallel branches, a non-cancellable `main`, a deploy queue.
-- [`docs/testing.md`](docs/testing.md) — how to test: what runs before a commit and what is left to CI, a run's result by the runner's summary, the environment, e2e without flakes, UI state in the agent's browser — by the DOM, not a screenshot.
-- [`docs/judgment.md`](docs/judgment.md) — judgment and edits: a mistake disguised as an outcome, a label is a claim, editing exactly what was named, "it doesn't reproduce for me", what reached the human, the reasons behind the tool-documentation and memory rules.
-- [`docs/production.md`](docs/production.md) — production: a migration by the regular deploy, how the first query checks it is the right database, why "didn't help" goes to production facts.
-- [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — parallel worktrees: the full rule, several agents in one worktree and shared temp files, the task's Compose stack and what the compose file holds, callbacks of external services, the runner config, a shared `.git/config` — no `git config` in copies.
-- [`docs/cloud-sessions.md`](docs/cloud-sessions.md) — the Claude Code cloud session: what it can't access, its brief (`#` only for its task) and how to close a task from there.
-- [`docs/prompt-cache.md`](docs/prompt-cache.md) — Claude Code's prompt cache TTL: 5 minutes for subagents and on usage credits, the keys and variables for the hour, when it pays off, the owner's command `check -g` prints, how to see it in a transcript.
+- [`docs/installation.md`](docs/installation.md) — what goes into a project and onto the machine, the session hook and the sandbox, the mode and the language, releases, the package in a project, working from a clone.
+- [`docs/pr-checks.md`](docs/pr-checks.md) — waiting for PR, commit and deploy checks; the app's Auto-fix is off: a conflict is a rebase.
+- [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — CI for parallel tasks: parallel branches, a non-cancellable `main`, a deploy queue.
+- [`docs/testing.md`](docs/testing.md) — what runs before a commit and what in CI, a run's result by the runner's summary, e2e without flakes, UI state by the DOM.
+- [`docs/judgment.md`](docs/judgment.md) — judgment and edits: a mistake disguised as an outcome, a label is a claim, editing exactly what was named.
+- [`docs/production.md`](docs/production.md) — production: migrations, the right database, "didn't help" goes to production facts.
+- [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — parallel worktrees: shared files, ports, databases and `.git/config`.
+- [`docs/cloud-sessions.md`](docs/cloud-sessions.md) — the Claude Code cloud session: what it can't access, its brief, closing a task from there.
+- [`docs/prompt-cache.md`](docs/prompt-cache.md) — Claude Code's prompt cache TTL: 5 minutes or the hour, and when the hour pays off.
 
 ## Repository layout
 
@@ -329,7 +187,7 @@ bin/elves.ts       the installer — TypeScript under Bun too: bunx runs it from
 bin/shims/         commands the SessionStart hook adds to the end of the agent's Bash PATH: timeout
 ```
 
-**A skill = a prompt + scripts** following the open [Agent Skills](https://agentskills.io) standard: a `<name>/` folder with `SKILL.md` (frontmatter `name` = the folder name, `description` ≤ 1,024 characters; at most 2,500 words — when and what to call) and `scripts/` for the deterministic part; reference material — `reference.md` and the scripts' `--help`. The canon is budgeted too: `AGENTS.md` ≤ 3,000 words, `claude/CLAUDE.md` ≤ 700 (standard `documents#canon-size`). Scripts are TypeScript under Bun (`bun script.ts`: no build, no dependencies, imports with `.ts`); script tests — `bun test` in the `tests/` of Elves over the same tree. The installer `bin/elves.ts` is the same TypeScript under Bun and imports skill modules instead of copying their values. A skill imports another skill only by the dependency list of the `scripts#skill-imports` standard: `github`, `task-env`, `ci-wait` and `slot` import none, so a rule they share with a neighbor lives as a copy in each script, and a standard keeps the copies identical. Third-party code a script can't do without goes into `scripts/vendor/` as a file with its license, not as a dependency: that's how `spec` carries a TypeScript parser (`@babel/parser`). Everything that depends on specific repositories goes into local configuration, not into the skill.
+**A skill = a prompt + scripts** following the open [Agent Skills](https://agentskills.io) standard: a `<name>/` folder with `SKILL.md` — when and what to call — and `scripts/` for the deterministic part, TypeScript under Bun (`bun script.ts`: no build, no dependencies, imports with `.ts`); reference material — `reference.md` and the scripts' `--help`. Third-party code a script can't do without goes into `scripts/vendor/` as a file with its license, not as a dependency. Everything that depends on specific repositories goes into local configuration, not into the skill.
 
 Elves lives by its own flow: the spec — [`tests/`](tests), its documentation — in the [`spec` branch](https://github.com/miroshnik/elves/tree/spec), tasks — in [Issues](https://github.com/miroshnik/elves/issues) and the [elves project](https://github.com/users/miroshnik/projects/6).
 

@@ -36,8 +36,9 @@ about 1 s); without zsh `apt-get update` and its install add about 6 s.
   it and fails without a terminal (#598).
 - **npm has no release yet** (2026-10-17): `@miroshnik/elves` there is the
   `0.0.0` stub without the `elves` command, so a thin project's hook prints
-  "the flow isn't installed (exit 127)" until CI publishes a release (README,
-  "Installation" — the owner's step). The clone's hook doesn't need npm.
+  "the flow isn't installed (exit 127)" until CI publishes a release
+  (`docs/installation.md`, "Releases and the up-to-date check" — the owner's
+  step). The clone's hook doesn't need npm.
 - **The setup script** is optional, a faster start: the environment caches
   its result for about 7 days, and the hook then installs nothing. Network
   access — Trusted (the default), about 7 s:
