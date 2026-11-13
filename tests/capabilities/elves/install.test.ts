@@ -135,7 +135,7 @@ describe("В проект — тонкий флоу: версия пакета, 
 
   /**
    * Подпись файлов установки — команда из npm (#559): npm есть и локально, и в облачной сессии, а `github:` там — 403
-   * (#555); `bunx github:miroshnik/elves` — запасной путь в README.
+   * (#555); `bunx github:miroshnik/elves` — запасной путь в docs/installation.md.
    */
   it("блок AGENTS.md, шим очереди и блок .gitignore подписаны командой из npm — bunx @miroshnik/elves install, а не bunx github:", () => {
     writeFileSync(path.join(proj, ".gitignore"), ".agents/\n");

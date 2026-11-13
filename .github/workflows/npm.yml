@@ -2,7 +2,7 @@
 # Версия и сборка модулей для Node — elves pack по тегу, публикация — npm publish (publishConfig в package.json).
 # Публикация тега не отменяется и не вытесняется (docs/ci-concurrency.md). Без токена — trusted publishing npm по OIDC
 # (docs.npmjs.com/trusted-publishers); шаг владельца — trusted publisher в настройках пакета на npmjs.com
-# (README, «Installation»).
+# (docs/installation.md, «Releases and the up-to-date check»).
 name: npm
 
 on:
