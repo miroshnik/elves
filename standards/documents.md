@@ -130,7 +130,7 @@
 
 ### Флоу написан по-английски: в его документах нет кириллицы
 
-<details><summary>✅ 30 тестов</summary>
+<details><summary>✅ 31 тест</summary>
 
 - ✅ реестр «документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов» не пуст
 - ✅ реестр «документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов» находит AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/testing.md, skills/spec/SKILL.md, skills/github/reference.md
@@ -140,6 +140,7 @@
 - ✅ в claude/CLAUDE.md нет кириллицы
 - ✅ в docs/ci-concurrency.md нет кириллицы
 - ✅ в docs/cloud-sessions.md нет кириллицы
+- ✅ в docs/installation.md нет кириллицы
 - ✅ в docs/judgment.md нет кириллицы
 - ✅ в docs/parallel-checkouts.md нет кириллицы
 - ✅ в docs/pr-checks.md нет кириллицы
@@ -213,7 +214,7 @@
 GitHub. Цитата, которой нет в коде, — дрейф: скрипт печатает иначе, и агент ищет строку, которой не будет. Цитата
 сверяется по литеральным кускам между подстановками: каждый кусок со словом — в коде скриптов или в `en.json`.
 
-<details><summary>✅ 207 тестов</summary>
+<details><summary>✅ 208 тестов</summary>
 
 - ✅ реестр «цитаты «…» в документах флоу» не пуст
 - ✅ реестр «цитаты «…» в документах флоу» находит already newer, Actual (cloud), closed in 90 days without an actual: N
@@ -248,6 +249,7 @@ GitHub. Цитата, которой нет в коде, — дрейф: скр�
 - ✅ цитату «CI running» из skills/dashboard/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Changed» из skills/spec/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Closed by PR #M: GitHub didn't link the PR to the task» из skills/github/reference.md печатает или пишет скрипт
+- ✅ цитату «Closed by PR #R…» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Closes #N» из skills/github/reference.md печатает или пишет скрипт
 - ✅ цитату «Cloud session … not imported — est cloud-import» из skills/est/SKILL.md печатает или пишет скрипт
 - ✅ цитату «Cost by model» из skills/dashboard/SKILL.md печатает или пишет скрипт
@@ -817,7 +819,7 @@ README — витрина флоу для того, кто видит репоз
 README читают первым, а правят последним: новый скилл или справочник появлялся в `skills/` и `docs/`, а README о нём
 молчал (так было со `spec-break` и `parallel-checkouts.md`; пока подкоманды не сверялись — с `github task close` и
 `est cloud-import`). Поэтому то, что можно перечислить из кода, README обязан назвать — иначе красный `bun test`.
-Проза (мотивация, принципы, сравнение с OpenSpec) механически не проверяется, но принципы ссылаются на разделы
+Проза (мотивация, принципы, сравнение с OpenSpec) детерминированно не проверяется, но принципы ссылаются на разделы
 `AGENTS.md`: переименовал раздел — проверка ссылок покажет README, и его абзац сверяется заодно. Поменял смысл раздела,
 на который ссылается принцип, — поправь и принцип.
 
@@ -834,7 +836,7 @@ README читают первым, а правят последним: новый
 
 ### README называет всё, что ставит флоу, и не ссылается на то, чего нет
 
-<details><summary>✅ 93 теста</summary>
+<details><summary>✅ 94 теста</summary>
 
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» не пуст
 - ✅ реестр «скиллы, команды установщика и скиллов, справочники docs/» находит skills/spec, elves install, elves release, skills/spec/scripts/spec-break, skills/ci-wait/scripts/wait-ci, docs/pr-checks.md
@@ -884,6 +886,7 @@ README читают первым, а правят последним: новый
 - ✅ README: скрипт wait-ci скилла ci-wait назван
 - ✅ README: справочник docs/ci-concurrency.md — со ссылкой
 - ✅ README: справочник docs/cloud-sessions.md — со ссылкой
+- ✅ README: справочник docs/installation.md — со ссылкой
 - ✅ README: справочник docs/judgment.md — со ссылкой
 - ✅ README: справочник docs/parallel-checkouts.md — со ссылкой
 - ✅ README: справочник docs/pr-checks.md — со ссылкой
@@ -983,7 +986,7 @@ README читают первым, а правят последним: новый
 
 ### Ссылка на раздел документа флоу по названию ведёт на существующий заголовок
 
-<details><summary>✅ 170 тестов</summary>
+<details><summary>✅ 173 теста</summary>
 
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» не пуст
 - ✅ реестр «ссылки «файл + название раздела» в документах флоу и решений спеки, установщике и скриптах скиллов» находит bin/elves.ts → AGENTS.md, «First step of a session», claude/CLAUDE.md → AGENTS.md, «First step of a session», skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session», skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics», skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill», docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks», skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»
@@ -994,7 +997,7 @@ README читают первым, а правят последним: новый
 - ✅ bin/elves.ts: AGENTS.md, «First step of a session» — есть такой раздел
 - ✅ bin/elves.ts: AGENTS.md, «Language» — есть такой раздел
 - ✅ bin/elves.ts: AGENTS.md, «What I do without asking and what needs a yes» — есть такой раздел
-- ✅ bin/elves.ts: README.md, «Installation» — есть такой раздел
+- ✅ bin/elves.ts: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел
 - ✅ bin/elves.ts: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ claude/CLAUDE.md: AGENTS.md, «First step of a session» — есть такой раздел
 - ✅ claude/CLAUDE.md: docs/pr-checks.md, «Auto-fix» — есть такой раздел
@@ -1003,10 +1006,13 @@ README читают первым, а правят последним: новый
 - ✅ docs/ci-concurrency.md: AGENTS.md, «Git, PRs and merging» — есть такой раздел
 - ✅ docs/ci-concurrency.md: skills/spec/ci.md, «Batches» — есть такой раздел
 - ✅ docs/cloud-sessions.md: AGENTS.md, «Session and branch — one task» — есть такой раздел
-- ✅ docs/cloud-sessions.md: README.md, «Installation» — есть такой раздел
 - ✅ docs/cloud-sessions.md: docs/cloud-sessions.md, «The brief» — есть такой раздел
+- ✅ docs/cloud-sessions.md: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел
 - ✅ docs/cloud-sessions.md: skills/est/SKILL.md, «Cloud session» — есть такой раздел
 - ✅ docs/cloud-sessions.md: skills/github/SKILL.md, «Dispatcher» — есть такой раздел
+- ✅ docs/installation.md: README.md, «Installation» — есть такой раздел
+- ✅ docs/installation.md: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел
+- ✅ docs/installation.md: docs/installation.md, «The package in a project» — есть такой раздел
 - ✅ docs/judgment.md: AGENTS.md, «Production and debugging» — есть такой раздел
 - ✅ docs/judgment.md: AGENTS.md, «Tests and code» — есть такой раздел
 - ✅ docs/parallel-checkouts.md: AGENTS.md, «Subagents and worktrees» — есть такой раздел

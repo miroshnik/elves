@@ -421,7 +421,7 @@ shell скрипта, без env-файлов Bun.
 
 ### Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file
 
-<details><summary>✅ 124 теста</summary>
+<details><summary>✅ 126 тестов</summary>
 
 - ✅ реестр «документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов» не пуст (документы)
 - ✅ реестр «документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов» находит skills/slot/SKILL.md, skills/github/SKILL.md, skills/task-env/SKILL.md, skills/spec/SKILL.md, docs/parallel-checkouts.md, package.json (документы)
@@ -432,6 +432,7 @@ shell скрипта, без env-файлов Bun.
 - ✅ в claude/CLAUDE.md скрипты скиллов вызываются с --no-env-file
 - ✅ в docs/ci-concurrency.md скрипты скиллов вызываются с --no-env-file
 - ✅ в docs/cloud-sessions.md скрипты скиллов вызываются с --no-env-file
+- ✅ в docs/installation.md скрипты скиллов вызываются с --no-env-file
 - ✅ в docs/judgment.md скрипты скиллов вызываются с --no-env-file
 - ✅ в docs/parallel-checkouts.md скрипты скиллов вызываются с --no-env-file
 - ✅ в docs/pr-checks.md скрипты скиллов вызываются с --no-env-file
@@ -472,6 +473,7 @@ shell скрипта, без env-файлов Bun.
 - ✅ в claude/CLAUDE.md bin пакета под bun вызывается с --no-env-file
 - ✅ в docs/ci-concurrency.md bin пакета под bun вызывается с --no-env-file
 - ✅ в docs/cloud-sessions.md bin пакета под bun вызывается с --no-env-file
+- ✅ в docs/installation.md bin пакета под bun вызывается с --no-env-file
 - ✅ в docs/judgment.md bin пакета под bun вызывается с --no-env-file
 - ✅ в docs/parallel-checkouts.md bin пакета под bun вызывается с --no-env-file
 - ✅ в docs/pr-checks.md bin пакета под bun вызывается с --no-env-file

@@ -6310,6 +6310,13 @@
   "describes": [
    "Выпуск пачки — один PR в main"
   ],
+  "name": "`task close` задачи из уже выпущенной пачки закрывает её, а не отказывает"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Выпуск пачки — один PR в main"
+  ],
   "name": "batch release после мержа выпуска — одна актуализация на эпик задач пачки, затем task close каждой задачи"
  },
  {
@@ -6612,6 +6619,13 @@
    "Красный выпуск чинится в пачке"
   ],
   "name": "batch release: файлы раздела не меняла ни одна задача — бисект по границам задач, как сейчас"
+ },
+ {
+  "path": "tests/capabilities/github/github-task.test.ts",
+  "describes": [
+   "Красный выпуск чинится в пачке"
+  ],
+  "name": "Задача, закрытая фикс-PR красного выпуска, закрывается выпуском пачки, как остальные"
  },
  {
   "path": "tests/capabilities/github/github-task.test.ts",
@@ -13750,6 +13764,13 @@
   "describes": [
    "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
   ],
+  "name": "цитату «Closed by PR #R…» из skills/github/reference.md печатает или пишет скрипт"
+ },
+ {
+  "path": "tests/standards/documents/flow-english.test.ts",
+  "describes": [
+   "Строки вывода, которые цитируют доки флоу, скрипты печатают дословно"
+  ],
   "name": "цитату «Closes #N» из skills/github/reference.md печатает или пишет скрипт"
  },
  {
@@ -14968,6 +14989,13 @@
   "describes": [
    "Флоу написан по-английски: в его документах нет кириллицы"
   ],
+  "name": "в docs/installation.md нет кириллицы"
+ },
+ {
+  "path": "tests/standards/documents/flow-english.test.ts",
+  "describes": [
+   "Флоу написан по-английски: в его документах нет кириллицы"
+  ],
   "name": "в docs/judgment.md нет кириллицы"
  },
  {
@@ -15773,6 +15801,13 @@
   "describes": [
    "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
   ],
+  "name": "README: справочник docs/installation.md — со ссылкой"
+ },
+ {
+  "path": "tests/standards/documents/readme.test.ts",
+  "describes": [
+   "README называет всё, что ставит флоу, и не ссылается на то, чего нет"
+  ],
   "name": "README: справочник docs/judgment.md — со ссылкой"
  },
  {
@@ -15985,7 +16020,7 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "bin/elves.ts: README.md, «Installation» — есть такой раздел"
+  "name": "bin/elves.ts: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
@@ -16048,14 +16083,14 @@
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "docs/cloud-sessions.md: README.md, «Installation» — есть такой раздел"
+  "name": "docs/cloud-sessions.md: docs/cloud-sessions.md, «The brief» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
   "describes": [
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
-  "name": "docs/cloud-sessions.md: docs/cloud-sessions.md, «The brief» — есть такой раздел"
+  "name": "docs/cloud-sessions.md: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
@@ -16070,6 +16105,27 @@
    "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
   ],
   "name": "docs/cloud-sessions.md: skills/github/SKILL.md, «Dispatcher» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/documents/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/installation.md: README.md, «Installation» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/documents/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/installation.md: docs/installation.md, «Releases and the up-to-date check» — есть такой раздел"
+ },
+ {
+  "path": "tests/standards/documents/section-refs.test.ts",
+  "describes": [
+   "Ссылка на раздел документа флоу по названию ведёт на существующий заголовок"
+  ],
+  "name": "docs/installation.md: docs/installation.md, «The package in a project» — есть такой раздел"
  },
  {
   "path": "tests/standards/documents/section-refs.test.ts",
@@ -18361,6 +18417,20 @@
    "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
   ],
   "name": "в docs/cloud-sessions.md скрипты скиллов вызываются с --no-env-file"
+ },
+ {
+  "path": "tests/standards/scripts/no-env-file.test.ts",
+  "describes": [
+   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
+  ],
+  "name": "в docs/installation.md bin пакета под bun вызывается с --no-env-file"
+ },
+ {
+  "path": "tests/standards/scripts/no-env-file.test.ts",
+  "describes": [
+   "Скрипты флоу под bun не подгружают env-файлы проекта: вызов несёт --no-env-file"
+  ],
+  "name": "в docs/installation.md скрипты скиллов вызываются с --no-env-file"
  },
  {
   "path": "tests/standards/scripts/no-env-file.test.ts",
