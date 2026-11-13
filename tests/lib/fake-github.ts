@@ -127,12 +127,18 @@ export class FakeGitHub {
       return JSON.stringify({ number: Number(patch[1]), state: "closed" });
     }
     if (args[0] === "api" && args[1] === "-X" && args[2] === "POST" && args[3] === `repos/${this.repo.nameWithOwner}/pulls`) return JSON.stringify(this.createPr(JSON.parse(stdin ?? "{}")));
-    // REST «Update a pull request»: тело — в PR, запрос — в журнал `rest`
+    // REST «Update a pull request»: заголовок и тело — в PR, запрос — в журнал `rest`; задачи из «Closes #N» нового тела
+    // GitHub связывает с PR в ветку по умолчанию, как при создании
     const edit = args[0] === "api" && args[1] === "-X" && args[2] === "PATCH" ? new RegExp(`^repos/${this.repo.nameWithOwner}/pulls/(\\d+)$`).exec(args[3] ?? "") : null;
     if (edit) {
       const payload = JSON.parse(stdin ?? "{}");
       this.rest.push({ method: "PATCH", route: args[3]!, payload });
-      if (payload.body !== undefined) this.prs[Number(edit[1])]!.body = payload.body;
+      const pr = this.prs[Number(edit[1])]!;
+      if (payload.title !== undefined) pr.title = payload.title;
+      if (payload.body !== undefined) {
+        pr.body = payload.body;
+        if ((pr.base ?? "main") === "main") pr.closes = [...payload.body.matchAll(/\bcloses #(\d+)/gi)].map((m: RegExpMatchArray) => Number(m[1]));
+      }
       return JSON.stringify(this.restPulls(args[3]!));
     }
     const main = args[0] === "api" ? this.restMain(args[1] ?? "") : undefined;

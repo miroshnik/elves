@@ -1248,8 +1248,15 @@ into the batch by `pr labels`' rule, a label its task or epic lacks is set —
 a `+` line; a PR not read — a `!` line with `pr labels <PR>`. Open PRs into the batch — the live executors' — `○` lines:
 not in the release, the executors go on (question 2 of epic #645), their `pr
 premerge` holds the merge till the release, then moves the PR. The release PR
-already open — `=` and its steps again, no second PR; merged — the closing
-steps. `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
+already open — `=`, its title and body rebuilt (#819) by the same rule from
+the PRs merged into the batch now and its fetched head: a red release's fix
+PR merged after the release PR opened, and `Closes #M` of its body (a task
+the fix did too) — otherwise the release's merge wouldn't close M; the body
+the same — an `=` line, otherwise a PATCH and a `+` line naming the tasks
+added; then its steps again, no second PR; merged — the closing steps, for
+the tasks of its `Closes` and of the PRs merged into the batch (a release
+merged without a rebuild still names them; `task close` closes them as
+released by it, below). `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
 `gh pr merge <R> --rebase` — outside auto on the owner's «yes» (#667), as an
 executor's merge (FAIL — `batch release` again: a red release,
 below); after the merge — `batch release` again: the batch
@@ -1430,7 +1437,15 @@ batch branch, goes — while a live executor's PR is into it, kept, an `○` lin
 (deleting a PR's base closes it or moves it into the default branch past the
 dispatcher; the queue deletes the branch later), — and so does the task's PR
 into the batch (all the batch's PRs, by a query by the base), the checkout
-moving to the default branch. The directory
+moving to the default branch. The release merged without `Closes #N` (#819:
+a red release's fix PR closed the task, merged into the batch after the
+release PR opened, and the release went without a rebuild) — every batch of
+the task's PRs released: no refusal, the release PR is the task's merged PR,
+as if GitHub had linked it — the task is closed with the comment «Closed by
+PR #R…»; a batch not released yet — the refusal, as before. A PR of the task
+on another task's branch (`Closes #M` in a fix PR of #G) — after the actual
+the line `○ #M was done in PR #X on the branch of #G …`: the work went in
+#G's session, an actual of M unavailable is in #G's. The directory
 isn't a checkout of the repository — neither stacks nor branches are touched
 (an `○` line: both are named by the checkout's `origin`); a checkout — the
 `owner/repo` of its `origin` equals the task's repository, case aside, not a

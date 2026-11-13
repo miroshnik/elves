@@ -4358,6 +4358,45 @@ describe("Выпуск пачки — один PR в main", () => {
     for (const n of [47, third, 49]) expect(task(f, ["close", String(n)], REPO, { run: noEst, cwd: work }).code).toBe(0);
     expect(statusSet(f)).toEqual(expect.arrayContaining([[47, "Готово"], [third, "Готово"], [49, "Готово"]]));
   });
+
+  /**
+   * Запасной путь (#819): «Closes» задачи не попал в тело выпуска — PR починки с ним влит в пачку после открытия выпуска,
+   * а выпуск влит без повторного batch release. GitHub задачу не закрыл, а task close отказывал: «PR влит в ветку пачки,
+   * не в main» — задачу закрывали руками, факт — «недоступен».
+   */
+  it("`task close` задачи из уже выпущенной пачки закрывает её, а не отказывает", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    expect(release(f, work, config).code).toBe(0);
+    const second = subtaskOf45(f, "Задача из починки");
+    mergeIntoBatch(work, name, "fix/47-red-release", "export-fix.txt", "fix(github): починка экспорта\n\nRefs #47");
+    f.prs[302] = { files: [], closes: [], body: `Refs #47\nCloses #${second}`, head: "fix/47-red-release", base: name, model: null, merged: true, state: "MERGED" };
+    Object.assign(f.prs[301]!, { merged: true, state: "MERGED" });
+    f.closed(47);
+    // шаги после мержа выпуска — и по задачам, влитым в пачку мимо его «Closes»
+    const next = release(f, work, config).out.split("\n").at(-1)!;
+    expect(next).toMatch(new RegExp(`the epic refresh, one per epic of the batch's tasks: bun --no-env-file \\S+github\\.ts task actualize 47 ${second} — `));
+    expect(next).toMatch(new RegExp(`task close 47; bun --no-env-file \\S+github\\.ts task close ${second} — `));
+    f.comments[45] = [{ body: `Актуализация после #47, #${second}, итог: блок актуален`, url: "https://github.com/miroshnik/elves/issues/45#issuecomment-819" }];
+    const close = task(f, ["close", String(second)], REPO, { run: noEst, cwd: work });
+    expect(close.err).toBe("");
+    expect(close.code).toBe(0);
+    const lines = close.out.split("\n");
+    expect(lines).toContain(`+ #${second} closed by PR #301 (the release of ${name}, PR #302 merged into it): GitHub didn't link the PR to the task`);
+    expect(byOp(f, "AddComment")).toContainEqual({ subjectId: f.issue(second).id, body: "Закрыта по PR #301: GitHub не связал PR с задачей" });
+    expect(byOp(f, "CloseIssue").map((m) => m.issueId)).toContain(f.issue(second).id);
+    expect(statusSet(f)).toContainEqual([second, "Готово"]);
+    // работа шла в сессии исполнителя #47 — task close называет, у какой задачи факт
+    expect(lines).toContain(`○ #${second} was done in PR #302 on the branch of #47 (fix/47-red-release): the work went in #47's session — an actual unavailable above is in #47's`);
+    // выпуска нет — отказ, как раньше: задача закрывается выпуском пачки
+    const early = started();
+    const third = subtaskOf45(early.f, "Ещё в пачке");
+    early.f.prs[300] = batchPr(third, `feat/${third}-z`, early.name);
+    const refused = task(early.f, ["close", String(third)], REPO, { run: noEst, cwd: early.work });
+    expect(refused.code).toBe(2);
+    expect(refused.err).toStartWith(`error: #${third} is too early to close: PR #300 merged into ${early.name}, not into main — the task closes with the batch's release`);
+  });
 });
 
 /**
@@ -4711,6 +4750,44 @@ describe("Красный выпуск чинится в пачке", () => {
     }
     expect(posted(f)).toHaveLength(1);
     expect(f.prs[pr]!.body).toEndWith("Closes #47\nCloses #49\n");
+  });
+
+  /**
+   * Тело выпуска собиралось один раз, при открытии PR (#819): владелец закрыл красный выпуск, сделав в починке задачу,
+   * которую ждал тест-напоминание, — «Closes» второй задачи в теле PR починки; в тело выпуска он не попал, и мерж выпуска
+   * её не закрыл.
+   */
+  it("Задача, закрытая фикс-PR красного выпуска, закрывается выпуском пачки, как остальные", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    const second = subtaskOf45(f, "Задача из починки");
+    mergeIntoBatch(work, name, "fix/47-red-release", "export-fix.txt", "fix(github): починка экспорта\n\nRefs #47");
+    f.prs[pr + 1] = { files: [EXPORT_TEST], closes: [], body: `Починка красного выпуска.\n\nRefs #47\nCloses #${second}`, head: "fix/47-red-release", base: name, model: null, merged: true, state: "MERGED" };
+    // починка влита — полный прогон выпуска заново; повтор batch release пересобирает тело по всем PR, влитым в пачку сейчас
+    f.prs[pr]!.checks = { tests: "IN_PROGRESS" };
+    const r = release(f, work, config);
+    expect(r.code).toBe(0);
+    const lines = r.out.split("\n");
+    expect(lines[0]).toBe(`= the release PR ${pull(pr)} of ${name} is open`);
+    expect(lines).toContain(`+ the release PR #${pr}: the title and body rebuilt by the PRs merged into ${name} now — Closes #${second} added`);
+    expect(f.prs[pr]!.title).toBe(`feat: выпуск пачки ${name} — #47, #49, #${second}`);
+    expect(f.prs[pr]!.body).toBe(
+      `Выпуск пачки \`${name}\` одним PR: полный CI и деплой — один раз на пачку. PR задач, влитые в неё: #300 (#47), #301 (#49), #${pr + 1} (#47, #${second}).\n\n${SPEC_SECTION}\n\nCloses #47\nCloses #49\nCloses #${second}\n`,
+    );
+    expect(lines.at(-1)).toMatch(new RegExp(`task close 49; bun --no-env-file \\S+github\\.ts task close ${second} — `));
+    expect(posted(f)).toHaveLength(1);
+    // тело уже по влитому — повтор его не правит
+    const edits = f.rest.filter((x) => x.method === "PATCH").length;
+    expect(release(f, work, config).out.split("\n")).toContain(`= the release PR #${pr}: the body is current`);
+    expect(f.rest.filter((x) => x.method === "PATCH")).toHaveLength(edits);
+    // выпуск влит — GitHub закрыл по его «Closes» и вторую задачу; task close закрывает её, как остальные
+    Object.assign(f.prs[pr]!, { merged: true, state: "MERGED" });
+    for (const n of [47, 49, second]) f.closed(n);
+    f.comments[45] = [{ body: `Актуализация после #47, #${second}, итог: блок актуален`, url: "https://github.com/miroshnik/elves/issues/45#issuecomment-819" }];
+    const close = task(f, ["close", String(second)], REPO, { run: noEst, cwd: work });
+    expect(close.err).toBe("");
+    expect(close.code).toBe(0);
+    expect(byOp(f, "CloseIssue").map((m) => m.issueId)).not.toContain(f.issue(second).id);
+    expect(statusSet(f)).toContainEqual([second, "Готово"]);
   });
 
   it("задание починки называет PR выпуска и упавшие проверки, ветка — от ветки пачки, а не прежняя ветка задачи", () => {
