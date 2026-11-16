@@ -29,7 +29,11 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   `test:spec` — the scripts CI runs; standards and architecture go there
   once, in a job of their own, not inside `test` and e2e — `ci.md` of the
   `spec` skill); `main` is red by itself — exit code 3, I don't merge: one bug
-  for it, and I wait for it to close (the `github` skill).
+  for it, and I wait for it to close (the `github` skill). A PR with files
+  in `tests/` — first red on base, on every path to the merge (a batch's
+  too): its added tests run on the base code and must fail there
+  (`spec-red`, `skills/spec/reference.md`); a green one — exit code 1, the
+  test is fixed in the PR.
   An empty list or `no checks reported` means "not registered yet", not
   "passed"; a failed check means "red" at once, without waiting for the rest.
 - **Actions jobs didn't start** with the annotation "The job was not started
