@@ -7,8 +7,9 @@
  *   est period   — summary of all the repo's sessions over a period, not tied to tasks: the flow before and after
  *   est cloud-import — cloud session events into the sources of the actual
  *
- * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the project field
- * "Actual, h" and the comment with the HTML marker <!-- fact {...} -->). Without --write nothing is written to GitHub.
+ * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the comment with the
+ * HTML marker <!-- fact {...} --> and, where the repository has a board, the project field "Actual, h"). Without --write
+ * nothing is written to GitHub.
  * Cache formats in ~/.config/elves/cache are compatible with the former est.py.
  */
 
@@ -462,8 +463,10 @@ export interface PR {
   why?: string;
 }
 
+/** A task row: with a board — its item, without one — the repository's issue (Repo.taskRows, #847). */
 export interface Row {
-  item_id: string;
+  /** The board item; no board — null. */
+  item_id: string | null;
   issue_id: string;
   number: number;
   title: string;
@@ -476,9 +479,40 @@ export interface Row {
   issueType?: string | null;
   /** Number of the task's epic (the sub-issue parent). */
   parent?: number | null;
+  /** The recorded actual, h: the board's «Actual, h» field; no board — `h` of the «Actual» marker. */
   fact: number | null;
+  /** The board's Status; no board — null. */
   status: string | null;
   fact_marker: Any | null;
+}
+
+/** The issue fields of a task row — in the board's items and in the repository's issues alike. */
+const ROW_ISSUE_FIELDS = `id number title state stateReason closedAt createdAt issueType{name} parent{number}
+              labels(first:15){nodes{name}} comments(last:25){nodes{databaseId body}}`;
+
+/** A task row from an issue node (ROW_ISSUE_FIELDS); the actual and Status — the caller's: the board's fields or the marker. */
+function issueRow(c: Any, itemId: string | null): Row {
+  const row: Row = {
+    item_id: itemId,
+    issue_id: c.id,
+    number: c.number,
+    title: c.title,
+    state: c.state,
+    stateReason: c.stateReason ?? null,
+    closedAt: parseTs(c.closedAt),
+    createdAt: parseTs(c.createdAt),
+    labels: c.labels.nodes.map((l: Any) => l.name),
+    issueType: c.issueType?.name ?? null,
+    parent: c.parent?.number ?? null,
+    fact: null,
+    status: null,
+    fact_marker: null,
+  };
+  for (const cm of c.comments.nodes) {
+    const fm = parseMarker(cm.body, "fact");
+    if (fm) row.fact_marker = fm;
+  }
+  return row;
 }
 
 interface Meta {
@@ -634,7 +668,7 @@ class Repo implements FactRepo {
   cacheDir: string;
   defaultBranch: string | null = null;
   optRefreshed = false;
-  private meta_: Meta | null = null;
+  private meta_: Meta | null | undefined = undefined; // null — no board
   private prs_: Map<number, PR> | null = null;
   private open_: OpenPrs | null = null;
   private closers_: Closers | null = null;
@@ -659,9 +693,13 @@ class Repo implements FactRepo {
   }
 
   // --- project ----------------------------------------------------------
-  /** Project id, field ids and Status options. Cached on disk (a day, with a registry check). */
-  projectMeta(force = false): Meta {
-    if (this.meta_ && !force) return this.meta_;
+  /**
+   * The board (the repository's GitHub project): its id, field ids and Status options. Cached on disk (a day, with a
+   * registry check). No board — no linked project and no `project` in the registry — null: the actual is then the
+   * comment alone (#847); a network or GraphQL error stays an error, not "no board".
+   */
+  board(force = false): Meta | null {
+    if (this.meta_ !== undefined && !force) return this.meta_;
     const file = path.join(this.cacheDir, "project.json");
     const cached = force ? null : loadJson<Meta | null>(file, null);
     if (cached && cached.fields?.[FIELD_FACT]?.name) {
@@ -672,7 +710,12 @@ class Repo implements FactRepo {
         return cached;
       }
     }
-    const [owner, number] = this.findProject();
+    const ref = this.findProject();
+    if (!ref) {
+      this.meta_ = null;
+      return null;
+    }
+    const [owner, number] = ref;
     const q = `
         query($o:String!,$n:Int!){
           organization(login:$o){ projectV2(number:$n){ ...F } }
@@ -711,9 +754,16 @@ class Repo implements FactRepo {
     return meta;
   }
 
-  /** Project items, once per run. */
-  projectRows(): Row[] {
-    if (this.rows_ === null) this.rows_ = this.projectItems();
+  /** The board, which must be there: the fields are written only where it is. */
+  projectMeta(force = false): Meta {
+    const meta = this.board(force);
+    if (!meta) throw new EstError(`repository ${this.full} has no board: no linked project and no entry in ${REGISTRY_PATH}`);
+    return meta;
+  }
+
+  /** Task rows, once per run: with a board — its items, without one — the repository's issues (#847). */
+  taskRows(): Row[] {
+    if (this.rows_ === null) this.rows_ = this.board() ? this.projectItems() : this.repoIssues();
     return this.rows_;
   }
 
@@ -721,7 +771,7 @@ class Repo implements FactRepo {
   recorded(): Recorded {
     if (this.recorded_ === null) {
       this.recorded_ = new Map();
-      for (const r of this.projectRows()) {
+      for (const r of this.taskRows()) {
         const iv = r.fact_marker?.iv;
         if (iv && typeof iv === "object" && !Array.isArray(iv)) this.recorded_.set(r.number, iv);
       }
@@ -735,23 +785,23 @@ class Repo implements FactRepo {
     return this.pins_;
   }
 
-  private findProject(): [string, number] {
+  /** The board's owner and number: from the registry, otherwise the project linked to the repository; neither — null. */
+  private findProject(): [string, number] | null {
     if (this.projectRef) return [this.projectRef.owner, Number(this.projectRef.number)];
     const q = `query($o:String!,$r:String!){ repository(owner:$o,name:$r){
             projectsV2(first:5){ nodes{ number title owner{ ... on Organization{login} ... on User{login} } } } } }`;
     const nodes = ghGraphql(q, { o: this.owner, r: this.name }).repository.projectsV2.nodes;
-    if (!nodes.length) throw new EstError(`repository ${this.full} has no linked project and no entry in ${REGISTRY_PATH}`);
+    if (!nodes.length) return null;
     return [nodes[0].owner.login, nodes[0].number];
   }
 
-  /** All project items with fields and the issue's latest comments. */
+  /** All board items with fields and the issue's latest comments. */
   private projectItems(): Row[] {
     const meta = this.projectMeta();
     const q = `
         query($id:ID!,$c:String){ node(id:$id){ ... on ProjectV2{
           items(first:100,after:$c){ pageInfo{hasNextPage endCursor} nodes{ id type
-            content{ __typename ... on Issue{ id number title state stateReason closedAt createdAt issueType{name} parent{number}
-              labels(first:15){nodes{name}} comments(last:25){nodes{databaseId body}} } }
+            content{ __typename ... on Issue{ ${ROW_ISSUE_FIELDS} } }
             fieldValues(first:20){ nodes{ __typename
               ... on ProjectV2ItemFieldNumberValue{ number field{ ... on ProjectV2Field{name} } }
               ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{name} } } } } } } } } }
@@ -763,35 +813,36 @@ class Repo implements FactRepo {
       for (const it of items.nodes) {
         const c = it.content ?? {};
         if (c.__typename !== "Issue") continue;
-        const row: Row = {
-          item_id: it.id,
-          issue_id: c.id,
-          number: c.number,
-          title: c.title,
-          state: c.state,
-          stateReason: c.stateReason ?? null,
-          closedAt: parseTs(c.closedAt),
-          createdAt: parseTs(c.createdAt),
-          labels: c.labels.nodes.map((l: Any) => l.name),
-          issueType: c.issueType?.name ?? null,
-          parent: c.parent?.number ?? null,
-          fact: null,
-          status: null,
-          fact_marker: null,
-        };
+        const row = issueRow(c, it.id);
         for (const fv of it.fieldValues.nodes) {
           const key = fieldKey(fv.field?.name);
           if (key === FIELD_FACT) row.fact = fv.number ?? null;
           else if (key === FIELD_STATUS) row.status = fv.name ?? null;
         }
-        for (const cm of c.comments.nodes) {
-          const fm = parseMarker(cm.body, "fact");
-          if (fm) row.fact_marker = fm;
-        }
         rows.push(row);
       }
       if (!items.pageInfo.hasNextPage) break;
       cursor = items.pageInfo.endCursor;
+    }
+    return rows;
+  }
+
+  /** All of the repository's issues with their latest comments — without a board: the actual is `h` of the «Actual» marker, no Status. */
+  private repoIssues(): Row[] {
+    const q = `query($o:String!,$r:String!,$c:String){ repository(owner:$o,name:$r){
+          issues(first:100,after:$c){ pageInfo{hasNextPage endCursor} nodes{ ${ROW_ISSUE_FIELDS} } } } }`;
+    const rows: Row[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const conn: Any = ghGraphql(q, { o: this.owner, r: this.name, c: cursor }).repository.issues;
+      for (const c of conn.nodes) {
+        const row = issueRow(c, null);
+        const h = row.fact_marker?.h;
+        row.fact = typeof h === "number" ? h : null;
+        rows.push(row);
+      }
+      if (!conn.pageInfo.hasNextPage) break;
+      cursor = conn.pageInfo.endCursor;
     }
     return rows;
   }
@@ -3455,7 +3506,8 @@ function factForEpic(repo: Repo, issue: Any, gap: number, quiet = false): [Any, 
     subs = subs.concat(chunk);
     if (chunk.length < 100) break;
   }
-  const rows = new Map(repo.projectRows().map((r) => [r.number, r]));
+  const rows = new Map(repo.taskRows().map((r) => [r.number, r]));
+  const board = repo.board();
   let total = 0.0;
   let tokTotal = 0;
   let usdTotal = 0.0;
@@ -3474,7 +3526,7 @@ function factForEpic(repo: Repo, issue: Any, gap: number, quiet = false): [Any, 
       const manual = Number(fm.manual || 0);
       h = row.fact + manual;
       cov = fm.cov || "field";
-      src = `field «${fieldShown(repo.projectMeta(), FIELD_FACT)}»` + (manual ? ` + manually ${fmtH(manual)} h` : "");
+      src = (board ? `field «${fieldShown(board, FIELD_FACT)}»` : "the «Actual» comment") + (manual ? ` + manually ${fmtH(manual)} h` : "");
       sTok = fm.tok?.total;
       sUsd = fm.usd;
     } else {
@@ -3567,7 +3619,7 @@ function printFact(repo: Repo, res: Fact): void {
   for (const sid of res.cloud_missing ?? []) console.log(`WARNING: part of the work is the cloud session https://claude.ai/code/${sid}, its events aren't imported: export them through the browser and est cloud-import (SKILL.md est, «Cloud session»)`);
 }
 
-/** Writes the actual (comment and project fields); returns the comment body. */
+/** Writes the actual (the comment and, where there's a board, its fields); returns the comment body. */
 function writeFact(repo: Repo, issue: Any, res: Fact): string {
   if (res.is_pr) throw new EstError(`#${res.issue} is a PR, not an issue: an actual for a PR isn't written`);
   const existing = findMarkerComment(issue, "fact");
@@ -3576,6 +3628,11 @@ function writeFact(repo: Repo, issue: Any, res: Fact): string {
   const what = upsertComment(repo, issue, "fact", body);
   if (res.iv && Object.keys(res.iv).length) repo.recorded().set(res.issue, res.iv); // the sweep's next task sees this actual
   let msg = `«Actual» comment ${what}`;
+  if (!repo.board()) {
+    // the fields are the board's: without one the comment's marker holds the actual (#847)
+    console.log(`${msg}; no project fields: the repository has no board — the actual is the comment`);
+    return body;
+  }
   if (res.h !== null) {
     setNumberField(repo, issue, FIELD_FACT, res.h);
     msg += `, field «${fieldShown(repo.projectMeta(), FIELD_FACT)}» = ${fmtH(res.h)}`;
@@ -3670,20 +3727,22 @@ function cmdFact(args: FactArgs): number {
     return 0;
   }
   const repo = new Repo(repoOf(args.repo), registry);
-  repo.projectMeta(); // the project and its fields before the transcripts: no project — the error at once
+  // the board and its fields before the transcripts: a board without the fields — the error at once; no board — the
+  // actual is the comment (#847)
+  repo.board();
   if (args.sweep) {
     const since = parseSince(args.since);
     const now = nowTs();
     let rows: Row[];
     const recompute = args.model !== undefined || !!args.recompute;
     if (args.model !== undefined) {
-      rows = factsWithModel(repo.projectRows(), args.model, since, now);
+      rows = factsWithModel(repo.taskRows(), args.model, since, now);
       console.log(`== ${repo.full}: closed with an actual on ${modelVersion(args.model)} in ${args.since} (with their epics): ${rows.length}`);
     } else if (args.recompute) {
-      rows = factsRecorded(repo.projectRows(), since, now);
+      rows = factsRecorded(repo.taskRows(), since, now);
       console.log(`== ${repo.full}: closed with an actual in ${args.since} (with their epics): ${rows.length}`);
     } else {
-      rows = repo.projectRows().filter((r) => r.state === "CLOSED" && r.fact === null && r.stateReason !== "NOT_PLANNED" && (r.closedAt || 0) >= now - since);
+      rows = repo.taskRows().filter((r) => r.state === "CLOSED" && r.fact === null && r.stateReason !== "NOT_PLANNED" && (r.closedAt || 0) >= now - since);
       rows.sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
       console.log(`== ${repo.full}: closed without an actual in ${args.since}: ${rows.length}`);
     }
@@ -3739,7 +3798,7 @@ function cmdFact(args: FactArgs): number {
           if (failure(r, "error writing", e, i)) break;
           continue;
         }
-        // further in this same sweep an epic adds up its subtasks' actuals from the project rows — they need the
+        // further in this same sweep an epic adds up its subtasks' actuals from the task rows — they need the
         // written one, not the previous one
         if (h !== null) r.fact = h;
         r.fact_marker = parseMarker(body, "fact");
@@ -4033,9 +4092,10 @@ est fact --sweep --recompute [--since 90d] [--repo o/r] [--write]
 
 The actual of a task from session transcripts: all of its time except waits for the user's input — a pause longer than
 --gap minutes counts only inside a CI or checks wait — split by waits, tokens and cost; --write — the actual comment
-and the project fields (github task close runs it). An epic — the sum of its subtasks. --sweep — the actuals of closed
-tasks without one; with --model — recompute the recorded actuals with this model and their epics; with --recompute —
-every recorded actual of the window and their epics (an actual whose transcripts are gone stays).
+and, where the repository has a board, its fields (github task close runs it). An epic — the sum of its subtasks.
+--sweep — the actuals of closed tasks without one; with --model — recompute the recorded actuals with this model and
+their epics; with --recompute — every recorded actual of the window and their epics (an actual whose transcripts are
+gone stays).
 
 Examples:
   est fact 42

@@ -11,7 +11,10 @@ The repository registry (which ones exist, where they live locally, the project
 number) is a personal file `~/.config/elves/repos.json` (or
 `$ELVES_CONFIG_DIR/repos.json`), not part of the skill; the format is described at the top of `est.ts`. Without a
 registry entry the script determines the repo from `git remote origin`, and the
-project from its link to the repository.
+project from its link to the repository. No linked project and no `project` in
+the entry — no board: the actual is the comment alone, without fields, and the
+already recorded actuals, an epic's sum and the sweep come from the
+repository's issues.
 
 ## Comment language
 
