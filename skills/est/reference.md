@@ -1,9 +1,8 @@
 # est — reference
 
-The mechanics behind `SKILL.md`: the repository registry, how the estimate picks
-analogs, how the actual finds sessions and counts hours, tokens and cost,
-writing and reruns, the cloud session import, the period summary and the
-linking details. What to run and when — `SKILL.md`; syntax and flags —
+The mechanics behind `SKILL.md`: the repository registry, how the actual finds
+sessions and counts hours, tokens and cost, writing and reruns, the cloud session
+import, the period summary and the linking details. What to run and when — `SKILL.md`; syntax and flags —
 `est --help` and `est <command> --help`.
 
 ## Repository registry
@@ -14,88 +13,12 @@ number) is a personal file `~/.config/elves/repos.json` (or
 registry entry the script determines the repo from `git remote origin`, and the
 project from its link to the repository.
 
-## Unit and comment language
+## Comment language
 
-Old estimates without the `<!-- est -->` marker (set before `est` was
-introduced, in other units) don't go into calibration (k). The «Estimate» and
-«Actual» comments are written in the project language of the current checkout
-(the `est` keys of the dictionary; the markers are the same in every
-language); fields, the questions section, the human's lines and the subagent
-assignment («Task #N») are read in any language of the dictionary.
-
-## Estimate — the mechanics
-
-`--type` — like the branch prefix (feat / fix / docs / refactor / perf / test /
-chore / ci / build / research); without `--write` everything is only printed.
-
-1. **Analogs** — the three most similar closed tasks with an actual (coverage
-   `full`, not epics), **closed before the estimated one was created**.
-   Similarity is a sum of features: a shared decision label ×3, the same type ×2,
-   a shared title word ×1 (words are compared by their first four letters), minus
-   3 × |ln| of the ratio of the issue description sizes (characters, without
-   answers to questions — those are added after the estimate); on a tie — the
-   more recently closed. The comment names the analogs and how they are similar:
-   `Analogs (picked by the script): #24 (actual 0.21 h: label est · type feat · words «estimate», «analogs» · description ×1.3); …`
-2. **Forecast** — the median of the analogs' actuals (hours, tokens, cost),
-   rounded to the **nearest** step of the scale 0.1 · 0.25 · 0.5 · 1 · 1.5 · 2 ·
-   3 · 5 · 8 · 13 h. The script sets the «Estimate, h» field and writes a comment
-   (the marker has `"auto": true`):
-   `Estimate: 1 h, ≈ 80.7M tokens, ≈ $136 (type fix, confidence A; forecast from the analogs' actuals). Analogs (picked by the script): #4 (actual 0.38 h: …); #5 (actual 0.51 h: …); #9 (actual 1.2 h: …). Correction: ×1. k=0.93 (n=20, level «repo»; for reference, not applied to the forecast).`
-   If the analogs' actuals spread by more than ×3, the script adds a range. The
-   scale is capped at 13: if the analogs (before rounding) give more, the script
-   warns — the task should be split.
-3. **Cold start** — fewer than two analogs with an actual closed before the task
-   was created: the script prints «No estimate: …», writes nothing, exits with 0
-   and doesn't read other repositories; the task stays without an estimate, and
-   the tasks created after two have closed get one.
-4. k (actual/estimate over history) is for reference: it isn't applied to the
-   forecast (the forecast already comes from actuals); `est history` shows it
-   with the number of pairs, to see whether estimates match actuals.
-
-Confidence: A — ≥ 3 analogs with an actual and ≥ 5 closed tasks of the same type
-with an actual (coverage full) in this repo; B — ≥ 2 analogs with an actual; C — an
-expert estimate (`--hours`).
-
-## Manual re-estimate
-
-Only on the owner's request, before work starts:
-`est estimate <N> --type <type> … --write` with
-
-- `--analogs 254,260` — analogs by hand (2–3, from `est history [--grep <word>]`);
-  from another registry repo — `owner/repo#254`, labeled «from project …» in the
-  comment. An analog from a non-public repo isn't written into a public repo:
-  `--write` refuses before writing (without it — a warning), since the other
-  task's name and number would stay in the comment's edit history too. Pick
-  them by scope, not topic: in `est history` «agents» is the task's subagents
-  and «turns» its model responses, a size signal; a fan-out task takes analogs
-  with a similar «agents» count; in doubt about scope — `gh issue view <k>
-  --json body,closedByPullRequestsReferences` and `gh pr view <pr> --json
-  additions,deletions,changedFiles` (the diff is a size signal, not time, but
-  it screens out the incomparable; a topic without the scope is a poor
-  analog); another repo's candidates — `est history --all-repos`;
-- `--mult 0.5|1.5|2` with `--note "reason"` — a named difference the features
-  don't see (in the backtest, agents' corrections on top of the mechanics didn't
-  add accuracy; a downward correction against another repo's analogs isn't
-  written without `--note`: "another repo is slower" without a named
-  difference underestimated big tasks threefold); `--tok-mult 0.5…3` with
-  `--tok-note` — when the fan-out differs from the analogs' (parallel
-  subagents shrink hours and grow tokens: each re-reads the context); without
-  it, tokens and cost take the `--mult` correction;
-- `--hours H` — an expert estimate (confidence C), rounded to the scale with a
-  warning; with analogs it goes on top of the forecast — the comment shows
-  what the analogs would give — and tokens and cost are rescaled in
-  proportion; no "starting rates per operation": that is made-up precision.
-
-## Backtest
-
-`est backtest [--repo <r>] [--all-repos]`: every closed task with
-an actual is estimated by the mechanics the way the script would have estimated
-it on its creation day (analogs — only those closed earlier), and it prints the
-share within the ×0.5…×2 tolerance and k for the mechanics, for manual estimates
-and for the mechanics with the agent's correction — on one sample (tasks that also
-have a manual estimate). It is how a change to the picking rule is checked: the
-weights above were chosen with it (#279) — on a history of ~470 tasks the
-mechanics lands within tolerance as often as manual picking.
+The «Actual» comment is written in the project language of the current checkout
+(the `est` keys of the dictionary; the marker is the same in every language);
+fields, the human's line and the subagent assignment («Task #N») are read in any
+language of the dictionary.
 
 ## Actual — how sessions are found
 
@@ -161,10 +84,10 @@ session, linked like a session from that folder.
 
 ## Actual — the comment
 
-`Actual: 3.1 active hours in Claude Code (estimate 3 h, ×1.03). 2 sessions, 14 prompts, 4 subagents, wall clock 10.2 h, coverage full. PR #336; 8 commits, diff 2140 lines.`
+`Actual: 3.1 h active in Claude Code. 2 sessions, 14 prompts, 4 subagents, wall 10.2 h, coverage full. PR #336; 8 commits, diff 2140 lines.`
 
-("N subagents" — how many subagents worked on the task; a fan-out signal for
-picking analogs, `agents` in the marker)
+("N subagents" — how many subagents worked on the task; a fan-out signal,
+`agents` in the marker)
 
 and on a second line — the model spend:
 
@@ -204,8 +127,7 @@ and on a fifth — the waits, minutes (section "Waits"):
 `Waits: CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 15.`
 
 In the marker — `waits` (`ci`, `merged`, `checks`, `slot`, `rest`, minutes to a
-tenth): `est history` shows them as columns and the medians of the last 10
-tasks against the previous 10. The estimate doesn't use them yet.
+tenth).
 
 ## Tokens and cost
 
@@ -236,9 +158,9 @@ the total volume.
 ## Writing and reruns
 
 Without `--write` everything is only printed — so you can check what the script
-found before writing to GitHub. Comments are idempotent: the markers
-`<!-- est {…} -->` and `<!-- fact {…} -->` at the end of a comment; a rerun
-updates the existing comment instead of adding new ones. `--sweep --write` writes
+found before writing to GitHub. The comment is idempotent: the marker
+`<!-- fact {…} -->` at its end; a rerun updates the existing comment instead of
+adding a new one, and the human's line «+ manually: N h» stays. `--sweep --write` writes
 only tasks with coverage `full`/`partial` — it doesn't mass-post "unavailable";
 for a single task `est fact <N> --write` does write «actual unavailable»
 (that is the honest record at closing). `--sweep --recompute` rewrites every
@@ -348,8 +270,8 @@ period.
 
 **$ is flow × model rate.** A model change changes $ per PR several-fold with the
 same flow; the flow's effect shows in tokens, output and hours per PR, a rate
-shift — in «$ per 1M tokens» and the $ share by model
-(`est history` prints it too). Work on a PR may have started before the period —
+shift — in «$ per 1M tokens» and the $ share by model. Work on a PR may have
+started before the period —
 compare periods longer than a typical task.
 
 ### Turn kinds and cache rewrites

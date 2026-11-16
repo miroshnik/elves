@@ -1,20 +1,21 @@
 ---
 name: est
-description: Estimates GitHub tasks from the project's history (the «Estimate, h» field from analogs with actuals — `github task new` sets it by itself, the agent has no step) and records the actual from Claude Code, Codex and claude.ai/code cloud session transcripts when a task is closed. When — a task created past `task new` (the GitHub UI) has no estimate; when a task is closed or a PR is merged (actual); in a cloud session when closing a task — its part of the actual («Actual (cloud)»); when the cloud part wasn't counted (a Claude-Session trailer in commits, «not imported» in the actual) — importing the session's events; when asked "how many hours", "estimate it", "how accurate are the estimates", for estimate history, an estimate backtest, the k coefficient, a manual re-estimate on the owner's request, an actuals backfill or estimate vs actual; when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
+description: Records the actual of GitHub tasks from Claude Code, Codex and claude.ai/code cloud session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); in a cloud session when closing a task — its part of the actual («Actual (cloud)»); when the cloud part wasn't counted (a Claude-Session trailer in commits, «not imported» in the actual) — importing the session's events; when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
 allowed-tools: Bash(bun *skills/est/scripts/est.ts *) Bash(gh issue view *) Bash(gh pr view *)
 ---
 
-# est — estimate from history, actual from transcripts
+# est — the actual from transcripts
 
-An estimate "off the top of the head" can't be checked. Here the estimate is
-derived from the actuals of already closed tasks, and the actual is measured from
-the agent's transcripts (Claude Code, Codex), not reported from memory. The script
-`scripts/est.ts` does everything deterministic (transcripts, GraphQL, project
-fields, comments, picking analogs); the agent's part is the correction for a named
-difference and explaining discrepancies. The mechanics — `reference.md` next to
-this file; syntax and flags — `est --help` and `est <command> --help`.
+The actual of a task is measured from the agent's transcripts (Claude Code,
+Codex), not reported from memory — the flow is measured by it. Tasks have no
+estimate: they take 15–30 minutes, and an estimate from analogs landed within
+×0.5…×2 in only 48–67 % of tasks. The script `scripts/est.ts` does everything
+deterministic (transcripts, GraphQL, project fields, the comment); the agent's
+part is linking the work to the task (section "So the actual is found"). The
+mechanics — `reference.md` next to this file; syntax and flags — `est --help`
+and `est <command> --help`.
 
-**Unit:** «Estimate, h» = «Actual, h» (in the project language —
+**Unit:** «Actual, h» (in the project language —
 `locales/<language>.json` of the `github` skill) = the agent's active
 hours on the task: all of its time except waits for the user's input (a
 prompt, a command, a permission approved in the dialog, a dispatcher's
@@ -22,17 +23,16 @@ answer to its executor), however long; a wait for CI or checks counts whole,
 another pause — up to 30 min (reference.md, "Waits"). Not person-hours, not
 calendar time. Manual work outside the agent (> 0.5 h) the human
 adds themselves as a line «+ manually: N h» in the actual
-comment. Old estimates and the comments' language — reference.md, "Unit and comment language".
+comment. The comment's language — reference.md, "Comment language".
 
 **The source of the actual is the agent's transcripts** (Claude Code, Codex,
 claude.ai/code cloud sessions — section "Cloud session"), not memory and not a
 number by eye. A task done by an agent whose transcripts `est` doesn't read has
 its actual "unavailable" until its source is added.
 
-**Project fields are set only by the scripts:** «Estimate, h» — `est estimate --write`
-inside `github task new` (from analogs with actuals, not off the top of the head);
-«Actual, h», «Tokens, M», «Cost, $» — `est fact --write` inside `github task close`;
-never touch them by hand.
+**Project fields are set only by the script:** «Actual, h», «Tokens, M»,
+«Cost, $» — `est fact --write` inside `github task close`; never touch them by
+hand.
 
 Run: `bun --no-env-file <skill folder>/scripts/est.ts <subcommand> …` (Bun, no
 dependencies) — the skill folder is the one holding this file (`~/.claude/skills/est`,
@@ -47,49 +47,17 @@ update the same comment (reference.md, "Writing and reruns").
 
 | Moment | Action |
 |---|---|
-| You create a task or an epic's subtask | nothing: `github task new --branch-type <type>` sets the estimate itself — section "The estimate of a new task" below |
-| A task without an estimate (created in the GitHub UI or by another tool), before taking it into work | `est estimate <N> --type <type> --write` — the same call `task new` makes, one call, nothing to choose |
 | PR merged / issue closed | `github task close <N>` — runs `est fact <N> --write` inside; recomputing the actual — `est fact <N> --write` |
-| `est history` prints «closed in 90 days without an actual: N» | `est fact --sweep --since 90d --write` — fill in the actuals of closed tasks |
+| `est fact --sweep --since 90d` (without `--write`) prints «closed without an actual in <window>: N» | `est fact --sweep --since 90d --write` — fill in the actuals of closed tasks |
 | A model's rate in the price list was fixed or added | `est fact --sweep --model <id> --write` — recompute the recorded actuals with it and their epics |
 | The actual's definition changed (the counting of time, the split) | `est fact --sweep --recompute --since <window> --write` — every recorded actual of the window and their epics; an actual whose transcripts are gone stays |
 | The actual says «Not counted again: N h already in the actual of #M» or «Overlap with the actual of #M … — recompute #M», and #M's actual is the wrong one | `est fact M --write`, then this task again — reference.md, "Double counting and shared commits" |
 | `--write` ended with «not written: …» (exit code 1) | the command to retry it prints |
 | The actual says «Cloud session … not imported — est cloud-import» | the import — section "Cloud session" |
-| Asked about accuracy / history | `est history [--grep word]`, `est backtest` |
 | Compare the flow before and after a change, spend over a period without tasks | `est period --since <before> --until <change> --since <change>` — section "Period summary" |
 
-An epic isn't estimated separately: its estimate and actual are the sum of its
-subtasks (`est fact <epic>` sums them itself and says how many subtasks have no
-actual).
-
-## The estimate of a new task
-
-An estimate is a **forecast from the actuals of similar tasks**, and
-`github task new --branch-type <type>` sets it itself: it runs
-`est estimate <N> --type <type> --write` — the agent doesn't open this skill and
-chooses nothing. A task created past `task new` (the GitHub UI, another tool)
-gets the same call by hand before it's taken into work:
-`est estimate <N> --type <branch type> --write`. Precision isn't the goal: every closed task becomes an analog
-for the next estimates, so they follow the actuals by themselves.
-
-The script picks the three most similar closed tasks with an actual, closed
-before the estimated one was created, and sets the median of their actuals,
-rounded to the scale 0.1 … 13 h; above 13 it warns — the task should be split.
-Fewer than two such analogs — cold start: the script prints «No estimate: …»,
-writes nothing and exits with 0; the task stays without an estimate. Similarity,
-the comment, confidence and k — reference.md, "Estimate — the mechanics".
-
-**A manual re-estimate — only on the owner's request,** before work starts:
-`--analogs` (2–3 by hand, from `est history [--grep <word>]`; another registry
-repo — `owner/repo#254`; an analog from a non-public repo isn't written into a
-public repo), `--mult` with `--note`, `--tok-mult` with `--tok-note`, `--hours H`
-(expert, confidence C) — reference.md, "Manual re-estimate". A change to the
-picking rule is checked by `est backtest` (reference.md, "Backtest").
-
-**Don't rewrite the estimate after work starts.** A discrepancy is explained in
-the actual comment: the actual there is compared with the «Estimate, h» field, and k
-in history — with the hours from the `<!-- est -->` marker.
+An epic's actual is the sum of its subtasks' actuals (`est fact <epic>` sums
+them itself and says how many subtasks have no actual).
 
 ## Actual at closing
 
@@ -119,13 +87,8 @@ not money charged; a model outside the price list gives tokens without a price
 Coverage: `full` — all of the task's PRs are visible in transcripts; `partial` —
 part of the work went past Claude Code (a second developer, another tool); `none`
 — no sessions, the field isn't set, the comment says «actual unavailable».
-Only `full` goes into k and analogs. Don't add a number by eye if
-the script found no actual — "no data" is worth more than a made-up number.
-
-If actual/estimate is outside ×0.5…×2 and the estimate is ≥ 2 h — add to the same
-comment the line
-`Reason: <missed work | scope grew | external blocker | wrong analog | other>: <1–2 sentences>`
-(the script keeps this line on a rerun).
+Don't add a number by eye if the script found no actual — "no data" is worth
+more than a made-up number.
 
 Tasks we "won't do" and duplicates get no actual (they are no longer in the
 project).
@@ -180,12 +143,12 @@ Periods, columns and how to read them — reference.md, "Period summary".
 
 ## So the actual is found — linking work to the task
 
-Without this the coverage will be `partial`/`none`, and no history accumulates
-(details — reference.md, "Linking — details"):
+Without this the coverage will be `partial`/`none`, and the task's work is lost
+from its actual (details — reference.md, "Linking — details"):
 
 - the task is taken into work (`github task status <N> "In progress"`)
   in the session that does it: pinning links the whole session directly; the
-  features below are a fallback for sessions without it and for history before it;
+  features below are a fallback for sessions without it and for sessions before it;
 - the session is named `#<number> <task title>` — the name links to the task
   explicitly (stronger than the first prompt). A new task isn't this
   session's: `github task status` won't take a second one into work, a queued
@@ -193,7 +156,7 @@ Without this the coverage will be `partial`/`none`, and no history accumulates
   records go to task N, not to the session's pin;
 - one session — one task; a branch by the convention `<type>/<issue>-<slug>`
   (`feat/42-invoice-export`) — the script takes from it both the task
-  number and the type for history;
+  number and the type (the actual's marker);
 - the task number (`#263` or a link) — in the session's first prompt **and in the
   assignment of every subagent / workflow agent** that does this task, after the
   word «Task» or at the very start (`Task #263 (epic #250). …`, `#263 …`);

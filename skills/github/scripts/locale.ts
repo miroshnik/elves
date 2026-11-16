@@ -182,24 +182,22 @@ export interface Names {
     sessionQuestion: string;
     sessionEnd: string;
   };
-  /** The est skill's "Estimate" and "Actual" comments and the lines a human appends to them. */
+  /**
+   * The est skill's "Actual" comments and the line "+ manually: N h" a human appends to them; `answer` — the word before
+   * an answer to a task's question («**Answer:** …»).
+   */
   est: {
     answer: string;
     manual: string;
-    reason: string;
     hours: string;
     /**
      * Words with which a PR or commit text closes a task (`Closes #N`), space-separated; the words of all languages
      * are parsed.
      */
     closingWords: string;
-    /** Service words of a title for picking analogs, space-separated; the words of all languages are dropped. */
-    stopWords: string;
     fact: {
       unavailable: string;
       body: string;
-      estimate: string;
-      noEstimate: string;
       sessions: Plural;
       prompts: Plural;
       subagents: Plural;
@@ -228,33 +226,6 @@ export interface Names {
       cloudAgent: string;
     };
     cloud: { actual: string; body: string; tokens: string; cost: string; fields: string; unavailable: string; session: string };
-    estimate: {
-      headline: string;
-      tokens: string;
-      partial: string;
-      body: string;
-      auto: string;
-      forecast: string;
-      expertOver: string;
-      expert: string;
-      spread: string;
-      correction: string;
-      tokCorrection: string;
-      k: string;
-      noK: string;
-      levelRepo: string;
-      levelAll: string;
-      none: string;
-      otherProject: string;
-      analog: string;
-      unknown: string;
-      partialCoverage: string;
-      notInProject: string;
-      labels: Plural;
-      type: string;
-      words: Plural;
-      size: string;
-    };
   };
   /** The description of the flow update commit that `update` suggests: "Elves flow <tag>"; nothing parses it back. */
   updateCommit: string;
@@ -615,4 +586,4 @@ function scenarioItems(md: string): string[] | null {
   return out;
 }
 
-export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, plural, count, escapeRe, scenarioItems };
+export default { LANGUAGE_CODE, DEFAULT_LANGUAGE, projectRoot, manifestOf, projectLanguage, missingManifest, batchProject, autoProject, names, languages, everyNames, every, fill, count, escapeRe, scenarioItems };

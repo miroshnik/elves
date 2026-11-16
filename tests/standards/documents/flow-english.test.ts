@@ -158,7 +158,7 @@ describe("Строки вывода, которые цитируют доки ф
       { item: "package <p> of external system <x> is only with adapter <a>", reason: "название собрано из двух ключей en.json: packageName и withAdapter" },
       { item: "shared commit … (share 1/k)", reason: "строка собрана из двух ключей en.json: est.fact.shared и est.fact.commitUnit" },
     ],
-    includes: ["already newer", "Actual (cloud)", "closed in 90 days without an actual: N"],
+    includes: ["already newer", "Actual (cloud)", "closed without an actual in <window>: N"],
   });
 
   // имя теста — утверждение спеки: локальный spec-diff против ветки spec показывал фантомные «Изменены» (#385)

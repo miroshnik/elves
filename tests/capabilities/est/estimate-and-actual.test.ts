@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import {
-  branchHasIssue, branchIssueNumber, branchType, calib, computeFact, EstError, extractKeptLines, factCommentBody,
-  cloudPartsIn, cloudSessionsIn, descSize, fmtH, forecast, guestTranscripts, hashMatches, historyTable, inRepo, loadPins, sidKey, mergeIntervals, packPr, parseCloudFile, parseCodexFile, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
-  factsWithModel, parsePeriods, periodSummary, periodTable, pickAnalogs, priceFor, PRICES, roundScale, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
+  branchHasIssue, branchIssueNumber, branchType, computeFact, EstError, extractKeptLines, factCommentBody,
+  cloudPartsIn, cloudSessionsIn, fmtH, guestTranscripts, hashMatches, inRepo, loadPins, sidKey, mergeIntervals, packPr, parseCloudFile, parseCodexFile, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
+  factsWithModel, parsePeriods, periodSummary, periodTable, priceFor, PRICES, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
 } from "../../../skills/est/scripts/est.ts";
 import type { CloudPart, FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
 import locale from "../../../skills/github/scripts/locale.ts";
@@ -207,10 +207,10 @@ describe("Факт — всё время задачи, кроме ожидани
     expect(res.h).toBe(0.5);
     const waits = { ci: 4, merged: 4, checks: 6, slot: 1, rest: 16 };
     expect(res.waits).toEqual(waits);
-    const body = factCommentBody(res, null, [], 0, null);
+    const body = factCommentBody(res, [], 0);
     expect(body).toContain("\nОжидания: CI 4 мин · после мержа 4 · проверки 6 (очередь slot 1) · остальное 16.");
     expect(parseMarker(body, "fact").waits).toEqual(waits);
-    expect(factCommentBody(res, null, [], 0, null, "en")).toContain("\nWaits: CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 16.");
+    expect(factCommentBody(res, [], 0, "en")).toContain("\nWaits: CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 16.");
   });
 
   it("вид ожидания — по команде: wait-ci, gh pr checks --watch, проверки и команда под slot; текст heredoc и чтение файлов — не ожидание", () => {
@@ -251,9 +251,9 @@ describe("Факт — всё время задачи, кроме ожидани
 
 /**
  * Задачу, которую делают параллельные субагенты, часы сжимаются, а токены растут: каждый субагент заново читает
- * контекст. Число субагентов задачи — признак, по которому подбираются аналоги с тем же фан-аутом.
+ * контекст. Число субагентов задачи — в факте: по нему видно, что задачу делал фан-аут.
  */
-describe("Фан-аут задачи — число её субагентов в факте и в истории", () => {
+describe("Фан-аут задачи — число её субагентов в факте", () => {
   it("число субагентов задачи — в факте, в комментарии и в маркере; субагенты другой задачи не в счёт", () => {
     const file = claudeFixture();
     const subs = path.join(dir, "11111111-2222-3333-4444-555555555555", "subagents");
@@ -266,7 +266,7 @@ describe("Фан-аут задачи — число её субагентов в
     writeFileSync(path.join(subs, "agent-3.jsonl"), sub("10:09", "Задача #43: другое"));
     const res = computeFact(stubRepo([parseSessionFile(file)], [pr77()]), 42, [{ ...pr77(), why: "closed the issue" }], []);
     expect(res.agents).toBe(2);
-    const body = factCommentBody(res, 0.25, [], 0, null);
+    const body = factCommentBody(res, [], 0);
     expect(body).toContain("1 сессия, 3 промпта, 2 субагента,");
     expect(body).toContain('"agents": 2');
   });
@@ -285,17 +285,6 @@ describe("Фан-аут задачи — число её субагентов в
     const res = computeFact(stubRepo([parseSessionFile(file)], [pr77()]), 42, [{ ...pr77(), why: "closed the issue" }], []);
     expect(res.agents).toBe(2);
     expect(res.details[0]!.rules["subagent"]).toBe(4); // agent-1 и agent-2 — по две записи
-  });
-
-  it("история показывает число субагентов задачи; у факта без признака — прочерк", () => {
-    const row = (number: number, agents?: number): Row => ({
-      item_id: "", issue_id: "", number, title: `Задача ${number}`, state: "CLOSED", stateReason: "COMPLETED", closedAt: 0, createdAt: 0, labels: [],
-      est: 1, fact: 0.5, status: "Готово", est_marker: { type: "feat" }, fact_marker: { cov: "full", tok: { total: 2e6 }, usd: 1.5, ...(agents === undefined ? {} : { agents }) },
-    });
-    const lines = historyTable([row(12, 4), row(13)]);
-    expect(lines[0]).toContain(" | agents | ");
-    expect(lines[1]).toMatch(/ \|\s+4 \| /);
-    expect(lines[2]).toMatch(/ \|\s+— \| /);
   });
 });
 
@@ -617,7 +606,7 @@ describe("Сессия, которая ведёт задачи подряд, д�
   });
 
   it("маркер факта хранит интервалы по сессиям — по ним следующий расчёт видит, что уже засчитано", () => {
-    const body = factCommentBody(fact(session(), 42), null, [], 0, null);
+    const body = factCommentBody(fact(session(), 42), [], 0);
     expect(parseMarker(body, "fact").iv).toEqual({ "33333333": [[ts("10:18"), ts("10:24")], [ts("10:36"), ts("10:48")]] });
   });
 
@@ -627,7 +616,7 @@ describe("Сессия, которая ведёт задачи подряд, д�
     const f41 = fact(session(), 41, recorded);
     expect(f41.h).toBe(0.05); // осталась своя ветка, 10:30–10:33
     expect(f41.taken).toEqual([{ issue: 42, h: 0.2 }]);
-    expect(factCommentBody(f41, null, [], 0, null)).toContain("Не засчитано повторно: 0.2 ч уже в факте #42.");
+    expect(factCommentBody(f41, [], 0)).toContain("Не засчитано повторно: 0.2 ч уже в факте #42.");
   });
 
   it("повтор той же записи названия не начинает новый период — переход на другую ветку без номера по-прежнему закрывает окно", () => {
@@ -648,7 +637,7 @@ describe("Сессия, которая ведёт задачи подряд, д�
     const f41 = fact(session(), 41, recorded);
     expect(f41.h).toBe(0.25);
     expect(f41.overlap).toEqual([{ issue: 43, h: 0.05 }]);
-    expect(factCommentBody(f41, null, [], 0, null)).toContain("Пересечение с фактом #43: 0.05 ч — пересчитать #43.");
+    expect(factCommentBody(f41, [], 0)).toContain("Пересечение с фактом #43: 0.05 ч — пересчитать #43.");
   });
 });
 
@@ -1335,7 +1324,7 @@ describe("Облачная сессия считается по событиям
     expect(res.h).toBe(0.15); // 10:00–10:09: задача названа в первом промпте; с 10:10 — чужая ветка
     expect(res.cov).toBe("full");
     expect(res.cloud_missing).toEqual([]);
-    expect(factCommentBody(res, 1, [], 0, null)).toContain("активных в облачной сессии Claude Code");
+    expect(factCommentBody(res, [], 0)).toContain("активных в облачной сессии Claude Code");
   });
 
   it("коммит PR с трейлером Claude-Session, чья сессия не импортирована, — покрытие partial и ссылка на сессию", () => {
@@ -1345,7 +1334,7 @@ describe("Облачная сессия считается по событиям
     const res = computeFact(stubRepo([local], [cloudPr()]), 42, [{ ...cloudPr(), why: "closed the issue" }], []);
     expect(res.cov).toBe("partial");
     expect(res.cloud_missing).toEqual([SESSION]);
-    expect(factCommentBody(res, 1, [], 0, null)).toContain(`Облачная сессия https://claude.ai/code/${SESSION} не импортирована — est cloud-import.`);
+    expect(factCommentBody(res, [], 0)).toContain(`Облачная сессия https://claude.ai/code/${SESSION} не импортирована — est cloud-import.`);
   });
 
   // ключ сессии в маркере «Факт» (iv) — 8 знаков; у облачных сессий общий префикс session_ их бы склеил
@@ -1381,7 +1370,7 @@ describe("Облачная сессия считается по событиям
       const res = fact([], [part]);
       expect(res).toMatchObject({ h: 0.2, cov: "full", sessions: 1, prompts: 1, cloud_missing: [], usd: 0.08 });
       expect(res.tok.total).toBe(101001);
-      expect(parseMarker(factCommentBody(res, 1, [], 0, null), "fact").cloud).toEqual([part]);
+      expect(parseMarker(factCommentBody(res, [], 0), "fact").cloud).toEqual([part]);
     });
 
     it("с локальной работой той же поры — сумма без двойного счёта пересечения", () => {
@@ -1531,8 +1520,8 @@ describe("В облачной сессии est считает свою част�
     expect(parseMarker(r.stdout, "fact")).toMatchObject({ h: 0.2, src: "cloud", session: "session_01Test" });
   });
 
-  it("оценка, история и sweep в облаке — ошибка с объяснением, а не сбой gh", () => {
-    for (const args of [["estimate", "42", "--type", "feat", "--hours", "1"], ["history"], ["fact", "--sweep"]]) {
+  it("свип и сводка периода в облаке — ошибка с объяснением, а не сбой gh", () => {
+    for (const args of [["fact", "--sweep"], ["period", "--since", "7d"]]) {
       const r = cloud(...args);
       expect(r.status).toBe(1);
       expect(r.stderr).toContain("Claude Code cloud session");
@@ -1541,30 +1530,39 @@ describe("В облачной сессии est считает свою част�
 });
 
 /**
- * Комментарии «Оценка» и «Факт» кончаются машинным маркером `<!-- est {…} -->` или `<!-- fact {…} -->`: по
- * нему скрипт находит свой комментарий и обновляет его, а не пишет новый. Строки, дописанные человеком,
- * переживают перезапись.
+ * Комментарий «Факт» кончается машинным маркером `<!-- fact {…} -->`: по нему скрипт находит свой комментарий и
+ * обновляет его, а не пишет новый. Строка «+ вручную: N ч», дописанная человеком, переживает перезапись. С оценкой факт
+ * не сравнивается и причины расхождения не просит: оценки задач нет (#835), по факту меряется флоу.
  */
-describe("Комментарии «Оценка» и «Факт» обновляются на месте, строки человека сохраняются", () => {
-  it("маркер <!-- est {…} --> читается, битый JSON — как отсутствие", () => {
-    expect(parseMarker('Оценка: 1 ч\n<!-- est {"v": 2, "h": 1} -->', "est")).toEqual({ v: 2, h: 1 });
-    expect(parseMarker("<!-- est {v: 2} -->", "est")).toBeNull();
-    expect(parseMarker('<!-- fact {"h": 1} -->', "est")).toBeNull();
+describe("Комментарий «Факт» обновляется на месте, строка человека сохраняется", () => {
+  it("маркер <!-- fact {…} --> читается, битый JSON — как отсутствие", () => {
+    expect(parseMarker('Факт: 1 ч\n<!-- fact {"v": 1, "h": 1} -->', "fact")).toEqual({ v: 1, h: 1 });
+    expect(parseMarker("<!-- fact {v: 1} -->", "fact")).toBeNull();
+    expect(parseMarker('<!-- est {"h": 1} -->', "fact")).toBeNull();
   });
 
-  it("«+ вручную: N ч» и «Причина: …» сохраняются при перезаписи комментария", () => {
-    const [manual, cause, lines] = extractKeptLines("Факт: 1 ч.\n+ вручную: 1,5 ч\nПричина: вырос объём: две подсистемы\n<!-- fact {} -->");
+  it("«+ вручную: N ч» сохраняется при перезаписи комментария, строка причины расхождения — нет", () => {
+    const [manual, lines] = extractKeptLines("Факт: 1 ч.\n+ вручную: 1,5 ч\nПричина: вырос объём: две подсистемы\n<!-- fact {} -->");
     expect(manual).toBe(1.5);
-    expect(cause).toBe("вырос объём: две подсистемы");
-    expect(lines).toEqual(["+ вручную: 1,5 ч", "Причина: вырос объём: две подсистемы"]);
+    expect(lines).toEqual(["+ вручную: 1,5 ч"]);
   });
 
-  it("текст с часами, отношением к оценке, PR и диффом; маркер разбирается обратно; строки человека сохранены", () => {
+  it("Комментарий факта не сравнивает факт с оценкой", () => {
+    // у #42 в проекте стоит «Оценка, ч» 1: факт её не читает
+    const r = withFakeGh(factWorld({ est: 1 }), ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.code).toBe(0);
+    expect(r.comment).toStartWith("Факт: 0.17 ч активных в Claude Code. 1 сессия, 3 промпта, стена 0.5 ч, покрытие partial. PR нет;");
+    expect(r.comment).not.toMatch(/оценк|×\d/i);
+    expect(r.stdout).not.toMatch(/estimate/i);
+    expect(parseMarker(r.comment, "fact")).not.toHaveProperty("cause");
+  });
+
+  it("текст с часами, PR и диффом; маркер разбирается обратно; строка человека сохранена", () => {
     const s = parseSessionFile(claudeFixture());
     const res = computeFact(stubRepo([s], [pr77()]), 42, [{ ...pr77(), why: "closed the issue" }], []);
     res.type = "feat";
-    const body = factCommentBody(res, 1, ["+ вручную: 1 ч"], 1, null);
-    expect(body).toContain("Факт: 0.12 ч активных в Claude Code (оценка 1 ч, ×0.12). 1 сессия, 3 промпта, 1 субагент, стена 0.2 ч, покрытие full. PR #77; 1 коммит, дифф 12 строк.");
+    const body = factCommentBody(res, ["+ вручную: 1 ч"], 1);
+    expect(body).toContain("Факт: 0.12 ч активных в Claude Code. 1 сессия, 3 промпта, 1 субагент, стена 0.2 ч, покрытие full. PR #77; 1 коммит, дифф 12 строк.");
     // разбивка по моделям в скобках — только когда ценой обладают две и больше; у haiku здесь $0.00
     expect(body).toContain("Токены: 0.01 млн (вход 0 · выход 0 · запись кэша 0 · чтение кэша 0.01); стоимость по API-тарифам ≈ $0.02.\n");
     expect(body).toContain("\n+ вручную: 1 ч\n");
@@ -1578,20 +1576,19 @@ describe("Комментарии «Оценка» и «Факт» обновля
   it("в проекте на en — комментарий «Actual: …» по-английски, маркер тот же", () => {
     const s = parseSessionFile(claudeFixture());
     const res = computeFact(stubRepo([s], [pr77()]), 42, [{ ...pr77(), why: "closed the issue" }], []);
-    const body = factCommentBody(res, 1, ["+ manually: 1 h"], 1, null, "en");
-    expect(body).toContain("Actual: 0.12 h active in Claude Code (estimate 1 h, ×0.12). 1 session, 3 prompts, 1 subagent, wall 0.2 h, coverage full. PR #77; 1 commit, diff 12 lines.");
+    const body = factCommentBody(res, ["+ manually: 1 h"], 1, "en");
+    expect(body).toContain("Actual: 0.12 h active in Claude Code. 1 session, 3 prompts, 1 subagent, wall 0.2 h, coverage full. PR #77; 1 commit, diff 12 lines.");
     expect(body).toContain("Tokens: 0.01 M (input 0 · output 0 · cache write 0 · cache read 0.01); cost at API rates ≈ $0.02.\n");
     expect(parseMarker(body, "fact")).toMatchObject({ h: 0.12, manual: 1, prs: [77] });
   });
 
-  it("строки человека «+ manually: N h» и «Reason: …» — на любом языке словаря: язык проекта мог смениться", () => {
-    const [manual, cause, lines] = extractKeptLines("Actual: 1 h.\n+ manually: 2 h\nReason: scope grew: two subsystems\n<!-- fact {} -->");
-    expect([manual, cause, lines]).toEqual([2, "scope grew: two subsystems", ["+ manually: 2 h", "Reason: scope grew: two subsystems"]]);
+  it("строка человека «+ manually: N h» — на любом языке словаря: язык проекта мог смениться", () => {
+    expect(extractKeptLines("Actual: 1 h.\n+ manually: 2 h\n<!-- fact {} -->")).toEqual([2, ["+ manually: 2 h"]]);
   });
 
   it("без сессий — «Факт недоступен» и покрытие none в маркере", () => {
     const res = computeFact(stubRepo([], [pr77()]), 42, [{ ...pr77(), why: "closed the issue" }], []);
-    const body = factCommentBody(res, null, [], 0, null);
+    const body = factCommentBody(res, [], 0);
     expect(body.startsWith("Факт недоступен: сессии не найдены (покрытие none). PR #77;")).toBe(true);
     expect(parseMarker(body, "fact").cov).toBe("none");
   });
@@ -1648,7 +1645,7 @@ describe("Пересчёт записанных фактов по модели",
   const now = Date.parse("2026-10-06T00:00:00Z") / 1000;
   const row = (number: number, x: Partial<Row>): Row => ({
     item_id: `PI_${number}`, issue_id: `I_${number}`, number, title: `#${number}`, state: "CLOSED", stateReason: "COMPLETED",
-    closedAt: now - DAY, createdAt: now - 2 * DAY, labels: [], est: null, fact: 1, status: "Готово", est_marker: null, fact_marker: null, ...x,
+    closedAt: now - DAY, createdAt: now - 2 * DAY, labels: [], fact: 1, status: "Готово", fact_marker: null, ...x,
   });
   const used = (...models: string[]) => ({ h: 1, models: Object.fromEntries(models.map((m) => [m, { mtok: 1, usd: 1 }])) });
 
@@ -1668,31 +1665,8 @@ describe("Пересчёт записанных фактов по модели",
   });
 });
 
-/** Ступени 0,1 · 0,25 · 0,5 · 1 · 1,5 · 2 · 3 · 5 · 8 · 13 ч: точнее по аналогам не угадать, а больше 13 ч — задачу надо дробить. */
-/** Фан-аут меняет токены сильнее часов: у поправки токенов и стоимости своя ступень. */
-describe("Прогноз по фактам аналогов — медиана с поправкой", () => {
-  it("поправка токенов задаётся отдельно от поправки часов", () => {
-    const f = forecast([0.2, 0.4], [10, 20], [5, 10], 1, 2);
-    expect([f.h, f.tok, f.usd]).toEqual([0.25, 30, 15]);
-  });
-
-  it("без поправки токенов токены и стоимость следуют поправке часов", () => {
-    const f = forecast([0.2, 0.4], [10, 20], [5, 10], 2);
-    expect([f.h, f.tok, f.usd]).toEqual([0.5, 30, 15]);
-  });
-});
-
-describe("Оценка — ступень шкалы от 0,1 до 13 ч", () => {
-  it("округляет к ближайшей ступени, при равном расстоянии — к меньшей, выше 13 не бывает", () => {
-    expect(roundScale(2.6)).toBe(3);
-    expect(roundScale(0.175)).toBe(0.1);
-    expect(roundScale(0.4)).toBe(0.5);
-    expect(roundScale(20)).toBe(13);
-  });
-});
-
 // `gh` — внешний край, подменяется он: ответы — из мира $FAKE_GH/world.json (репозиторий → видимость, номер проекта,
-// задачи с фактом), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
+// задачи с фактом и полями проекта), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
 // аргументах или теле которого есть match, падает со stderr, пока не исчерпано times (-1 — всегда).
 const FAKE_GH = `import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const dir = process.env.FAKE_GH;
@@ -1713,10 +1687,11 @@ const current = (full) => (world[full] ? full : Object.keys(world).find((k) => (
 const print = (x) => console.log(JSON.stringify(x));
 const num = (name, number) => ({ __typename: "ProjectV2ItemFieldNumberValue", number, field: { name } });
 const factMarker = (i) => "<!-- fact " + JSON.stringify({ v: 1, h: i.fact, cov: i.cov ?? "full", tok: { total: 2000000 }, usd: 1.5, type: i.type ?? "fix", ...(i.models ? { models: i.models } : {}) }) + " -->";
-const estMarker = (i) => "<!-- est " + JSON.stringify({ v: 2, h: i.est, type: i.type ?? "fix", mult: i.mult ?? 1 }) + " -->";
 const issueOf = (i) => ({ __typename: "Issue", id: "I_" + i.number, number: i.number, title: i.title, state: i.state, stateReason: null,
   closedAt: i.closedAt ?? null, createdAt: i.createdAt ?? null, body: i.body ?? "", labels: { nodes: (i.labels ?? []).map((name) => ({ name })) },
-  comments: { nodes: [...(i.est ? [{ databaseId: 1000 + i.number, body: estMarker(i) }] : []), ...(i.fact ? [{ databaseId: i.number, body: factMarker(i) }] : [])] } });
+  comments: { nodes: i.fact ? [{ databaseId: i.number, body: factMarker(i) }] : [] } });
+// числовые поля задачи в проекте: «Факт, ч» и «Оценка, ч» — она осталась в проектах, но est её не читает
+const fieldValues = (i) => ({ nodes: [...(i.fact ? [num("Факт, ч", i.fact)] : []), ...(i.est ? [num("Оценка, ч", i.est)] : [])] });
 if (args[1] === "graphql") {
   const { query, variables: v } = JSON.parse(stdin);
   const repo = world[current(v.o + "/" + v.r)];
@@ -1729,7 +1704,6 @@ if (args[1] === "graphql") {
     print({ data: { [owner]: { projectV2: { id: "P" + v.n, title: "p", number: v.n, fields } } } });
   } else if (query.includes("node(id:$id)")) {
     const r = byProject((p) => "P" + p === v.id);
-    const fieldValues = (i) => ({ nodes: [...(i.fact ? [num("Факт, ч", i.fact)] : []), ...(i.est ? [num("Оценка, ч", i.est)] : [])] });
     const nodes = r.issues.map((i) => ({ id: "PI_" + i.number, type: "ISSUE", content: issueOf(i), fieldValues: fieldValues(i) }));
     print({ data: { node: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
   } else if (query.includes("pullRequests(states:[OPEN]")) print({ data: { repository: { pullRequests: { nodes: [] } } } });
@@ -1741,7 +1715,7 @@ if (args[1] === "graphql") {
   } else if (query.includes("issue(number:$n)")) {
     const i = repo.issues.find((x) => x.number === v.n);
     print({ data: { repository: { issue: { ...issueOf(i), url: "", closedByPullRequestsReferences: { nodes: [] }, timelineItems: { nodes: [] }, closedEvents: { nodes: [] },
-      projectItems: { nodes: [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: { nodes: [] } }] }, comments: { nodes: [] } } } } });
+      projectItems: { nodes: [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: fieldValues(i) }] }, comments: { nodes: [] } } } } });
   } else { console.error("fake gh: " + query.slice(0, 80)); process.exit(1); }
 } else if (args[0] === "api" && args[1] === "-X") {
   const [, owner, name] = /^repos\\/([^/]+)\\/([^/]+)/.exec(args[3]);
@@ -1785,246 +1759,37 @@ function withFakeGh(world: Record<string, unknown>, args: string[], fails: FakeF
 }
 
 /**
- * Комментарий «Оценка» называет аналог из другого репо как `owner/repo#N`. В публичном репо это раскрыло бы имя и номер
- * задачи непубличного, а перезапись не спасает: GitHub хранит прошлую версию комментария в истории правок, стереть её
- * может только владелец. Поэтому такую оценку `--write` не пишет вовсе, а без `--write` о ней предупреждает.
+ * Мир фейкового gh для факта: закрытые #42 (вчера) и #43 (позавчера) репозитория o/r — каждая со своей сессией (три
+ * промпта — не рутина) на своей ветке в каталоге /repo; `issue` — поля обеих задач, `repo` — поля репозитория.
  */
-describe("Оценка в публичном репо не называет задачи непубличных репо", () => {
-  const repoWorld = (visibility: string, project: number) => ({
-    visibility, project,
-    issues: [{ number: 1, title: "Прошлая задача", state: "CLOSED", fact: 0.5 }, { number: 2, title: "Ещё прошлая", state: "CLOSED", fact: 1 }, { number: 10, title: "Новая задача", state: "OPEN" }],
-  });
-  const WORLD = { "o/pub": repoWorld("public", 1), "o/pub2": repoWorld("public", 2), "o/priv": repoWorld("private", 3), "o/priv2": repoWorld("private", 4) };
-
-  /** `est estimate 10 --repo <repo> --type fix --analogs <analogs>` с фейковым gh: исход, записи в GitHub, тело комментария. */
-  const estimate = (repo: string, analogs: string, write = true) =>
-    withFakeGh(WORLD, ["estimate", "10", "--repo", repo, "--type", "fix", "--analogs", analogs, ...(write ? ["--write"] : [])]);
-
-  it("в публичный репо не пишется аналог из непубличного репо — отказ до записи", () => {
-    const r = estimate("o/pub", "1,o/priv#1,o/priv#2");
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("error: o/pub is a public repo, and the analogs o/priv#1, o/priv#2 — from a non-public one");
-    expect(r.stderr).toContain("--hours");
-    expect(r.writes).toEqual([]);
-  });
-
-  it("без --write аналог из непубличного репо в публичный — предупреждение, оценка только печатается", () => {
-    const r = estimate("o/pub", "o/priv#1,o/priv#2", false);
-    expect(r.code).toBe(0);
-    expect(r.stderr).toContain("warning: o/pub is a public repo, and the analogs o/priv#1, o/priv#2 — from a non-public one");
-    expect(r.stdout).toContain("Оценка: 0.5 ч");
-    expect(r.writes).toEqual([]);
-  });
-
-  it("аналоги из того же репо — оценка записывается как раньше", () => {
-    const r = estimate("o/pub", "1,2");
-    expect(r.code).toBe(0);
-    expect(r.comment).toStartWith("Оценка: 0.5 ч");
-    expect(r.writes).toHaveLength(2); // комментарий и поле «Оценка, ч»
-  });
-
-  it("аналог из другого репо пишется, если тот публичный или целевой репо непубличный", () => {
-    for (const [repo, analogs, from] of [["o/pub", "o/pub2#1,o/pub2#2", "o/pub2"], ["o/priv", "o/priv2#1,o/priv2#2", "o/priv2"]] as const) {
-      const r = estimate(repo, analogs);
-      expect(r.code).toBe(0);
-      expect(r.comment).toContain(`из проекта ${from}: #1 (факт 0.5 ч), #2 (факт 1 ч)`);
-      expect(r.writes).toHaveLength(2);
-    }
-  });
-});
-
-/**
- * Оценка — один вызов: без `--analogs` аналоги подбирает скрипт среди закрытых задач с фактом (покрытие full, не
- * эпиков), закрытых до создания оцениваемой. Сходство — сумма признаков: общая метка решения ×3, тот же тип ×2, общее
- * слово заголовка ×1, минус 3 × |ln| отношения размеров описаний; берутся три самых похожих, при равенстве — свежие.
- * Веса выбраны бэктестом (#279): размер описания — признак объёма не слабее меток, поэтому он в сумме, а не последним
- * в очереди признаков. Размер считается без ответов на вопросы — их дописывают после оценки.
- */
-describe("Аналоги подбирает скрипт — по меткам решений, типу, словам заголовка и размеру описания", () => {
-  const row = (n: number, o: Partial<Row> = {}): Row => ({
-    item_id: "i", issue_id: "I", number: n, title: "Прочее", state: "CLOSED", stateReason: null, closedAt: 500 + n, createdAt: 1, labels: [],
-    est: null, fact: 1, status: null, est_marker: null, fact_marker: { cov: "full", type: "fix" }, size: 1000, ...o,
-  });
-  const target = { number: 99, title: "Биллинг · экспорт счетов в PDF", labels: ["billing"], createdAt: 1000, size: 1000 };
-
-  it("аналоги — три самых похожих по сумме признаков: общая метка решения, тот же тип, общие слова заголовка, близкий размер описания", () => {
-    const feat = { cov: "full", type: "feat" };
-    const rows = [
-      row(1, { labels: ["billing"], title: "Биллинг · экспорт счетов в CSV", fact_marker: feat }),
-      row(2, { labels: ["billing", "epic-x"], title: "Биллинг · скидки" }),
-      row(3, { title: "Экспорт отчётов", fact_marker: feat }),
-      row(4, { labels: ["billing"], title: "Биллинг · экспорт счетов в XLS", fact_marker: feat, size: 20000 }),
-      row(5),
-    ];
-    const a = pickAnalogs(target, "feat", rows);
-    expect(a.map((x) => x.row.number)).toEqual([1, 2, 3]);
-    expect(a[0]).toMatchObject({ labels: ["billing"], sameType: true, words: ["биллинг", "экспорт", "счетов"], sizeRatio: 1 });
-    expect(a[1]).toMatchObject({ labels: ["billing"], sameType: false, words: ["биллинг"] });
-  });
-
-  it("аналог оценки — только задача, закрытая до создания оцениваемой, с фактом full: бэктест не заглядывает в будущее", () => {
-    const same = { labels: ["billing"], title: target.title };
-    const rows = [
-      row(1, { ...same, closedAt: 2000 }),
-      row(2, { ...same, labels: ["billing", "epic"] }),
-      row(3, { ...same, issueType: "Эпик" }),
-      row(4, { ...same, fact_marker: { cov: "partial", type: "fix" } }),
-      row(5, { ...same, state: "OPEN", closedAt: null, fact: null }),
-      row(6, { ...same, fact: null }),
-      row(99, same),
-      row(7),
-      row(8),
-    ];
-    expect(pickAnalogs(target, "feat", rows).map((x) => x.row.number)).toEqual([8, 7]);
-  });
-
-  it("размер описания — без ответов на вопросы: ответ, дописанный после оценки, размер не меняет", () => {
-    const asked = "## Что сделать\nЭкспорт.\n\n## Вопросы\n1. Формат? Рекомендация: PDF.\n2. Шаблон? Рекомендация: из макета.\n\n## Готово, когда\nЕсть PDF.\n";
-    const answered = "## Что сделать\nЭкспорт.\n\n## Вопросы\n1. ✅ Формат? Рекомендация: PDF. **Ответ (авто):** по рекомендации — PDF,\n   шаблон из макета.\n2. ✅ Шаблон? Рекомендация: из макета.\n   **Ответ:** из макета.\n\n## Готово, когда\nЕсть PDF.\n";
-    expect(descSize(answered)).toBe(descSize(asked));
-    expect(descSize(asked)).toBeGreaterThan(descSize("## Что сделать\nЭкспорт.\n"));
-  });
-
-  it("раздел вопросов на en (## Questions, «Answer:») — ответы так же не в счёт размера", () => {
-    const asked = "## What to do\nExport.\n\n## Questions\n1. Format? Recommendation: PDF.\n\n## Done when\nPDF exists.\n";
-    const answered = "## What to do\nExport.\n\n## Questions\n1. ✅ Format? Recommendation: PDF. **Answer (auto):** as recommended — PDF.\n\n## Done when\nPDF exists.\n";
-    expect(descSize(answered)).toBe(descSize(asked));
-  });
-});
-
-/** Мир фейкового gh для оценки одним вызовом и бэктеста: задачи с метками, датами, описанием, фактом и ручной оценкой. */
-const day = (d: number) => `2026-09-${String(d).padStart(2, "0")}T00:00:00Z`;
-
-describe("Оценка — один вызов: est estimate без --analogs", () => {
-  const closed = (number: number, title: string, labels: string[], type: string, fact: number, d: number, extra: Record<string, unknown> = {}) =>
-    ({ number, title, labels, type, fact, state: "CLOSED", createdAt: day(1), closedAt: day(d), body: "x".repeat(1000), ...extra });
-  const WORLD = {
-    "o/r": {
-      visibility: "private", project: 1,
-      issues: [
-        closed(1, "est · история оценок по фактам", ["est"], "feat", 0.5, 2, { body: "x".repeat(800) }),
-        closed(2, "est · факт из транскриптов", ["est"], "feat", 1, 3),
-        closed(3, "github · закрытие задачи", ["github-task"], "fix", 4, 4),
-        closed(4, "est · оценка по аналогам без ручного выбора", ["est"], "feat", 8, 20),
-        closed(5, "est · оценка токенов", ["est"], "feat", 2, 5, { cov: "partial" }),
-        { number: 10, title: "est · оценка одним вызовом", labels: ["est"], state: "OPEN", createdAt: day(10), body: "x".repeat(1000) },
-      ],
-    },
-  };
-
-  it("без --analogs скрипт выбирает аналоги по меткам решений, типу и словам заголовка и называет их в комментарии «Оценка»", () => {
-    const r = withFakeGh(WORLD, ["estimate", "10", "--repo", "o/r", "--type", "feat", "--write"]);
-    expect(r.stderr).toBe("");
-    expect(r.code).toBe(0);
-    expect(r.comment).toStartWith("Оценка: 1 ч");
-    expect(r.comment).toContain("Аналоги (подбор скриптом): #1 (факт 0.5 ч: метка est · тип feat · слова «est», «оценка» · описание ×0.8); #2 (факт 1 ч: метка est · тип feat · слово «est» · описание ×1); #3 (факт 4 ч: описание ×1).");
-    expect(r.comment).not.toContain("#4");
-    expect(parseMarker(r.comment, "est")).toMatchObject({ h: 1, analogs: [1, 2, 3], auto: true });
-    expect(r.writes).toHaveLength(2); // комментарий и поле «Оценка, ч»
-  });
-
-  it("в проекте на en комментарий «Оценка» — по-английски: «Estimate: …», аналоги и их сходство, маркер тот же", () => {
-    const en = path.join(dir, "en-project");
-    mkdirSync(path.join(en, ".agents"), { recursive: true });
-    writeFileSync(path.join(en, ".agents/elves.json"), '{ "language": "en" }\n');
-    const r = withFakeGh(WORLD, ["estimate", "10", "--repo", "o/r", "--type", "feat", "--write"], [], en);
-    expect(r.code).toBe(0);
-    expect(r.comment).toStartWith("Estimate: 1 h");
-    expect(r.comment).toContain("Analogs (picked by the script): #1 (actual 0.5 h: label est · type feat · words «est», «оценка» · description ×0.8); #2 (actual 1 h: label est · type feat · word «est» · description ×1); #3 (actual 4 h: description ×1). Correction: ×1.");
-    expect(parseMarker(r.comment, "est")).toMatchObject({ h: 1, analogs: [1, 2, 3], auto: true });
-  });
-
-  /**
-   * Холодный старт — в репо меньше двух закрытых задач с фактом: задача остаётся без оценки (решение владельца, #381).
-   * Аналоги из чужих репо агент раньше подбирал руками — минуты на задачу; теперь оценка появляется сама у задач,
-   * заведённых после двух закрытых. `task new` зовёт est на каждую задачу — отказ сломал бы её вывод, поэтому код 0.
-   */
-  it("в репо меньше двух аналогов с фактом — задача без оценки: строка «No estimate», ничего не пишет, код 0, чужие репо не читает", () => {
-    const world = {
-      "o/new": { visibility: "private", project: 1, issues: [closed(1, "est · первая задача", ["est"], "feat", 0.5, 2), { number: 10, title: "est · оценка", labels: ["est"], state: "OPEN", createdAt: day(10) }] },
-      "o/old": { visibility: "private", project: 2, issues: [closed(1, "est · старая", ["est"], "feat", 1, 2), closed(2, "est · ещё старая", ["est"], "feat", 2, 3), closed(3, "est · и ещё", ["est"], "feat", 3, 4)] },
-    };
-    const r = withFakeGh(world, ["estimate", "10", "--repo", "o/new", "--type", "feat", "--write"]);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("No estimate: o/new has fewer than two tasks with an actual (coverage full) closed before #10 was created — the task stays without an estimate");
-    expect(r.writes).toEqual([]);
-    const vars = r.calls.filter((c) => c.args[1] === "graphql").map((c) => JSON.parse(c.stdin).variables ?? {});
-    expect(vars.filter((v) => v.r === "old" || v.id === "P2")).toEqual([]);
-  });
-});
+function factWorld(issue: Record<string, unknown> = {}, repo: Record<string, unknown> = {}) {
+  const proj = path.join(dir, ".claude", "projects", "-repo");
+  mkdirSync(proj, { recursive: true });
+  const ago = (days: number, min = 0) => new Date(Date.now() - days * 86_400_000 + min * 60_000).toISOString();
+  for (const [n, branch, days] of [[42, "feat/42-export", 1], [43, "feat/43-import", 2]] as const) {
+    writeFileSync(path.join(proj, `${n}000000-0000-4000-8000-000000000000.jsonl`), jsonl([
+      ...[-60, -50, -40].map((min, k) => ({ type: "user", timestamp: ago(days, min), cwd: "/repo", gitBranch: branch, message: { role: "user", content: `#${n} шаг ${k}` } })),
+      { type: "assistant", timestamp: ago(days, -30), cwd: "/repo", gitBranch: branch, message: { id: `msg_${n}`, model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "text", text: "ok" }] } },
+    ]));
+  }
+  const issues = [{ number: 42, title: "Экспорт", state: "CLOSED", closedAt: ago(1), ...issue }, { number: 43, title: "Импорт", state: "CLOSED", closedAt: ago(2), ...issue }];
+  return { "o/r": { visibility: "private", project: 1, paths: ["/repo"], issues, ...repo } };
+}
 
 /**
  * Репозиторий переименовали (#560): GitHub отвечает на прежнее имя нынешним — чтения по прежнему имени проходят, а запись
- * (`gh api -X POST|PATCH`) получает редирект 307, который gh для не-GET не повторяет. `est estimate --write` по прежнему
- * имени падал на записи комментария: задача оставалась без оценки. est берёт нынешнее имя у GitHub и пишет под ним.
+ * (`gh api -X POST|PATCH`) получает редирект 307, который gh для не-GET не повторяет. Запись по прежнему имени падала на
+ * комментарии. est берёт нынешнее имя у GitHub и пишет под ним.
  */
 describe("Переименованный репозиторий — est работает под его нынешним именем", () => {
-  const WORLD = {
-    "o/r": { visibility: "private", project: 1, formerly: ["o/old"], issues: [{ number: 1, title: "Прошлая задача", state: "CLOSED", fact: 0.5 }, { number: 2, title: "Ещё прошлая", state: "CLOSED", fact: 1 }, { number: 10, title: "Новая задача", state: "OPEN" }] },
-  };
-
-  it("est estimate --write по старому имени переименованного репозитория записывает оценку — под нынешним именем", () => {
-    const r = withFakeGh(WORLD, ["estimate", "10", "--repo", "o/old", "--type", "fix", "--analogs", "1,2", "--write"]);
+  it("est fact --write по старому имени переименованного репозитория записывает факт — под нынешним именем", () => {
+    const r = withFakeGh(factWorld({}, { formerly: ["o/old"] }), ["fact", "42", "--repo", "o/old", "--write"]);
     expect(r.stderr).toBe("");
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("== o/r#10: Новая задача");
-    expect(r.comment).toStartWith("Оценка: 0.5 ч");
-    expect(r.writes.filter((c) => c.args[0] === "api" && c.args[1] === "-X").map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/10/comments"]]);
-    expect(r.writes).toHaveLength(2); // комментарий и поле «Оценка, ч»
-  });
-});
-
-/**
- * Бэктест: каждая закрытая задача с фактом оценивается механикой так, как её оценил бы скрипт в день создания, — по
- * задачам, закрытым раньше; доля в допуске ×0,5…×2 и k (медиана факт/оценка) механики и ручных оценок — на одной
- * выборке, иначе сравнение нечестно. Третья строка — механика с поправкой, которую дал агент: видно, добавляет ли
- * поправка точности.
- */
-describe("Бэктест сравнивает механическую оценку с ручной", () => {
-  const task = (number: number, created: number, d: number, fact: number, extra: Record<string, unknown> = {}) =>
-    ({ number, title: ["Альфа", "Бета", "Гамма", "Дельта", "Эпсилон", "Дзета", "Эта", "Тета"][number - 1], state: "CLOSED", createdAt: day(created), closedAt: day(d), fact, ...extra });
-  const WORLD = {
-    "o/b": {
-      visibility: "private", project: 2,
-      issues: [
-        task(1, 1, 2, 1),
-        task(2, 1, 3, 1),
-        task(3, 4, 5, 1, { est: 4, mult: 2 }),
-        task(4, 6, 8, 2, { est: 2 }),
-        task(5, 7, 9, 4, { est: 1, mult: 2 }),
-        task(6, 10, 11, 1),
-        task(7, 1, 12, 9, { est: 9, labels: ["epic"] }),
-        task(8, 10, 11, 3, { est: 3, cov: "partial" }),
-      ],
-    },
-  };
-
-  it("бэктест печатает долю в допуске ×0,5…×2 и k механики и ручных оценок на одной выборке", () => {
-    const r = withFakeGh(WORLD, ["backtest", "--repo", "o/b"]);
-    expect(r.stderr).toBe("");
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("tasks with an actual (coverage full, no epics): 6; the mechanics had enough analogs (≥ 2): 4, within ×0.5…×2 — 75 %, k=1.5");
-    expect(r.stdout).toContain("on one sample with a manual estimate, n=3:");
-    expect(r.stdout).toMatch(/ {2}mechanics {2,}within tolerance 67 %, k=2\n/);
-    expect(r.stdout).toMatch(/ {2}manual {2,}within tolerance 33 %, k=1\n/);
-    expect(r.stdout).toMatch(/ {2}mechanics × manual correction {2,}within tolerance 100 %, k=2\n/);
-    expect(r.writes).toEqual([]);
-  });
-});
-
-/** k — отношение факт/оценка по истории; справочное — к прогнозу по аналогам не применяется. */
-describe("Калибровка k показывает, сходятся ли оценки с фактами", () => {
-  const row = (n: number, est: number, fact: number | null, cov = "full", closedAt = 1000 + n): Row => ({
-    item_id: "i", issue_id: "x", number: n, title: "t", state: "CLOSED", stateReason: null, closedAt, createdAt: null, labels: [],
-    est, fact, status: null, est_marker: { h: est }, fact_marker: fact === null ? null : { cov },
-  });
-
-  it("k — медиана факт/оценка по задачам с маркером и полным покрытием; partial не в счёт", () => {
-    const c = calib([row(1, 1, 0.5), row(2, 2, 4), row(3, 1, 1), row(4, 1, 9, "partial"), row(5, 1, null)]);
-    expect(c.n).toBe(3);
-    expect(c.k).toBe(1);
-    expect(c.share).toBe(1);
-    expect(c.n_partial).toBe(1);
+    expect(r.stdout).toContain("== o/r#42: Экспорт");
+    expect(r.comment).toStartWith("Факт: ");
+    expect(r.writes.filter((c) => c.args[0] === "api" && c.args[1] === "-X").map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/42/comments"]]);
+    expect(r.writes).toHaveLength(2); // комментарий и поле «Факт, ч»
   });
 });
 
@@ -2055,17 +1820,6 @@ describe("Вывод читается человеком: часы без хво
     expect(parseSince("48h")).toBe(48 * 3600);
     expect(() => parseSince("вчера")).toThrow(EstError);
   });
-
-  it("метки решений в est history видны целиком — колонка по самой длинной", () => {
-    const row = (number: number, labels: string[]): Row => ({
-      item_id: "", issue_id: "", number, title: `Задача ${number}`, state: "CLOSED", stateReason: "COMPLETED", closedAt: 0, createdAt: 0, labels,
-      est: 1, fact: 0.5, status: "Готово", est_marker: { type: "feat" }, fact_marker: { cov: "full", tok: { total: 2e6 }, usd: 1.5 },
-    });
-    const lines = historyTable([row(12, ["spec-harness", "spawn-timeout", "github-project"]), row(13, ["epic"])]);
-    expect(lines[1]).toContain(" spec-harness,spawn-timeout,github-project | Задача 12");
-    // заголовок и строки — одной ширины до названия задачи: колонки не съезжают
-    expect(new Set(lines.map((l) => l.lastIndexOf(" | "))).size).toBe(1);
-  });
 });
 
 describe("Неверный вызов — справка или ошибка до обращения к GitHub", () => {
@@ -2073,7 +1827,7 @@ describe("Неверный вызов — справка или ошибка д�
 
   it("без команды — справка и код 2, неизвестная команда — ошибка", () => {
     expect(exitOf(run())).toBe(2);
-    expect(run().stdout).toContain("est history");
+    expect(run().stdout).toContain("est fact");
     const r = run("frobnicate");
     expect(exitOf(r)).toBe(1);
     expect(r.stderr).toContain("error: unknown command «frobnicate»");
@@ -2083,10 +1837,17 @@ describe("Неверный вызов — справка или ошибка д�
     expect(run("fact", "1", "--repo", "o/r", "--gap", "0").stderr).toContain("--gap must be ≥ 1 minute");
     expect(run("fact", "1", "--sweep", "--repo", "o/r").stderr).toContain("an issue number and --sweep are incompatible");
     expect(run("fact", "1", "--model", "claude-opus-5-5", "--repo", "o/r").stderr).toContain("--model — only with --sweep");
-    expect(run("estimate", "1", "--repo", "o/r").stderr).toContain("--type is required");
-    expect(run("estimate", "--repo", "o/r", "--type", "feat").stderr).toContain("pass the issue number");
-    expect(run("estimate", "1", "--repo", "o/r", "--type", "feat", "--analogs", "2,3", "--tok-mult", "2.5").stderr).toContain("--tok-mult allows only 0.5, 1, 1.5, 2 or 3");
     expect(exitOf(run("fact", "--repo", "o/r", "--bogus"))).toBe(2);
+  });
+
+  /** Оценки задач нет (#835): её команды — неизвестные, как опечатка, а не успех, который ничего не записал. */
+  it("`est` не знает команд `estimate` и `backtest`", () => {
+    for (const args of [["estimate", "42", "--type", "feat", "--write"], ["backtest"], ["history"]]) {
+      const r = withFakeGh(factWorld(), [...args, "--repo", "o/r"]);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain(`error: unknown command «${args[0]}»; expected fact, period, cloud-import`);
+      expect(r.calls).toEqual([]);
+    }
   });
 });
 
@@ -2141,11 +1902,11 @@ describe("Факт — ходы и контекст задачи", () => {
 
   it("строка «Ходы: …» в комментарии «Факт» и поля в маркере; без ответов модели строки нет", () => {
     const res = fact(parseSessionFile(claudeFixture()));
-    const body = factCommentBody(res, 0.25, [], 0, null);
+    const body = factCommentBody(res, [], 0);
     expect(body).toContain("Ходы: 2 (субагентов 1, их ходов 1), преамбула 6 тыс., контекст в конце 6 тыс., ходов с контекстом > 400 тыс. — 0 %.");
     expect(parseMarker(body, "fact")).toMatchObject({ steps: 2, steps_agents: 1, tail: 0, preamble: 6100, ctx_end: 6100 });
     const bare = session([prompt("10:00", "#42 сделай"), { type: "assistant", timestamp: at("10:05"), gitBranch: "feat/42-x", message: { content: [{ type: "text", text: "без usage" }] } }]);
-    const noSteps = factCommentBody(fact(bare), 0.25, [], 0, null);
+    const noSteps = factCommentBody(fact(bare), [], 0);
     expect(noSteps).not.toContain("Ходы:");
     expect(parseMarker(noSteps, "fact").steps).toBeUndefined();
   });
@@ -2167,20 +1928,9 @@ describe("Факт — ходы и контекст задачи", () => {
       call("10:04:00", "f4", "Bash", "bun test tests/x"), done("10:12:00", "f4"), // тесты — 8 минут: кэш на 5 минут истёк
       call("10:12:10", "f5", "Bash", "gh pr merge 77 --rebase", 160_000), // запись кэша 160 тыс. — $1 у claude-opus-5
     ]);
-    const body = factCommentBody(fact(s), 0.25, [], 0, null);
+    const body = factCommentBody(fact(s), [], 0);
     expect(body).toContain("\nОбвязка: ходов флоу 2, харнесса 1, проверок 1 из 5; перезаписей кэша после паузы 1 — $1.00.\n");
     expect(parseMarker(body, "fact")).toMatchObject({ kinds: { work: 1, flow: 2, harness: 1, checks: 1 }, rewrites: 1, rewrite_usd: 1 });
-  });
-
-  it("история показывает ходы задачи; у факта без признака — прочерк", () => {
-    const row = (number: number, steps?: number): Row => ({
-      item_id: "", issue_id: "", number, title: `Задача ${number}`, state: "CLOSED", stateReason: "COMPLETED", closedAt: 0, createdAt: 0, labels: [],
-      est: 1, fact: 0.5, status: "Готово", est_marker: { type: "feat" }, fact_marker: { cov: "full", tok: { total: 2e6 }, usd: 1.5, agents: 0, ...(steps === undefined ? {} : { steps }) },
-    });
-    const lines = historyTable([row(12, 250), row(13)]);
-    expect(lines[0]).toContain(" | turns | ");
-    expect(lines[1]).toMatch(/ \|\s+250 \| /);
-    expect(lines[2]).toMatch(/ \|\s+— \| /);
   });
 });
 
@@ -2457,63 +2207,6 @@ describe("Сводка периода — все сессии репозитор
 });
 
 /**
- * Стоимость задачи — прежде всего тариф модели: смена модели меняет $ на задачу в разы при том же флоу, и тренд $
- * смешивает флоу с ценой. Эффект флоу виден в токенах и выходе; история показывает долю $ по моделям, чтобы сдвиг
- * тарифа был виден рядом с трендом.
- */
-describe("Тариф модели — отдельно от флоу: история показывает долю $ по моделям", () => {
-  it("est history показывает долю $ по моделям и напоминает сравнивать флоу по токенам и выходу", () => {
-    const world = {
-      "o/h": {
-        visibility: "private", project: 5,
-        issues: [
-          { number: 1, title: "Альфа", state: "CLOSED", closedAt: day(2), fact: 1, models: { "claude-fable-5": { mtok: 1, usd: 3 } } },
-          { number: 2, title: "Бета", state: "CLOSED", closedAt: day(3), fact: 1, models: { "claude-opus-5-5": { mtok: 2, usd: 1 }, "gpt-5": { mtok: 1, usd: null } } },
-        ],
-      },
-    };
-    const r = withFakeGh(world, ["history", "--repo", "o/h"]);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("$ by model: claude-fable-5 75 %, claude-opus-5-5 25 %");
-    expect(r.stdout).toContain("the $ trend mixes the flow with the model rate");
-  });
-});
-
-/**
- * Поправка вниз к аналогам из другого репо без названного отличия занизила крупные задачи втрое: в допуск попали 2 из
- * 8, без поправки — 5 из 8. Правило «без отличия — ×1» скрипт держит сам: поправка вниз к чужим аналогам без --note
- * не записывается, а без --write — предупреждение.
- */
-describe("Поправка вниз к чужим аналогам — только с названным отличием", () => {
-  const WORLD = {
-    "o/a": { visibility: "private", project: 6, issues: [{ number: 10, title: "Новая задача", state: "OPEN" }] },
-    "o/b": { visibility: "private", project: 7, issues: [{ number: 1, title: "Прошлая", state: "CLOSED", fact: 2 }, { number: 2, title: "Ещё прошлая", state: "CLOSED", fact: 2 }] },
-  };
-  const estimate = (mult: string, ...extra: string[]) => withFakeGh(WORLD, ["estimate", "10", "--repo", "o/a", "--type", "feat", "--analogs", "o/b#1,o/b#2", "--mult", mult, ...extra]);
-
-  it("поправка вниз к аналогам из другого репо без причины не записывается", () => {
-    const r = estimate("0.5", "--write");
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("error: downward correction against another repo's analogs (×0.5): name the difference in --note");
-    expect(r.writes).toEqual([]);
-    const dry = estimate("0.5");
-    expect(dry.code).toBe(0);
-    expect(dry.stderr).toContain("warning: downward correction against another repo's analogs (×0.5): name the difference in --note");
-    expect(dry.stdout).toContain("Оценка: 1 ч");
-  });
-
-  it("с отличием в --note поправка вниз к чужим аналогам записывается, отличие — в комментарии; поправка вверх — без условия", () => {
-    const r = estimate("0.5", "--note", "вдвое меньше экранов", "--write");
-    expect(r.code).toBe(0);
-    expect(r.comment).toContain("Поправка: ×0.5 (вдвое меньше экранов).");
-    expect(r.writes).toHaveLength(2);
-    const up = estimate("2", "--write");
-    expect(up.stderr).toBe("");
-    expect(up.code).toBe(0);
-  });
-});
-
-/**
  * gh ходит в сеть, а сеть рвётся: таймаут соединения, обрыв, 5xx GitHub лечит повтор, поэтому вызов gh повторяется с
  * паузой (2, 5 и 15 с), прежде чем стать ошибкой. Ошибка самого запроса (404, права, валидация) от повтора не пройдёт —
  * она сразу. Новый комментарий (POST) повторяется, только если запрос не ушёл: иначе GitHub мог его принять, и повтор
@@ -2525,72 +2218,59 @@ describe("Сбой сети gh повторяется, ошибка запрос
   const RESET = 'Post "https://api.github.com/graphql": read tcp 10.0.0.2:51234->140.82.121.6:443: read: connection reset by peer';
   const BAD_GATEWAY = "HTTP 502: Bad Gateway (https://api.github.com/graphql)";
   const onComments = (n: number, stderr: string) => stderr.replace("graphql", `repos/o/r/issues/${n}/comments`);
-  const WORLD = {
-    "o/r": { visibility: "private", project: 1, issues: [{ number: 1, title: "Прошлая задача", state: "CLOSED", fact: 0.5 }, { number: 2, title: "Ещё прошлая", state: "CLOSED", fact: 1 }, { number: 10, title: "Новая задача", state: "OPEN" }] },
-  };
-  const estimate = (...fails: FakeFail[]) => withFakeGh(WORLD, ["estimate", "10", "--repo", "o/r", "--type", "fix", "--analogs", "1,2", "--write"], fails);
+  /** `est fact 42 --write`: комментарий «Факт» и поле «Факт, ч» закрытой #42 по её сессии. */
+  const fact = (...fails: FakeFail[]) => withFakeGh(factWorld(), ["fact", "42", "--repo", "o/r", "--write"], fails);
   const callsWith = (r: { calls: { args: string[]; stdin: string }[] }, match: string) => r.calls.filter((c) => `${c.args.join(" ")} ${c.stdin}`.includes(match)).length;
 
-  /** Закрытые #42 (вчера) и #43 (позавчера) — каждая со своей сессией (три промпта — не рутина) на своей ветке в каталоге /repo. */
-  function sweepWorld(issue: Record<string, unknown> = {}) {
-    const proj = path.join(dir, ".claude", "projects", "-repo");
-    mkdirSync(proj, { recursive: true });
-    const ago = (days: number, min = 0) => new Date(Date.now() - days * 86_400_000 + min * 60_000).toISOString();
-    for (const [n, branch, days] of [[42, "feat/42-export", 1], [43, "feat/43-import", 2]] as const) {
-      writeFileSync(path.join(proj, `${n}000000-0000-4000-8000-000000000000.jsonl`), jsonl([
-        ...[-60, -50, -40].map((min, k) => ({ type: "user", timestamp: ago(days, min), cwd: "/repo", gitBranch: branch, message: { role: "user", content: `#${n} шаг ${k}` } })),
-        { type: "assistant", timestamp: ago(days, -30), cwd: "/repo", gitBranch: branch, message: { id: `msg_${n}`, model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: "text", text: "ok" }] } },
-      ]));
-    }
-    const issues = [{ number: 42, title: "Экспорт", state: "CLOSED", closedAt: ago(1), ...issue }, { number: 43, title: "Импорт", state: "CLOSED", closedAt: ago(2), ...issue }];
-    return { "o/r": { visibility: "private", project: 1, paths: ["/repo"], issues } };
-  }
-
   it("временный сетевой сбой gh не роняет команду est: вызов повторяется", () => {
-    const r = estimate(
+    const clean = fact();
+    cleanup(); // свой каталог: кэш проекта первого запуска убрал бы вызовы второго
+    ({ dir, cleanup } = tmpDir());
+    const r = fact(
       { match: "organization(login:$o)", times: 1, stderr: BAD_GATEWAY },
-      { match: "issues/10/comments", times: 2, stderr: onComments(10, TIMEOUT) },
+      { match: "issues/42/comments", times: 2, stderr: onComments(42, TIMEOUT) },
       { match: "updateProjectV2ItemFieldValue", times: 1, stderr: RESET },
     );
     expect(r.code).toBe(0);
-    expect(r.comment).toStartWith("Оценка: 0.5 ч");
-    expect(callsWith(r, "organization(login:$o)")).toBe(2);
-    expect(callsWith(r, "issues/10/comments")).toBe(3);
-    expect(callsWith(r, "updateProjectV2ItemFieldValue")).toBe(2);
+    expect(r.comment).toStartWith("Факт: ");
+    // те же вызовы, что без сбоев, и по повтору на каждый сбой
+    expect(callsWith(r, "organization(login:$o)")).toBe(callsWith(clean, "organization(login:$o)") + 1);
+    expect(callsWith(r, "issues/42/comments")).toBe(callsWith(clean, "issues/42/comments") + 2);
+    expect(callsWith(r, "updateProjectV2ItemFieldValue")).toBe(callsWith(clean, "updateProjectV2ItemFieldValue") + 1);
     expect(r.stderr).toContain("network failure, retry in 0 s: command gh api -X…");
   });
 
   it("ошибка запроса без сбоя сети не повторяется", () => {
-    const r = estimate({ match: "issues/10/comments", times: 1, stderr: "HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/o/r/issues/10/comments)" });
+    const r = fact({ match: "issues/42/comments", times: 1, stderr: "HTTP 403: Resource not accessible by personal access token (https://api.github.com/repos/o/r/issues/42/comments)" });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("HTTP 403: Resource not accessible");
     expect(r.stderr).not.toContain("network failure");
-    expect(callsWith(r, "issues/10/comments")).toBe(1);
+    expect(callsWith(r, "issues/42/comments")).toBe(1);
   });
 
   it("сеть, не вернувшаяся за повторы, — ошибка «network failure» с числом повторов", () => {
-    const r = estimate({ match: "updateProjectV2ItemFieldValue", times: -1, stderr: TIMEOUT });
+    const r = fact({ match: "updateProjectV2ItemFieldValue", times: -1, stderr: TIMEOUT });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("connect: operation timed out — network failure, retries: 3");
     expect(callsWith(r, "updateProjectV2ItemFieldValue")).toBe(4);
   });
 
   it("новый комментарий после обрыва ответа не повторяется — GitHub мог его принять", () => {
-    const r = estimate({ match: "issues/10/comments", times: 1, stderr: onComments(10, RESET) });
+    const r = fact({ match: "issues/42/comments", times: 1, stderr: onComments(42, RESET) });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("the request may have reached GitHub");
-    expect(callsWith(r, "issues/10/comments")).toBe(1);
+    expect(callsWith(r, "issues/42/comments")).toBe(1);
   });
 
   it("сетевой сбой при чтении проекта организации не превращается в «не найден пользователь»", () => {
-    const r = estimate({ match: "organization(login:$o)", times: -1, stderr: TIMEOUT });
+    const r = fact({ match: "organization(login:$o)", times: -1, stderr: TIMEOUT });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("network failure, retries: 3");
     expect(callsWith(r, "user(login:$o)")).toBe(0);
   });
 
   it("ошибка записи одной задачи в свипе не обрывает свип — задача в итоге «not written»", () => {
-    const r = withFakeGh(sweepWorld(), ["fact", "--sweep", "--repo", "o/r", "--write"], [{ match: "issues/42/comments", times: -1, stderr: "HTTP 422: Validation Failed (https://api.github.com/repos/o/r/issues/42/comments)" }]);
+    const r = withFakeGh(factWorld(),["fact", "--sweep", "--repo", "o/r", "--write"], [{ match: "issues/42/comments", times: -1, stderr: "HTTP 422: Validation Failed (https://api.github.com/repos/o/r/issues/42/comments)" }]);
     expect(r.stdout).toContain("#42: error writing: command gh api -X… exited with code 1: HTTP 422: Validation Failed");
     expect(callsWith(r, "issues/43/comments")).toBe(1);
     expect(r.stdout).toContain("not written: 1 — #42\nretry: est fact --sweep --since 90d --repo o/r --write — it skips the written ones");
@@ -2598,7 +2278,7 @@ describe("Сбой сети gh повторяется, ошибка запрос
   });
 
   it("сеть, не вернувшаяся за повторы, останавливает свип — непройденные тоже в «not written»", () => {
-    const r = withFakeGh(sweepWorld(), ["fact", "--sweep", "--repo", "o/r", "--write"], [{ match: "issues/42/comments", times: -1, stderr: onComments(42, TIMEOUT) }]);
+    const r = withFakeGh(factWorld(), ["fact", "--sweep", "--repo", "o/r", "--write"], [{ match: "issues/42/comments", times: -1, stderr: onComments(42, TIMEOUT) }]);
     expect(r.stdout).toContain("the network didn't come back within the retries — sweep stopped, not processed: 1");
     expect(callsWith(r, "issues/42/comments")).toBe(4);
     expect(callsWith(r, "issues/43/comments")).toBe(0);
@@ -2607,7 +2287,7 @@ describe("Сбой сети gh повторяется, ошибка запрос
   });
 
   it("пересчёт по модели называет повтор по задаче — повтор свипа пересчитал бы и записанные", () => {
-    const world = sweepWorld({ fact: 0.5, models: { "claude-opus-5-5": { mtok: 1, usd: 1 } } });
+    const world = factWorld({ fact: 0.5, models: { "claude-opus-5-5": { mtok: 1, usd: 1 } } });
     const r = withFakeGh(world, ["fact", "--sweep", "--model", "claude-opus-5-5", "--repo", "o/r", "--write"], [{ match: "issues/43/comments", times: -1, stderr: "HTTP 422: Validation Failed" }]);
     expect(callsWith(r, "issues/42/comments")).toBe(1);
     expect(r.stdout).toContain("not written: 1 — #43\nretry task by task, in order (a sweep would recompute the written ones too): est fact <N> --repo o/r --write — #43");
