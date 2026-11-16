@@ -601,8 +601,7 @@ describe("Проверки проекта идут очередью машины
 
 /**
  * В тонком проекте копии канона нет (#557): агент получает его с машины. Claude Code грузит `~/.claude/rules` без
- * диалога внешних импортов и во всех проектах машины, другие агенты — свой глобальный файл правил. До #180 так и было;
- * #180 убрал правила с машины только из-за второй копии в проекте.
+ * диалога внешних импортов и во всех проектах машины.
  */
 describe("На машину (-g) — канон, скиллы и хук: тонкий проект берёт канон с машины", () => {
   const canon = () => realpathSync(path.join(home, ".agents/elves/AGENTS.md"));
@@ -684,33 +683,6 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     // агентов, которых на машине нет, установка не заводит
     for (const p of [".codex", ".gemini", ".copilot", ".config/opencode", ".config/amp"]) expect(gone(path.join(home, p))).toBe(true);
     expect(existsSync(path.join(proj, ".agents"))).toBe(false);
-  });
-
-  it("install -g ставит файлы правил Gemini CLI, Copilot, OpenCode и Amp ссылкой на канон машины, а чужой файл не трогает", () => {
-    for (const dir of [".copilot", ".config/opencode", ".config/amp"]) mkdirSync(path.join(home, dir), { recursive: true });
-    writeTree(home, { ".gemini/GEMINI.md": "мои правила\n" });
-    const r = install(["-g"]);
-    expect(r.code).toBe(0);
-    for (const file of [".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md", ".config/amp/AGENTS.md"]) {
-      expect(isLink(path.join(home, file))).toBe(true);
-      expect(realpathSync(path.join(home, file))).toBe(canon());
-    }
-    expect(isLink(path.join(home, ".gemini/GEMINI.md"))).toBe(false);
-    expect(read(path.join(home, ".gemini/GEMINI.md"))).toBe("мои правила\n");
-    expect(r.stdout).toContain("~/.gemini/GEMINI.md — the user's own rules: left as is; the canon — ~/.agents/elves/AGENTS.md\n");
-    expect(install(["-g"]).code).toBe(0);
-    expect(read(path.join(home, ".gemini/GEMINI.md"))).toBe("мои правила\n");
-  });
-
-  /**
-   * Codex убран (#836): за всё время на машине четыре его сессии, после 15 октября — ни одной. Его каталог в домашнем
-   * установке безразличен — файла правил Codex она не пишет; общее для агентов — блок в `AGENTS.md` проекта и скиллы
-   * в `~/.agents/skills` — остаётся.
-   */
-  it("Установка на машину ничего не пишет в каталог Codex", () => {
-    mkdirSync(path.join(home, ".codex"));
-    expect(install(["-g"]).code).toBe(0);
-    expect(readdirSync(path.join(home, ".codex"))).toEqual([]);
   });
 
   /**
@@ -866,6 +838,84 @@ describe("Скилла dashboard во флоу нет: установка его
 
   it("Ни один скрипт флоу не импортирует и не называет `dashboard`", () => {
     expect(sources(REPO, ["bin", "skills"]).filter((f) => /\bdashboard\b/i.test(f.text)).map((f) => f.file)).toEqual([]);
+  });
+});
+
+/**
+ * Эльфы — для Claude Code (#848): за два месяца на машине нет сессий других агентов, кроме четырёх сессий Codex, а хуки,
+ * пин сессии к задаче, факт из транскриптов, диспетчер и архивация сессии есть только у Claude Code. Файлов правил
+ * других агентов установка не пишет; машина прошлой версии держит их симлинками на канон — обновление убирает свои и
+ * оставляет чужие. Другому агенту — короткая инструкция `docs/other-agents.md`, на неё ссылается README.
+ */
+describe("Эльфы — для Claude Code: файлов правил других агентов установка не пишет, другому агенту — инструкция", () => {
+  /** Каталоги агентов в домашнем и файлы правил, которые в них писала прошлая версия. */
+  const OLD_RULES: Record<string, string> = {
+    ".codex": ".codex/AGENTS.md",
+    ".gemini": ".gemini/GEMINI.md",
+    ".copilot": ".copilot/copilot-instructions.md",
+    ".config/opencode": ".config/opencode/AGENTS.md",
+    ".config/amp": ".config/amp/AGENTS.md",
+  };
+  const agentDirs = () => {
+    for (const dir of Object.keys(OLD_RULES)) mkdirSync(path.join(home, dir), { recursive: true });
+  };
+  /** Файл правил, как его писала прошлая версия, — относительный симлинк на AGENTS.md канона машины. */
+  const oldRules = (rel: string) => {
+    const file = path.join(home, rel);
+    symlinkSync(path.relative(path.dirname(file), path.join(home, ".agents/elves/AGENTS.md")), file);
+  };
+
+  it("Установка на машину не пишет файлы правил других агентов", () => {
+    mkdirSync(path.join(home, ".claude"));
+    mkdirSync(path.join(home, ".cursor"));
+    agentDirs();
+    const r = install(["-g"]);
+    expect(r.code).toBe(0);
+    for (const dir of [...Object.keys(OLD_RULES), ".cursor"]) expect(readdirSync(path.join(home, dir))).toEqual([]);
+    expect(r.stdout + r.stderr).not.toMatch(/Codex|Gemini|Copilot|OpenCode|\bAmp\b|Cursor/);
+  });
+
+  it("Обновление машины убирает файлы правил других агентов, поставленные прошлой версией, и оставляет чужие", () => {
+    mkdirSync(path.join(home, ".claude"));
+    agentDirs();
+    expect(install(["-g"]).code).toBe(0);
+    // свои — симлинки прошлой версии на канон; чужие — файл с правилами пользователя и симлинк на его собственный
+    oldRules(".gemini/GEMINI.md");
+    oldRules(".copilot/copilot-instructions.md");
+    writeTree(home, { ".config/amp/AGENTS.md": "мои правила\n", "rules/mine.md": "мои правила\n" });
+    symlinkSync(path.join(home, "rules/mine.md"), path.join(home, ".config/opencode/AGENTS.md"));
+    const before = elves(sb, ["check", "-g"]);
+    expect(before.code).toBe(1);
+    expect(before.stdout).toContain("  - ~/.gemini/GEMINI.md\n");
+    expect(before.stdout).toContain("  - ~/.copilot/copilot-instructions.md\n");
+    expect(before.stdout).not.toMatch(/opencode|amp/);
+    const r = elves(sb, ["update", "-g"]);
+    expect(r.code).toBe(0);
+    expect(gone(path.join(home, ".gemini/GEMINI.md"))).toBe(true);
+    expect(gone(path.join(home, ".copilot/copilot-instructions.md"))).toBe(true);
+    expect(r.stdout).toContain("~/.gemini/GEMINI.md — removed: Elves is for Claude Code; another agent connects the canon itself — ~/.agents/elves/docs/other-agents.md\n");
+    expect(existsSync(path.join(home, ".agents/elves/docs/other-agents.md"))).toBe(true);
+    expect(read(path.join(home, ".config/amp/AGENTS.md"))).toBe("мои правила\n");
+    expect(readlinkSync(path.join(home, ".config/opencode/AGENTS.md"))).toBe(path.join(home, "rules/mine.md"));
+    expect(elves(sb, ["check", "-g"]).code).toBe(0);
+  });
+
+  it("README называет только Claude Code и ссылается на инструкцию для других агентов", () => {
+    const readme = read(path.join(REPO, "README.md"));
+    expect(readme).toContain("For Claude Code");
+    expect(readme).not.toMatch(/\b(?:Codex|Gemini|Cursor|Copilot|OpenCode|Amp)\b/);
+    expect(readme).not.toMatch(/all agents|every agent/i);
+    expect(readme).toContain("](docs/other-agents.md)");
+  });
+
+  it("Обновление машины убирает `~/.codex/AGENTS.md`, поставленный прошлой версией: Codex убран в #836, а файл остался на машинах", () => {
+    mkdirSync(path.join(home, ".claude"));
+    writeTree(home, { ".codex/config.toml": 'model = "gpt-5"\n' });
+    expect(install(["-g"]).code).toBe(0);
+    oldRules(".codex/AGENTS.md");
+    expect(elves(sb, ["update", "-g"]).code).toBe(0);
+    expect(gone(path.join(home, ".codex/AGENTS.md"))).toBe(true);
+    expect(readdirSync(path.join(home, ".codex"))).toEqual(["config.toml"]);
   });
 });
 

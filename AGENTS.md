@@ -2,9 +2,10 @@
 
 ## This file and skills
 
-The Elves canon for any agent. It lives in **miroshnik/elves** with the
-skills (`skills/*`) and references (`docs/`, next to this file), installed
-onto the machine — README, "Installation". A rule or skill change from
+The Elves canon, for Claude Code (other agents — `docs/other-agents.md`).
+It lives in **miroshnik/elves** with the skills (`skills/*`) and references
+(`docs/`, next to this file), installed onto the machine — README,
+"Installation". A rule or skill change from
 another project's session is a task in Elves (project #6) without that
 project's names, for a separate session; I don't edit an Elves clone from
 someone else's session. A Claude Code **cloud session** sees only the

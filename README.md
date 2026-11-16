@@ -6,7 +6,7 @@
 
 **A development flow for AI agents: deterministic checks instead of prose specs.**
 
-Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
+For Claude Code · another agent — [a short guide](docs/other-agents.md)
 
 [![CI](https://github.com/miroshnik/elves/actions/workflows/ci.yml/badge.svg)](https://github.com/miroshnik/elves/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/miroshnik/elves?sort=date&label=release)](https://github.com/miroshnik/elves/releases)
@@ -20,11 +20,11 @@ Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
 
 ## What it is
 
-Elves is how an agent carries a task from issue to production, written down once for all agents and all projects:
+Elves is how Claude Code carries a task from issue to production, written down once for all projects:
 
 - **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production.
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
-- **The installer** — puts the canon, the skills and the hook onto the machine, for all agents at once; a project keeps only the package version in `devDependencies` — CI, colleagues and the cloud session get it from npm — and gets the flow through releases.
+- **The installer** — puts the canon, the skills and the hook onto the machine; a project keeps only the package version in `devDependencies` — CI, colleagues and the cloud session get it from npm — and gets the flow through releases.
 
 ## The idea
 
@@ -58,7 +58,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 | The flow's cost is a guess | A measured actual of every task: active hours, tokens and $ from the agent's transcripts | [Actual](AGENTS.md#actual--the-est-skill) |
 | The agent merges on its own — or asks about everything | Reversible — on its own, irreversible — on an explicit "yes"; `auto` runs a task by itself, up to merging its own PR on green checks | [What I do without asking](AGENTS.md#what-i-do-without-asking-and-what-needs-a-yes) |
 | PRs wait in a merge queue | Each PR merges on its own green checks; `main` moved after its CI — fast checks on the merge first; after a deploy — its statuses | [Git, PRs and merging](AGENTS.md#git-prs-and-merging) |
-| Each project has its own process, and the agent improvises its routine | One canon for all projects and agents, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow) |
+| Each project has its own process, and the agent improvises its routine | One canon for all projects, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow) |
 
 ## Elves and OpenSpec
 
@@ -81,7 +81,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github` and `est` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose.
 
 ```bash
-bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the hook for every agent it has
+bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the Claude Code hook
 bunx @miroshnik/elves install      # into a project, from its git root: the package version and the manifest, committed with it
 bunx @miroshnik/elves check -g     # is the flow behind the latest release: 0 — no, 1 — yes, 2 — can't check; changes nothing
 bunx @miroshnik/elves update -g    # bring it to the latest release
@@ -144,11 +144,12 @@ Mechanics the canon refers to; the agent reads them as needed.
 - [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — parallel worktrees: shared files, ports, databases and `.git/config`.
 - [`docs/cloud-sessions.md`](docs/cloud-sessions.md) — the Claude Code cloud session: what it can't access, its brief, closing a task from there.
 - [`docs/prompt-cache.md`](docs/prompt-cache.md) — Claude Code's prompt cache TTL: 5 minutes or the hour, and when the hour pays off.
+- [`docs/other-agents.md`](docs/other-agents.md) — another agent instead of Claude Code: what to connect by hand and what doesn't work.
 
 ## Repository layout
 
 ```
-AGENTS.md          the canon of rules — for all agents
+AGENTS.md          the canon of rules
 claude/CLAUDE.md   only what Claude Code has
 docs/              references the canon links to
 skills/<name>/     SKILL.md + scripts/ — TypeScript under Bun, no dependencies

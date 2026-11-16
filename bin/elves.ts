@@ -26,8 +26,9 @@
  *
  * The layout is as with skills (`npx skills`), on the machine (`-g`, #557): the canon `~/.agents/elves/` (AGENTS.md,
  * claude/CLAUDE.md, docs/*.md) with Claude Code's rules `~/.claude/rules/elves*.md` — they load without the
- * external-imports dialog in every project of the machine — and the global rule files of the other agents linking to it
- * (`agentRules`), skills (`~/.agents/skills/<name>/`, Claude Code — symlinks in `~/.claude/skills`) and the hook. A
+ * external-imports dialog in every project of the machine — skills (`~/.agents/skills/<name>/`, Claude Code — symlinks
+ * in `~/.claude/skills`) and the hook. Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
+ * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
  * (PACKAGE: the project's version of the harness and the skills' scripts for its tests and CI), the manifest, the
  * machine queue's shim `.agents/slot.sh`, a block in the project's `AGENTS.md` linking to the canon on the machine and
@@ -115,7 +116,7 @@ const BEGIN = "<!-- elves:begin";
 const END = "<!-- elves:end -->";
 /**
  * The block in a project's AGENTS.md: the canon and the skills are on the machine (`install -g`), not in the
- * repository — the agents without the machine's rules (without a global rules file) read them by it.
+ * repository — an agent without the machine's rules (not Claude Code, docs/other-agents.md) reads them by it.
  */
 const BLOCK = [
   `${BEGIN} — set by \`${RUN} install\`, don't edit by hand -->`,
@@ -184,15 +185,16 @@ settings. --lang <code> — the project language the agent works in: dialog, tas
 .agents/elves.json, a BCP 47 code: ru, en, pt-BR); in a terminal — a question, en by default, without the flag and a
 terminal — the previous one. In an Elves clone writes only the manifest — auto and language, env and batch carried
 over as in a project — and its cloud hook — with zsh, the flow from the clone itself.
--g — onto the machine: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md and the global
-rule files of Gemini CLI, Copilot, OpenCode and Amp linking to it (someone else's file stays), the skills
-(~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
+-g — onto the machine, for Claude Code: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md,
+the skills (~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
 the first directory of PATH inside the home directory that can be written: with --link a symlink to the clone's
 bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
 (!), no such directory — no command, check -g names how to add one; without a terminal too — a cloud session's project hook
 or setup script (CLAUDE_CODE_REMOTE=true) gets the canon and skills without the hook: the cloud doesn't read
-~/.claude/settings.json. From the npm package (npm i -g / bun add -g ${PACKAGE}) — the release of its version, without
-the network. --link — from an Elves clone: symlinks to the clone instead of copies, edits show up immediately. With
+~/.claude/settings.json. Other agents' rule files a previous version wrote (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md and
+others) go — only its own symlinks into the canon; another agent — docs/other-agents.md. From the npm package (npm i -g
+/ bun add -g ${PACKAGE}) — the release of its version, without the network. --link — from an Elves clone: symlinks to
+the clone instead of copies, edits show up immediately. With
 Claude Code's prompt cache TTL not chosen — the line check -g prints, with the owner's command (docs/prompt-cache.md):
 install doesn't change ~/.claude/settings.json.
 
@@ -1372,33 +1374,24 @@ function installProject(root: string, auto = autoOf(root), language = languageOf
 }
 
 /**
- * Agents' global rule files: the agent is on the machine — its directory in the home directory (or the command on
- * PATH), the file — the canon's AGENTS.md. Cursor has no such file; Codex is out of the flow (#836).
+ * Other agents' global rule files a previous version wrote — a symlink to the canon's AGENTS.md: Codex until #836,
+ * Gemini CLI, Copilot, OpenCode and Amp until #848. Elves is for Claude Code now; another agent connects the canon
+ * itself (docs/other-agents.md).
  */
-const AGENT_RULES: { dir: string; cmd?: string; file: string }[] = [
-  { dir: ".gemini", file: ".gemini/GEMINI.md" },
-  { dir: ".copilot", file: ".copilot/copilot-instructions.md" },
-  { dir: ".config/opencode", file: ".config/opencode/AGENTS.md" },
-  { dir: ".config/amp", file: ".config/amp/AGENTS.md" },
-];
+const OLD_AGENT_RULES = [".codex/AGENTS.md", ".gemini/GEMINI.md", ".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md", ".config/amp/AGENTS.md"];
 
 /**
- * The other agents get the machine's canon by their global rule file — a symlink to the canon's AGENTS.md, as before
- * #180: Gemini CLI, Copilot, OpenCode and Amp read it next to the project's own rules. A file
- * is ours when it is missing, empty or a symlink into the canon; someone else's file or symlink — the user's own rules — stays, with a line
- * where the canon is.
+ * The rule files of `OLD_AGENT_RULES` go — only ours: a symlink into the canon, the way a previous version wrote it;
+ * someone else's file or symlink — the user's own rules — stays. The agent's directory stays too: the install never
+ * created it.
  */
-function agentRules(home: string, has: (dir: string, cmd?: string) => boolean) {
+function oldAgentRules(home: string) {
   const canon = path.join(home, CANON) + path.sep;
-  const ours = (file: string) => {
-    const st = lstat(file);
-    if (!st || (st.isFile() && st.size === 0)) return true;
-    return st.isSymbolicLink() && path.resolve(path.dirname(file), readlinkSync(file)).startsWith(canon);
-  };
-  for (const { dir, cmd, file } of AGENT_RULES) {
-    if (!has(dir, cmd)) continue;
-    if (ours(path.join(home, file))) link(path.join(home, CANON, "AGENTS.md"), path.join(home, file), home);
-    else note(`~/${file} — the user's own rules: left as is; the canon — ~/${CANON}/AGENTS.md`);
+  for (const rel of OLD_AGENT_RULES) {
+    const file = path.join(home, rel);
+    if (!lstat(file)?.isSymbolicLink() || !path.resolve(path.dirname(file), readlinkSync(file)).startsWith(canon)) continue;
+    if (dry) change("-", file);
+    else rmSync(file), note(`~/${rel} — removed: Elves is for Claude Code; another agent connects the canon itself — ~/${CANON}/docs/other-agents.md`);
   }
 }
 
@@ -1552,8 +1545,9 @@ const remote = () => process.env.CLAUDE_CODE_REMOTE === "true";
 
 /**
  * The machine (#557): the canon `~/.agents/elves/` — a copy or, with `--link`, a symlink to the clone — with Claude
- * Code's rules `~/.claude/rules/elves*.md` (the same `installRules` and `claudeRules` as in a project), the other agents' rule files (`agentRules`), skills, the `elves`
- * command in the terminal (`installCommand`) and the hook. Claude Code is on the machine — `~/.claude`, `claude` on PATH or a cloud session: its project hook (`cloudHook`) or
+ * Code's rules `~/.claude/rules/elves*.md` (the same `installRules` and `claudeRules` as in a project), skills, the `elves`
+ * command in the terminal (`installCommand`) and the hook; other agents' rule files of a previous version go
+ * (`oldAgentRules`). Claude Code is on the machine — `~/.claude`, `claude` on PATH or a cloud session: its project hook (`cloudHook`) or
  * its environment's setup script runs in a fresh home. The cloud doesn't read `~/.claude/settings.json` — no hook there.
  */
 function installGlobal(src: string, linkMode: boolean) {
@@ -1562,7 +1556,7 @@ function installGlobal(src: string, linkMode: boolean) {
   const claude = has(".claude", "claude") || remote();
   installRules(src, home, linkMode);
   installSkills(src, home, linkMode, claude);
-  agentRules(home, has);
+  oldAgentRules(home);
 
   if (claude) {
     claudeRules(home);
@@ -1574,8 +1568,6 @@ function installGlobal(src: string, linkMode: boolean) {
       else rmSync(old), note(".claude/CLAUDE.md — the old install.sh symlink removed: the canon comes from ~/.claude/rules");
     }
   }
-
-  if (has(".cursor")) note(`Cursor: sees the skills in ~/.agents/skills; it has no global rules file — paste ~/${CANON}/AGENTS.md into Settings → Rules → User Rules`);
 
   // The default location of the personal configuration. ELVES_CONFIG_DIR is deliberately not read here: the
   // variable overrides the whole directory and needs no symlink — the skills' scripts look where it points
