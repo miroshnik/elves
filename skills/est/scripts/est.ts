@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
- * est — task actuals from Claude Code and Codex transcripts.
+ * est — task actuals from Claude Code transcripts.
  *
  * Subcommands:
- *   est fact     — actual (the agent's active hours) from Claude Code and Codex transcripts for an issue
+ *   est fact     — actual (the agent's active hours) from Claude Code transcripts for an issue
  *   est period   — summary of all the repo's sessions over a period, not tied to tasks: the flow before and after
  *   est cloud-import — cloud session events into the sources of the actual
  *
@@ -31,10 +31,9 @@ const HOME = os.homedir();
 export const EST_DIR = process.env.ELVES_CONFIG_DIR || path.join(HOME, ".config", "elves");
 export const REGISTRY_PATH = path.join(EST_DIR, "repos.json");
 const CACHE_DIR = path.join(EST_DIR, "cache");
-// Actual sources: Claude Code transcripts (~/.claude/projects), Codex sessions (~/.codex/sessions) and event exports
-// of Claude Code cloud sessions (<state directory>/cloud/<owner>/<repo>/<session>.json, est cloud-import).
+// Actual sources: Claude Code transcripts (~/.claude/projects) and event exports of Claude Code cloud sessions
+// (<state directory>/cloud/<owner>/<repo>/<session>.json, est cloud-import). Other agents' sessions aren't read (#836).
 const PROJECTS_DIR = path.join(HOME, ".claude", "projects");
-const CODEX_DIRS = [path.join(HOME, ".codex", "sessions"), path.join(HOME, ".codex", "archived_sessions")];
 export const CLOUD_DIR = path.join(EST_DIR, "cloud");
 // Session pinning to tasks: `github task status` "In progress" writes <state directory>/sessions/<session id> with the
 // line owner/repo#N — direct evidence "this session worked on this task", stronger than any feature in the transcript.
@@ -502,7 +501,7 @@ export interface Closers {
   pr: Record<string, number[]>;
 }
 
-/** Session summary (Claude Code or Codex), as in the sessions.json cache. */
+/** Session summary (Claude Code, local or cloud), as in the sessions.json cache. */
 export interface Session {
   sid: string;
   cwd: string | null;
@@ -1751,136 +1750,6 @@ const kindsOf = (acc: Acc): Pick<Session, "call_kinds"> => (acc.kinds.some(Boole
 /** The session's wait calls (by start) and whether its tool results tell a wait for the user's approval apart. */
 const callsOf = (acc: Acc): Pick<Session, "calls" | "perm"> => ({ ...(acc.calls.length ? { calls: acc.calls.sort(byTs) } : {}), ...(acc.perm !== null ? { perm: acc.perm } : {}) });
 
-/** A shell command from Codex call arguments: `{"cmd": "…"}` or `{"command": ["bash", "-lc", "…"]}`. */
-function codexCommand(args: unknown): string {
-  let a: Any;
-  try {
-    a = typeof args === "string" ? JSON.parse(args) : args;
-  } catch {
-    return "";
-  }
-  const c = a && typeof a === "object" ? (a.command ?? a.cmd) : null;
-  if (typeof c === "string") return c;
-  if (!Array.isArray(c)) return "";
-  const argv = c.map(String);
-  return /^(ba|z)?sh$/.test(argv[0] ?? "") && /^-l?c$/.test(argv[1] ?? "") ? argv.slice(2).join(" ") : argv.join(" ");
-}
-
-function codexText(out: unknown): string {
-  if (typeof out === "string") return out;
-  if (Array.isArray(out)) return out.map((b) => (b && typeof b === "object" ? String((b as Any).text || "") : "")).join(" ");
-  return String(out ?? "");
-}
-
-/**
- * Codex session summary (~/.codex/sessions/**\/rollout-*.jsonl) in the same format as Claude Code's.
- *
- * Records: session_meta (cwd, id), event_msg/item_completed with item.type=UserMessage — a human
- * prompt, response_item/{message,custom_tool_call,function_call,*_output} — the agent's work (commit
- * hashes are looked for in tool outputs), token_usage_record — the response's tokens (once per response_id),
- * turn_context / thread_settings_applied — the model. Records have no branch — it's considered neutral.
- */
-export function parseCodexFile(file: string): Session {
-  const acc = newAcc();
-  let sid: string | null = null;
-  let model: string | null = null;
-  const commitCalls = new Set<string>();
-  const listingCalls = new Set<string>();
-  const waitCalls = new Map<string, [number, number]>(); // call_id → (start, wait kind)
-  let callKinds = 0; // the kinds of the calls since the last response's tokens: the response's calls come before them
-  for (const r of jsonlRecords(file)) {
-    const t = r.type;
-    const p: Any = r.payload && typeof r.payload === "object" ? r.payload : {};
-    const ts = r.timestamp ? parseTs(r.timestamp) : null;
-    if (t === "session_meta") {
-      acc.cwd = p.cwd || acc.cwd;
-      sid = p.session_id || p.id || sid;
-      continue;
-    }
-    if (t === "turn_context") {
-      model = p.model || model;
-      continue;
-    }
-    if (ts === null) continue;
-    if (t === "event_msg") {
-      const pt = p.type;
-      if (pt === "thread_settings_applied") model = p.thread_settings?.model || model;
-      else if (pt === "item_completed") {
-        const item = p.item ?? {};
-        if (item.type === "UserMessage") {
-          const txt = codexText(item.content);
-          acc.n_human++;
-          acc.ev.push([ts, "", INPUT_HUMAN, "", -1]);
-          if (acc.first_refs === null) {
-            acc.first_refs = refsIn(txt);
-            acc.first_urls = urlsIn(txt);
-          }
-        }
-      }
-      continue;
-    }
-    if (t === "token_usage_record") {
-      const u = p.usage ?? {};
-      const rid: string | undefined = p.response_id || p.turn_id;
-      if (rid && !acc.mids.has(rid)) {
-        const m = model || "codex";
-        if (!acc.models.includes(m)) acc.models.push(m);
-        const cached = Math.trunc(u.cached_input_tokens || 0);
-        const uidx = acc.usage.length;
-        acc.mids.set(rid, uidx);
-        acc.usage.push([rid.slice(-12), acc.models.indexOf(m), Math.max(0, Math.trunc(u.input_tokens || 0) - cached), Math.trunc(u.output_tokens || 0), Math.trunc(u.cache_write_input_tokens || 0), 0, cached, 0]);
-        acc.kinds.push(callKinds);
-        callKinds = 0;
-        acc.ev.push([ts, "", 0, "", uidx]);
-      }
-      continue;
-    }
-    if (t !== "response_item") continue;
-    const pt = p.type;
-    if (pt === "message" && p.role === "assistant") acc.ev.push([ts, "", 0, "", -1]);
-    else if (pt === "custom_tool_call" || pt === "function_call") {
-      const inp = pt === "custom_tool_call" ? p.input : p.arguments;
-      if (typeof inp === "string" && inp.includes("git commit")) commitCalls.add(p.call_id);
-      if (pt === "function_call" && gitListingOnly(codexCommand(inp))) listingCalls.add(p.call_id);
-      const kind = pt === "function_call" ? waitKind(codexCommand(inp)) : 0;
-      if (kind && p.call_id) waitCalls.set(p.call_id, [ts, kind]);
-      callKinds |= kindBit(callKind(String(p.name ?? ""), pt === "function_call" ? codexCommand(inp) : ""));
-      acc.ev.push([ts, "", 0, "", -1]);
-    } else if (pt === "custom_tool_call_output" || pt === "function_call_output") {
-      const txt = codexText(p.output);
-      acc.ev.push([ts, "", 0, "", -1]);
-      const call = waitCalls.get(p.call_id);
-      if (call) acc.calls.push([call[0], ts, call[1], 0, slotWaitIn(txt)]);
-      acc.perm = false; // Codex writes no permission decision: a wait for the user's approval is in the call's time
-      if (!commitCalls.has(p.call_id) && !txt.includes("git") && txt.length > 20000) continue;
-      collectHashes(listingCalls.has(p.call_id) ? acc.listed : acc.commits, ts, txt);
-    }
-  }
-  acc.ev.sort(byTs);
-  finishCommits(acc);
-  return {
-    sid: sid || path.basename(file).slice(0, -6),
-    cwd: acc.cwd,
-    n_human: acc.n_human,
-    ev: acc.ev,
-    prlinks: [],
-    commits: acc.commits,
-    first_refs: acc.first_refs ?? [],
-    first_urls: acc.first_urls,
-    usage: acc.usage,
-    ...kindsOf(acc),
-    models: acc.models,
-    title: "",
-    title_refs: [],
-    title_urls: [],
-    n_subagents: 0,
-    ...callsOf(acc),
-    source: "codex",
-    routine: acc.n_human < 3 && !acc.commits.length,
-  };
-}
-
-
 /** A cloud session export: what the browser snippet of reference.md, "Cloud session import", saves. */
 export interface CloudExport {
   v: number;
@@ -2011,19 +1880,6 @@ function cloudFiles(repo: Repo): string[] {
 
 const isCloudFile = (file: string) => file.startsWith(CLOUD_DIR.replace(/\/+$/, "") + "/");
 
-/** cwd from the first session_meta record. */
-function codexCwd(file: string): string | null {
-  try {
-    for (const r of jsonlRecords(file)) {
-      if (r.type === "session_meta") return r.payload?.cwd ?? null;
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 /**
  * A session belongs to the repository if at least one of its records was made in its directory (or a worktree
  * inside): sessions are also started outside the project and then moved into it. A cloud one — by the export
@@ -2039,36 +1895,6 @@ function cwdMatches(cwd: string | null | undefined, paths: string[]): boolean {
   if (!cwd) return true; // unknown — don't discard
   return paths.some((p) => cwd === p || cwd.startsWith(p.replace(/\/+$/, "") + "/"));
 }
-
-/** Codex sessions whose cwd is a repository path; the cwd index is cached by file mtime. */
-function codexFiles(repo: Repo): string[] {
-  let files: string[] = [];
-  for (const d of CODEX_DIRS) files = files.concat(walkJsonl(d));
-  if (!files.length) return [];
-  const idxPath = path.join(CACHE_DIR, "codex-index.json");
-  const idx = loadJson<Record<string, { mtime: number; cwd: string | null }>>(idxPath, {});
-  let changed = false;
-  const out: string[] = [];
-  for (const f of uniqSortedStrs(files)) {
-    let m: number;
-    try {
-      m = mtimeOf(f);
-    } catch {
-      continue;
-    }
-    let c = idx[f];
-    if (!c || !sameMtime(c.mtime, m)) {
-      c = { mtime: m, cwd: codexCwd(f) };
-      idx[f] = c;
-      changed = true;
-    }
-    if (c.cwd && cwdMatches(c.cwd, repo.paths)) out.push(f);
-  }
-  if (changed) saveJson(idxPath, idx);
-  return out;
-}
-
-const isCodexFile = (file: string) => CODEX_DIRS.some((d) => file.startsWith(d.replace(/\/+$/, "") + "/"));
 
 /** Session mtime including subagents (their files are appended later than the top level). */
 function sessionMtime(file: string): number {
@@ -2256,11 +2082,11 @@ function loadSessions(repo: Repo): Parsed {
   let changed = false;
   const guests = new Set(guestTranscripts(repo.full, repo.paths, repo.otherPaths, PROJECTS_DIR, path.join(repo.cacheDir, "guest-index.json")));
   const pinned = new Set(pinnedTranscripts(repo.full, repo.pins()));
-  const files = uniqSortedStrs(transcriptFiles(repo).concat([...guests], [...pinned])).concat(codexFiles(repo), cloudFiles(repo));
+  const files = uniqSortedStrs(transcriptFiles(repo).concat([...guests], [...pinned])).concat(cloudFiles(repo));
   for (const f of files) {
     let mtime: number;
     try {
-      mtime = isCodexFile(f) || isCloudFile(f) ? mtimeOf(f) : sessionMtime(f);
+      mtime = isCloudFile(f) ? mtimeOf(f) : sessionMtime(f);
     } catch {
       continue;
     }
@@ -2271,7 +2097,7 @@ function loadSessions(repo: Repo): Parsed {
     }
     let s: Session;
     try {
-      s = isCodexFile(f) ? parseCodexFile(f) : isCloudFile(f) ? parseCloudFile(f) : parseSessionFile(f);
+      s = isCloudFile(f) ? parseCloudFile(f) : parseSessionFile(f);
     } catch (e) {
       console.error(`skipped ${f}: ${(e as Error).message}`);
       continue;
@@ -3695,11 +3521,11 @@ function factForEpic(repo: Repo, issue: Any, gap: number, quiet = false): [Any, 
   return [issue, res];
 }
 
-/** "Claude Code", "Codex" or "Claude Code and Codex" — by the sources of linked sessions. */
+/** "Claude Code", the cloud session or both — by the sources of linked sessions. */
 function agentsTxt(res: Fact, language = locale.projectLanguage()): string {
   const n = locale.names(language);
   const srcs = new Set((res.details ?? []).map((d) => d.src ?? "claude"));
-  const names: Record<string, string> = { claude: "Claude Code", codex: "Codex", cloud: n.est.fact.cloudAgent };
+  const names: Record<string, string> = { claude: "Claude Code", cloud: n.est.fact.cloudAgent };
   if (!srcs.size) return "Claude Code";
   return [...srcs].sort().map((s) => names[s] ?? s).join(n.est.fact.and);
 }
@@ -3729,13 +3555,12 @@ function printFact(repo: Repo, res: Fact): void {
   if (res.waits) console.log(waitsTxt(res.waits, "en"));
   // a wait for the user's approval is told apart by the permission decision on a tool result (Claude Code); without it
   // the wait is inside the call's time (#518)
-  if (res.h !== null && res.perm_unknown) console.log(`○ waits for permission approval aren't told apart in ${res.perm_unknown} ${plural(res.perm_unknown, "session", "sessions")} (no permission decision in the transcript: an older Claude Code, Codex, cloud) — they're in the call time`);
+  if (res.h !== null && res.perm_unknown) console.log(`○ waits for permission approval aren't told apart in ${res.perm_unknown} ${plural(res.perm_unknown, "session", "sessions")} (no permission decision in the transcript: an older Claude Code, cloud) — they're in the call time`);
   console.log(`secondary: PR ${res.prs.map((p) => `#${p}`).join(", ") || "none"}; commits ${res.commits}; diff ${diffTxt(res, "en")} (without lock files / snapshots / minified)`);
   for (const d of res.details) {
     const brs = Object.entries(d.branches).slice(0, 4).map(([b, h]) => `${b} ${h} h`).join(", ");
     const rules = Object.entries(d.rules).map(([k, v]) => `${k}:${v}`).join(", ");
-    const src = d.src === "codex" ? " [codex]" : "";
-    console.log(`  session ${sidKey(d.sid)}${src} ${fmtLocal(d.start)}: ${d.hours} h, ${d.prompts} prompts [${rules}] — ${brs}`);
+    console.log(`  session ${sidKey(d.sid)} ${fmtLocal(d.start)}: ${d.hours} h, ${d.prompts} prompts [${rules}] — ${brs}`);
   }
   for (const x of res.taken ?? []) console.log(`WARNING: Not counted again: ${fmtH(x.h)} h already in the actual of #${x.issue} (linked by the session name / first prompt); if that actual is wrong — est fact ${x.issue} --write, then this task again`);
   for (const x of res.overlap ?? []) console.log(`WARNING: Overlap with the actual of #${x.issue}: ${fmtH(x.h)} h of this task (pinning, branch, subagent, commit) — recompute #${x.issue}: est fact ${x.issue} --write`);
@@ -4234,7 +4059,7 @@ Examples:
 
 /** `est --help`: what the script is and the synopsis of each command. */
 const OVERVIEW = [
-  "est — records the actual of tasks from Claude Code, Codex and cloud session transcripts and sums up a period's sessions.",
+  "est — records the actual of tasks from Claude Code transcripts, local and cloud, and sums up a period's sessions.",
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
   "",

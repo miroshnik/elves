@@ -1,12 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import {
   branchHasIssue, branchIssueNumber, branchType, computeFact, EstError, extractKeptLines, factCommentBody,
-  cloudPartsIn, cloudSessionsIn, fmtH, guestTranscripts, hashMatches, inRepo, loadPins, sidKey, mergeIntervals, packPr, parseCloudFile, parseCodexFile, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
+  cloudPartsIn, cloudSessionsIn, fmtH, guestTranscripts, hashMatches, inRepo, loadPins, sidKey, mergeIntervals, packPr, parseCloudFile, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
   factsWithModel, parsePeriods, periodSummary, periodTable, priceFor, PRICES, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
 } from "../../../skills/est/scripts/est.ts";
 import type { CloudPart, FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
@@ -670,8 +670,8 @@ describe("Свип ищет двойной счёт внутри сессии, �
 /**
  * `github task status` «В работе» закрепляет задачу за сессией: файл `<каталог конфигурации>/sessions/<id сессии>` со
  * строкой `owner/repo#N`. Это прямой факт «сессия вела эту задачу» — сильнее признаков в транскрипте (хешей, веток,
- * `#N` в названии и первом промпте), на которых привязка ошибалась. Сессия без закрепления (до него, облако, Codex,
- * сессия эпика) привязывается признаками, как раньше.
+ * `#N` в названии и первом промпте), на которых привязка ошибалась. Сессия без закрепления (до него, облако, сессия
+ * эпика) привязывается признаками, как раньше.
  */
 describe("Закреплённая сессия целиком — задаче из закрепления, признаки — запасной путь для сессий без него", () => {
   const SID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
@@ -1234,35 +1234,35 @@ describe("Транскрипт Claude Code даёт привязки к зада
   });
 });
 
-/** У записей Codex нет ветки — привязка к задаче только по номеру в промпте и хешам коммитов. */
-describe("Транскрипт Codex — такой же источник факта, только без ветки", () => {
-  it("cwd и id из session_meta, промпт из UserMessage, токены раз на response_id, хеши из выводов инструментов, кроме чужих в листинге git", () => {
-    const file = path.join(dir, "rollout-1.jsonl");
-    writeFileSync(file, jsonl([
+/**
+ * Codex убран (#836): за всё время на машине четыре его сессии, после 15 октября — ни одной, а est держал их разбор,
+ * индекс каталогов и раздел справки. Источники факта — транскрипты Claude Code и облачных сессий; Codex вернётся по
+ * запросу.
+ */
+describe("Факт — из транскриптов Claude Code: сессий Codex est не читает", () => {
+  it("`est fact` не ищет сессии Codex", () => {
+    const world = factWorld();
+    // сессия Codex в каталоге репозитория с тремя промптами о #42 — прежде её привязал бы номер в первом промпте
+    const ago = (min: number) => new Date(Date.now() - 86_400_000 + min * 60_000).toISOString();
+    const rollout = path.join(dir, ".codex", "sessions", "2026", "11", "15", "rollout-1.jsonl");
+    mkdirSync(path.dirname(rollout), { recursive: true });
+    writeFileSync(rollout, jsonl([
       { type: "session_meta", payload: { cwd: "/repo", id: "codex-1" } },
       { type: "turn_context", payload: { model: "gpt-5-codex" } },
-      { type: "event_msg", timestamp: "2026-09-01T10:00:00Z", payload: { type: "item_completed", item: { type: "UserMessage", content: [{ type: "text", text: "#42 экспорт" }] } } },
-      { type: "response_item", timestamp: "2026-09-01T10:01:00Z", payload: { type: "function_call", call_id: "c1", arguments: "{\"cmd\":\"git commit -m x\"}" } },
-      { type: "response_item", timestamp: "2026-09-01T10:02:00Z", payload: { type: "function_call_output", call_id: "c1", output: "[main deadbeef1] x" } },
-      { type: "response_item", timestamp: "2026-09-01T10:02:10Z", payload: { type: "function_call", call_id: "c2", arguments: "{\"command\":[\"bash\",\"-lc\",\"git worktree list\"]}" } },
-      { type: "response_item", timestamp: "2026-09-01T10:02:20Z", payload: { type: "function_call_output", call_id: "c2", output: "/wt-12  a1b2c3d [fix/12-signup]" } },
-      { type: "token_usage_record", timestamp: "2026-09-01T10:03:00Z", payload: { response_id: "resp_1", usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 20 } } },
-      { type: "token_usage_record", timestamp: "2026-09-01T10:03:01Z", payload: { response_id: "resp_1", usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 20 } } },
+      ...[-25, -24, -23].map((min, k) => ({ type: "event_msg", timestamp: ago(min), payload: { type: "item_completed", item: { type: "UserMessage", content: [{ type: "text", text: `#42 шаг ${k}` }] } } })),
+      { type: "token_usage_record", timestamp: ago(-22), payload: { response_id: "resp_1", usage: { input_tokens: 1000, output_tokens: 20 } } },
     ]));
-    const s = parseCodexFile(file);
-    expect(s.source).toBe("codex");
-    expect(s.sid).toBe("codex-1");
-    expect(s.cwd).toBe("/repo");
-    expect(s.first_refs).toEqual([42]);
-    expect(s.commits.map((c) => c[1])).toEqual(["deadbeef1"]);
-    expect(s.usage).toEqual([["resp_1", 0, 600, 20, 0, 0, 400, 0]]);
-    expect(s.models).toEqual(["gpt-5-codex"]);
+    const r = withFakeGh(world, ["fact", "42", "--repo", "o/r"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(" h active in Claude Code; 1 sess.,");
+    expect(r.stdout).not.toMatch(/codex|gpt-/i);
+    expect(existsSync(path.join(dir, "elves", "cache", "codex-index.json"))).toBe(false);
   });
 });
 
 /**
  * Облачная сессия Claude Code (claude.ai/code): её транскрипт — события сессии, выгруженные из claude.ai браузером
- * (`est cloud-import`). Это ещё один источник факта, как Codex: те же записи, ветки, промпты, токены и хеши, только
+ * (`est cloud-import`). Это ещё один источник факта: те же записи, ветки, промпты, токены и хеши, что у локальной, только
  * ветка приходит событием `vcs_state_changed`, а человек — это `source: client`. Коммит PR с трейлером
  * `Claude-Session`, чья сессия не импортирована, — покрытие partial со ссылкой на сессию: часть работы не видна.
  */
@@ -1608,7 +1608,21 @@ describe("Стоимость — API-эквивалент по публичны�
   });
 
   it("модель вне прайса — без цены (null), а не ноль", () => {
-    expect(usageCost("gpt-5", [1e6, 0, 0, 0, 0], false, table)).toBeNull();
+    expect(usageCost("claude-nova-1", [1e6, 0, 0, 0, 0], false, table)).toBeNull();
+  });
+
+  /** Модель вне прайса — любая (#836): прежде справка называла так модели `gpt-*` Codex, теперь Codex в est нет. */
+  it("Модель без цены в прайсе даёт токены без стоимости — и без упоминания Codex", () => {
+    const world = factWorld();
+    const transcript = path.join(dir, ".claude", "projects", "-repo", "42000000-0000-4000-8000-000000000000.jsonl");
+    writeFileSync(transcript, readFileSync(transcript, "utf8").replaceAll("claude-opus-5-5", "claude-nova-1"));
+    const r = withFakeGh(world, ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.code).toBe(0);
+    expect(r.comment).toContain("\nТокены: 0 млн (вход 0 · выход 0 · запись кэша 0 · чтение кэша 0); без цены (нет в прайсе): claude-nova-1.\n");
+    expect(r.comment).not.toContain("стоимость по API-тарифам");
+    expect(parseMarker(r.comment!, "fact")).toMatchObject({ tok: { total: 20 }, usd: null, models: { "claude-nova-1": { usd: null } } });
+    const skill = ["SKILL.md", "reference.md"].map((f) => readFileSync(path.join(path.dirname(path.dirname(EST)), f), "utf8")).join("\n");
+    for (const text of [r.stdout, r.comment!, skill]) expect(text).not.toMatch(/codex|gpt-/i);
   });
 
   /** Ключ прайса — id модели без даты, а не префикс: `claude-opus-5-5` продолжает имя `claude-opus-5`, но тариф у него свой. */
