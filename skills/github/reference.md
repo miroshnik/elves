@@ -306,8 +306,8 @@ will no longer read the questions in its last answer. Before archiving the
 session stops its own background tasks still running (a wait, a watcher over
 its output, a subagent): by this line everything needed has finished, and a
 live leftover blocks archiving (#437). How to archive — in the
-agent's file (`claude/CLAUDE.md`); an agent without such a tool (Codex, a
-cloud session) keeps the line. Archiving isn't deletion: the session can be
+agent's file (`claude/CLAUDE.md`); an agent without such a tool (another
+agent, a cloud session) keeps the line. Archiving isn't deletion: the session can be
 restored.
 
 ## Project check and fix
