@@ -186,9 +186,9 @@ describe("README называет всё, что ставит флоу, и не 
     });
 
     it("подкоманды — слова справки после имени скрипта до первого аргумента, без повторов", () => {
-      const usage = "est — оценка\n\n  est fact <N> [--write]\n  est fact --sweep\n  est cloud-import <файл>...\n  dashboard [--repo o/r]\n";
+      const usage = "est — оценка\n\n  est fact <N> [--write]\n  est fact --sweep\n  est cloud-import <файл>...\n  chart [--repo o/r]\n";
       expect(subcommandsOf("est", usage).map((p) => p.key)).toEqual(["est fact", "est cloud-import"]);
-      expect(subcommandsOf("dashboard", usage)).toEqual([]);
+      expect(subcommandsOf("chart", usage)).toEqual([]);
     });
 
     it("подкоманда названа отдельно или в перечне через «|»; перечень без неё и слово вне кода — нарушение", () => {

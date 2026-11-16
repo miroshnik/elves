@@ -2,9 +2,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
-import { composeEnv, hostProject, httpServices, projectName, PROXY, proxyHosts, proxyName, proxyPort, stackOf, taskAddress } from "../../../skills/task-env/scripts/task-env.ts";
+import { composeEnv, hostProject, httpServices, projectName, PROXY, proxyName, proxyPort } from "../../../skills/task-env/scripts/task-env.ts";
 import { elves, sandbox, type Sandbox } from "../../lib/elves.ts";
 import { packageProject } from "../../lib/npm.ts";
 import { exitOf, NO_LOAD_WAIT, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
@@ -514,73 +514,31 @@ describe("Имя проекта стеков и адресов — из репо
       expect(projectName(worktree), url).toBe("shop-front");
     }
   });
-});
-
-describe("Адреса задачи и маршруты прокси — для дашборда, без сокета Docker", () => {
-  it("адрес задачи разбирается по схеме: сервис, номер, e2e, проект; другой хост — не адрес", () => {
-    expect(taskAddress("web.42.shop.localhost")).toEqual({ service: "web", task: 42, e2e: false, project: "shop" });
-    expect(taskAddress("web.e2e.42.shop.localhost")).toEqual({ service: "web", task: 42, e2e: true, project: "shop" });
-    // номер — метка перед проектом: в имени сервиса бывают точки и цифры
-    expect(taskAddress("web.1.42.shop.localhost")).toEqual({ service: "web.1", task: 42, e2e: false, project: "shop" });
-    // адрес, который строит стек задачи, разбирается обратно
-    expect(taskAddress(stackOf("shop", 42).host("web"))).toEqual({ service: "web", task: 42, e2e: false, project: "shop" });
-    expect(taskAddress(stackOf("shop", 42, true).host("web"))).toEqual({ service: "web", task: 42, e2e: true, project: "shop" });
-    // стек основного чекаута, API прокси, не *.localhost
-    for (const host of [stackOf("shop", undefined).host("web"), `${PROXY}.localhost`, "web.42.shop.example"]) expect(taskAddress(host)).toBeNull();
-  });
 
   it("проект в адресе — имя репозитория строчными буквами, цифрами и «-»", () => {
     expect(["task-env", "My_Shop", "shop.web", "--Shop--"].map(hostProject)).toEqual(["task-env", "my-shop", "shop-web", "shop"]);
   });
+});
 
-  describe("API прокси", () => {
-    /** Подставной Traefik: `/api/http/routers` постранично (`X-Next-Page`, последняя страница называет 1) — только по хосту `fake-proxy.localhost`. */
-    let routers: unknown[] = [];
-    let status = 200;
-    let server: ReturnType<typeof Bun.serve>;
-    beforeAll(() => {
-      server = Bun.serve({
-        hostname: "127.0.0.1",
-        port: 0,
-        fetch(req) {
-          const url = new URL(req.url);
-          if (req.headers.get("host") !== "fake-proxy.localhost" || url.pathname !== "/api/http/routers") return new Response("404 page not found", { status: 404 });
-          if (status !== 200) return new Response("internal error", { status });
-          const [per, page] = [Number(url.searchParams.get("per_page") || 100), Number(url.searchParams.get("page") || 1)];
-          return Response.json(routers.slice((page - 1) * per, page * per), { headers: { "X-Next-Page": String(page * per < routers.length ? page + 1 : 1) } });
-        },
-      });
-    });
-    afterAll(() => server.stop(true));
-    beforeEach(() => {
-      routers = [];
-      status = 200;
-    });
-    const env = (name = "fake-proxy") => ({ ELVES_PROXY: name, ELVES_PROXY_PORT: String(server.port) });
-    const router = (rule: string, o: Record<string, unknown> = {}) => ({ name: "r@docker", rule, service: "s", status: "enabled", entryPoints: ["web"], provider: "docker", ...o });
+describe("Прокси — `elves-proxy` на порту 80; настройки проекта — `.agents/elves.json`", () => {
+  it("имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — 80", () => {
+    expect(proxyName({})).toBe("elves-proxy");
+    expect(proxyName({ ELVES_PROXY: "other-proxy" })).toBe("other-proxy");
+    expect(proxyPort({})).toBe("80");
+    expect(proxyPort({ ELVES_PROXY_PORT: "8081" })).toBe("8081");
+  });
 
-    it("API прокси отдаёт хосты включённых маршрутов точки входа web по адресу `<имя прокси>.localhost` на его порту, все страницы", async () => {
-      routers = [
-        ...Array.from({ length: 150 }, (_, i) => router(`Host(\`s${i}.7.shop.localhost\`)`)),
-        router("Host(`off.7.shop.localhost`)", { status: "disabled" }),
-        router("PathPrefix(`/ping`)", { entryPoints: ["traefik"], provider: "internal" }),
-      ];
-      const hosts = await proxyHosts(env());
-      expect(hosts).toHaveLength(150);
-      expect(hosts).toContain("s0.7.shop.localhost");
-      expect(hosts).toContain("s149.7.shop.localhost");
-    });
-
-    it("прокси не запущен — хостов нет и ошибки нет; маршруты не прочитаны по другой причине — ошибка с ней", async () => {
-      const closed = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null) });
-      const port = String(closed.port);
-      closed.stop(true);
-      expect(await proxyHosts({ ELVES_PROXY: "fake-proxy", ELVES_PROXY_PORT: port })).toBeNull();
-      // на порту прокси без API: чужой хост Traefik отдаёт 404
-      await expect(proxyHosts(env("other-proxy"))).rejects.toThrow(/^proxy other-proxy: routes not read — .*HTTP 404/);
-      status = 500;
-      await expect(proxyHosts(env())).rejects.toThrow("HTTP 500");
-    });
+  it("`env.http` — из `.agents/elves.json`; сообщение об ошибке называет файл", () => {
+    const { dir, cleanup } = tmpDir();
+    try {
+      expect(httpServices(dir)).toEqual({});
+      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: 8080 } } }) + "\n" });
+      expect(httpServices(dir)).toEqual({ api: 8080 });
+      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: "8080" } } }) + "\n" });
+      expect(httpServices(dir)).toStartWith("env.http of .agents/elves.json: ");
+    } finally {
+      cleanup();
+    }
   });
 
   it("значения по умолчанию имени, порта и сети провайдера прокси — только в скрипте: compose-файл без них не собирается, `proxy up` передаёт их сам", () => {
@@ -609,30 +567,6 @@ describe("Адреса задачи и маршруты прокси — для 
     expect(c.services.traefik.ports).toEqual([expect.objectContaining({ host_ip: "127.0.0.1", published: "80", target: 80 })]);
     // сеть провайдера по умолчанию — своя сеть прокси
     expect(c.services.traefik.command).toContain(`--providers.docker.network=${PROXY}`);
-    // API — роутер с именем прокси на точке входа web
-    expect(c.services.traefik.labels[`traefik.http.routers.${PROXY}-api.rule`]).toBe(`Host(\`${PROXY}.localhost\`)`);
-  });
-});
-
-describe("Прокси — `elves-proxy` на порту 80; настройки проекта — `.agents/elves.json`", () => {
-  it("имя прокси — `elves-proxy`, ELVES_PROXY его меняет; порт — ELVES_PROXY_PORT, без неё — 80", () => {
-    expect(proxyName({})).toBe("elves-proxy");
-    expect(proxyName({ ELVES_PROXY: "other-proxy" })).toBe("other-proxy");
-    expect(proxyPort({})).toBe("80");
-    expect(proxyPort({ ELVES_PROXY_PORT: "8081" })).toBe("8081");
-  });
-
-  it("`env.http` — из `.agents/elves.json`; сообщение об ошибке называет файл", () => {
-    const { dir, cleanup } = tmpDir();
-    try {
-      expect(httpServices(dir)).toEqual({});
-      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: 8080 } } }) + "\n" });
-      expect(httpServices(dir)).toEqual({ api: 8080 });
-      writeTree(dir, { ".agents/elves.json": JSON.stringify({ env: { http: { api: "8080" } } }) + "\n" });
-      expect(httpServices(dir)).toStartWith("env.http of .agents/elves.json: ");
-    } finally {
-      cleanup();
-    }
   });
 });
 

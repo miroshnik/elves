@@ -423,7 +423,7 @@ describe("task new ставит метки решений — по имени р
 });
 
 /**
- * По метке «вопросы» задачу с открытыми вопросами видят дашборд и очередь, а `task answer` снимает её с последним ответом.
+ * По метке «вопросы» в списке задач GitHub видно, какие ждут ответа владельца, а `task answer` снимает её с последним ответом.
  * Ставили её руками: в пилоте #471 диспетчер — у шести задач, и раз промахнулся номером, поставив её на PR (#536).
  * Метку ставит `task new` по разделу вопросов в описании — той же мутацией, что заводит задачу.
  */
@@ -845,7 +845,7 @@ describe("task status берёт в работу одну задачу на се
     expect(statusSet(f)).toEqual([[49, "В работе"], [49, "В работе"]]);
   });
 
-  // строку не по форме est и дашборд не считают закреплением — сессия свободна и для github (tests/standards/scripts/session-pin)
+  // строку не по форме est не считает закреплением — сессия свободна и для github (tests/standards/scripts/session-pin)
   it("файл закрепления не по форме owner/repo#N — сессия свободна: «В работе» перезаписывает его задачей со строкой ○", () => {
     const f = new FakeGitHub(REC);
     const config = scratch();
@@ -2972,7 +2972,7 @@ describe("task resume называет, какое ожидание переза
     expect(task(f, ["resume"], REPO, io)).toMatchObject({ code: 0, out: "○ session task miroshnik/elves#49 is closed — no wait to restart" });
   });
 
-  // как в est и дашборде: строка не по форме — не закрепление (tests/standards/scripts/session-pin); путь файла — человеку
+  // как в est: строка не по форме — не закрепление (tests/standards/scripts/session-pin); путь файла — человеку
   it("закрепление не по форме owner/repo#N — у сессии нет задачи: строка ○ с путём файла, код 0, без запросов", () => {
     const f = new FakeGitHub(REC);
     const config = scratch();

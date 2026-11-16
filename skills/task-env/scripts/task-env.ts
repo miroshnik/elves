@@ -35,10 +35,6 @@
  *
  * The proxy is in its own network only. A task stack's service names the proxy's network by a label (`proxyLabels`).
  *
- * The proxy's API (Traefik `/api/http/routers`) answers on its port by the host `<name>.localhost`: `proxyHosts` reads
- * the hosts of its routes, `taskAddress` tells a task's address among them — the dashboard shows a task's services by
- * them over the loopback, without the Docker socket.
- *
  * Docker runs outside the Claude Code sandbox (the sandbox denies its socket): the agent runs this script as an
  * unsandboxed call — an `excludedCommands` entry for it doesn't take it out (SKILL.md, «Docker and the sandbox»).
  */
@@ -178,9 +174,6 @@ export const composeEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.Process
   ELVES_PROXY_PORT: proxyPort(env),
 });
 
-/** The host of the proxy's API: a router of the proxy's own labels on the `web` entry point (proxy/compose.yaml). */
-export const apiHost = (env: NodeJS.ProcessEnv = process.env) => `${proxyName(env)}.localhost`;
-
 /** A service's address through the machine's proxy: its port is in the address when it isn't 80. */
 export const addressUrl = (host: string, port = proxyPort()) => `http://${host}${port === "80" ? "" : `:${port}`}`;
 
@@ -191,86 +184,11 @@ const START = `bun --no-env-file ${fileURLToPath(import.meta.url)} proxy up`;
 // Addresses
 // ----------------------------------------------------------------------------
 
-/** A task's address `<service>.<N>.<project>.localhost`, e2e — `<service>.e2e.<N>.<project>.localhost`. */
-export interface TaskAddress {
-  service: string;
-  task: number;
-  e2e: boolean;
-  project: string;
-}
-
 /** A DNS label and a Compose project name at once: lowercase letters, digits and `-`. */
 const dnsLabel = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
-/**
- * `<project>` of stacks and addresses by the repository name (#393, question 6): `projectName` takes it from `origin`,
- * the dashboard — from the task's repository.
- */
+/** `<project>` of stacks and addresses by the repository name (#393, question 6): `projectName` takes it from `origin`. */
 export const hostProject = (repo: string) => dnsLabel(repo) || "project";
-
-// the service is lazy: `web.e2e.42.shop` is e2e of web, not the service `web.e2e`; `web.1.42.shop` is the service web.1
-const TASK_HOST = /^(.+?)\.(?:(e2e)\.)?(\d+)\.([a-z0-9-]+)\.localhost$/;
-
-/** A task's address by its host; another host (the main checkout's stack, the proxy's API, a foreign one) — null. */
-export function taskAddress(host: string): TaskAddress | null {
-  const m = TASK_HOST.exec(host.toLowerCase());
-  return m ? { service: m[1]!, task: Number(m[3]), e2e: !!m[2], project: m[4]! } : null;
-}
-
-/** The API answers locally: longer than this is a hang, not work. */
-const API_TIMEOUT = 3_000;
-/** Routers per API page — Traefik's default; the next page is in `X-Next-Page`, the last page names page 1. */
-const PER_PAGE = 100;
-const HOST_RULE = /Host\(\s*[`"]([^`"]+)[`"]\s*\)/g;
-
-/** The part of a Traefik router (`/api/http/routers`) the hosts are read from. */
-interface Router {
-  rule?: string;
-  status?: string;
-  entryPoints?: string[];
-}
-
-/**
- * Hosts of the proxy's routes — from its API (Traefik `GET /api/http/routers`, page by page): `Host(…)` of the
- * enabled routers of the `web` entry point; a router appears when its container starts and leaves when it stops. The
- * proxy isn't running (the connection is refused) — null: without the proxy there are no addresses either; another
- * failure — an exception with the reason.
- */
-export async function proxyHosts(env: NodeJS.ProcessEnv = process.env): Promise<string[] | null> {
-  const fail = (why: string) => new Error(`proxy ${proxyName(env)}: routes not read — ${why}`);
-  const hosts = new Set<string>();
-  for (let page = 1; ; ) {
-    const url = `http://127.0.0.1:${proxyPort(env)}/api/http/routers?per_page=${PER_PAGE}&page=${page}`;
-    let r: Response;
-    try {
-      r = await fetch(url, { headers: { Host: apiHost(env) }, signal: AbortSignal.timeout(API_TIMEOUT) });
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException & { cause?: { code?: string } };
-      const code = err.code ?? err.cause?.code;
-      if (code === "ECONNREFUSED") return null;
-      if (err.name === "TimeoutError") throw fail(`127.0.0.1:${proxyPort(env)} didn't answer in ${API_TIMEOUT / 1000} s`);
-      if (code === "EPERM") throw fail(`connecting to 127.0.0.1:${proxyPort(env)} is denied here (an agent's sandbox?)`);
-      throw fail(`${code ? `${code}: ` : ""}${err.message}`);
-    }
-    // the proxy before its API (#396) or something else on the port: Traefik answers an unknown host with 404
-    if (!r.ok) throw fail(`127.0.0.1:${proxyPort(env)} answered ${apiHost(env)} with HTTP ${r.status} — a proxy without the API? task-env proxy up brings it to the compose file`);
-    let routers: Router[];
-    try {
-      routers = (await r.json()) as Router[];
-    } catch {
-      throw fail("the API answered not with JSON");
-    }
-    if (!Array.isArray(routers)) throw fail("the API answered not with a list of routers");
-    for (const x of routers) {
-      if (x.status !== "enabled" || !x.entryPoints?.includes(ENTRY_POINT)) continue;
-      for (const m of String(x.rule ?? "").matchAll(HOST_RULE)) hosts.add(m[1]!);
-    }
-    const next = Number(r.headers.get("X-Next-Page"));
-    if (!(next > page)) break;
-    page = next;
-  }
-  return [...hosts];
-}
 
 export interface ProxyRoute {
   /** The Compose project of the stack: `<project>-<N>`, `<project>-<N>-e2e`, `<project>` without a task. */

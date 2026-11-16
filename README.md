@@ -79,7 +79,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 
 ## Installation
 
-You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github`, `est` and `dashboard` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose.
+You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github` and `est` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose.
 
 ```bash
 bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the hook for every agent it has
@@ -107,12 +107,6 @@ The GitHub project and tasks, a command per step: a task with its fields and est
 An estimate from analogs with a measured actual, set by `github task new` itself; the actual — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts.
 
 `est estimate` · `est fact` · `est history` · `est backtest` · `est period` · `est cloud-import`
-
-### [`dashboard`](skills/dashboard/SKILL.md) — sessions at work, estimate, actual and cost
-
-A browser page: sessions at work and what each waits for — CI, merge, deploy, a human's answer — with the owner's open questions; estimate against actual, tokens and cost by task close date.
-
-`dashboard [--repo o/r | --all-repos] [--since 90d]`
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 

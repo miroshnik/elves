@@ -56,7 +56,7 @@ update the same comment (reference.md, "Writing and reruns").
 | The actual says «Not counted again: N h already in the actual of #M» or «Overlap with the actual of #M … — recompute #M», and #M's actual is the wrong one | `est fact M --write`, then this task again — reference.md, "Double counting and shared commits" |
 | `--write` ended with «not written: …» (exit code 1) | the command to retry it prints |
 | The actual says «Cloud session … not imported — est cloud-import» | the import — section "Cloud session" |
-| Asked about accuracy / history | `est history [--grep word]`, `est backtest`; the trend over time — as a chart, the `dashboard` skill |
+| Asked about accuracy / history | `est history [--grep word]`, `est backtest` |
 | Compare the flow before and after a change, spend over a period without tasks | `est period --since <before> --until <change> --since <change>` — section "Period summary" |
 
 An epic isn't estimated separately: its estimate and actual are the sum of its

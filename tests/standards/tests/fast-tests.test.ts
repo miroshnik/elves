@@ -103,7 +103,7 @@ describe("Локальный test — быстрый уровень: тесты 
       if (!SLOW.test(f.path)) throw new Error(`${f.path}: ${reason(f.text)} — тест медленного уровня, файл — <имя>.slow.test.ts`);
     },
     violator: { name: "быстрый файл с пробой docker info", item: { path: "tests/capabilities/x/x.test.ts", text: `const up = spawnSync("${"docker"}", ["info"]).status === 0;\n` } },
-    includes: ["tests/capabilities/task-env/stacks.slow.test.ts", "tests/capabilities/dashboard/serve.slow.test.ts", "tests/capabilities/elves/install.slow.test.ts"],
+    includes: ["tests/capabilities/task-env/stacks.slow.test.ts", "tests/capabilities/elves/install.slow.test.ts"],
   });
 
   // без причины медленным тест не становится: иначе в test:slow уходило бы просто медленное и красное
@@ -135,7 +135,7 @@ describe("Локальный test — быстрый уровень: тесты 
     expect(sample(commands)).toEqual(["x.slow.test.ts", "x.test.ts"]);
   });
 
-  /** Паузы — 2, 5 и 15 с на каждый сбой: тест ошибки GitHub в dashboard ждал их 44 с из 45. */
+  /** Паузы — 2, 5 и 15 с на каждый сбой: тест ошибки GitHub ждал их 44 с из 45 (#417). */
   it("скрипты под тестом повторяют gh без настоящих пауз: прогон задаёт ELVES_GH_RETRY_MS=0,0,0, дочерние процессы его наследуют", () => {
     expect(process.env.ELVES_GH_RETRY_MS).toBe("0,0,0");
     const child = spawnSync(process.execPath, ["-e", "console.log(process.env.ELVES_GH_RETRY_MS)"], { encoding: "utf8" });

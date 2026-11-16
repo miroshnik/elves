@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 
-import { composeEnv, proxyHosts, proxyLabels } from "../../../skills/task-env/scripts/task-env.ts";
+import { composeEnv, proxyLabels } from "../../../skills/task-env/scripts/task-env.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { calls, COMPOSE, FAKE_GH, proxyGet, run, SCRIPT, untilAnswer } from "../../lib/task-env.ts";
@@ -74,18 +74,6 @@ describe.skipIf(!dockerUp && !process.env.CI)("Прокси на машине р
     // правило Traefik по умолчанию для открытого контейнера — Host(<имя контейнера>)
     expect((await get(`${NAME}-bare`)).status).toBe(404);
     expect((await get("bare.43.demo.localhost")).status).toBe(404);
-  });
-
-  it("API прокси называет хосты маршрутов по адресу `<имя прокси>.localhost` на его порту: контейнер стартовал — его хост есть, остановился — нет", async () => {
-    const env = { ...proxyEnv, ELVES_PROXY_PORT: port };
-    const id = app("listed", labels("demo-45", "web", "web.45.demo.localhost"));
-    await until("web.45.demo.localhost", 200);
-    expect(await proxyHosts(env)).toEqual(expect.arrayContaining(["web.45.demo.localhost", `${NAME}.localhost`]));
-    docker("stop", "--time", "0", id);
-    await until("web.45.demo.localhost", 404);
-    expect(await proxyHosts(env)).not.toContain("web.45.demo.localhost");
-    // API — только по своему хосту: сайт, навёдший своё имя на 127.0.0.1, приходит со своим Host
-    expect((await get("evil.example")).status).toBe(404);
   });
 
   it("остановленный контейнер пропадает из маршрутов", async () => {
