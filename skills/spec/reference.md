@@ -501,8 +501,10 @@ with files in `tests/`, on every path to the merge (`docs/pr-checks.md`).
 - Codes: 0 — every checked test passes, 1 — there is a ❌, 2 — a call error
   (arguments, git, dependencies, the run didn't finish or was interrupted).
 
-The cost on Elves itself — the worktree, `bun install` from the cache and the
-added tests' files: seconds, once per PR (#844 measured it).
+The cost, measured on Elves itself (#844's own PR: 11 added tests in 2
+files, both red on base): 9.3 s of wall time, 6.3 s of CPU — the worktree,
+`bun install` from the cache and the two files' run; once per PR, in
+`pr premerge`, not before every commit.
 
 ## Wiring into a repository — step by step
 

@@ -125,9 +125,10 @@ export type Check = L.HarnessCall & { path: string };
 
 /**
  * Tests and harness checks of files; `unnamed` — files with a test or describe whose name can't be computed statically
- * (its tests only a run names). A file that can't be parsed and such a name — a line in stderr.
+ * (its tests only a run names). A file that can't be parsed and such a name — a line in stderr; `quiet` — not the
+ * name (spec-red: a test only a run names isn't checked anyway).
  */
-function parseFiles(files: Map<string, string>, label: string): { tests: Test[]; checks: Check[]; unnamed: string[] } {
+function parseFiles(files: Map<string, string>, label: string, quiet = false): { tests: Test[]; checks: Check[]; unnamed: string[] } {
   const tests: Test[] = [];
   const checks: Check[] = [];
   const unnamed: string[] = [];
@@ -137,7 +138,7 @@ function parseFiles(files: Map<string, string>, label: string): { tests: Test[];
       tests.push(...scan.tests);
       checks.push(...scan.checks.map((c) => ({ ...c, path: file })));
       if (scan.unnamed.length) unnamed.push(file);
-      for (const u of scan.unnamed) {
+      for (const u of quiet ? [] : scan.unnamed) {
         const key = JSON.stringify([file, u.kind, u.name]);
         if (unnamedSeen.has(key)) continue;
         unnamedSeen.add(key);
@@ -360,8 +361,8 @@ export function diff(
  */
 export function addedTests(base: string, head: string, root?: string): Test[] {
   const { top, root: abs, prefix } = findRoot(root);
-  const baseTests = parseFiles(testsAtRev(base, top, prefix), base).tests;
-  const headTests = parseFiles(testsAtRev(head, top, prefix), head).tests;
+  const baseTests = parseFiles(testsAtRev(base, top, prefix), base, true).tests;
+  const headTests = parseFiles(testsAtRev(head, top, prefix), head, true).tests;
   const changedOut = outOfTreeFiles(base, head, top, prefix, false);
   return diff(baseTests, headTests, outOfTreePool(base, head, top, abs, prefix, changedOut, false).pool).added;
 }
