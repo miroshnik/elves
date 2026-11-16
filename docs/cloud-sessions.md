@@ -91,8 +91,8 @@ hook prints the canon (#610, question 2).
 - **GitHub GraphQL** is closed by the session proxy ("use the REST API").
   REST — only `repos/{owner}/{repo}/…` paths of the session's repositories;
   **Projects v2** (`users/…/projectsV2…`, `orgs/…`) — 403. Project fields
-  (`Status`, `Estimate, h`, `Actual, h`, tokens, cost) can't be set from the
-  cloud; `est` computes neither the estimate nor the actual.
+  (`Status`, `Actual, h`, tokens, cost) can't be set from the cloud; `est`
+  doesn't compute the actual.
 - **Writing to the repository** (push, editing issues, comments, PRs) — only
   if the Claude GitHub App has access to the repository. No access — 403
   ("Resource not accessible by integration", "Claude doesn't have GitHub
@@ -119,7 +119,7 @@ hook prints the canon (#610, question 2).
   listing `repos/{owner}/{repo}/issues`.
 - **The `github` skill's scripts** — `task show`, `task answer`, `task edit`
   (#670), `task new` over the repository's REST (#603): without the project — `task new` names
-  Status and the estimate in a line for a local session; `task show` prints
+  Status in a line for a local session; `task show` prints
   the comments of the task and its epic and the `?` lines at the questions,
   as in a local session (#651); the rest refuse
   (`CLAUDE_CODE_REMOTE`). The scenarios section — by hand over REST (`PATCH
@@ -164,8 +164,7 @@ and prints the same steps:
    not enabled — ask the user to set the status.
 3. Epic refresh — by a subagent with a fresh context, as locally (issues,
    sub-issues, milestones are available through the repository's REST); what
-   can't be done from the cloud (project fields, estimates of new tasks via
-   `est`) — into a State comment for the local session.
+   can't be done from the cloud (project fields) — into a State comment for the local session.
 
 **A local dispatcher learns of it by the task's closing** (#609): a cloud
 session can't message the local one that started it. `send_message` to a

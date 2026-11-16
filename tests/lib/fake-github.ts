@@ -63,7 +63,7 @@ export class FakeGitHub {
    * (`commits/<sha>/pulls`; без них — голова).
    */
   prs: Record<number, { files: (string | FakePrFile)[]; closes: number[]; body?: string; head: string; model: string | null; merged?: boolean; state?: string; base?: string; draft?: boolean; title?: string; checks?: Record<string, string | string[]>; logs?: Record<string, string>; sha?: string; commits?: string[] }> = {};
-  /** Задача → числовые поля проекта по имени поля (IssueShow): оценка, факт. */
+  /** Задача → числовые поля проекта по имени поля (IssueShow): факт, старая оценка. */
   numbers: Record<number, Record<string, number>> = {};
   /** Задача → id milestone (IssueRef.milestone); открытые задачи milestone считаются по состоянию записей. */
   issueMilestones: Record<number, string> = {};

@@ -158,7 +158,7 @@ describe("Ссылка на раздел документа флоу по наз
       "claude/CLAUDE.md → AGENTS.md, «First step of a session»",
       "skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session»",
       "skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics»",
-      "skills/github/reference.md → AGENTS.md, «Estimate and actual — the `est` skill»",
+      "skills/github/reference.md → AGENTS.md, «Actual — the `est` skill»",
       "docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks»",
       "skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»",
     ],
@@ -225,7 +225,7 @@ describe("Ссылка на раздел документа флоу по наз
 
     it("заголовок — название, за ним конец или знак препинания: «Task» не находит `## Task tracking`", () => {
       expect(titles("Task tracking — structure", "Task tracking")).toBe(true);
-      expect(titles("Estimate and actual — the `est` skill", "Estimate and actual — the `est` skill")).toBe(true);
+      expect(titles("Actual — the `est` skill", "Actual — the `est` skill")).toBe(true);
       expect(titles("Task tracking", "Task")).toBe(false);
       expect(titles("Tasks", "Task")).toBe(false);
     });
