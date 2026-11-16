@@ -12,8 +12,8 @@ epic-refresh checks) and what each command below checks, sets and prints —
 `reference.md` next to this file.
 The script `scripts/github.ts` checks the project
 against the canon, fixes what the API can, and does each task step in one
-command. Syntax and a summary of a command —
-`github <command> --help`. Editing an existing task (Priority, links) and
+command. Syntax — the blocks below: call without `--help` first, a call
+error prints the corrected command whole. Editing an existing task (Priority, links) and
 milestones — `reference.md`, "Manual commands".
 
 **In Claude Code — at once a separate unsandboxed call**
@@ -62,7 +62,7 @@ bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" [--body-f
     # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
 bun --no-env-file <skill dir>/scripts/github.ts task show <N>
 bun --no-env-file <skill dir>/scripts/github.ts task answer <N> <k> "<answer>" [--auto]
-bun --no-env-file <skill dir>/scripts/github.ts task edit <N> --replace|--add|--check …   # --help
+bun --no-env-file <skill dir>/scripts/github.ts task edit <N> [--replace "<old>" "<new>"] [--add "## <section>" "<item>"] [--check "<item text>"] …
 bun --no-env-file <skill dir>/scripts/github.ts task start <N> --branch <type>/<N>-<slug>
 bun --no-env-file <skill dir>/scripts/github.ts task status <N> "In progress" [--branch <type>/<N>-<slug>]   # Backlog | In progress | Done
 bun --no-env-file <skill dir>/scripts/github.ts task drop <N> [--duplicate-of M]

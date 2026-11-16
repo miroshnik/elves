@@ -44,6 +44,10 @@ function task(f: FakeGitHub, args: string[], repo = REPO, io: Partial<Io> = {}) 
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
 const byOp = (f: FakeGitHub, op: string) => f.mutations.filter((m) => m.op === op).map((m) => m.input);
+/** Строка запуска скрипта в готовой команде вывода (#841): агент запускает её как есть. */
+const RUN = `bun --no-env-file ${fileURLToPath(new URL("../../../skills/github/scripts/github.ts", import.meta.url))} `;
+/** Готовая команда ответа на вопрос k задачи n — в строке «Questions:» `task show`. */
+const answerCmd = (n: number, k: number) => `${RUN}task answer ${n} ${k} '<answer>' --repo miroshnik/elves, auto mode — with --auto`;
 const optionId = (f: FakeGitHub, name: string) => f.field("Status").options.find((o: { name: string }) => o.name === name).id;
 const statusSet = (f: FakeGitHub) => byOp(f, "SetItemStatus").map((m) => [f.items().find((it) => it.id === m.itemId)?.content.number, f.field("Status").options.find((o: { id: string }) => o.id === m.value.singleSelectOptionId).name]);
 
@@ -1047,7 +1051,7 @@ describe("task start берёт задачу одним вызовом", () => {
     own.issue(49).body = `${BODY}\n1. ✅ Формат? **Ответ:** PDF.\n2. Кодировка?\n`;
     const r = start(own, ["49", "--branch", "fix/49-invoice-export"]);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('Questions: open 2; answered 1 — task answer 49 <k> "<answer>" [--auto]');
+    expect(r.out).toContain(`Questions: open 2; answered 1 — ${answerCmd(49, 2)}`);
     expect(r.out).toContain("! open questions — #49: 2: ask the owner all of them in one message");
     expect(own.mutations).toEqual([]);
 
@@ -1132,6 +1136,22 @@ describe("task start берёт задачу одним вызовом", () => {
     const n = start(bare, ["49", "--branch", "fix/49-invoice-export"]);
     expect(n.out).toContain("○ no scenarios in «## Сценарии» — a code task gets them in the description before code");
     expect(n.out).not.toContain("ToolSearch");
+  });
+
+  // следующий шаг — готовой командой с номером задачи (#841): синтаксис task edit и task answer агент не угадывает
+  it("task start печатает готовые команды следующего шага: сценарии в описание и ответ на открытый вопрос", () => {
+    const bare = new FakeGitHub(REC);
+    expect(start(bare, ["49", "--branch", "fix/49-invoice-export"]).out).toContain(
+      `○ no scenarios in «## Сценарии» — a code task gets them in the description before code: ${RUN}task edit 49 --add '## Сценарии' '<scenario>' --repo miroshnik/elves`,
+    );
+    const own = new FakeGitHub(REC);
+    own.issue(49).body = `${BODY}\n1. ✅ Формат? **Ответ:** PDF.\n2. Кодировка?\n`;
+    expect(start(own, ["49", "--branch", "fix/49-invoice-export"]).out).toContain(`(auto mode — by the recommendation: ${RUN}task answer 49 2 '<answer>' --auto --repo miroshnik/elves), then task start 49 again`);
+    // у задачи вопросов нет — команда вопроса эпика
+    const epic = new FakeGitHub(REC);
+    epic.issue(47).body = BODY;
+    epic.issue(45).body = "Цель эпика.\n\n## Вопросы\n\n1. Сроки?\n";
+    expect(start(epic, ["47", "--branch", "feat/47-invoice-export"]).out).toContain(`${RUN}task answer 45 1 '<answer>' --auto --repo miroshnik/elves)`);
   });
 
   it("task start видит сценарии раздела «## Сценарии», пункты которого — имена в ёлочках", () => {
@@ -1291,7 +1311,7 @@ describe("task show печатает задачу одним выводом", ()
       // закрытый блокер уже не блокирует
       "Blocked by: #49 «Стандарт · облачная сессия — скрипты скиллов с Projects v2 выходят с объяснением»",
       "PR #80 open — checks: 2 ✅, 1 ⏳ (e2e), 1 ❌ (lint)",
-      'Questions: open 2, 3; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      `Questions: open 2, 3; answered 1 — ${answerCmd(47, 2)}`,
       "Comments: none",
       "Epic #45 comments: none",
       "",
@@ -1380,7 +1400,7 @@ describe("task show печатает задачу одним выводом", ()
     ]);
     const questions = lines.findIndex((l) => l.startsWith("Questions:"));
     expect(lines.slice(questions, questions + 3)).toEqual([
-      'Questions: open 2, 3; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      `Questions: open 2, 3; answered 1 — ${answerCmd(47, 2)}`,
       '? 2: answer in a comment of @anna 2026-10-19 08:05 UTC — check it and task answer 47 2 "<answer>"',
       "Comments: 3",
     ]);
@@ -1401,6 +1421,16 @@ describe("task show печатает задачу одним выводом", ()
     ]);
   });
 
+  it("`task show` задачи с открытыми вопросами печатает готовую команду ответа", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(47).body = "## Вопросы\n\n1. ✅ Формат? **Ответ:** CSV.\n2. Кодировка?\n3. Разделитель?\n";
+    const line = task(f, ["show", "47"]).out.split("\n").find((l) => l.startsWith("Questions:"))!;
+    expect(line).toBe(`Questions: open 2, 3; answered 1 — ${RUN}task answer 47 2 '<answer>' --repo miroshnik/elves, auto mode — with --auto`);
+    // команда — как её разберёт shell: номер задачи и первого открытого вопроса, место ответа, репозиторий
+    const command = line.slice(line.indexOf(RUN) + RUN.length, line.lastIndexOf(", auto mode"));
+    expect(execFileSync("sh", ["-c", `printf '%s\\0' ${command}`], { encoding: "utf8" }).split("\0").slice(0, -1)).toEqual(["task", "answer", "47", "2", "<answer>", "--repo", REPO]);
+  });
+
   it("блокер — issue другого репозитория: в «Blocked by» — с именем репозитория, а не номером, похожим на задачу этого", () => {
     const f = new FakeGitHub(REC);
     f.blockedBy[47] = [49, { repo: "acme/runtime", number: 46, state: "OPEN", title: "Падает при старте", id: "I_ext46" }];
@@ -1419,7 +1449,7 @@ describe("task show печатает задачу одним выводом", ()
     f.issue(45).body = "## Вопросы\n\n1. Сроки?\n";
     const lines = task(f, ["show", "45"]).out.split("\n");
     // у эпика в записи три подзадачи: #46 и #50 закрыты, открыта #47
-    expect(lines.slice(1, 5)).toEqual(["Эпик · Status «В работе»", "Subtasks: open 1 of 3", "- task #47 «GitHub · Задача одной командой — github task»", 'Questions: open 1 — task answer 45 <k> "<answer>" [--auto]']);
+    expect(lines.slice(1, 5)).toEqual(["Эпик · Status «В работе»", "Subtasks: open 1 of 3", "- task #47 «GitHub · Задача одной командой — github task»", `Questions: open 1 — ${answerCmd(45, 1)}`]);
     expect(lines.some((l) => l.startsWith("PR"))).toBe(false);
   });
 
@@ -1444,7 +1474,7 @@ describe("task show печатает задачу одним выводом", ()
       "   ✅ авто: 15 мин.",
       "5. Песочница — ✅ auto: проверено.",
     ].join("\n");
-    expect(task(f, ["show", "47"]).out.split("\n")).toContain('Questions: open 1; answered 2, 3, 4, 5 — task answer 47 <k> "<answer>" [--auto]');
+    expect(task(f, ["show", "47"]).out.split("\n")).toContain(`Questions: open 1; answered 2, 3, 4, 5 — ${answerCmd(47, 1)}`);
   });
 
   it("PR у задачи нет — «PR: none»; задачи нет — ошибка, код 2", () => {
@@ -1638,7 +1668,7 @@ describe("Облачная сессия: task show, task answer и task new — 
       "- question 1. Сроки?",
       "Blocked by: #49 «Стандарт · облачная сессия — скрипты скиллов с Projects v2 выходят с объяснением»",
       "PR #80 open — checks: 1 ✅, 1 ⏳ (e2e), 1 ❌ (lint)",
-      'Questions: open 2; answered 1 — task answer 47 <k> "<answer>" [--auto]',
+      `Questions: open 2; answered 1 — ${answerCmd(47, 2)}`,
       "Comments: none",
       "Epic #45 comments: none",
       "",
@@ -1661,7 +1691,7 @@ describe("Облачная сессия: task show, task answer и task new — 
     expect(r.err).toBe("");
     const lines = r.out.split("\n");
     expect(lines.slice(lines.findIndex((l) => l.startsWith("Questions:")), lines.indexOf(""))).toEqual([
-      'Questions: open 1 — task answer 47 <k> "<answer>" [--auto]',
+      `Questions: open 1 — ${answerCmd(47, 1)}`,
       '? 1: answer in a comment of @anna 2026-10-19 08:05 UTC — check it and task answer 47 1 "<answer>"',
       "Comments: 2",
       "- @anna 2026-10-19 08:05 UTC:",

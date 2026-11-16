@@ -40,6 +40,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import type { ParseArgsConfig } from "node:util";
 
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
@@ -2463,7 +2464,9 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   for (const line of t.lines) io.out(line);
   const asked = [t.open.length ? `#${number}: ${t.open.join(", ")}` : "", t.epicOpen?.ks.length ? `epic #${t.epicOpen.number}: ${t.epicOpen.ks.join(", ")}` : ""].filter(Boolean);
   if (asked.length) {
-    io.out(`! open questions — ${asked.join("; ")}: ask the owner all of them in one message, with options and a recommendation (auto mode — task answer <N> <k> "<answer>" --auto by the recommendation), then task start ${number} again — the task isn't taken`);
+    // the answer's command ready — of the task's first open question, otherwise of the epic's (#841)
+    const [n, k] = t.open.length ? [number, t.open[0]!] : [t.epicOpen!.number, t.epicOpen!.ks[0]!];
+    io.out(`! open questions — ${asked.join("; ")}: ask the owner all of them in one message, with options and a recommendation (auto mode — by the recommendation: ${ready(["task", "answer", n, k, "<answer>", "--auto", "--repo", slug])}), then task start ${number} again — the task isn't taken`);
     return 1;
   }
   const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
@@ -2483,7 +2486,11 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   io.out(`Next: the session name — «#${number} ${t.title}»`);
   if (resume && !here) io.out(`Branch: continue ${parallel.join(", ")} — checked out in another worktree (git worktree list): work in that one; in none — git switch it here`);
   else io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
-  io.out(scenarios?.length ? `Scenarios: ${scenarios.length} in ${q(N.sections.scenarios)} — the future it names` : `○ no scenarios in ${q(N.sections.scenarios)} — a code task gets them in the description before code`);
+  io.out(
+    scenarios?.length
+      ? `Scenarios: ${scenarios.length} in ${q(N.sections.scenarios)} — the future it names`
+      : `○ no scenarios in ${q(N.sections.scenarios)} — a code task gets them in the description before code: ${ready(["task", "edit", number, "--add", N.sections.scenarios, "<scenario>", "--repo", slug])}`,
+  );
   if (io.env["CLAUDECODE"] === "1") io.out(`ToolSearch select:${APP_TOOLS.join(",")}`);
   return code;
 }
@@ -2783,7 +2790,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
       ? "Questions: none"
       : !open.length
         ? `Questions: all answered (${answered.join(", ")})`
-        : `Questions: open ${open.join(", ")}${answered.length ? `; answered ${answered.join(", ")}` : ""} — task answer ${number} <k> "<answer>" [--auto]`,
+        : `Questions: open ${open.join(", ")}${answered.length ? `; answered ${answered.join(", ")}` : ""} — ${ready(["task", "answer", number, open[0]!, "<answer>", "--repo", slug])}, auto mode — with --auto`,
   );
   const comments = shownComments(i.comments);
   const answers = answerCandidates(open, comments.nodes);
@@ -2853,32 +2860,37 @@ const EDIT_USAGE: Record<string, string> = { "--replace": "--replace <old> <new>
 
 /**
  * `task edit`'s arguments: an edit takes two values (`--replace <old> <new>`, `--add <section> <item>`), which
- * `parseArgs` can't, and its values go as is — a text may start with `-`.
+ * `parseArgs` can't, and its values go as is — a text may start with `-`. A call error — the command corrected (#841):
+ * an unknown option — the edit it means (an alias, a typo), no task number — `<N>` first; otherwise the synopsis.
  */
 function parseEdits(args: string[]): { number: number; repo: string | undefined; edits: Edit[] } {
   let number: number | undefined;
   let repo: string | undefined;
   const edits: Edit[] = [];
+  const usage = Object.values(EDIT_USAGE).join(", ");
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const arity = a === "--repo" ? 1 : EDIT_ARITY[a];
     if (arity === undefined) {
-      if (a.startsWith("--")) throw new GhError(`task edit: unknown option ${a}; expected ${Object.values(EDIT_USAGE).join(", ")}`);
+      if (a.startsWith("--")) {
+        const to = meantOption(a, optionsOf("task edit"));
+        throw new CallError(`task edit: no option ${a}${to ? ` — ${to}` : `; its edits: ${usage}`}`, to ? ["task", "edit", ...args.slice(0, i), to, ...args.slice(i + 1)] : null);
+      }
       if (number !== undefined) throw new GhError(`extra arguments: ${a}`);
       number = issueNumber(a, "task edit");
       continue;
     }
     // a value that is an option's name — a value missing, not a text: `--replace <old> --repo …` lost its `<new>`
     const values = args.slice(i + 1, i + 1 + arity);
-    if (values.length < arity || values.some((v) => v === "--repo" || Object.hasOwn(EDIT_ARITY, v))) throw new GhError(`task edit: ${a} expects ${arity} value${arity > 1 ? "s" : ""}${a === "--repo" ? "" : `: ${EDIT_USAGE[a]}`}`);
+    if (values.length < arity || values.some((v) => v === "--repo" || Object.hasOwn(EDIT_ARITY, v))) throw new CallError(`task edit: ${a} expects ${arity} value${arity > 1 ? "s" : ""}${a === "--repo" ? "" : `: ${EDIT_USAGE[a]}`}`, null);
     i += arity;
     if (a === "--repo") repo = values[0];
     else if (a === "--replace") edits.push({ kind: "replace", old: values[0]!, next: values[1]! });
     else if (a === "--add") edits.push({ kind: "add", section: values[0]!, item: values[1]! });
     else edits.push({ kind: "check", text: values[0]! });
   }
-  if (number === undefined) throw new GhError("task edit: expected an issue number");
-  if (!edits.length) throw new GhError(`task edit: expected edits — ${Object.values(EDIT_USAGE).join(", ")}`);
+  if (number === undefined) throw new CallError("task edit: expected an issue number — first, before the edits", ["task", "edit", "<N>", ...args]);
+  if (!edits.length) throw new CallError(`task edit: expected edits — ${usage}`, null);
   return { number, repo, edits };
 }
 
@@ -2889,6 +2901,14 @@ const LIST_ITEM_RE = /^(?:[-*+]|\d+\.)\s/;
 const headingLevel = (line: string) => /^(#{1,6})\s/.exec(line)?.[1]?.length ?? 0;
 /** The questions section's heading in any language of the dictionary: `questionItems` reads it, `task edit --add` numbers its first item. */
 const QUESTIONS_SECTION_RE = new RegExp(`^(?:${locale.every((n) => n.sections.questions).map(locale.escapeRe).join("|")})\\s*$`);
+/** The canon's sections of a description in any language of the dictionary: `task edit --add` creates a missing one. */
+const CANON_SECTIONS = [...locale.every((n) => n.sections.questions), ...locale.every((n) => n.sections.scenarios)];
+
+/** Where a new section goes: the description's end, before the cloud proxy's signature — a thematic break with no heading after it. */
+function sectionsEnd(lines: string[]): number {
+  const at = lines.reduce((last, l, i) => (THEMATIC_BREAK_RE.test(l) ? i : last), -1);
+  return at >= 0 && !lines.slice(at + 1).some((l) => headingLevel(l)) ? at : lines.length;
+}
 
 /**
  * The marker of an item added after `prev`, the section's last item: `- [ ]` after a checklist item, the next number,
@@ -2924,17 +2944,34 @@ export function applyEdits(number: number, body: string, edits: Edit[]): { body:
     }
     const lines = text.split(/\r?\n/);
     if (e.kind === "add") {
-      const heading = e.section.trim();
-      const level = headingLevel(heading);
-      const at = lines.flatMap((l, i) => (l.trim() === heading ? [i] : []));
-      if (!level || !at.length) throw new GhError(`#${number}: --add — no section ${q(heading)}${level ? "" : " (a heading line, «## …»)"}`);
-      if (at.length > 1) throw new GhError(`#${number}: --add — section ${q(heading)} appears ${at.length} times`);
+      const given = e.section.trim();
+      // a bare name — the heading with that text (#841: «Questions» for «## Questions» — 18 refusals in two months)
+      const at = lines.flatMap((l, i) => ((headingLevel(given) ? l.trim() === given : headingLevel(l) > 0 && l.replace(/^#{1,6}\s+/, "").trim() === given) ? [i] : []));
+      const item = e.item.trim().replace(/\s*\r?\n\s*/g, " ");
+      if (!at.length) {
+        // a canon section the description lacks — the --add creates it (#841: «## Scenarios» of a task without one — 27 refusals)
+        const heading = headingLevel(given) ? given : `## ${given}`;
+        if (!CANON_SECTIONS.includes(heading)) {
+          const sections = lines.filter((l) => headingLevel(l)).map((l) => q(l.trim()));
+          throw new GhError(`#${number}: --add — no section ${q(given)}; the description's sections: ${sections.length ? sections.join(", ") : "none"}`);
+        }
+        const line = `${LIST_ITEM_RE.test(item) ? "" : QUESTIONS_SECTION_RE.test(heading) ? "1. " : "- "}${item}`;
+        const end = sectionsEnd(lines);
+        const before = lines.slice(0, end);
+        while (before.length && !before.at(-1)!.trim()) before.pop();
+        const after = lines.slice(end);
+        text = [...before, ...(before.length ? [""] : []), heading, "", line, ...(after.length ? ["", ...after] : [""])].join(eol);
+        done.push(`added to ${q(heading)} — a new section`);
+        continue;
+      }
+      if (at.length > 1) throw new GhError(`#${number}: --add — section ${q(given)} appears ${at.length} times`);
       const from = at[0]!;
+      const heading = lines[from]!.trim();
+      const level = headingLevel(heading);
       let end = from + 1;
       while (end < lines.length && !THEMATIC_BREAK_RE.test(lines[end]!) && !(headingLevel(lines[end]!) && headingLevel(lines[end]!) <= level)) end++;
       let last = end - 1;
       while (last > from && !lines[last]!.trim()) last--;
-      const item = e.item.trim().replace(/\s*\r?\n\s*/g, " ");
       // the section's last top-level item: a nested one under it isn't the list's
       const prev = lines.slice(from + 1, last + 1).filter((l) => LIST_ITEM_RE.test(l)).at(-1);
       const line = `${LIST_ITEM_RE.test(item) ? "" : itemMarker(prev, QUESTIONS_SECTION_RE.test(heading) ? "1. " : "- ")}${item}`;
@@ -6573,6 +6610,154 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
 // ----------------------------------------------------------------------------
 
 /**
+ * A call error with the call corrected (#841): what was wrong — one line, then the whole command to run instead; no
+ * correction — the command's synopsis. `--help` was 9 % of the script's calls, and 124 of 136 `task new --help` and
+ * 171 of 181 `task edit --help` came before the command's first call in the session: the syntax isn't guessed, and an
+ * error sent to the help — a turn on the full context. A call is safe to try: its error is the command that works.
+ */
+class CallError extends GhError {
+  readonly fixed: string[] | null;
+  constructor(message: string, fixed: string[] | null) {
+    super(message);
+    this.fixed = fixed;
+  }
+}
+
+/** An argument for the shell: as is without the shell's special characters, otherwise quoted — single quotes first. */
+function shellArg(a: string): string {
+  if (/^[\w@%+=:,./-]+$/.test(a)) return a;
+  if (!a.includes("'")) return `'${a}'`;
+  return /["$`\\!]/.test(a) ? `'${a.replace(/'/g, `'\\''`)}'` : `"${a}"`;
+}
+
+/** The command ready for the shell: this script with the arguments (#841) — a hint is run as is, not assembled. */
+const ready = (args: (string | number)[]) => `bun --no-env-file ${import.meta.path} ${args.map((a) => shellArg(String(a))).join(" ")}`;
+
+/** The synopsis of a command — the first paragraph of its help; an unknown one — the overview. */
+const synopsisOf = (command: string) => (Object.hasOwn(HELP, command) ? HELP[command]!.split("\n\n")[0]! : OVERVIEW);
+
+/** The options of a command — the flags of its synopsis: the help is their one list. */
+const optionsOf = (command: string) => [...new Set(synopsisOf(command).match(/--[a-z][\w-]*/g) ?? [])];
+
+/** Options the commands no longer take, each with its value: the call goes without it, the line says why. */
+const GONE: Record<string, string> = { "--branch-type": "no estimate since #835, the branch type comes with task start --branch" };
+
+/** The names agents reach for in place of an option (#841, the sessions' calls): `--parent 45` means `--epic 45`. */
+const ALIASES: Record<string, string> = {
+  "--parent": "--epic",
+  "--label": "--labels",
+  "--blocker": "--blocked-by",
+  "--blockers": "--blocked-by",
+  "--description": "--body",
+  "--file": "--body-file",
+  "--append": "--add",
+};
+
+/** Levenshtein distance — a typo in an option's name. */
+function distance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j]! + 1, row[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length]!;
+}
+
+/** The option of the command an unknown name means: an alias, otherwise the one nearest within two letters; none — null. */
+function meantOption(name: string, own: string[]): string | null {
+  const alias = ALIASES[name];
+  if (alias && own.includes(alias)) return alias;
+  const near = own.map((o) => ({ o, d: distance(name, o) })).filter((x) => x.d <= 2 && name.length > 4);
+  const best = Math.min(...near.map((x) => x.d));
+  const nearest = near.filter((x) => x.d === best);
+  return nearest.length === 1 ? nearest[0]!.o : null;
+}
+
+/** A dash at a text's start — a text, not an option: an option is `--name` or `-x`. */
+const isOptionName = (raw: string) => /^--?[a-z][\w-]*$/i.test(raw);
+
+/**
+ * The call error of `parseArgs` corrected (#841): an option the command doesn't know — the one it means (an alias, a
+ * typo within two letters), a gone one (`GONE`) — dropped with its value, a text that starts with a dash — after `--`;
+ * an option without its value — a placeholder, a value that starts with a dash — glued by `=`, a value of a flag —
+ * the flag alone; a command without arguments — without them. Not figured out — the synopsis.
+ */
+function parseCallError(command: string, args: string[], config: ParseArgsConfig, first: string): CallError {
+  const { tokens = [] } = parseArgs({ ...config, strict: false, tokens: true });
+  const options = config.options ?? {};
+  const own = optionsOf(command);
+  const out: string[][] = args.map((a) => [a]);
+  const tail: string[] = [];
+  const said: string[] = [];
+  let moving = false;
+  for (const t of tokens) {
+    if (t.kind === "option-terminator") continue;
+    if (t.kind === "positional") {
+      // the positionals after a text moved behind `--` follow it: their order is the command's
+      if (moving) tail.push(args[t.index]!);
+      else if (!config.allowPositionals) said.push(`it takes no argument ${q(clip(t.value))}`);
+      if (moving || !config.allowPositionals) out[t.index] = [];
+      continue;
+    }
+    const spec = options[t.name];
+    if (!spec && !isOptionName(t.rawName)) {
+      said.push(`${q(clip(args[t.index]!))} starts with a dash — a text, not an option: after --`);
+      tail.push(args[t.index]!);
+      out[t.index] = [];
+      moving = true;
+      continue;
+    }
+    if (!spec) {
+      const gone = GONE[t.rawName];
+      const to = gone ? null : meantOption(t.rawName, own);
+      if (gone) {
+        said.push(`${t.rawName} is gone — ${gone}`);
+        out[t.index] = [];
+        const next = tokens.find((x) => x.index === t.index + 1);
+        if (!t.inlineValue && next?.kind === "positional") out[t.index + 1] = [];
+      } else if (to) {
+        said.push(`no option ${t.rawName} — ${to}`);
+        out[t.index] = [t.inlineValue ? `${to}=${t.value}` : to];
+      } else return new CallError(`${command}: no option ${t.rawName}; its options: ${own.join(", ")}`, null);
+      continue;
+    }
+    // `--title --repo x`: the next option isn't the title — the value is missing
+    const missing = t.value === undefined || (!t.inlineValue && t.value.startsWith("--") && Object.hasOwn(options, t.value.slice(2)));
+    if (spec.type === "string" && missing) {
+      said.push(`${t.rawName} without its value`);
+      out[t.index] = [t.rawName, `<${t.name}>`];
+    } else if (spec.type === "string" && !t.inlineValue && t.value!.startsWith("-")) {
+      said.push(`the value of ${t.rawName} starts with a dash — glued by =`);
+      out[t.index] = [`${t.rawName}=${t.value}`];
+      out[t.index + 1] = [];
+    } else if (spec.type === "boolean" && t.inlineValue) {
+      said.push(`${t.rawName} is a flag, without a value`);
+      out[t.index] = [t.rawName];
+    }
+  }
+  if (!said.length) return new CallError(`${command}: ${first}`, null);
+  return new CallError(`${command}: ${said.join("; ")}`, [...command.split(" "), ...out.flat(), ...(tail.length ? ["--", ...tail] : [])]);
+}
+
+/** `parseArgs` of a command's arguments; a call error — `CallError` with the call corrected (`parseCallError`). */
+function parse<T extends ParseArgsConfig>(command: string, config: T): ReturnType<typeof parseArgs<T>> {
+  try {
+    return parseArgs(config);
+  } catch (e) {
+    if (!String((e as Any)?.code ?? "").startsWith("ERR_PARSE_ARGS_")) throw e;
+    throw parseCallError(command, [...(config.args ?? [])], config, (e as Error).message.split("\n")[0]!);
+  }
+}
+
+/** The arguments without the positional ones: a correction that moves them into an option. */
+function withoutPositionals(args: string[], config: ParseArgsConfig): string[] {
+  const { tokens = [] } = parseArgs({ ...config, args, strict: false, tokens: true });
+  const drop = new Set(tokens.filter((t) => t.kind === "positional").map((t) => t.index));
+  return args.filter((a, i) => !drop.has(i) && a !== "--");
+}
+
+/**
  * Help — `--help` or `-h` anywhere in the arguments (tests/standards/scripts/cli-help): a command's synopsis (the first
  * paragraph), what it does and examples; `github --help` — the synopses of all. The dispatcher takes only the commands
  * from here: a command without help can't be called.
@@ -6629,8 +6814,9 @@ Examples:
   "task edit": `github task edit <N> [--replace <old> <new>] [--add <section> <item>] [--check <item text>] … [--repo owner/repo]
 
 An edit of the description in one call, not gh issue view --json body, a file and gh issue edit --body-file: --replace —
-the text must occur exactly once; --add — an item at the end of the section «## …» (without a list marker — the one of
-the section's last item: «- [ ]», the next number, its bullet; the questions section's first — «1.»); --check —
+the text must occur exactly once; --add — an item at the end of the section «## …» or of the heading with that bare
+name; the canon's questions or scenarios section the description lacks — created at its end (without a list marker —
+the one of the section's last item: «- [ ]», the next number, its bullet; the questions section's first — «1.»); --check —
 «- [ ]» → «- [x]» of the one unchecked item with the text. Several edits — in order, each sees the previous one's result,
 written together; any not found or ambiguous — refused (code 2), the description untouched. Questions are answered by
 task answer. A cloud session — over the repository's REST.
@@ -6850,7 +7036,7 @@ const OVERVIEW = [
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
   "",
-  "github <command> --help — the command's details and examples",
+  "github <command> --help — the command's details and examples; a call error prints the corrected command whole",
 ].join("\n");
 
 /** The help the arguments ask for (`--help`, `-h`): of the command they start with, otherwise the overview; none — undefined. */
@@ -6961,15 +7147,16 @@ export function main(argv: string[], io: Io): number {
       if (!/^[\w.-]+\/[\w.-]+$/.test(slug)) throw new GhError(`invalid --repo «${slug}», expected owner/repo`);
       return inCloud(io) ? slug : canonicalRepo(io, slug);
     };
+    const command = `${group} ${cmd}`;
     if (group === "pr") {
-      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
+      const { values, positionals } = parse(command, { args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
       if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
       const m = /^#?(\d+)$/.exec((positionals[0] ?? "").trim());
       if (!m) throw new GhError(`pr ${cmd}: expected a PR number, not «${positionals[0] ?? ""}»`);
       return (cmd === "premerge" ? cmdPrPremerge : cmdPrLabels)(io, repoOf(values.repo), Number(m[1]));
     }
     if (group === "batch") {
-      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
+      const { values, positionals } = parse(command, { args: rest, allowPositionals: true, options: { repo: { type: "string" } } });
       if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
       return cmdBatchRelease(io, repoOf(values.repo), positionals[0]);
     }
@@ -6978,7 +7165,7 @@ export function main(argv: string[], io: Io): number {
       return cmdTaskEdit(io, repoOf(repo), number, edits);
     }
     if (group === "task") {
-      const { values, positionals } = parseArgs({
+      const config = {
         args: rest,
         allowPositionals: true,
         options: {
@@ -7005,7 +7192,8 @@ export function main(argv: string[], io: Io): number {
           auto: { type: "boolean", default: false },
           timeout: { type: "string" },
         },
-      });
+      } satisfies ParseArgsConfig;
+      const { values, positionals } = parse(command, config);
       // the task and its repository — from the session pin: the hook runs it from any directory
       if (cmd === "resume") {
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")} — task resume takes the task from the session pin`);
@@ -7013,8 +7201,12 @@ export function main(argv: string[], io: Io): number {
       }
       const slug = repoOf(values.repo);
       if (cmd === "new") {
+        // the title as an argument, or none — the command with --title and the call's other arguments (#841)
+        if (!values.title?.trim()) {
+          const title = positionals.join(" ").trim();
+          throw new CallError(`task new: ${title ? "the title is the value of --title, not an argument" : "--title is required"}`, ["task", "new", "--title", title || "<title>", ...withoutPositionals(rest, config)]);
+        }
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")}`);
-        if (!values.title?.trim()) throw new GhError("--title is required");
         if (values.body !== undefined && values["body-file"]) throw new GhError("--body or --body-file, not both");
         const body = values["body-file"] ? readFileSync(values["body-file"], "utf8") : (values.body ?? "");
         const blockedBy = (values["blocked-by"] ?? "").split(",").filter((x) => x.trim()).map((x) => issueNumber(x, "--blocked-by"));
@@ -7060,13 +7252,19 @@ export function main(argv: string[], io: Io): number {
       if (cmd === "close") return cmdTaskClose(io, slug, number, { git: !values["no-git"] });
       return cmdTaskDrop(io, slug, number, values["duplicate-of"] === undefined ? undefined : issueNumber(values["duplicate-of"], "--duplicate-of"));
     }
-    const { values } = parseArgs({ args: rest, options: { repo: { type: "string" }, confirm: { type: "boolean", default: false }, template: { type: "string", default: DEFAULT_TEMPLATE } } });
+    const { values } = parse(command, { args: rest, options: { repo: { type: "string" }, confirm: { type: "boolean", default: false }, template: { type: "string", default: DEFAULT_TEMPLATE } } });
     const slug = repoOf(values.repo);
     const template = values.template === "none" ? null : values.template!;
     if (template && !/^[\w.-]+\/\d+$/.test(template)) throw new GhError(`invalid --template «${template}», expected owner/N or none`);
     return cmd === "check" ? cmdCheck(io, slug) : cmdFix(io, slug, { confirm: values.confirm!, template });
   } catch (e) {
-    if (e instanceof GhError || (e as Any)?.code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") {
+    if (e instanceof CallError) {
+      // one line of what was wrong and the command that works — not «see --help» (#841)
+      io.err(`error: ${e.message}`);
+      io.err(e.fixed ? ready(e.fixed) : synopsisOf(`${argv[0]} ${argv[1]}`));
+      return 2;
+    }
+    if (e instanceof GhError) {
       io.err(`error: ${(e as Error).message}`);
       return 2;
     }
