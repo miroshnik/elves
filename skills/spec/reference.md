@@ -461,6 +461,49 @@ without a revert (kill -9, a closed session) — from the journal
 restores the file; the file was edited after the interruption — the journal
 isn't applied, exit code 2 — compare by hand.
 
+## spec-red — red on base
+
+"Written before the code, the check is red" held on the agent's word:
+`spec-break` ran 22 times on ~500 merged PRs (November 1–16), and a migration
+found at least 165 tests counted as coverage that caught no breakage (#844).
+`spec-red` makes it a mechanism; `github pr premerge` runs it once per PR
+with files in `tests/`, on every path to the merge (`docs/pr-checks.md`).
+
+- **What is checked** — `spec-diff`'s added tests, by static parsing: not a
+  renamed or a moved one, not a harness test only a run names (an invariant
+  has its own violator). The base — the merge-base of `--base` (by default
+  `origin/main`) and `--head`. No added tests — an ○ line, nothing runs.
+- **Where** — a temporary worktree at the base (`inTempWorktree` of the
+  github skill) with the head's `tests/` tree: the tests and their helpers
+  are the PR's, the code is the base's; dependencies by the base's lockfile.
+- **The run** — only the added tests' files, filtered by the tests' full
+  names (describes and the name joined by a space), into a report: bun test
+  (JUnit), Vitest or Jest from the project's `node_modules/.bin` (JSON). The
+  runner — by the file's import (`bun:test`, `vitest`, `@jest/globals`),
+  otherwise by the project's dependencies, otherwise bun test in a Bun
+  project. e2e (Playwright: the app runs from the task's stack, not from the
+  base code) and a runner not recognized — ○ lines, not checked.
+- **The verdict** — an added test must be red: failed, or its file didn't
+  load (it imports what the PR adds; bun test writes no report when no file
+  loaded — its summary decides). Green — ❌ with its name: it doesn't check
+  the PR's change. Skipped, or not in the run under its static name — ○, not
+  checked.
+- **Existing behavior** — a migrated spec, a test "from code" by a
+  decision's trace — a mark in the test file right before its `it` or its
+  `describe` (all of its tests): `// spec-existing #N: reason`, like an
+  exception's. Such a test must be green on the base; red — ❌ «the mark
+  isn't needed» (a ratchet). A mark without the number or the reason, or
+  not before a test — ❌.
+- **Interruption** — a signal to the run's process group (Ctrl-C, a closed
+  session) stops the runner, and the worktree is removed; a run killed
+  without that chance (kill -9) left its worktree — the next run removes it
+  (`elves-red-<pid>-…`, the pid is dead).
+- Codes: 0 — every checked test passes, 1 — there is a ❌, 2 — a call error
+  (arguments, git, dependencies, the run didn't finish or was interrupted).
+
+The cost on Elves itself — the worktree, `bun install` from the cache and the
+added tests' files: seconds, once per PR (#844 measured it).
+
 ## Wiring into a repository — step by step
 
 How to sort out an old spec's requirements (OpenSpec, a requirements

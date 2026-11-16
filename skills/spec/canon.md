@@ -170,6 +170,14 @@ no decision claims is dead and is deleted.
   an exception — with a ratchet. `.only`, `skip` without a reason and an issue
   number, retries, mocks of your own modules (only external edges may be
   substituted) — a lint error.
+- **"Red first" is a check, not the agent's word:** `spec-red` runs the PR's
+  added tests on the base code before the merge (`github pr premerge`), and
+  each must fail there; green — the test doesn't check the change. A test of
+  existing behavior — a migrated spec, a test "from code" by a decision's
+  trace — carries a mark right before its `it` or `describe`, `//
+  spec-existing #N: reason`, and must be green on the base; red there — the
+  mark isn't needed (a ratchet). `spec-break` proves tests that already
+  exist.
 - **Claimedness — code holds on to decisions at attachment points,** not line
   by line:
   - every entry point (route, page, job, command) is called by at least one

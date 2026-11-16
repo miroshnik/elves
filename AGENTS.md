@@ -215,9 +215,9 @@ A project's spec is **decisions with a deterministic check**, functional and
 non-functional (a test, a lint rule, an architecture check).
 **No check — no decision; no decision — no code:** behavior without a check
 may change without agreement; code no decision claims is dead. A check is
-written before the code, red first (acceptance), then holds the decision
-(regression); a decision changes through its check: the check first, red,
-then the code. Three `tests/` roots by the reader's question:
+written before the code, red first (acceptance; `spec-red` checks it), then
+holds the decision (regression); a decision changes through its check: the
+check first, red, then the code. Three `tests/` roots by the reader's question:
 `capabilities` (what the system does), `architecture` (what it's made of),
 `standards` (code rules, qualities); a decision is a topic with sections
 (`<topic>.md` — the subject, `<section>.md` — why, `<section>.test.ts` —

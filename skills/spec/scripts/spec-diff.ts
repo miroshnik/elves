@@ -354,6 +354,19 @@ export function diff(
 }
 
 /**
+ * The tests the head adds to the base — `added` of the PR body's diff by static parsing (spec-red, #844): a harness
+ * test only a run names isn't in it, nor a renamed or moved one; a test keeps its existing-behavior mark. `base` — the
+ * revision as is: the caller takes the merge-base.
+ */
+export function addedTests(base: string, head: string, root?: string): Test[] {
+  const { top, root: abs, prefix } = findRoot(root);
+  const baseTests = parseFiles(testsAtRev(base, top, prefix), base).tests;
+  const headTests = parseFiles(testsAtRev(head, top, prefix), head).tests;
+  const changedOut = outOfTreeFiles(base, head, top, prefix, false);
+  return diff(baseTests, headTests, outOfTreePool(base, head, top, abs, prefix, changedOut, false).pool).added;
+}
+
+/**
  * Files outside the tree not moved whole: one moved whole (deleted, all its tests found a pair in the tree) is only a
  * number in the summary; the rest are named: some of their tests found no pair, so something was renamed or lost in
  * the move.

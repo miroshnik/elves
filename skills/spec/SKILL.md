@@ -38,6 +38,8 @@ per-repository configuration:
 - `spec-break.ts` — check by breaking: edit the code, run the test, always
   revert (even after an interruption); ✅ failed / ❌ didn't fail for each
   breakage;
+- `spec-red.ts` — a PR's added tests fail on the base code; `github pr
+  premerge` runs it (`reference.md`, "spec-red");
 - `harness.ts` — a library for the project's tests: a deterministic check
   registers ordinary runner tests and gets into the spec (section "Checks").
 
