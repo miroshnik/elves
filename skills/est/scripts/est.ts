@@ -1,17 +1,15 @@
 #!/usr/bin/env bun
 /**
- * est — task estimates from the project's history and actuals from Claude Code and Codex transcripts.
+ * est — task actuals from Claude Code and Codex transcripts.
  *
  * Subcommands:
- *   est history  — table of closed tasks with an actual, the calibration coefficient k
  *   est fact     — actual (the agent's active hours) from Claude Code and Codex transcripts for an issue
- *   est estimate — record an estimate with analogs and a marker
  *   est period   — summary of all the repo's sessions over a period, not tied to tasks: the flow before and after
+ *   est cloud-import — cloud session events into the sources of the actual
  *
- * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the project fields
- * "Estimate, h", "Actual, h" and comments with HTML markers <!-- est {...} --> /
- * <!-- fact {...} -->). Without --write nothing is written to GitHub. Cache formats in
- * ~/.config/elves/cache are compatible with the former est.py.
+ * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the project field
+ * "Actual, h" and the comment with the HTML marker <!-- fact {...} -->). Without --write nothing is written to GitHub.
+ * Cache formats in ~/.config/elves/cache are compatible with the former est.py.
  */
 
 import { spawnSync } from "node:child_process";
@@ -46,10 +44,9 @@ function ensureConfigDir(): void {
   mkdirSync(EST_DIR, { recursive: true });
 }
 
-// Project fields by dictionary key (`fields` in the github skill's locales): "Estimate, h" and its Russian name are
+// Project fields by dictionary key (`fields` in the github skill's locales): "Actual, h" and its Russian name are
 // one field, a name in any language; comments are written in the project language (`locale.projectLanguage`), parsed
 // in any.
-export const FIELD_EST = "estimate";
 export const FIELD_FACT = "actual";
 export const FIELD_STATUS = "status";
 export const FIELD_TOK = "tokens"; // optional fields: present in the project — filled in, absent — skipped
@@ -59,7 +56,6 @@ export const FIELD_USD = "cost";
 function fieldKey(name: string | undefined): string | null {
   if (name === "Status") return FIELD_STATUS;
   for (const n of locale.everyNames()) {
-    if (name === n.fields.estimate) return FIELD_EST;
     if (name === n.fields.actual) return FIELD_FACT;
     if (name === n.fields.tokens) return FIELD_TOK;
     if (name === n.fields.cost) return FIELD_USD;
@@ -71,7 +67,7 @@ const projectNames = (): Names => locale.names(locale.projectLanguage());
 /** Field name in output: as in the project; no field — in the project language. */
 function fieldShown(meta: Meta, key: string): string {
   const n = projectNames();
-  const byKey: Record<string, string> = { [FIELD_EST]: n.fields.estimate, [FIELD_FACT]: n.fields.actual, [FIELD_TOK]: n.fields.tokens, [FIELD_USD]: n.fields.cost, [FIELD_STATUS]: "Status" };
+  const byKey: Record<string, string> = { [FIELD_FACT]: n.fields.actual, [FIELD_TOK]: n.fields.tokens, [FIELD_USD]: n.fields.cost, [FIELD_STATUS]: "Status" };
   return meta.fields[key]?.name ?? byKey[key] ?? key;
 }
 
@@ -223,25 +219,9 @@ export function parseSince(s: string): number {
   return parseInt(m[1]!, 10) * secs[m[2]!]!;
 }
 
-export function quantile(sortedVals: number[], q: number): number | null {
-  if (!sortedVals.length) return null;
-  if (sortedVals.length === 1) return sortedVals[0]!;
-  const pos = (sortedVals.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.min(lo + 1, sortedVals.length - 1);
-  return sortedVals[lo]! + (sortedVals[hi]! - sortedVals[lo]!) * (pos - lo);
-}
-
-function median(vals: number[]): number {
-  const s = [...vals].sort((a, b) => a - b);
-  const n = s.length;
-  if (!n) throw new EstError("median of an empty list");
-  return n % 2 ? s[(n - 1) / 2]! : (s[n / 2 - 1]! + s[n / 2]!) / 2;
-}
-
 /**
  * round(x, nd) as in Python: to the nearest, and an exact half (0.125 → 0.12) — to even.
- * This way actuals and k match those computed by the former est.py; toFixed alone rounds a half up.
+ * This way actuals match those computed by the former est.py; toFixed alone rounds a half up.
  */
 export function pyRound(x: number, nd: number): number {
   const long = x.toFixed(nd + 30); // exact decimal expansion of the binary value
@@ -497,12 +477,8 @@ export interface Row {
   issueType?: string | null;
   /** Number of the task's epic (the sub-issue parent). */
   parent?: number | null;
-  /** Issue description size, chars, without answers to questions (descSize) — a size feature for picking analogs. */
-  size?: number;
-  est: number | null;
   fact: number | null;
   status: string | null;
-  est_marker: Any | null;
   fact_marker: Any | null;
 }
 
@@ -728,7 +704,7 @@ class Repo implements FactRepo {
         fields[key] = { id: f.id, name: f.name, options };
       }
     }
-    const missing = [FIELD_EST, FIELD_FACT, FIELD_STATUS].filter((k) => !fields[k]).map((k) => fieldShown({ fields } as Meta, k));
+    const missing = [FIELD_FACT, FIELD_STATUS].filter((k) => !fields[k]).map((k) => fieldShown({ fields } as Meta, k));
     if (missing.length) throw new EstError(`project ${owner} #${number} has no fields: ${missing.join(", ")}`);
     const meta: Meta = { id: pv.id, owner, number, title: pv.title, fields, fetched_at: nowTs() };
     saveJson(file, meta);
@@ -775,7 +751,7 @@ class Repo implements FactRepo {
     const q = `
         query($id:ID!,$c:String){ node(id:$id){ ... on ProjectV2{
           items(first:100,after:$c){ pageInfo{hasNextPage endCursor} nodes{ id type
-            content{ __typename ... on Issue{ id number title body state stateReason closedAt createdAt issueType{name} parent{number}
+            content{ __typename ... on Issue{ id number title state stateReason closedAt createdAt issueType{name} parent{number}
               labels(first:15){nodes{name}} comments(last:25){nodes{databaseId body}} } }
             fieldValues(first:20){ nodes{ __typename
               ... on ProjectV2ItemFieldNumberValue{ number field{ ... on ProjectV2Field{name} } }
@@ -800,23 +776,17 @@ class Repo implements FactRepo {
           labels: c.labels.nodes.map((l: Any) => l.name),
           issueType: c.issueType?.name ?? null,
           parent: c.parent?.number ?? null,
-          size: descSize(c.body ?? ""),
-          est: null,
           fact: null,
           status: null,
-          est_marker: null,
           fact_marker: null,
         };
         for (const fv of it.fieldValues.nodes) {
           const key = fieldKey(fv.field?.name);
-          if (key === FIELD_EST) row.est = fv.number ?? null;
-          else if (key === FIELD_FACT) row.fact = fv.number ?? null;
+          if (key === FIELD_FACT) row.fact = fv.number ?? null;
           else if (key === FIELD_STATUS) row.status = fv.name ?? null;
         }
         for (const cm of c.comments.nodes) {
-          const em = parseMarker(cm.body, "est");
           const fm = parseMarker(cm.body, "fact");
-          if (em) row.est_marker = em;
           if (fm) row.fact_marker = fm;
         }
         rows.push(row);
@@ -2393,9 +2363,7 @@ function fetchIssue(repo: Repo, number: number): Any {
         ... on ConnectedEvent{ subject{ __typename ... on PullRequest{ number repository{nameWithOwner} } } } } }
       closedEvents: timelineItems(last:10,itemTypes:[CLOSED_EVENT]){ nodes{ __typename
         ... on ClosedEvent{ closer{ __typename ... on PullRequest{ number repository{nameWithOwner} } ... on Commit{ oid authoredDate } } } } }
-      projectItems(first:10){ nodes{ id project{ id } fieldValues(first:20){ nodes{ __typename
-        ... on ProjectV2ItemFieldNumberValue{ number field{ ... on ProjectV2Field{name} } }
-        ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2SingleSelectField{name} } } } } } }
+      projectItems(first:10){ nodes{ id project{ id } } }
       comments(last:100){ nodes{ databaseId body author{login} } }
     } } }`;
   let data: Any;
@@ -2407,32 +2375,15 @@ function fetchIssue(repo: Repo, number: number): Any {
   }
   const issue = data.repository.issue;
   if (!issue) throw new EstError(`issue #${number} not found in ${repo.full}`);
-  // close events — into the common timeline list (fact/est markers are looked for in the last 100 comments)
+  // close events — into the common timeline list (the fact marker is looked for in the last 100 comments)
   issue.timelineItems.nodes.push(...(issue.closedEvents?.nodes ?? []));
   return issue;
 }
 
-interface IssueFields {
-  item_id: string | null;
-  est: number | null;
-  fact: number | null;
-  status: string | null;
-}
-
-/** Project field values for an issue (item_id, est, fact, status). */
-function issueProjectFields(issue: Any, meta: Meta): IssueFields {
-  for (const it of issue.projectItems?.nodes ?? []) {
-    if (it.project.id !== meta.id) continue;
-    const vals: IssueFields = { item_id: it.id, est: null, fact: null, status: null };
-    for (const fv of it.fieldValues.nodes) {
-      const key = fieldKey(fv.field?.name);
-      if (key === FIELD_EST) vals.est = fv.number ?? null;
-      else if (key === FIELD_FACT) vals.fact = fv.number ?? null;
-      else if (key === FIELD_STATUS) vals.status = fv.name ?? null;
-    }
-    return vals;
-  }
-  return { item_id: null, est: null, fact: null, status: null };
+/** The issue's item in the project; not in the project — null. */
+function issueItemId(issue: Any, meta: Meta): string | null {
+  for (const it of issue.projectItems?.nodes ?? []) if (it.project.id === meta.id) return it.id;
+  return null;
 }
 
 type Closer = { oid: string; at: number | null };
@@ -3422,7 +3373,7 @@ export function subtractIntervals(a: [number, number][], b: [number, number][]):
 }
 
 // ----------------------------------------------------------------------------
-// Comments with markers (fact / est)
+// The "Actual" comment
 // ----------------------------------------------------------------------------
 
 function findMarkerComment(issue: Any, kind: string): Any | null {
@@ -3431,15 +3382,13 @@ function findMarkerComment(issue: Any, kind: string): Any | null {
 }
 
 const alt = (xs: string[]) => xs.map(locale.escapeRe).join("|");
-// "+ manually: N h" and "Reason: …" in any dictionary language: a human writes the line, the language may have changed
+// "+ manually: N h" in any dictionary language: a human writes the line, the language may have changed
 const MANUAL_WORDS = locale.every((n) => n.est.manual).map((m) => m.replace(/^\+\s*/, "").replace(/:$/, ""));
 const MANUAL_RE = new RegExp(String.raw`^\+\s*(?:${alt(MANUAL_WORDS)}):\s*([\d.,]+)\s*(?:${alt(locale.every((n) => n.est.hours))})`, "iu");
-const REASON_RE = new RegExp(`^(?:${alt(locale.every((n) => n.est.reason))})`, "iu");
 
-/** Lines "+ manually: N h" and "Reason: …" (`est.manual`, `est.reason` in any dictionary language) added by a human. */
-export function extractKeptLines(body: string | null | undefined): [number, string | null, string[]] {
+/** The line "+ manually: N h" (`est.manual` in any dictionary language) a human added: its hours and the line. */
+export function extractKeptLines(body: string | null | undefined): [number, string[]] {
   let manual = 0.0;
-  let cause: string | null = null;
   const lines: string[] = [];
   for (const line of (body || "").split(/\r?\n/)) {
     const s = line.trim();
@@ -3447,19 +3396,16 @@ export function extractKeptLines(body: string | null | undefined): [number, stri
     if (m) {
       manual = parseFloat(m[1]!.replace(",", "."));
       lines.push(s);
-    } else if (REASON_RE.test(s)) {
-      cause = s.slice(s.indexOf(":") + 1).trim();
-      lines.push(s);
     }
   }
-  return [manual, cause, lines];
+  return [manual, lines];
 }
 
 /**
  * The "Actual" comment in the project language (`language`, by default — of the current directory); the marker is the
  * same in all languages.
  */
-export function factCommentBody(res: Fact, est: number | null, keptLines: string[], manual: number, cause: string | null, language = locale.projectLanguage()): string {
+export function factCommentBody(res: Fact, keptLines: string[], manual: number, language = locale.projectLanguage()): string {
   const n = locale.names(language);
   const count = (forms: Plural, x: number) => locale.count(language, forms, x);
   const h = res.h;
@@ -3467,10 +3413,9 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
   if (h === null) {
     text = n.est.fact.unavailable;
   } else {
-    const estimate = est ? locale.fill(n.est.fact.estimate, { h: fmtH(est), ratio: `, ×${(h / est).toFixed(2)}` }) : n.est.fact.noEstimate;
     const na = res.agents ?? 0;
     const subagents = na ? ` ${count(n.est.fact.subagents, na)},` : "";
-    const body = { h: fmtH(h), agents: agentsTxt(res, language), estimate, sessions: count(n.est.fact.sessions, res.sessions), prompts: count(n.est.fact.prompts, res.prompts), subagents, wall: fmtH(res.wall, 1), cov: res.cov };
+    const body = { h: fmtH(h), agents: agentsTxt(res, language), sessions: count(n.est.fact.sessions, res.sessions), prompts: count(n.est.fact.prompts, res.prompts), subagents, wall: fmtH(res.wall, 1), cov: res.cov };
     text = `${n.comments.actual} ${locale.fill(n.est.fact.body, body)}`;
   }
   text += res.prs.length ? locale.fill(n.est.fact.prs, { list: res.prs.map((p) => `#${p}`).join(", ") }) : n.est.fact.noPr;
@@ -3483,8 +3428,8 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
   if (res.steps) text += "\n" + stepsTxt(res, language);
   if (res.steps && res.kinds) text += "\n" + overheadTxt(res, language);
   if (res.waits) text += "\n" + waitsTxt(res.waits, language);
-  const marker: Record<string, unknown> = { v: 1, h, manual, wall: res.wall, cov: res.cov, sessions: res.sessions, prompts: res.prompts, agents: res.agents ?? 0, prs: res.prs, commits: res.commits, diff: res.diff, cause };
-  if (res.waits) marker.waits = res.waits; // minutes: est history shows them and their medians
+  const marker: Record<string, unknown> = { v: 1, h, manual, wall: res.wall, cov: res.cov, sessions: res.sessions, prompts: res.prompts, agents: res.agents ?? 0, prs: res.prs, commits: res.commits, diff: res.diff };
+  if (res.waits) marker.waits = res.waits; // minutes, by kind of wait
   if (res.tok) {
     marker.tok = res.tok;
     marker.usd = res.usd ?? null;
@@ -3505,11 +3450,11 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
 }
 
 // Claude Code cloud session (claude.ai/code): GitHub — only REST of its own repository, GraphQL and projects are
-// closed by the session proxy, so neither an estimate nor an actual can be computed there — an honest "unavailable
+// closed by the session proxy, so the actual can't be computed there from GitHub — an honest "unavailable
 // (cloud)" with a link to the session. A local session gives the number: importing the cloud session's events
 // (est cloud-import, parseCloudFile).
 const isCloud = () => process.env.CLAUDE_CODE_REMOTE === "true";
-const CLOUD_ERR = "Claude Code cloud session: GitHub GraphQL and projects are unreachable from here — estimate, history and sweep only in a local session (docs/cloud-sessions.md in Elves)";
+const CLOUD_ERR = "Claude Code cloud session: GitHub GraphQL and projects are unreachable from here — the sweep and the period summary only in a local session (docs/cloud-sessions.md in Elves)";
 
 /** "Actual" comment of a task closed from a cloud session: actual unavailable, a marker with cov none and src cloud. */
 /** Cloud session id for a link: env gives cse_…, the link needs session_…. */
@@ -3600,8 +3545,7 @@ function upsertComment(repo: Repo, issue: Any, kind: string, body: string): stri
 
 function setNumberField(repo: Repo, issue: Any, fieldName: string, value: number): void {
   let meta = repo.projectMeta();
-  const vals = issueProjectFields(issue, meta);
-  let itemId = vals.item_id;
+  let itemId = issueItemId(issue, meta);
   if (!itemId) {
     const q = "mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p,contentId:$c}){ item{ id } } }";
     itemId = ghGraphql(q, { p: meta.id, c: issue.id }).addProjectV2ItemById.item.id;
@@ -3628,187 +3572,6 @@ function setOptionalNumberField(repo: Repo, issue: Any, fieldName: string, value
   if (!meta.fields[fieldName]) return false;
   setNumberField(repo, issue, fieldName, value);
   return true;
-}
-
-// ----------------------------------------------------------------------------
-// History and k
-// ----------------------------------------------------------------------------
-
-interface Calib {
-  k: number | null;
-  n: number;
-  p25: number | null;
-  p75: number | null;
-  share: number | null;
-  n_partial: number;
-}
-
-/** k = median(actual/estimate) over the last `last` closed tasks with an est marker and an actual. */
-export function calib(rows: Row[], last = 20): Calib {
-  const cands: [number, number][] = [];
-  let nPartial = 0;
-  for (const r of rows) {
-    if (r.state !== "CLOSED" || r.fact === null || !r.est_marker) continue;
-    const est = r.est_marker.h || r.est;
-    if (!est || est <= 0) continue;
-    const fm = r.fact_marker;
-    if (fm && fm.cov !== undefined && fm.cov !== null && fm.cov !== "full") {
-      nPartial++; // incomplete transcript coverage — not taken into k (see the history output)
-      continue;
-    }
-    cands.push([r.closedAt || 0, r.fact / est]);
-  }
-  cands.sort((a, b) => b[0] - a[0]);
-  const ratios = cands.slice(0, last).map((x) => x[1]).sort((a, b) => a - b);
-  if (!ratios.length) return { k: null, n: 0, p25: null, p75: null, share: null, n_partial: nPartial };
-  return {
-    k: round2(median(ratios)),
-    n: ratios.length,
-    p25: round2(quantile(ratios, 0.25)!),
-    p75: round2(quantile(ratios, 0.75)!),
-    share: round2(ratios.filter((x) => x >= 0.5 && x <= 2).length / ratios.length),
-    n_partial: nPartial,
-  };
-}
-
-/** Task type of a project row: the actual one (from the branch, the "Actual" marker), else the "Estimate" marker's. */
-const rowType = (r: Row): string => r.fact_marker?.type || r.est_marker?.type || "";
-
-/**
- * History table: the labels column is sized by the longest labels string (decision labels are the first feature of an
- * analog, truncated they can't be compared); `epic` isn't a feature, it's left out.
- */
-export function historyTable(rows: Row[]): string[] {
-  const labelsOf = (r: Row) => r.labels.filter((l) => l !== "epic").join(",");
-  const w = Math.max("labels".length, ...rows.map((r) => labelsOf(r).length));
-  const out = [`${pad("#", 5, true)} | ${pad("est.", 6, true)} | ${pad("actual", 6, true)} | ${pad("cov.", 7)} | ${pad("M tok", 7, true)} | ${pad("$", 7, true)} | ${pad("agents", 6, true)} | ${pad("turns", 5, true)} | ${pad("CI", 3, true)} | ${pad("merge", 5, true)} | ${pad("checks", 6, true)} | ${pad("slot", 4, true)} | ${pad("type", 8)} | ${pad("labels", w)} | title`];
-  for (const r of rows) {
-    const fm = r.fact_marker ?? {};
-    const cov = fm.cov || "—";
-    const mt = fm.tok ? fmtMtok(fm.tok.total) : "—";
-    const usd = fm.usd !== undefined && fm.usd !== null ? Number(fm.usd).toFixed(2) : "—";
-    // the task's subagents and turns are fan-out and size features; an actual computed before the feature — a dash
-    const ag = typeof fm.agents === "number" ? String(fm.agents) : "—";
-    const st = typeof fm.steps === "number" ? String(fm.steps) : "—";
-    // waits, whole minutes: the actual before the split — dashes
-    const wt = markerWaits(fm);
-    const m = (k: keyof Waits) => (wt ? String(Math.round(wt[k])) : "—");
-    out.push(`${pad(String(r.number), 5, true)} | ${pad(fmtH(r.est), 6, true)} | ${pad(fmtH(r.fact), 6, true)} | ${pad(cov, 7)} | ${pad(mt, 7, true)} | ${pad(usd, 7, true)} | ${pad(ag, 6, true)} | ${pad(st, 5, true)} | ${pad(m("ci"), 3, true)} | ${pad(m("merged"), 5, true)} | ${pad(m("checks"), 6, true)} | ${pad(m("slot"), 4, true)} | ${pad(rowType(r), 8)} | ${pad(labelsOf(r), w)} | ${r.title.slice(0, 60)}`);
-  }
-  return out;
-}
-
-/** The waits of a recorded actual — the `waits` of the "Actual" marker, minutes; an actual before the split — null. */
-function markerWaits(fm: Any): Waits | null {
-  const w = fm?.waits;
-  if (!w || typeof w !== "object") return null;
-  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  return { ci: n(w.ci), merged: n(w.merged), checks: n(w.checks), slot: n(w.slot), rest: n(w.rest) };
-}
-
-/** Median waits of the latest tasks and of the previous ones; a median of fewer than `min` tasks is noise — none. */
-interface WaitsShift {
-  now: Waits | null;
-  prev: Waits | null;
-  n: number;
-}
-
-/** Medians of each kind of wait over the latest `window` tasks and the `window` before them (oldest first). */
-function waitsShift(ws: Waits[], window = 10, min = 3): WaitsShift {
-  const med = (xs: Waits[]): Waits => ({ ci: median(xs.map((w) => w.ci)), merged: median(xs.map((w) => w.merged)), checks: median(xs.map((w) => w.checks)), slot: median(xs.map((w) => w.slot)), rest: median(xs.map((w) => w.rest)) });
-  const last = ws.slice(-window);
-  const before = ws.slice(-2 * window, -window);
-  return { now: last.length >= min ? med(last) : null, prev: before.length >= min ? med(before) : null, n: last.length };
-}
-
-/** The `est history` line of median waits: the latest tasks and the previous ones; no tasks with the split — none. */
-export function waitsHistoryLine(rows: Row[], window = 10): string | null {
-  const ws = [...rows].sort((a, b) => (a.closedAt || 0) - (b.closedAt || 0)).map((r) => markerWaits(r.fact_marker)).filter((w): w is Waits => w !== null);
-  const s = waitsShift(ws, window);
-  if (!s.now) return ws.length ? `waits: ${ws.length} ${plural(ws.length, "task", "tasks")} with the split — too few for a median` : null;
-  const prev = s.prev ? `; the previous ${window}: ${waitsBrief(s.prev)}` : "";
-  return `waits, median of the last ${s.n} tasks: ${waitsBrief(s.now)}${prev}`;
-}
-
-/** "CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 15" — the waits of a task or their medians, in English. */
-const waitsBrief = (w: Waits) => waitsTxt(w, "en").replace(/^Waits: /, "").replace(/\.$/, "");
-
-interface HistoryArgs {
-  repo?: string;
-  grep?: string;
-  allRepos: boolean;
-  last?: number;
-}
-
-function cmdHistory(args: HistoryArgs): void {
-  if (isCloud()) throw new EstError(CLOUD_ERR);
-  const registry = loadRegistry();
-  const repos = args.allRepos ? Object.keys(registry) : [repoOf(args.repo)];
-  const now = nowTs();
-  const summary: [string, number, number | null, Calib][] = [];
-  for (const full of repos) {
-    const repo = new Repo(full, registry);
-    const rows = repo.projectRows();
-    let rowsFact = rows.filter((r) => r.state === "CLOSED" && r.fact !== null);
-    if (args.grep) {
-      const g = args.grep.toLowerCase();
-      rowsFact = rowsFact.filter((r) => r.title.toLowerCase().includes(g) || r.labels.some((l) => l.toLowerCase().includes(g)));
-    }
-    rowsFact.sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0));
-    if (args.last) rowsFact = rowsFact.slice(0, args.last);
-    const c = calib(rows);
-    const noFact90 = rows.filter((r) => r.state === "CLOSED" && r.fact === null && r.stateReason !== "NOT_PLANNED" && (r.closedAt || 0) >= now - 90 * 86400).length;
-    const facts = rows.filter((r) => r.fact !== null).map((r) => r.fact!);
-    summary.push([full, rows.filter((r) => r.state === "CLOSED" && r.fact !== null).length, facts.length ? median(facts) : null, c]);
-    const meta = repo.projectMeta();
-    console.log(`== ${full} (project ${meta.owner} #${meta.number})`);
-    if (!rowsFact.length) {
-      console.log("history is empty" + (args.grep ? ` (filter «${args.grep}»)` : ""));
-    } else {
-      for (const line of historyTable(rowsFact)) console.log(line);
-    }
-    if (c.n) {
-      const units = c.k! >= 0.5 && c.k! <= 3 ? "" : " — old estimates and actuals aren't in the same units";
-      console.log(`k = ${c.k} (n=${c.n} pairs «estimate with a marker + actual full», p25–p75 ${c.p25}–${c.p75}); share within ×0.5…×2: ${Math.trunc(c.share! * 100)} %${units}`);
-    } else {
-      console.log("k: no pairs «estimate with the est marker + actual» — calibration unavailable");
-    }
-    if (c.n_partial) console.log(`tasks with coverage partial/none left out of k: ${c.n_partial}`);
-    const waits = waitsHistoryLine(rowsFact.filter((r) => !isEpicRow(r)));
-    if (waits) console.log(waits);
-    const shares = usdShares(usdByModel(rowsFact.map((r) => r.fact_marker)));
-    if (shares.length) console.log(`$ by model: ${sharesTxt(shares)} — ${TARIFF_NOTE} (est period)`);
-    console.log(`closed in 90 days without an actual: ${noFact90}`);
-    console.log();
-  }
-  if (args.allRepos) {
-    console.log("== summary across all repositories");
-    for (const [full, nf, med, c] of summary) console.log(`  ${full}: actuals ${nf}, median actual ${fmtH(med)} h, k=${c.k} (n=${c.n})`);
-  }
-}
-
-/** k by repo, otherwise by all repos (n≥5), otherwise none; the level is in the project language. */
-function calibForEstimate(repo: Repo, registry: Registry, rows: Row[]): [Calib, string] {
-  let c = calib(rows);
-  let level = projectNames().est.estimate.levelRepo;
-  if (c.n < 5) {
-    let allRows = [...rows];
-    for (const full of Object.keys(registry)) {
-      if (full === repo.full) continue;
-      try {
-        allRows = allRows.concat(new Repo(full, registry).projectRows());
-      } catch (e) {
-        if (!(e instanceof EstError)) throw e;
-        console.error(`warning: ${full}: ${e.message}`);
-      }
-    }
-    const c2 = calib(allRows);
-    if (c2.n >= 5) {
-      c = c2;
-      level = projectNames().est.estimate.levelAll;
-    }
-  }
-  return [c, level];
 }
 
 // ----------------------------------------------------------------------------
@@ -3941,7 +3704,7 @@ function agentsTxt(res: Fact, language = locale.projectLanguage()): string {
   return [...srcs].sort().map((s) => names[s] ?? s).join(n.est.fact.and);
 }
 
-function printFact(repo: Repo, res: Fact, est: number | null): void {
+function printFact(repo: Repo, res: Fact): void {
   console.log(`== ${repo.full}#${res.issue}: ${res.title}`);
   if (res.is_pr) console.log(`WARNING: #${res.issue} is a PR, not an issue; the actual is computed for the PR itself, it can't be written`);
   if (res.epic) {
@@ -3958,9 +3721,8 @@ function printFact(repo: Repo, res: Fact, est: number | null): void {
   if (res.h === null) {
     console.log("actual unavailable: no sessions found (coverage none)");
   } else {
-    const estTxt = est ? `estimate ${fmtH(est)} h, ×${(res.h / est).toFixed(2)}` : "no estimate";
     const raw = res.shared?.length && res.h_raw !== null && res.h_raw !== undefined ? ` (unsplit: ${fmtH(res.h_raw)} h)` : "";
-    console.log(`actual: ${fmtH(res.h)} h active in ${agentsTxt(res, "en")}${raw} (${estTxt}); ${res.sessions} sess., ${res.prompts} prompts, wall ${fmtH(res.wall, 1)} h, coverage ${res.cov}`);
+    console.log(`actual: ${fmtH(res.h)} h active in ${agentsTxt(res, "en")}${raw}; ${res.sessions} sess., ${res.prompts} prompts, wall ${fmtH(res.wall, 1)} h, coverage ${res.cov}`);
   }
   if (res.tok) console.log(tokensTxt(res, "en"));
   if (res.steps && res.kinds) console.log(overheadTxt(res, "en"));
@@ -3981,11 +3743,11 @@ function printFact(repo: Repo, res: Fact, est: number | null): void {
 }
 
 /** Writes the actual (comment and project fields); returns the comment body. */
-function writeFact(repo: Repo, issue: Any, res: Fact, est: number | null): string {
+function writeFact(repo: Repo, issue: Any, res: Fact): string {
   if (res.is_pr) throw new EstError(`#${res.issue} is a PR, not an issue: an actual for a PR isn't written`);
   const existing = findMarkerComment(issue, "fact");
-  const [manual, cause, kept] = extractKeptLines(existing ? existing.body : "");
-  const body = factCommentBody(res, est, kept, manual, cause);
+  const [manual, kept] = extractKeptLines(existing ? existing.body : "");
+  const body = factCommentBody(res, kept, manual);
   const what = upsertComment(repo, issue, "fact", body);
   if (res.iv && Object.keys(res.iv).length) repo.recorded().set(res.issue, res.iv); // the sweep's next task sees this actual
   let msg = `«Actual» comment ${what}`;
@@ -4005,6 +3767,10 @@ function writeFact(repo: Repo, issue: Any, res: Fact, est: number | null): strin
   console.log(msg);
   return body;
 }
+
+const EPIC_TYPES = new Set(locale.every((n) => n.issueTypes.epic).map((t) => t.toLowerCase()));
+/** An epic's row: the issue type "Epic" in any dictionary language, the `epic` label — for repos without types. */
+const isEpicRow = (r: Row): boolean => r.labels.includes("epic") || EPIC_TYPES.has((r.issueType ?? "").toLowerCase());
 
 /**
  * Actuals to recompute for a model (#345): closed tasks of the window whose spend (the actual marker, `models`)
@@ -4079,7 +3845,7 @@ function cmdFact(args: FactArgs): number {
     return 0;
   }
   const repo = new Repo(repoOf(args.repo), registry);
-  const meta = repo.projectMeta();
+  repo.projectMeta(); // the project and its fields before the transcripts: no project — the error at once
   if (args.sweep) {
     const since = parseSince(args.since);
     const now = nowTs();
@@ -4139,11 +3905,11 @@ function cmdFact(args: FactArgs): number {
       // the recorded actual stays when its transcripts are gone: a recomputation would count only what's left of them
       const kept = args.recompute ? recomputeKept(r.fact_marker, res) : null;
       if (kept) extra += `; kept: ${kept}`;
-      console.log(`  #${pad(String(r.number), 5)} ${pad(fmtH(h), 6, true)} h  ${pad(res.cov, 7)} estimate ${pad(fmtH(r.est), 5, true)}  ${pad(extra, 26)} ${r.title.slice(0, 50)}`);
+      console.log(`  #${pad(String(r.number), 5)} ${pad(fmtH(h), 6, true)} h  ${pad(res.cov, 7)} ${pad(extra, 26)} ${r.title.slice(0, 50)}`);
       if (args.write && res.cov !== "none" && !kept) {
         let body: string;
         try {
-          body = writeFact(repo, issue, res, r.est);
+          body = writeFact(repo, issue, res);
         } catch (e) {
           if (failure(r, "error writing", e, i)) break;
           continue;
@@ -4176,101 +3942,18 @@ function cmdFact(args: FactArgs): number {
   }
   if (args.number === undefined) throw new EstError("pass an issue number or --sweep");
   const [issue, res] = factForIssue(repo, args.number, args.gap);
-  const est = issueProjectFields(issue, meta).est;
   if (args.json) {
-    const out: Any = { ...res, est };
+    const out: Any = { ...res };
     delete out.details;
     delete out.intervals;
     delete out.iv;
     console.log(JSON.stringify(out, null, 1));
   } else {
-    printFact(repo, res, est);
+    printFact(repo, res);
   }
-  if (args.write) writeFact(repo, issue, res, est);
+  if (args.write) writeFact(repo, issue, res);
   else if (!args.json) console.log("(nothing written without --write)");
   return 0;
-}
-
-// ----------------------------------------------------------------------------
-// The estimate command
-// ----------------------------------------------------------------------------
-
-export const SCALE = [0.1, 0.25, 0.5, 1, 1.5, 2, 3, 5, 8, 13] as const; // estimate steps, h; rounding to the nearest
-
-export function roundScale(h: number): number {
-  let best: number = SCALE[0];
-  for (const s of SCALE) {
-    const d = Math.abs(s - h);
-    const bd = Math.abs(best - h);
-    if (d < bd || (d === bd && s < best)) best = s;
-  }
-  return best;
-}
-
-interface EstimateArgs {
-  number: number;
-  repo?: string;
-  hours?: number;
-  type: string;
-  analogs: string;
-  mult: number;
-  tokMult?: number; // token and cost correction; without it — the same as for hours
-  tokNote?: string;
-  note: string;
-  write: boolean;
-}
-
-/** Token correction steps: fan-out in the pilot gave ×2.5 to tokens at ×0.8 to hours — hence there's also ×3. */
-const TOK_MULTS = [0.5, 1, 1.5, 2, 3];
-
-/**
- * Forecast from the analogs' actuals: hours — median × hours correction, to a scale step; tokens and cost — median ×
- * token correction (without it — the same as for hours): with fan-out tokens grow while hours shrink.
- */
-export function forecast(facts: number[], toks: number[], usds: number[], mult: number, tokMult = mult): { raw: number; h: number; tok: number | null; usd: number | null } {
-  const raw = median(facts) * mult;
-  return { raw, h: roundScale(raw), tok: toks.length ? median(toks) * tokMult : null, usd: usds.length ? median(usds) * tokMult : null };
-}
-
-const isPublic = (full: string): boolean => repoInfo(full)?.visibility === "public";
-
-/**
- * Analogs from non-public repos that the estimate would name in a public one: the "Estimate" comment writes them as
- * owner/repo#N, and GitHub keeps the previous version of a comment in the edit history — a rewrite doesn't undo the
- * leak.
- */
-function hiddenAnalogs(repo: Repo, analogs: (number | string)[]): string[] {
-  const other = analogs.filter((a): a is string => typeof a === "string");
-  if (!other.length || !isPublic(repo.full)) return [];
-  const pub = new Map<string, boolean>();
-  return other.filter((a) => {
-    const full = a.split("#")[0]!;
-    if (!pub.has(full)) pub.set(full, isPublic(full));
-    return !pub.get(full);
-  });
-}
-
-// ----------------------------------------------------------------------------
-// Analog picking by the script
-// ----------------------------------------------------------------------------
-
-/** Non-decision labels: `epic` is the kind of task, the questions label (in any dictionary language) is its state. */
-const NOT_DECISION = new Set(["epic", ...locale.every((n) => n.labels.questions)]);
-/** Title stop words (shorter than three letters are cut off anyway): they don't point to task similarity. */
-const STOP_WORDS = new Set(words((n) => n.est.stopWords));
-/** Word stem — the first four letters: "estimate", "estimates", "estimated" are one word (five letters already split
- * Russian forms with a fleeting vowel); crude, but needs no dictionary, and in backtest #279 no worse than five. */
-const STEM = 4;
-
-/** Title words by stem: stem → the word as it stands in the title (lowercase), in order. */
-export function titleWords(title: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const w of title.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
-    if (w.length < 3 || STOP_WORDS.has(w)) continue;
-    const stem = w.slice(0, STEM);
-    if (!out.has(stem)) out.set(stem, w);
-  }
-  return out;
 }
 
 /**
@@ -4282,374 +3965,11 @@ const ANSWER_RE = new RegExp(String.raw`\s*(?:\*\*)?(?:${locale.every((n) => n.e
 const QUESTIONS_RE = new RegExp(String.raw`(?<=^|\n)(?:${locale.every((n) => n.sections.questions).map(locale.escapeRe).join("|")})\n[\s\S]*?(?=\n## |$)`);
 
 /**
- * Issue description size, chars, — a task size feature: in backtest #279 it is tied to the actual more closely than
- * the manual estimate. Answers to questions and ✅ marks don't count: they are added after the estimate, and for closed
- * tasks they would inflate the size.
+ * Issue description size, chars: answers to questions and ✅ marks don't count — they are added after the task is
+ * created.
  */
 export function descSize(body: string): number {
   return body.replace(QUESTIONS_RE, (sec) => sec.replace(ANSWER_RE, "").replace(/✅\s*/g, "")).length;
-}
-
-const EPIC_TYPES = new Set(locale.every((n) => n.issueTypes.epic).map((t) => t.toLowerCase()));
-const isEpicRow = (r: Row): boolean => r.labels.includes("epic") || EPIC_TYPES.has((r.issueType ?? "").toLowerCase());
-/**
- * A closed task with a measured actual (coverage full), not an epic (its actual is the sum of its subtasks): an analog
- * and a backtest sample.
- */
-const factRow = (r: Row): boolean => r.state === "CLOSED" && r.fact !== null && r.fact > 0 && (r.fact_marker?.cov ?? "full") === "full" && !isEpicRow(r);
-
-/** The task analogs are picked for — its features at the time of the estimate. */
-export interface AnalogTarget {
-  number: number;
-  title: string;
-  labels: string[];
-  createdAt: number | null;
-  size: number;
-}
-
-/**
- * An analog and how it is similar: shared decision labels, the same type, shared words (as in the task title), size
- * relative to the task's size.
- */
-export interface Analog {
-  row: Row;
-  score: number;
-  labels: string[];
-  sameType: boolean;
-  words: string[];
-  sizeRatio: number | null;
-}
-
-/** Analogs the script takes: a median of three is steadier than of two, and a fourth added no backtest accuracy. */
-const ANALOG_K = 3;
-const wordsCache = new WeakMap<Row, Map<string, string>>();
-
-/**
- * Analogs are the most similar closed tasks with a full actual, closed before the estimated one was created (as the
- * script would have estimated on the creation day: the backtest doesn't look into the future). Similarity is a sum: a
- * shared decision label ×3, the same type ×2, a shared title word ×1, minus 3 × |ln| of the description size ratio
- * (+200 chars — an empty description doesn't go to infinity); on a tie — the recently closed ones. Weights are from
- * backtest #279: the feature queue "labels → type → words → size" gave noticeably fewer hits, the description size
- * weighs no less than labels.
- */
-export function pickAnalogs(target: AnalogTarget, type: string, rows: Row[], k = ANALOG_K): Analog[] {
-  const tl = new Set(target.labels.filter((l) => !NOT_DECISION.has(l)));
-  const tw = titleWords(target.title);
-  const out: Analog[] = [];
-  for (const r of rows) {
-    if (r.number === target.number || !factRow(r)) continue;
-    if (target.createdAt !== null && !(r.closedAt !== null && r.closedAt < target.createdAt)) continue;
-    let cw = wordsCache.get(r);
-    if (!cw) wordsCache.set(r, (cw = titleWords(r.title)));
-    const labels = r.labels.filter((l) => tl.has(l));
-    const sameType = rowType(r) === type;
-    const words = [...tw].filter(([stem]) => cw.has(stem)).map(([, w]) => w);
-    const size = r.size ?? 0;
-    const score = 3 * labels.length + (sameType ? 2 : 0) + words.length - 3 * Math.abs(Math.log((target.size + 200) / (size + 200)));
-    out.push({ row: r, score, labels, sameType, words, sizeRatio: target.size > 0 && size > 0 ? size / target.size : null });
-  }
-  out.sort((a, b) => b.score - a.score || (b.row.closedAt ?? 0) - (a.row.closedAt ?? 0) || b.row.number - a.row.number);
-  return out.slice(0, k);
-}
-
-/**
- * How the analog is similar to the task — for the "Estimate" comment in the project language:
- * `label est · type feat · words «a», «b» · description ×0.8`.
- */
-function analogWhy(a: Analog, type: string, language: string): string {
-  const n = locale.names(language);
-  const parts: string[] = [];
-  if (a.labels.length) parts.push(`${locale.plural(language, n.est.estimate.labels, a.labels.length)} ${a.labels.join(", ")}`);
-  if (a.sameType) parts.push(locale.fill(n.est.estimate.type, { type }));
-  if (a.words.length) parts.push(`${locale.plural(language, n.est.estimate.words, a.words.length)} ${a.words.map((w) => `«${w}»`).join(", ")}`);
-  if (a.sizeRatio !== null) parts.push(locale.fill(n.est.estimate.size, { ratio: fmtH(a.sizeRatio, 1) }));
-  return parts.join(" · ");
-}
-
-/**
- * Estimate = forecast from the analogs' actuals: hours, tokens and cost — medians of actuals × correction. The script
- * picks analogs (pickAnalogs): `github task new` calls it for every task; fewer than two — no estimate. --analogs,
- * --mult and --hours (an expert estimate, confidence C) — a manual re-estimate on the owner's request. k is for reference.
- */
-function cmdEstimate(args: EstimateArgs): void {
-  if (isCloud()) throw new EstError(CLOUD_ERR);
-  const registry = loadRegistry();
-  if (!(EST_TYPES as readonly string[]).includes(args.type)) throw new EstError(`--type must be one of: ${EST_TYPES.join(", ")}`);
-  if (args.hours !== undefined && !(args.hours > 0)) throw new EstError(`--hours must be greater than 0, got ${fmtH(args.hours)}`);
-  if (![0.5, 1, 1.5, 2].includes(args.mult)) throw new EstError("--mult allows only 0.5, 1, 1.5 or 2");
-  if (args.tokMult !== undefined && !TOK_MULTS.includes(args.tokMult)) throw new EstError("--tok-mult allows only 0.5, 1, 1.5, 2 or 3");
-  const tokMult = args.tokMult ?? args.mult;
-  const auto = !args.analogs.trim() && args.hours === undefined; // neither --analogs nor --hours — the script picks analogs
-  const repo = new Repo(repoOf(args.repo), registry);
-  // analogs: an issue number of this repo (254) or a task of another registry repo (owner/repo#254)
-  const analogs: (number | string)[] = []; // number — this repo; "owner/repo#N" — another one
-  for (let a of args.analogs.split(",")) {
-    a = a.trim().replace(/^#+/, "");
-    if (!a) continue;
-    const m = /^([\p{L}\p{N}_.-]+\/[\p{L}\p{N}_.-]+)#(\d+)$/u.exec(a);
-    if (m && m[1] !== repo.full) {
-      const key = `${m[1]}#${parseInt(m[2]!, 10)}`;
-      if (!analogs.includes(key)) analogs.push(key);
-      continue;
-    }
-    if (m) a = m[2]!;
-    if (!isDigits(a)) throw new EstError(`analog «${a}» is neither an issue number nor owner/repo#N`);
-    const n = parseInt(a, 10);
-    if (n === args.number) throw new EstError(`analog #${a} is the task being estimated`);
-    if (!analogs.includes(n)) analogs.push(n);
-  }
-  // a downward correction to analogs from other repos without a named difference underestimated big tasks threefold
-  // (#348) — hence the rule "no difference — ×1"
-  if (args.mult < 1 && analogs.some((a) => typeof a === "string") && !args.note.trim()) {
-    const msg = `downward correction against another repo's analogs (×${fmtH(args.mult)}): name the difference in --note, no difference — ×1`;
-    if (args.write) throw new EstError(msg); // before any write
-    console.error(`warning: ${msg}; with --write — refused`);
-  }
-  const hidden = hiddenAnalogs(repo, analogs);
-  if (hidden.length) {
-    const msg = `${repo.full} is a public repo, and the ${plural(hidden.length, "analog", "analogs")} ${hidden.join(", ")} — from a non-public one: the other task's name and number would stay in the «Estimate» comment and in its edit history. Take analogs from ${repo.full} or give an expert estimate (--hours)`;
-    if (args.write) throw new EstError(msg); // before any write
-    console.error(`warning: ${msg}; with --write — refused`);
-  }
-  const meta = repo.projectMeta();
-  const rows = repo.projectRows();
-  const byNum = new Map(rows.map((r) => [r.number, r]));
-  const facts: number[] = [];
-  const toks: number[] = [];
-  const usds: number[] = [];
-  const parts: string[] = [];
-  const otherParts = new Map<string, string[]>();
-  const otherRows = new Map<string, Map<number, Row>>();
-
-  // the "Estimate" comment is in the project language
-  const language = locale.projectLanguage();
-  const n = locale.names(language);
-  const take = (r: Row, label: string, bucket: string[], why = "") => {
-    const fm = r.fact_marker ?? {};
-    if (r.fact === null) {
-      bucket.push(locale.fill(n.est.estimate.unknown, { label }));
-      return;
-    }
-    const cov = fm.cov || "full";
-    if (cov !== "full") {
-      bucket.push(locale.fill(n.est.estimate.partialCoverage, { label, h: fmtH(r.fact), cov }));
-      return;
-    }
-    facts.push(Number(r.fact));
-    const tt = fm.tok?.total;
-    if (tt) toks.push(tt / 1e6);
-    if (fm.usd !== undefined && fm.usd !== null) usds.push(Number(fm.usd));
-    bucket.push(locale.fill(n.est.estimate.analog, { label, h: fmtH(r.fact), why: why ? `: ${why}` : "" }));
-  };
-
-  const issue = fetchIssue(repo, args.number);
-  for (const a of analogs) {
-    if (typeof a === "string") {
-      const [full, numS] = a.split("#") as [string, string];
-      const num = parseInt(numS, 10);
-      if (!otherRows.has(full)) {
-        if (!(full in registry)) throw new EstError(`analog ${a}: repository ${full} isn't in the registry ${REGISTRY_PATH}`);
-        otherRows.set(full, new Map(new Repo(full, registry).projectRows().map((r) => [r.number, r])));
-      }
-      const r = otherRows.get(full)!.get(num);
-      if (!r) throw new EstError(`analog ${a} not found in the project of repository ${full}`);
-      if (!otherParts.has(full)) otherParts.set(full, []);
-      take(r, `#${num}`, otherParts.get(full)!);
-      continue;
-    }
-    const r = byNum.get(a);
-    if (!r) {
-      try {
-        fetchIssue(repo, a);
-      } catch (e) {
-        if (!(e instanceof EstError)) throw e;
-        throw new EstError(`analog #${a} not found in repo ${repo.full} as an issue (${e.message})`);
-      }
-      console.error(`warning: analog #${a} is in the repo but not in the project — its actual is unknown`);
-      parts.push(locale.fill(n.est.estimate.notInProject, { label: `#${a}` }));
-      continue;
-    }
-    take(r, `#${a}`, parts);
-  }
-  if (auto) {
-    // without --analogs and --hours there are no analogs in the list — the script picks them
-    const target = { number: args.number, title: issue.title, labels: (issue.labels?.nodes ?? []).map((l: Any) => l.name), createdAt: parseTs(issue.createdAt), size: descSize(issue.body ?? "") };
-    const picked = pickAnalogs(target, args.type, rows);
-    // a cold start isn't an error: `task new` calls this for every task, and the estimate appears once two tasks close
-    if (picked.length < 2) {
-      console.log(`No estimate: ${repo.full} has fewer than two tasks with an actual (coverage full) closed before #${args.number} was created — the task stays without an estimate`);
-      return;
-    }
-    for (const a of picked) {
-      analogs.push(a.row.number);
-      take(a.row, `#${a.row.number}`, parts, analogWhy(a, args.type, language));
-    }
-  }
-  for (const [full, lst] of otherParts) parts.push(locale.fill(n.est.estimate.otherProject, { repo: full, list: lst.join(", ") }));
-  const analogTxt = parts.length ? parts.join("; ") : n.est.estimate.none;
-
-  const expert = args.hours !== undefined;
-  if (!facts.length && !expert) throw new EstError("no analogs with an actual (coverage full) — pass --analogs with actuals or --hours as an expert estimate");
-  if (facts.length === 1 && !expert) throw new EstError("one analog isn't a forecast: add a second analog or --hours");
-  let tokF: number | null = null;
-  let usdF: number | null = null;
-  let spreadTxt: string | null = null;
-  let raw: number | null = null;
-  let h: number;
-  let basis: string;
-  if (facts.length) {
-    const f = forecast(facts, toks, usds, args.mult, tokMult);
-    raw = f.raw;
-    h = f.h;
-    tokF = f.tok;
-    usdF = f.usd;
-    const mn = Math.min(...facts);
-    const mx = Math.max(...facts);
-    if (mn > 0 && mx / mn > 3) spreadTxt = locale.fill(n.est.estimate.spread, { min: fmtH(mn), max: fmtH(mx) });
-    basis = n.est.estimate.forecast;
-    if (expert) {
-      // expert hours over the forecast: tokens and cost scale proportionally
-      const ratio = raw > 0 ? args.hours! / raw : 1;
-      basis = locale.fill(n.est.estimate.expertOver, { h: fmtH(h), ratio: ratio.toFixed(1) });
-      h = roundScale(args.hours!);
-      tokF = tokF !== null ? tokF * ratio : null;
-      usdF = usdF !== null ? usdF * ratio : null;
-    }
-  } else {
-    h = roundScale(args.hours!);
-    basis = n.est.estimate.expert;
-  }
-  if (expert && Math.abs(h - args.hours!) > 1e-9) console.error(`warning: --hours ${fmtH(args.hours)} rounded to the scale: ${fmtH(h)}`);
-  const sameType = rows.filter((r) => r.state === "CLOSED" && r.fact !== null && (r.fact_marker?.cov ?? "full") === "full" && rowType(r) === args.type).length;
-  const counted = facts.length;
-  const conf = expert ? "C" : counted >= 3 && sameType >= 5 ? "A" : "B";
-  let headline = locale.fill(n.est.estimate.headline, { h: fmtH(h) });
-  if (tokF !== null) headline += locale.fill(n.est.estimate.tokens, { tok: fmtH(tokF, tokF < 1 ? 2 : 1) });
-  if (usdF !== null) headline += usdF < 1 ? `, ≈ $${usdF.toFixed(2)}` : `, ≈ $${usdF.toFixed(0)}`;
-  if (facts.length && (toks.length < facts.length || usds.length < facts.length)) headline += locale.fill(n.est.estimate.partial, { k: Math.min(toks.length, usds.length), n: facts.length });
-  const note = args.note ? ` (${args.note})` : "";
-  let multTxt = facts.length ? locale.fill(n.est.estimate.correction, { mult: fmtH(args.mult), note }) : "";
-  if (facts.length && tokMult !== args.mult) multTxt += locale.fill(n.est.estimate.tokCorrection, { mult: fmtH(tokMult), note: args.tokNote ? ` (${args.tokNote})` : "" });
-  // k is for reference — computed only once there is an estimate: other repos are read for it when this one has few pairs
-  const [c, level] = calibForEstimate(repo, registry, rows);
-  const kTxt = c.n ? locale.fill(n.est.estimate.k, { k: String(c.k), n: c.n, level }) : n.est.estimate.noK;
-  const text = locale.fill(n.est.estimate.body, { headline, type: args.type, conf, basis, auto: auto ? n.est.estimate.auto : "", analogs: analogTxt, correction: multTxt, spread: spreadTxt ?? "", k: kTxt });
-  const marker = {
-    v: 2,
-    h,
-    raw: raw !== null ? round2(raw) : null,
-    type: args.type,
-    analogs,
-    mult: args.mult,
-    tok_mult: tokMult,
-    tok: tokF !== null ? round2(tokF) : null,
-    usd: usdF !== null ? round2(usdF) : null,
-    expert,
-    auto,
-    k: c.k,
-    n: c.n,
-    conf,
-  };
-  const body = text + "\n" + `<!-- est ${pyDumps(marker)} -->`;
-  const cur = issueProjectFields(issue, meta);
-  console.log(`== ${repo.full}#${args.number}: ${issue.title}`);
-  console.log(`current «${fieldShown(meta, FIELD_EST)}»: ${fmtH(cur.est)}; status: ${cur.status || "—"}`);
-  const over = raw !== null && !expert ? raw : expert ? args.hours! : null;
-  if (over !== null && over > SCALE[SCALE.length - 1]!) console.log(`WARNING: it comes to ${fmtH(over)} h > 13 — the field gets ${fmtH(h)}, the task should be split into subtasks`);
-  console.log("comment:");
-  console.log(body);
-  if (args.write) {
-    const what = upsertComment(repo, issue, "est", body);
-    setNumberField(repo, issue, FIELD_EST, h);
-    console.log(`«Estimate» comment ${what}, field «${fieldShown(meta, FIELD_EST)}» = ${fmtH(h)}`);
-  } else {
-    console.log("(nothing written without --write)");
-  }
-}
-
-// ----------------------------------------------------------------------------
-// The backtest command
-// ----------------------------------------------------------------------------
-
-/** Estimate accuracy on a sample: the share of actual/estimate within ×0.5…×2, and k — the median actual/estimate. */
-export interface BacktestLine {
-  n: number;
-  share: number | null;
-  k: number | null;
-}
-
-export interface Backtest {
-  tasks: number; // closed tasks with a full actual, not epics
-  mech: BacktestLine; // the mechanical estimate for all tasks that had enough analogs
-  same: number; // of them with a manual estimate — the common sample of the three lines below
-  mechSame: BacktestLine;
-  manual: BacktestLine;
-  mechMult: BacktestLine; // the mechanical estimate × the correction the agent gave in the manual estimate
-}
-
-/** pairs — [actual, estimate]. */
-function backtestLine(pairs: [number, number][]): BacktestLine {
-  const ratios = pairs.map(([f, e]) => f / e).sort((a, b) => a - b);
-  if (!ratios.length) return { n: 0, share: null, k: null };
-  return { n: ratios.length, share: ratios.filter((x) => x >= 0.5 && x <= 2).length / ratios.length, k: round2(median(ratios)) };
-}
-
-/**
- * Each closed task with an actual is estimated mechanically, the way `est estimate` without --analogs would have on the
- * creation day (pickAnalogs takes only those closed earlier); a manual estimate is an est marker without `auto`. The
- * comparison is on tasks that have both: otherwise the samples differ, and the shares aren't comparable.
- */
-export function backtest(rows: Row[]): Backtest {
-  const pool = rows.filter((r) => factRow(r) && r.createdAt !== null);
-  const mech: [number, number][] = [];
-  const mechSame: [number, number][] = [];
-  const manual: [number, number][] = [];
-  const mechMult: [number, number][] = [];
-  for (const t of pool) {
-    const em = t.est_marker;
-    const type = em?.type || rowType(t);
-    const picked = pickAnalogs({ number: t.number, title: t.title, labels: t.labels, createdAt: t.createdAt, size: t.size ?? 0 }, type, rows);
-    if (picked.length < 2) continue;
-    const raw = median(picked.map((a) => a.row.fact!));
-    const h = roundScale(raw);
-    mech.push([t.fact!, h]);
-    const hand = em && !em.auto ? Number(em.h || t.est) : 0;
-    if (!(hand > 0)) continue;
-    mechSame.push([t.fact!, h]);
-    manual.push([t.fact!, hand]);
-    mechMult.push([t.fact!, roundScale(raw * (Number(em.mult) || 1))]);
-  }
-  return { tasks: pool.length, mech: backtestLine(mech), same: manual.length, mechSame: backtestLine(mechSame), manual: backtestLine(manual), mechMult: backtestLine(mechMult) };
-}
-
-function cmdBacktest(args: { repo?: string; allRepos: boolean }): void {
-  if (isCloud()) throw new EstError(CLOUD_ERR);
-  const registry = loadRegistry();
-  const repos = args.allRepos ? Object.keys(registry) : [repoOf(args.repo)];
-  const pct = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)} %`);
-  const line = (name: string, l: BacktestLine) => `  ${pad(name, 30)} within tolerance ${pct(l.share)}, k=${l.k ?? "—"}`;
-  for (const full of repos) {
-    let rows: Row[];
-    try {
-      rows = new Repo(full, registry).projectRows();
-    } catch (e) {
-      if (!(e instanceof EstError) || !args.allRepos) throw e;
-      console.error(`warning: ${full}: ${e.message}`);
-      continue;
-    }
-    const b = backtest(rows);
-    console.log(`== ${full}: estimate backtest — analogs only from tasks closed before the estimated one was created`);
-    console.log(`tasks with an actual (coverage full, no epics): ${b.tasks}; the mechanics had enough analogs (≥ 2): ${b.mech.n}, within ×0.5…×2 — ${pct(b.mech.share)}, k=${b.mech.k ?? "—"}`);
-    if (b.same) {
-      console.log(`on one sample with a manual estimate, n=${b.same}:`);
-      console.log(line("mechanics", b.mechSame));
-      console.log(line("manual", b.manual));
-      console.log(line("mechanics × manual correction", b.mechMult));
-    } else {
-      console.log("no manual estimates with an actual — nothing to compare the mechanics with");
-    }
-    console.log();
-  }
 }
 
 // ----------------------------------------------------------------------------
@@ -4658,18 +3978,6 @@ function cmdBacktest(args: { repo?: string; allRepos: boolean }): void {
 
 /** The model rate is separate from the flow: a model change changes a task's $ manyfold with the same flow. */
 const TARIFF_NOTE = "the $ trend mixes the flow with the model rate: compare the flow by tokens and output";
-
-/** $ by model from the "Actual" markers (models: {model: {mtok, usd}}); a model without a price is skipped. */
-function usdByModel(markers: Any[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const fm of markers) {
-    for (const [m, v] of Object.entries(fm?.models ?? {})) {
-      const usd = (v as Any)?.usd;
-      if (typeof usd === "number" && usd > 0) out[m] = (out[m] ?? 0) + usd;
-    }
-  }
-  return out;
-}
 
 /** $ shares by model, descending: [model, share 0…1]. */
 function usdShares(byModel: Record<string, number>): [string, number][] {
@@ -4909,14 +4217,6 @@ function cmdPeriod(args: PeriodArgs): void {
  * here: a command without help can't be called.
  */
 const HELP: Record<string, string> = {
-  history: `est history [--repo o/r] [--grep WORD] [--all-repos] [--last N]
-
-Closed tasks with estimate and actual, k (actual/estimate) with the number of pairs, and how many tasks closed in 90 days
-have no actual.
-
-Examples:
-  est history
-  est history --grep export --last 20`,
   fact: `est fact <N> [--repo o/r] [--write] [--gap 30] [--json]
 est fact --sweep [--since 90d] [--repo o/r] [--write]
 est fact --sweep --model <id> [--since 90d] [--repo o/r] [--write]
@@ -4932,24 +4232,6 @@ Examples:
   est fact 42
   est fact --sweep --since 90d --write
   est fact --sweep --recompute --since 365d --write`,
-  estimate: `est estimate <N> [--repo o/r] --type <type> [--mult 0.5|1|1.5|2] [--note "reason"] [--tok-mult 0.5|1|1.5|2|3 [--tok-note "reason"]] [--write]
-est estimate <N> [--repo o/r] --type <type> --analogs a,b[,c] [--mult …] [--note …] [--write]
-est estimate <N> [--repo o/r] --type <type> --hours H [--write]
-
-The script picks analogs (github task new runs it); fewer than two — no estimate. --analogs — analogs by hand, --hours —
-an expert estimate: only on the owner's request. Without --write everything is only printed.
-<type> — ${EST_TYPES.join(" ")}
-
-Examples:
-  est estimate 42 --type feat --write
-  est estimate 42 --type fix --analogs 17,23 --mult 1.5 --note "two services"`,
-  backtest: `est backtest [--repo o/r] [--all-repos]
-
-Mechanics vs manual estimates on closed tasks.
-
-Examples:
-  est backtest
-  est backtest --all-repos`,
   period: `est period --since DATE [--until DATE] [--since DATE [--until DATE]] [--repo o/r] [--gap 30]
 
 All of the repo's sessions over the period: hours, tokens, cost, turns by kind (work, the flow's overhead, the harness,
@@ -4968,7 +4250,7 @@ Examples:
 
 /** `est --help`: what the script is and the synopsis of each command. */
 const OVERVIEW = [
-  "est — estimates tasks from the project's history and records the actual from Claude Code, Codex and cloud session transcripts.",
+  "est — records the actual of tasks from Claude Code, Codex and cloud session transcripts and sums up a period's sessions.",
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
   "",
@@ -5011,13 +4293,6 @@ function intArg(v: string | undefined, name: string): number | undefined {
   return parseInt(v, 10);
 }
 
-function floatArg(v: string | undefined, name: string): number | undefined {
-  if (v === undefined) return undefined;
-  const n = Number(v);
-  if (!Number.isFinite(n)) throw new EstError(`${name}: expected a number, got «${v}»`);
-  return n;
-}
-
 export function main(argv: string[]): number {
   const cmd = argv[0];
   const rest = argv.slice(1);
@@ -5029,11 +4304,6 @@ export function main(argv: string[]): number {
     if (cmd === "cloud-import") {
       if (!rest.length) throw new EstError("pass the cloud session export files");
       cmdCloudImport(rest);
-      return 0;
-    }
-    if (cmd === "history") {
-      const { values } = parseArgs({ args: rest, options: { repo: { type: "string" }, grep: { type: "string" }, "all-repos": { type: "boolean", default: false }, last: { type: "string" } } });
-      cmdHistory({ repo: values.repo, grep: values.grep, allRepos: values["all-repos"], last: intArg(values.last, "--last") });
       return 0;
     }
     if (cmd === "fact") {
@@ -5050,23 +4320,6 @@ export function main(argv: string[]): number {
       const gap = intArg(values.gap, "--gap")!;
       if (gap < 1) throw new EstError(`--gap must be ≥ 1 minute, got ${gap}`);
       cmdPeriod({ repo: values.repo, periods: parsePeriods(values.since ?? [], values.until ?? []), gap });
-      return 0;
-    }
-    if (cmd === "backtest") {
-      const { values } = parseArgs({ args: rest, options: { repo: { type: "string" }, "all-repos": { type: "boolean", default: false } } });
-      cmdBacktest({ repo: values.repo, allRepos: values["all-repos"] });
-      return 0;
-    }
-    if (cmd === "estimate") {
-      const { values, positionals } = parseArgs({
-        args: rest,
-        allowPositionals: true,
-        options: { repo: { type: "string" }, hours: { type: "string" }, type: { type: "string" }, analogs: { type: "string", default: "" }, mult: { type: "string", default: "1" }, note: { type: "string", default: "" }, "tok-mult": { type: "string" }, "tok-note": { type: "string" }, write: { type: "boolean", default: false } },
-      });
-      const number = intArg(positionals[0], "issue number");
-      if (number === undefined) throw new EstError("pass the issue number");
-      if (!values.type) throw new EstError(`--type is required: ${EST_TYPES.join(", ")}`);
-      cmdEstimate({ number, repo: values.repo, hours: floatArg(values.hours, "--hours"), type: values.type, analogs: values.analogs, mult: floatArg(values.mult, "--mult")!, tokMult: floatArg(values["tok-mult"], "--tok-mult"), tokNote: values["tok-note"], note: values.note, write: values.write });
       return 0;
     }
     throw new EstError(`command «${cmd}» has help but no handler`);

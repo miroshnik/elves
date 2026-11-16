@@ -134,15 +134,11 @@
   "est": {
     "answer": "Ответ",
     "manual": "+ вручную:",
-    "reason": "Причина:",
     "hours": "ч",
     "closingWords": "закрывает закрыт закрыта закрыто закрыты закрыть исправляет решает устраняет",
-    "stopWords": "для без при что как или все это его из от до за под над про через после перед если чем где когда только также уже ещё еще так",
     "fact": {
       "unavailable": "Факт недоступен: сессии не найдены (покрытие none).",
-      "body": "{h} ч активных в {agents} ({estimate}). {sessions}, {prompts},{subagents} стена {wall} ч, покрытие {cov}.",
-      "estimate": "оценка {h} ч{ratio}",
-      "noEstimate": "оценки нет",
+      "body": "{h} ч активных в {agents}. {sessions}, {prompts},{subagents} стена {wall} ч, покрытие {cov}.",
       "sessions": {
         "one": "сессия",
         "few": "сессии",
@@ -196,43 +192,6 @@
       "fields": " Сессия: https://claude.ai/code/{sid}. Поля проекта поставит локальная сессия: est fact {number} --write.",
       "unavailable": "Факт недоступен (облако): задача сделана в облачной сессии Claude Code — там est не видит проекта GitHub; цифру даст локальная сессия, импортировав события этой сессии (est cloud-import) (покрытие none).",
       "session": " Сессия: https://claude.ai/code/{sid}."
-    },
-    "estimate": {
-      "headline": "Оценка: {h} ч",
-      "tokens": ", ≈ {tok} млн токенов",
-      "partial": " (токены и стоимость по {k} из {n} аналогов)",
-      "body": "{headline} (тип {type}, доверие {conf}; {basis}). Аналоги{auto}: {analogs}.{correction}{spread} {k}.",
-      "auto": " (подбор скриптом)",
-      "forecast": "прогноз по фактам аналогов",
-      "expertOver": "экспертная оценка; по аналогам вышло бы {h} ч, токены и стоимость пересчитаны ×{ratio}",
-      "expert": "экспертная оценка, аналогов с фактом нет",
-      "spread": " Разброс фактов аналогов {min}…{max} ч — взята медиана.",
-      "correction": " Поправка: ×{mult}{note}.",
-      "tokCorrection": " Поправка токенов и стоимости: ×{mult}{note}.",
-      "k": "k={k} (n={n}, уровень «{level}»; справочно, к прогнозу не применяется)",
-      "noK": "k: истории нет",
-      "levelRepo": "репо",
-      "levelAll": "все репо",
-      "none": "нет",
-      "otherProject": "из проекта {repo}: {list}",
-      "analog": "{label} (факт {h} ч{why})",
-      "unknown": "{label} (факт неизвестен)",
-      "partialCoverage": "{label} (факт {h} ч, покрытие {cov} — не учтён)",
-      "notInProject": "{label} (нет в проекте)",
-      "labels": {
-        "one": "метка",
-        "few": "метки",
-        "many": "меток",
-        "other": "метки"
-      },
-      "type": "тип {type}",
-      "words": {
-        "one": "слово",
-        "few": "слова",
-        "many": "слов",
-        "other": "слова"
-      },
-      "size": "описание ×{ratio}"
     }
   },
   "updateCommit": "флоу Elves {version}",

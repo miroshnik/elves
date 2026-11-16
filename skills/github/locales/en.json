@@ -134,15 +134,11 @@
   "est": {
     "answer": "Answer",
     "manual": "+ manually:",
-    "reason": "Reason:",
     "hours": "h",
     "closingWords": "close closes closed fix fixes fixed resolve resolves resolved",
-    "stopWords": "the and for with from into",
     "fact": {
       "unavailable": "Actual unavailable: no sessions found (coverage none).",
-      "body": "{h} h active in {agents} ({estimate}). {sessions}, {prompts},{subagents} wall {wall} h, coverage {cov}.",
-      "estimate": "estimate {h} h{ratio}",
-      "noEstimate": "no estimate",
+      "body": "{h} h active in {agents}. {sessions}, {prompts},{subagents} wall {wall} h, coverage {cov}.",
       "sessions": {
         "one": "session",
         "few": "sessions",
@@ -196,43 +192,6 @@
       "fields": " Session: https://claude.ai/code/{sid}. The local session sets the project fields: est fact {number} --write.",
       "unavailable": "Actual unavailable (cloud): the task was done in a Claude Code cloud session — est can't see the GitHub project there; a local session gives the number by importing this session's events (est cloud-import) (coverage none).",
       "session": " Session: https://claude.ai/code/{sid}."
-    },
-    "estimate": {
-      "headline": "Estimate: {h} h",
-      "tokens": ", ≈ {tok}M tokens",
-      "partial": " (tokens and cost from {k} of {n} analogs)",
-      "body": "{headline} (type {type}, confidence {conf}; {basis}). Analogs{auto}: {analogs}.{correction}{spread} {k}.",
-      "auto": " (picked by the script)",
-      "forecast": "forecast from the analogs' actuals",
-      "expertOver": "expert estimate; the analogs would give {h} h, tokens and cost rescaled ×{ratio}",
-      "expert": "expert estimate, no analogs with an actual",
-      "spread": " The analogs' actuals spread {min}…{max} h — the median is taken.",
-      "correction": " Correction: ×{mult}{note}.",
-      "tokCorrection": " Token and cost correction: ×{mult}{note}.",
-      "k": "k={k} (n={n}, level «{level}»; for reference, not applied to the forecast)",
-      "noK": "k: no history",
-      "levelRepo": "repo",
-      "levelAll": "all repos",
-      "none": "none",
-      "otherProject": "from project {repo}: {list}",
-      "analog": "{label} (actual {h} h{why})",
-      "unknown": "{label} (actual unknown)",
-      "partialCoverage": "{label} (actual {h} h, coverage {cov} — not counted)",
-      "notInProject": "{label} (not in the project)",
-      "labels": {
-        "one": "label",
-        "few": "labels",
-        "many": "labels",
-        "other": "labels"
-      },
-      "type": "type {type}",
-      "words": {
-        "one": "word",
-        "few": "words",
-        "many": "words",
-        "other": "words"
-      },
-      "size": "description ×{ratio}"
     }
   },
   "updateCommit": "Elves flow {version}",
