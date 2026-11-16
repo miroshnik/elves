@@ -25,8 +25,8 @@ function run(fake: FakeGitHub, args: string[], env: Record<string, string> = {},
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
 const check = (fake: FakeGitHub, repo = REPO, cwd?: string) => run(fake, ["project", "check", "--repo", repo], {}, cwd);
-const fix = (fake: FakeGitHub, opts: { repo?: string; confirm?: boolean; cwd?: string } = {}) =>
-  run(fake, ["project", "fix", "--repo", opts.repo ?? REPO, ...(opts.confirm ? ["--confirm"] : [])], {}, opts.cwd);
+const fix = (fake: FakeGitHub, opts: { repo?: string; confirm?: boolean; create?: boolean; cwd?: string } = {}) =>
+  run(fake, ["project", "fix", "--repo", opts.repo ?? REPO, ...(opts.confirm ? ["--confirm"] : []), ...(opts.create ? ["--create"] : [])], {}, opts.cwd);
 
 const temp: (() => void)[] = [];
 afterEach(() => {
@@ -131,13 +131,26 @@ describe("check показывает каждое расхождение с ка
     expect(r.out).toContain("· without Status: #42");
   });
 
-  it("к репозиторию не привязан проект — из пунктов проекта только этот ❌, остальные без проекта не проверить; правило основной ветки и способ мержа сверяются", () => {
+  // доска по желанию проекта (#847): без неё задачи ведутся по фактам, а правило основной ветки и способ мержа сверяются
+  it("`project check` без проекта называет неподключённую доску и выходит с кодом 0", () => {
     const f = fake();
     f.unlinkAll();
     const r = check(f);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(0);
     expect(r.out).toStartWith(`Project ${REPO}: none`);
-    expect(marks(r.out)).toEqual({ Project: "❌", Merge: "✅", PR: "✅" });
+    expect(marks(r.out)).toEqual({ Board: "✅", Merge: "✅", PR: "✅" });
+    expect(r.out).toContain("   ○ no board connected — tasks go without one, their status by the facts; connect one: github project fix --create");
+  });
+
+  // доску заводит только `fix --create` (вопрос 1 #847): `install` и `fix` без флага её не заводят — она нужна не всем
+  it("`project fix` без `--create` доску не заводит", () => {
+    const f = fake();
+    f.unlinkAll();
+    f.ownerProject("elves");
+    const r = fix(f);
+    expect(r.code).toBe(0);
+    expect(ops(f)).toEqual([]);
+    expect(r.out).toContain("○ no board connected");
   });
 
   it("облачная сессия — объяснение и код 2, а не сбой gh на Projects v2", () => {
@@ -266,22 +279,22 @@ describe("fix доводит проект до канона: через API — 
     expect(Object.values(marks(after.out))).not.toContain("❌");
   });
 
-  it("проекта нет — привязывает одноимённый проект владельца, а не заводит новый", () => {
+  it("проекта нет, fix --create — привязывает одноимённый проект владельца, а не заводит новый", () => {
     const f = fake();
     f.unlinkAll();
     const own = f.ownerProject("elves");
-    const r = fix(f);
+    const r = fix(f, { create: true });
     expect(byOp(f, "LinkProject")).toEqual([{ projectId: own.id, repositoryId: f.repo.id }]);
     expect(ops(f)).not.toContain("CopyProject");
     expect(ops(f)).not.toContain("CreateProject");
     expect(r.out).toContain(`+ linked project «elves» (${own.url})`);
   });
 
-  it("проекта нет — копирует эталон под владельца репозитория и привязывает; из шагов остаётся только auto-add", () => {
+  it("проекта нет, fix --create — копирует эталон под владельца репозитория и привязывает; из шагов остаётся только auto-add", () => {
     const f = fake(); // эталон: все workflow настроены, auto-add копия не переносит
     const template = f.project();
     f.unlinkAll();
-    const r = fix(f);
+    const r = fix(f, { create: true });
     expect(byOp(f, "CopyProject")).toEqual([{ projectId: template.id, ownerId: f.repo.owner.id, title: "elves", includeDraftIssues: false }]);
     const copy = f.project();
     expect(copy.id).not.toBe(template.id);
@@ -291,11 +304,11 @@ describe("fix доводит проект до канона: через API — 
     expect(r.out).not.toContain("2. ");
   });
 
-  it("эталон недоступен — создаёт проект с нуля: варианты Status переименовывает с теми же id, View 1 → Таблица", () => {
+  it("эталон недоступен, fix --create — создаёт проект с нуля: варианты Status переименовывает с теми же id, View 1 → Таблица", () => {
     const f = fake();
     f.unlinkAll();
     f.rec['TemplateProject {"login":"miroshnik","number":6}'] = { data: { repositoryOwner: { projectV2: null } }, errors: [{ message: "Could not resolve to a ProjectV2 with the number 6." }] };
-    const r = fix(f);
+    const r = fix(f, { create: true });
     expect(ops(f)[0]).toBe("CreateProject");
     expect(r.err).toContain("template miroshnik/6 not found — the project is created from scratch");
     const created = f.project();
@@ -902,7 +915,7 @@ describe("Канон проекта — на языке проекта из .age
     const f = fake();
     f.unlinkAll();
     f.rec['TemplateProject {"login":"miroshnik","number":6}'] = { data: { repositoryOwner: { projectV2: null } }, errors: [{ message: "Could not resolve to a ProjectV2 with the number 6." }] };
-    const r = fix(f, { cwd: checkout(EN) });
+    const r = fix(f, { cwd: checkout(EN), create: true });
     const status = f.project().fields.nodes.find((x: { name: string }) => x.name === "Status");
     expect(status.options.map((o: { name: string }) => o.name)).toEqual(["Backlog", "In progress", "Done"]);
     expect(byOp(f, "UpdateView")[0]).toEqual({ viewId: f.project().views.nodes[0].id, name: "Table" });
