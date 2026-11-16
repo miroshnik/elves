@@ -787,6 +787,17 @@ command `pr labels <N>`, then `premerge` again: on every path to the merge,
 by hand and through `task finish`, into a batch too; a label past GitHub's
 limit on an issue doesn't hold it. A batch's release PR — no labels, no check.
 
+Then red on base (#844), for a PR with files in `tests/` (the PR's files, read
+once with the labels): "a check is red first" is a mechanism, not the
+executor's word. The base and the PR head are fetched, `spec-red` of the
+`spec` skill (next to this skill, a process) runs the PR's added tests on the
+base code — a temporary worktree at the merge-base with the head's `tests/` —
+and its lines are printed as they are: an added test green there, or an
+existing-behavior mark on a test red there — `❌`, code 1, the test is fixed
+in the PR; spec-red's error — code 2. On every path to the merge: before
+"CI checked this merge" and before "on the fresh `origin/<batch>`". No
+spec skill — an `○` line. Details — `skills/spec/reference.md`, "spec-red".
+
 Before merging a green PR, from a repository checkout: CI
 checked the merge with the default branch as it was at the time of the run,
 and without a merge queue the branch moves ahead. Didn't move — `✅ merge`,

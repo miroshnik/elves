@@ -153,6 +153,7 @@ function fakeGh(
     base = "main",
     releases = [],
     ref = "feat/7-x",
+    files = [],
   }: {
     suites?: string[];
     moved?: string | null;
@@ -171,6 +172,8 @@ function fakeGh(
     releases?: { number: number; state: "open" | "closed"; merged?: boolean; body?: string; checks?: Record<string, string> }[];
     /** Ветка PR — ветка задачи. */
     ref?: string;
+    /** Файлы PR (PrChange): по ним premerge решает, добавляет ли PR тесты (#844). */
+    files?: { path: string; changeType: string }[];
   } = {},
 ) {
   const calls: string[] = [];
@@ -182,11 +185,15 @@ function fakeGh(
     if (url === "graphql") {
       const { query, variables: v } = JSON.parse(stdin ?? "{}");
       const full = `${v?.owner}/${v?.name}`;
-      // файлы PR (PrChange) — для меток решений (#733): здесь PR решений не меняет, метки — в тестах задач
+      // файлы PR (PrChange) — для меток решений (#733) и красного на базе (#844): решений PR здесь не меняет, метки — в
+      // тестах задач
       if (String(query).startsWith("query PrChange")) {
-        const pullRequest = { number: PR, headRefOid: head, headRefName: ref, baseRefName: base, body, closingIssuesReferences: { nodes: [] }, files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } };
+        const nodes = files.map((f) => ({ ...f, additions: 1, deletions: 0 }));
+        const pullRequest = { number: PR, headRefOid: head, headRefName: ref, baseRefName: base, body, closingIssuesReferences: { nodes: [] }, files: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } };
         return JSON.stringify({ data: { repository: { defaultBranchRef: { name: "main" }, pullRequest } } });
       }
+      // метки репозитория: решение из файлов PR есть, а задачи у ветки нет — меток premerge не ждёт
+      if (String(query).startsWith("query RepoLabels")) return JSON.stringify({ data: { repository: { labels: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } });
       return JSON.stringify(full === SLUG ? { data: { repository: { nameWithOwner: SLUG } } } : { data: { repository: null }, errors: [{ type: "NOT_FOUND", message: `Could not resolve to a Repository with the name '${full}'.` }] });
     }
     if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
@@ -932,6 +939,44 @@ describe("PR в ветку пачки CI не запускает — что пр
     expect(broken.last).toBe(
       `❌ don't merge: test:spec is red on the merge with origin/${BATCH} — fix the root cause in the PR: rebase onto origin/${BATCH}, edit, push --force-with-lease, pr premerge ${PR} again`,
     );
+  });
+});
+
+/**
+ * «Проверка сначала красная» — механизм, а не слово агента (#844): premerge гоняет добавленные PR-ом тесты на базовом
+ * коде (spec-red) один раз на PR и на любом пути к мержу — и когда CI проверил слияние, и на свежей ветке пачки, где CI
+ * нет. Как читается результат — в тестах spec-red (spec), здесь — что premerge по нему решает.
+ */
+describe("pr premerge: добавленные PR-ом тесты красные на базовом коде", () => {
+  const SUM = "src/sum.ts";
+  const SUM_TEST = "tests/capabilities/sum/sum.test.ts";
+  // база: в сложении ошибка — PR её чинит и добавляет тест; lockfile нет — spec-red зависимостей не ставит
+  const BUG = { "bun.lock": null, [SUM]: "export const sum = (a: number, b: number) => a - b;\n" };
+  const fix = (test: string) => ({
+    [SUM]: "export const sum = (a: number, b: number) => a + b;\n",
+    [SUM_TEST]: `import { expect, it } from "bun:test";\nimport { sum } from "../../../src/sum.ts";\n\n${test}\n`,
+  });
+  // ветка без номера задачи: меток решений premerge не ждёт — они в своих тестах
+  const FILES = { files: [{ path: SUM, changeType: "MODIFIED" }, { path: SUM_TEST, changeType: "ADDED" }], ref: "fix-sum" };
+
+  it("pr premerge не вливает PR, чей добавленный тест зелёный на базовом коде, — и когда CI проверил слияние, и на свежей ветке пачки", () => {
+    const green = 'it("ноль ничего не меняет", () => expect(sum(2, 0)).toBe(2));';
+    for (const base of ["main", "batch/2026-10-02-1"]) {
+      const p = project({ files: BUG, pr: fix(green), base });
+      const r = premerge(fakeGh(p.head, { ...FILES, base, suites: base === "main" ? [CI] : [] }).gh, p.work);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain(`❌ green on base: ${SUM_TEST}: ноль ничего не меняет — it doesn't check the PR's change`);
+      expect(r.last).toBe(`❌ don't merge: an added test is green on the base code or its existing-behavior mark is wrong (above) — fix the test in the PR, push, ${base === "main" ? "ci-wait again" : `pr premerge ${PR} again`}`);
+      expect(worktrees(p.work)).toHaveLength(1);
+    }
+  });
+
+  it("добавленный тест красный на базовом коде — premerge идёт дальше к проверке слияния", () => {
+    const p = project({ files: BUG, pr: fix('it("складывает два числа", () => expect(sum(1, 2)).toBe(3));') });
+    const r = premerge(fakeGh(p.head, FILES).gh, p.work);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("✅ 1 added test is red on base");
+    expect(r.last).toStartWith(`✅ merge: main hasn't moved since the CI of PR #${PR}`);
   });
 });
 
