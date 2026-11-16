@@ -7,8 +7,8 @@ then the details of the skill's commands — what `project check` verifies and
 `project fix` does, what each `task` and `pr` command checks, sets and prints —
 and the full git, PR and merge rules; at the end — manual commands for what
 the skill's commands don't cover (editing an already created task and
-milestones). When to call each command — `SKILL.md`; syntax —
-`github <command> --help`. Examples use made-up owners and numbers.
+milestones). When to call each command and its syntax — `SKILL.md`; a
+command's summary — `github <command> --help`. Examples use made-up owners and numbers.
 
 ## Task tracking — structure
 
@@ -511,8 +511,9 @@ outside git — ❌, `update` puts it into its commit.
 
 ## Task and PR commands — details
 
-When to call each command — `SKILL.md`; syntax — `github <command> --help`.
-Here — what each one checks, sets and prints.
+When to call each command and its syntax — `SKILL.md` (a call error prints the
+corrected command: section "A call error"); a command's summary — `github
+<command> --help`. Here — what each one checks, sets and prints.
 
 ### task new
 
@@ -612,16 +613,36 @@ An edit of the description in one call (#670), not `gh issue view --json
 body`, a file and `gh issue edit --body-file`: `--replace <old> <new>` — the
 text must occur exactly once; `--add "## <section>" "<item>"` — at the end of
 the section (it ends at a heading of its level or higher, or `---`: the cloud
-proxy's signature isn't in it); an item without a list marker gets the one of
+proxy's signature isn't in it), the section by its heading or its bare name
+(`Scenarios` — the heading `## Scenarios`); the canon's section the description
+lacks (questions, scenarios, any language) — created at the description's end,
+before the cloud proxy's signature; an item without a list marker gets the one of
 the section's last top-level item — `- [ ]` after a checklist, the next
 number after a numbered list, its bullet, otherwise `- `, in the questions
 section `1.` (`task answer` finds a question by its number); `--check
 "<text>"` — `- [ ]` → `- [x]` of the one unchecked item containing the text.
 Several edits — in order, each sees the previous one's result, one write.
 Refused before any change (code 2), none of the call's edits written: a text
-not found or found twice, no such section or two of them, no or two unchecked
-items, an edit missing a value. Questions — `task answer`. A cloud session —
-over the repository's REST.
+not found or found twice, another section missing (the error names the
+description's sections) or two of them, no or two unchecked items, an edit
+missing a value. Questions — `task answer`. A cloud session — over the
+repository's REST.
+
+### A call error — the corrected command
+
+A command's call error (code 2) is two lines on stderr: what was wrong and the
+whole command to run instead — `bun --no-env-file <script> …` with the call's
+other arguments, not «see `--help`» (#841): an option the command doesn't take —
+the one it means (`--parent` → `--epic`, `--label` → `--labels`, a typo within
+two letters), a gone one (`--branch-type`) — without it and its value; a text
+that starts with a dash — after `--`; an option without its value — `<name>`
+in its place, a value that starts with a dash — glued by `=`; `task new`
+without `--title` — with it (the call's argument, otherwise `<title>`), `task
+edit` without the number — `<N>` first. No correction — the line names the
+command's options, the second is its synopsis. The outputs' next steps are
+ready commands with the task's number too: `task show`'s `Questions:` line —
+the answer to the first open question, `task start` — the answer in auto mode
+and, without scenarios, `task edit N --add "## <scenarios>" "<scenario>"`.
 
 ### task start
 
