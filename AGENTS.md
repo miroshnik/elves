@@ -157,13 +157,12 @@ nor replace with an assumption. The answer goes straight into the issue:
 `github task answer <N> <k> "<answer>"`. An autonomous routine doesn't take a
 task with open questions.
 
-### Estimate and actual — the `est` skill
+### Actual — the `est` skill
 
-The unit is the agent's hours on the task except waits for the user's input;
-CI and check waits count, split out.
-The estimate is set by `github task new`, the actual by `github task close`;
-neither is written by hand, the estimate isn't rewritten after
-work starts, no actual — "actual unavailable", not a number by eye. Work is
+Tasks aren't estimated; the actual measures the flow itself. The unit is the
+agent's hours on the task except waits for the user's input; CI and check
+waits count, split out. The actual is set by `github task close`, never by
+hand; no actual — "actual unavailable", not a number by eye. Work is
 linked to the task by the pinned session, the session name, the branch,
 `Closes #N` and the task number in every subagent's assignment ("Subagents
 and worktrees") — otherwise there is no actual.

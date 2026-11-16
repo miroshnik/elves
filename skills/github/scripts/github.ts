@@ -8,8 +8,8 @@
  *   github project fix   — bring it to the canon: API, UI steps with links, deleting and renaming — with --confirm
  *   github task new      — a task in one command: type or label, project and Backlog, Priority, epic, blocked by,
  *                          milestone, decision labels (the decision's name, the kind by color), the questions label
- *                          (an open question in the description) and the estimate (est)
- *   github task show     — the task in one output: the description, Status, estimate, the epic, blockers, PRs and
+ *                          (an open question in the description)
+ *   github task show     — the task in one output: the description, Status, the epic, blockers, PRs and
  *                          their checks, open questions, the comments of the task and its epic
  *   github task answer   — ✅ and the answer at a question of the questions section; none open — the label goes
  *   github task edit     — the description edited in one call: a replacement, an item into a section, a checked item
@@ -70,7 +70,7 @@ interface CanonView {
 }
 const canonViews = (): CanonView[] => [
   { name: N.views.board, layout: "BOARD_LAYOUT", columns: ["TITLE", STATUS, "LABELS", "SUB_ISSUES_PROGRESS"] },
-  { name: N.views.table, layout: "TABLE_LAYOUT", columns: ["TITLE", STATUS, "LABELS", "ASSIGNEES", "SUB_ISSUES_PROGRESS", N.fields.estimate], groupBy: STATUS },
+  { name: N.views.table, layout: "TABLE_LAYOUT", columns: ["TITLE", STATUS, "LABELS", "ASSIGNEES", "SUB_ISSUES_PROGRESS"], groupBy: STATUS },
   { name: N.views.roadmap, layout: "ROADMAP_LAYOUT" },
 ];
 /** A built-in column's name when the project has no such field yet (a column key is its type). */
@@ -79,7 +79,12 @@ export const STATUS = "Status";
 const statusOptions = () => [N.status.backlog, N.status.inProgress, N.status.done];
 /** The template's colors of the Status options, in order — GitHub's colors of a new project's Todo / In Progress / Done. */
 const STATUS_COLORS = ["GREEN", "YELLOW", "PURPLE"];
-const numberFields = () => [N.fields.estimate, N.fields.actual, N.fields.tokens, N.fields.cost];
+const numberFields = () => [N.fields.actual, N.fields.tokens, N.fields.cost];
+/**
+ * The old estimate field (#835: tasks are no longer estimated) in any dictionary language: a project keeping it isn't a
+ * discrepancy — an `○` line; `project fix --confirm` deletes it, and its table column goes with it.
+ */
+const isEstimateField = (name: string) => locale.every((n) => n.fields.estimate).includes(name);
 const issueTypes = () => [N.issueTypes.task, N.issueTypes.bug, N.issueTypes.epic];
 export const PRIORITY = "Priority";
 /** Priority options from the most urgent; a new task gets Medium, an epic — no lower than its most urgent subtask. */
@@ -161,7 +166,6 @@ function typeAliases(): Record<string, string> {
 function fieldAliases(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const n of locale.everyNames()) {
-    out[n.fields.estimate] = N.fields.estimate;
     out[n.fields.actual] = N.fields.actual;
     out[n.fields.tokens] = N.fields.tokens;
     out[n.fields.cost] = N.fields.cost;
@@ -365,6 +369,11 @@ export interface Check {
   problems: { text: string; steps: Step[] }[];
   /** Not a discrepancy but the state of things (a new decision's label): an `○` line, the item stays ✅. */
   notes: string[];
+  /**
+   * A note's `confirm` steps (the old estimate field, #835): `fix --confirm` does them, `fix` without it names them —
+   * the item stays ✅ and the exit code doesn't depend on them.
+   */
+  cleanup: Step[];
   /** The item doesn't apply (plan, no checks): a `➖` line with the reason instead of ✅/❌. */
   skip?: string;
 }
@@ -1145,9 +1154,10 @@ export function analyze(s: State): Check[] {
   const p = s.project;
   const checks: Check[] = [];
   const add = (key: string, title: string) => {
-    const c: Check = { key, title, problems: [], notes: [] };
+    const c: Check = { key, title, problems: [], notes: [], cleanup: [] };
     checks.push(c);
-    return Object.assign((text: string, ...steps: Step[]) => c.problems.push({ text, steps }), { note: (text: string) => c.notes.push(text), skip: (why: string) => void (c.skip = why) });
+    const note = (text: string, ...steps: Step[]) => (c.notes.push(text), c.cleanup.push(...steps));
+    return Object.assign((text: string, ...steps: Step[]) => c.problems.push({ text, steps }), { note, skip: (why: string) => void (c.skip = why) });
   };
 
   const link = add("link", `Project linked to the repository and named ${q(s.repo.name)}`);
@@ -1206,7 +1216,8 @@ export function analyze(s: State): Check[] {
     if (c.columns) {
       const have = v.columns.map(columnKey);
       const missing = c.columns.filter((k) => !have.includes(k)).map((k) => q(columnName(k)));
-      const extra = v.columns.filter((f) => !c.columns!.includes(columnKey(f))).map((f) => q(f.name));
+      // the old estimate field's column is that field's note, not a discrepancy of the view: it goes with the field
+      const extra = v.columns.filter((f) => !c.columns!.includes(columnKey(f)) && !isEstimateField(f.name)).map((f) => q(f.name));
       if (missing.length || extra.length) {
         const why = [missing.length ? `missing ${missing.join(", ")}` : "", extra.length ? `extra ${extra.join(", ")}` : ""].filter(Boolean).join("; ");
         const set = columnFields(c.columns).map((f) => f.name).join(", ");
@@ -1245,8 +1256,9 @@ export function analyze(s: State): Check[] {
     status(`colors: ${sf.options!.map((o) => `${o.name} ${o.color}`).join(", ")}`, api(`${STATUS}: colors ${STATUS_COLORS.join(", ")} (keeping the id)`, { op: "UpdateField", input: { fieldId: sf.id, singleSelectOptions: next } }));
   }
 
-  // Fields: four numeric ones; a field in another dictionary language is renamed with the same id (the tasks' values are
-  // kept); no custom fields beyond the canon; in an organization Priority is an issue field.
+  // Fields: three numeric ones; a field in another dictionary language is renamed with the same id (the tasks' values are
+  // kept); no custom fields beyond the canon but the old estimate field (a note); in an organization Priority is an
+  // issue field.
   const fields = add("fields", `Fields ${numberFields().map(q).join(", ")} (Number), no other custom ones`);
   const renamed = new Set<Field>();
   for (const name of numberFields()) {
@@ -1263,6 +1275,10 @@ export function analyze(s: State): Check[] {
   const isCanon = (f: Field) => BUILTIN_FIELDS.has(f.dataType) || f.name === STATUS || numberFields().includes(f.name) || (s.repo.owner.org && f.isIssueField && f.name === PRIORITY);
   const ownPriority = p.fields.find((f) => f.name === PRIORITY && !f.isIssueField);
   for (const f of p.fields.filter((x) => !isCanon(x) && x !== ownPriority && !renamed.has(x))) {
+    if (isEstimateField(f.name)) {
+      fields.note(`${q(f.name)} — the old estimate field: tasks aren't estimated any more, fix --confirm deletes it`, { kind: "confirm", text: `delete field ${q(f.name)} (the old estimate)`, mutations: [{ op: "DeleteField", input: { fieldId: f.id } }] });
+      continue;
+    }
     fields(`extra ${q(f.name)} (${f.dataType}${f.isIssueField ? ", issue field" : ""})`, guarded(`delete field ${q(f.name)}`, { op: "DeleteField", input: { fieldId: f.id } }));
   }
   if (ownPriority && !s.repo.owner.org) fields(`extra ${q(PRIORITY)} — a personal account keeps no priority`, guarded(`delete field ${q(PRIORITY)}`, { op: "DeleteField", input: { fieldId: ownPriority.id } }));
@@ -1577,7 +1593,7 @@ export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template:
       if (!s.project) break;
       continue;
     }
-    const all = analyze(s).flatMap((c) => c.problems.flatMap((pr) => pr.steps));
+    const all = analyze(s).flatMap((c) => [...c.problems.flatMap((pr) => pr.steps), ...(opts.confirm ? c.cleanup : [])]);
     sticky.push(...all.filter((st) => st.sticky));
     const steps = all
       .filter((st) => st.mutations?.length && (st.kind === "api" || (st.kind === "confirm" && opts.confirm)) && !tried.has(st.text));
@@ -1611,6 +1627,12 @@ export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template:
   if (confirm.length) {
     io.out("Confirmation needed from the user — then fix --confirm:");
     confirm.forEach((st, i) => io.out(`${i + 1}. ${st.text}${st.url ? ` (or in the UI: ${st.url})` : ""}`));
+  }
+  // not discrepancies: the project is by the canon without them, the exit code doesn't wait for them
+  const cleanup = opts.confirm ? [] : uniq(checks.flatMap((c) => c.cleanup));
+  if (cleanup.length) {
+    io.out("Optional, on the user's confirmation — fix --confirm:");
+    cleanup.forEach((st, i) => io.out(`${i + 1}. ${st.text}`));
   }
   io.out("Summary:");
   const ok = report(io, s, checks);
@@ -2146,8 +2168,6 @@ export interface NewTask {
    * ones — existing.
    */
   labels?: string[] | undefined;
-  /** The branch type (feat, fix, …) — also the estimate's type; a bug without it is fix, an epic has none. */
-  branchType?: string | undefined;
 }
 
 /**
@@ -2167,13 +2187,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   // All checks come before creating: a task mustn't appear half-made. The type — a name in any dictionary language.
   const type = typeAliases()[(task.type ?? N.issueTypes.task).toLowerCase()];
   if (!type) throw new GhError(`--type: ${issueTypes().join(", ")}`);
-  // the estimate needs the branch type: a bug's branch is fix/<N>-…, an epic has no branch and no estimate of its own
-  const branchType = task.branchType?.trim().toLowerCase() || (type === N.issueTypes.bug ? "fix" : "");
-  if (type === N.issueTypes.epic) {
-    if (branchType) throw new GhError("an epic has no branch and isn't estimated — --branch-type is for a task or a bug");
-  } else if (!branchType) throw new GhError(`--branch-type is required for a task: ${TASK_TYPES.join(", ")} — the type of its branch and of its estimate`);
-  else if (!TASK_TYPES.includes(branchType)) throw new GhError(`--branch-type: ${TASK_TYPES.join(", ")}`);
-  const o = { ...task, type, body: task.body.trim() ? task.body : taskTemplate(type) };
+  const o ={ ...task, type, body: task.body.trim() ? task.body : taskTemplate(type) };
   // in the cloud the organization's types aren't readable (`orgs/…` — 403): the type goes by name, GitHub checks it
   const issueType = org && ctx ? ctx.repo.owner.issueTypes.find((t) => t.name === o.type && t.isEnabled) : undefined;
   if (org && ctx && !issueType) throw new GhError(`the organization has no enabled type ${q(o.type)} — github project fix`);
@@ -2335,16 +2349,14 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   for (const l of epicLabels) io.out(l);
   const isEpicType = o.type === N.issueTypes.epic;
   if (!ctx) {
-    // the project and the estimate (est reads the analogs' actuals from the project, it refuses in the cloud) — a local
-    // session's commands; Priority — an issue field, GraphQL only
+    // the project — a local session's command; Priority — an issue field, GraphQL only
     const n = created.number;
-    const local = [`github task status ${n} "${N.status.backlog}" (the project, ${STATUS})`, ...(isEpicType ? [] : [`est estimate ${n} --type ${branchType} --write (${q(N.fields.estimate)})`])];
+    const local = [`github task status ${n} "${N.status.backlog}" (the project, ${STATUS})`];
     const want = org ? (o.priority ?? DEFAULT_PRIORITY) : null;
     if (want) local.push(`${PRIORITY} ${q(want)}${epic ? ` and no lower at epic #${epic.number}` : ""} — on the issue page`);
     io.out(`Next: the cloud has no GitHub Projects (docs/cloud-sessions.md) — a local session: ${local.join("; ")}.`);
   }
   if (isEpicType) {
-    io.out(`Next: an epic isn't estimated — its ${q(N.fields.estimate)} is the sum of its subtasks' estimates.`);
     // an epic's work goes to the dispatcher on the owner's "yes" (#546), not to a session card per subtask
     io.out(
       `Next: once its subtasks are created — the question to the owner «run the dispatcher on epic #${created.number}?»; ` +
@@ -2352,8 +2364,6 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
     );
     return 0;
   }
-  if (ctx) runEstimate(io, slug, created.number, branchType);
-  if (epic) io.out(`Next: ${q(N.fields.estimate)} of epic #${epic.number} — recompute as the sum of its subtasks' estimates.`);
   // a session with a pinned task won't take a new one into work (pinTask): the owner decides whether to queue it
   const held = pinnedTask(io)?.task;
   if (held) io.out(`Next: the session runs ${held.slug}#${held.number}; #${created.number} isn't taken here — ${queueQuestion(slug, created.number, epic?.number ?? null)}`);
@@ -2434,8 +2444,8 @@ function projectChecked(io: Io, slug: string): boolean {
  * Taking a task in one call (#666) instead of ~11 flow turns: `project check` (once per session), the task as `task
  * show` prints it, then the stops before any change — open questions of the task or its epic (they are asked first,
  * AGENTS.md, "Open questions"), parallel work (an open PR of the task or its branch `*\/N-*` that isn't this checkout's
- * — continue it or wait for its merge); then `task status N "In progress" --branch`, the estimate when the task has
- * none (`--branch` gives the type) and what the agent needs next: the session name, the branch, the scenarios and, in
+ * — continue it or wait for its merge); then `task status N "In progress" --branch` and what the agent needs next:
+ * the session name, the branch, the scenarios and, in
  * Claude Code, one `ToolSearch` line for the app tools the flow calls. Code 1 — stopped, the task isn't taken.
  * `resume` — an executor's restart (#709, the assignment's restart line): the task's branch and open PR are the
  * previous executor's work to continue, not a stop; the current branch isn't renamed — the work goes on in the branch's
@@ -2468,8 +2478,6 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
     return 1;
   }
   const code = cmdTaskStatus(io, slug, number, N.status.inProgress, branch);
-  const type = taskBranch(branch ?? (here ? current : (others[0] ?? "")))?.type;
-  if (!t.estimate && type) runEstimate(io, slug, number, type);
   const now = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const scenarios = locale.scenarioItems(t.body);
   io.out(`Next: the session name — «#${number} ${t.title}»`);
@@ -2495,7 +2503,6 @@ export function cmdTaskDrop(io: Io, slug: string, number: number, duplicateOf?: 
     mutate(io, { op: "DeleteItem", input: { projectId: ctx.project.id, itemId: item.id } });
     io.out(`+ #${number} removed from project ${q(ctx.project.title)}`);
   }
-  if (issue.parent) io.out(`Next: ${q(N.fields.estimate)} of epic #${issue.parent.number} — recompute as the sum of the remaining subtasks.`);
   return 0;
 }
 
@@ -2613,9 +2620,10 @@ function templateStart(pick: (n: Names) => string): RegExp {
 }
 
 /**
- * The flow's own comments — task show prints them in one line without the text (#651), by the kind: est's estimate and
- * actual (its `<!-- est {…} -->` and `<!-- fact {…} -->` markers: a human's «Estimate: …» isn't one), the epic
- * refresh's report and the script's fixes, task close's «closed by PR».
+ * The flow's own comments — task show prints them in one line without the text (#651), by the kind: est's actual and
+ * its estimate of old tasks (its `<!-- fact {…} -->` and `<!-- est {…} -->` markers: a human's «Estimate: …» isn't
+ * one; est no longer estimates, #835, but the old comments stay on the tasks), the epic refresh's report and the
+ * script's fixes, task close's «closed by PR».
  */
 const FLOW_COMMENTS: [kind: string, re: RegExp][] = [
   ["estimate", /<!--\s*est\s+\{/],
@@ -2680,7 +2688,7 @@ function commentLines(title: string, c: { total: number; nodes: ShownComment[] }
 
 /**
  * Everything needed to take a task into work in one output, instead of `gh issue view` per piece: the title, type,
- * state, Status and estimate, the epic with its open questions and other open tasks, subtasks, open blockers, the PRs
+ * state, Status and actual, the epic with its open questions and other open tasks, subtasks, open blockers, the PRs
  * with their checks (GitHub didn't link one yet — found by the branch or «Closes #N», as task close does), the
  * questions — open and answered, a comment that looks like an answer to an open one — a `?` line at the question, the
  * comments of the task and its epic (#651: an answer in a comment was lost — the executor asked again or answered
@@ -2697,7 +2705,6 @@ interface ShownTask {
   title: string;
   state: string;
   epic: boolean;
-  estimate: boolean;
   body: string;
   open: number[];
   epicOpen: { number: number; ks: number[] } | null;
@@ -2723,7 +2730,6 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   const values = itemValues(i, name!);
   const num = (field: (n: Names) => string) => values.find((v) => v?.__typename === "ProjectV2ItemFieldNumberValue" && locale.every(field).includes(v.field?.name));
   const status: string | null = values.find((v) => v?.field?.name === STATUS && v.name)?.name ?? null;
-  const estimate = num((n) => n.fields.estimate);
   const actual = num((n) => n.fields.actual);
   const priority: string | null = (i.issueFieldValues?.nodes ?? []).find((v: Any) => v?.field?.name === PRIORITY)?.name ?? null;
   const reason: Record<string, string> = { NOT_PLANNED: ": not planned", DUPLICATE: ": duplicate" };
@@ -2732,7 +2738,6 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
     type,
     i.state === "CLOSED" ? `closed${reason[i.stateReason] ?? ""}` : null,
     cloud ? "no project in the cloud (docs/cloud-sessions.md)" : !items.length ? "not in the project" : status ? `${STATUS} ${q(status)}` : `no ${STATUS}`,
-    cloud ? null : estimate ? `${q(estimate.field.name)} ${estimate.number}` : `no ${q(N.fields.estimate)}`,
     actual ? `${q(actual.field.name)} ${actual.number}` : null,
     priority ? `${PRIORITY} ${priority}` : null,
     i.milestone ? `milestone ${q(i.milestone.title)}` : null,
@@ -2786,7 +2791,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   out.push(...commentLines("Comments", comments));
   if (epicComments) out.push(...commentLines(`Epic #${i.parent.number} comments`, epicComments));
   if (lines.join("").trim()) out.push("", ...lines);
-  return { lines: out, title: i.title, state: i.state, epic, estimate: Boolean(estimate), body: i.body ?? "", open, epicOpen, prs };
+  return { lines: out, title: i.title, state: i.state, epic, body: i.body ?? "", open, epicOpen, prs };
 }
 
 /** The answer's text on one line: `task answer` and the refresh's file of edits (#669). */
@@ -4733,7 +4738,7 @@ function refreshExample(epic: TaskText, open: TaskText[]): string {
     `{ "task": ${task}, "answer": 1, "text": "<answer>" }`,
     `{ "task": ${task}, "unblock": "#<N>" }`,
     `{ "task": ${task}, "close": "done" }`,
-    `{ "new": "<title>", "branchType": "refactor", "body": "<description>" }`,
+    `{ "new": "<title>", "body": "<description>" }`,
   ];
   return `{\n  "report": "<what you fixed; filed #new1>",\n  "edits": [\n${lines.map((l) => `    ${l}`).join(",\n")}\n  ]\n}`;
 }
@@ -4782,9 +4787,7 @@ function applyRefresh(io: Io, slug: string, file: string, r: { numbers: number[]
       if (action === "new") {
         const title = asText(e.new).trim();
         if (!title) throw new GhError("«new» — the new task's title");
-        const branchType = asText(e.branchType).trim().toLowerCase();
-        if (!TASK_TYPES.includes(branchType)) throw new GhError(`«new» ${q(title)} — «branchType»: ${TASK_TYPES.join(", ")}`);
-        created.push({ title, body: asText(e.body), epic: e.epic === false ? undefined : r.epic.number, branchType, blockedBy: [], labels: [] });
+        created.push({ title, body: asText(e.body), epic: e.epic === false ? undefined : r.epic.number, blockedBy: [], labels: [] });
         return;
       }
       const n = Number(e.task);
@@ -5554,16 +5557,6 @@ function runFact(io: Io, slug: string, number: number): void {
   const est = estScript(io);
   if (!existsSync(est)) return io.out(`○ actual unavailable: est is not installed (${est}) — est fact ${number} --write after installing it`);
   runEst(io, est, ["fact", String(number), "--repo", slug, "--write"]);
-}
-
-/**
- * The estimate — `task new`, like the actual in `task close`: the script picks the analogs, the agent has no step of
- * its own. Fewer than two analogs in the repository — est prints "No estimate" and the task stays without one.
- */
-function runEstimate(io: Io, slug: string, number: number, type: string): void {
-  const est = estScript(io);
-  if (!existsSync(est)) return io.out(`○ no estimate: est is not installed (${est})`);
-  runEst(io, est, ["estimate", String(number), "--repo", slug, "--type", type, "--write"]);
 }
 
 /** GraphQL has no milestone mutation — REST. wasOpen — the task was open when read: the open count includes it. */
@@ -6602,22 +6595,21 @@ the template (${DEFAULT_TEMPLATE}), otherwise creates one.
 Examples:
   github project fix
   github project fix --confirm --template none`,
-  "task new": `github task new --title "…" --branch-type <type> [--body "…" | --body-file F] [--type Task|Bug|Epic] [--epic N]
+  "task new": `github task new --title "…" [--body "…" | --body-file F] [--type Task|Bug|Epic] [--epic N]
                 [--milestone "…"] [--blocked-by N,N] [--priority Urgent|High|Medium|Low]
                 [--labels <decision>,<kind>:<new decision>,<label>] [--repo owner/repo]
 
 A task by the canon: type, project and Backlog, Priority, epic, blocked by, milestone, decision labels, the questions
-label when the description has a question without ✅ (created if missing); sets the estimate itself (est estimate
---write with --branch-type: feat, fix, docs, refactor, perf, test, chore, ci, build, research; a bug without it is
-fix, an epic isn't estimated) and prints what was created and the next step. A Claude Code cloud session — over the
-repository's REST, without the project: Status, the estimate and an organization's Priority — a line for a local session.
+label when the description has a question without ✅ (created if missing); prints what was created and the next
+step. A Claude Code cloud session — over the repository's REST, without the project: Status and an organization's
+Priority — a line for a local session.
 
 Examples:
-  github task new --title "Billing · Export invoices to PDF" --branch-type feat --epic 40 --body-file task.md
+  github task new --title "Billing · Export invoices to PDF" --epic 40 --body-file task.md
   github task new --title "Login fails on Safari" --type Bug --priority High --body "Steps: …"`,
   "task show": `github task show <N> [--repo owner/repo]
 
-The task in one output: title, type, Status, estimate, the epic with its open questions and tasks, subtasks, open
+The task in one output: title, type, Status, actual, the epic with its open questions and tasks, subtasks, open
 blockers, the PRs with their checks, open and answered questions (a comment that looks like an answer — a «?» line at
 the question), the comments of the task and its epic (the flow's own — one line with the kind), the description;
 read-only. A cloud session — over the repository's REST, without the project's fields; the PRs — by the task branch or
@@ -6652,8 +6644,7 @@ Taking a task into work in one call: project check (once per session — a marke
 ~/.config/elves; ❌ — the report and code 1), the task as task show prints it, then the stops before any change, code 1:
 open questions of the task or its epic (ask the owner, then task start again), the task in work elsewhere (an open PR
 of it — into a batch branch too — or a branch */<N>-* locally or on origin that isn't the current one). Then task
-status N «In progress» --branch (the pin, the epic, the branch rename), the estimate when the task has none (the type —
-from --branch), and the next lines: the session name «#N <title>», the branch, the scenarios of the description and,
+status N «In progress» --branch (the pin, the epic, the branch rename) and the next lines: the session name «#N <title>», the branch, the scenarios of the description and,
 in Claude Code (CLAUDECODE=1), one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}). An epic
 and a closed task — refused (code 2). --resume — an executor's restart: the task's branch and open PR are the previous
 executor's work to continue, not a stop; the current branch isn't renamed, the Branch line names the one to continue;
@@ -6709,7 +6700,7 @@ task stay till the batch's release. Several tasks — shipped together, a batch'
 grouped by epic, one refresh per epic — its prompt and its report («Refresh after #N, #M, result: …») name the epic's
 tasks, task close of each takes it; a released task's PRs — its own into the batch, not the release's; --assignment —
 the tasks of one epic. --apply <file> — the subagent's edits in one JSON file { "report": "…", "edits": [ … ] }
-(replace/with, add/item, check, answer/text, unblock, close done|not needed, new/branchType/body; the format — in the
+(replace/with, add/item, check, answer/text, unblock, close done|not needed, new/body; the format — in the
 assignment): every edit is checked first, one that can't be done refuses the whole file, nothing changed; then all
 are applied and the report is posted on the epic — «Refresh after #N, result: …».
 
@@ -7003,7 +6994,6 @@ export function main(argv: string[], io: Io): number {
           priority: { type: "string" },
           "duplicate-of": { type: "string" },
           labels: { type: "string" },
-          "branch-type": { type: "string" },
           branch: { type: "string" },
           "no-git": { type: "boolean", default: false },
           assignment: { type: "boolean", default: false },
@@ -7030,7 +7020,7 @@ export function main(argv: string[], io: Io): number {
         const blockedBy = (values["blocked-by"] ?? "").split(",").filter((x) => x.trim()).map((x) => issueNumber(x, "--blocked-by"));
         const epic = values.epic === undefined ? undefined : issueNumber(values.epic, "--epic");
         const labels = (values.labels ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-        return cmdTaskNew(io, slug, { title: values.title, body, type: values.type, epic, milestone: values.milestone, blockedBy, priority: values.priority, labels, branchType: values["branch-type"] });
+        return cmdTaskNew(io, slug, { title: values.title, body, type: values.type, epic, milestone: values.milestone, blockedBy, priority: values.priority, labels });
       }
       if (cmd === "queue") {
         if (values.cloud && !values.assignment) throw new GhError("--cloud — only with --assignment <N>: the brief of one task's cloud executor");
