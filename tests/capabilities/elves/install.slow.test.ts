@@ -57,7 +57,7 @@ afterEach(() => sb.cleanup());
 
 /**
  * Окружение Yarn и скриптов: реестр пакета — фейковый (`npm_config_registry` читает и bun), Yarn — из реестра npm;
- * корневые сертификаты Node — машины: облачная сессия подменяет TLS своим прокси.
+ * корневые сертификаты Node — из окружения прогона: за прокси, который подменяет TLS, без них Corepack не скачает Yarn.
  */
 const env = () => {
   const ca = process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {};
