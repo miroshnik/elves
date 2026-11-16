@@ -128,8 +128,8 @@ describe("Тонкий проект сверяется с версией пак�
     expect(snapshot(sb.proj)).toEqual(before);
   });
 
-  /** Строку агент запускает как есть, и в облаке тоже: npm там есть, `github:` — 403 (#555, #559). */
-  it("check называет команду обновления из npm — bunx @miroshnik/elves update: в облачной сессии github: — 403", () => {
+  /** Строку агент запускает как есть: команда — пакет из npm, он сам релиз (#559); `github:` — только запасной пускатель. */
+  it("check называет команду обновления из npm — bunx @miroshnik/elves update, а не github:", () => {
     writePkg({});
     elves(sb, ["install"], { bin: v1.bin });
     const r = elves(sb, ["check"], { bin: v2.bin });
@@ -260,6 +260,50 @@ describe("Тонкий проект сверяется с версией пак�
     for (const f of files) expect(read(f)).not.toContain("npx");
     expect(elves(sb, ["check"]).code).toBe(0);
   });
+
+  /**
+   * Облачные сессии флоу не поддерживает (#837, capability `elves#cloud-session`), а прошлая версия клала тонкому проекту
+   * хук SessionStart облачной сессии в `.claude/settings.json` (#610). Установка узнаёт его, как узнавала, чтобы
+   * заменить: в команде — проверка облака и `check --hook`. Свои настройки и хуки проекта остаются; файл, где был только
+   * этот хук, уходит, и пустой `.claude/` с ним; изменение — в строке `git add`, как прочие файлы флоу.
+   */
+  it("Обновление проекта убирает облачный хук, поставленный прошлой версией", () => {
+    const PREVIOUS = {
+      matcher: "startup|resume|clear",
+      hooks: [
+        {
+          type: "command",
+          command:
+            '[ "$CLAUDE_CODE_REMOTE" = true ] || exit 0; [ -e "$HOME/.claude/rules/elves.md" ] || { npm i -g bun@latest @miroshnik/elves && elves install -g; } >/dev/null 2>&1 || { echo "Elves cloud hook: the flow isn\'t installed (exit $?) — run: npm i -g bun@latest @miroshnik/elves && elves install -g"; exit 0; }; elves check --hook 2>&1 || echo "elves check unavailable (exit $?): work by the current flow and say so"',
+          timeout: 120,
+        },
+      ],
+    };
+    const mine = { hooks: [{ type: "command", command: "echo мой хук" }] };
+    const own = { permissions: { allow: ["Bash(ls)"] }, hooks: { SessionStart: [mine], Stop: [mine] } };
+    const file = path.join(sb.proj, ".claude/settings.json");
+    const repo = gitRepo(sb.proj, { init: false });
+    const add = (out: string) => /git add -A -- [^&\n]+/.exec(out)?.[0] ?? "";
+    elves(sb, ["install"]);
+    repo.commit({ ".claude/settings.json": JSON.stringify({ ...own, hooks: { ...own.hooks, SessionStart: [mine, PREVIOUS] } }, null, 2) + "\n" }, "chore: флоу Elves");
+    const c = elves(sb, ["check"]);
+    expect(c.code).toBe(1);
+    expect(c.stdout).toContain("  ~ .claude/settings.json — the cloud session's SessionStart hook of a previous version: the flow doesn't support cloud sessions\n");
+    let u = elves(sb, ["update"]);
+    expect(u.code).toBe(0);
+    expect(JSON.parse(read(file))).toEqual(own);
+    expect(add(u.stdout)).toContain(".claude/settings.json");
+    expect(elves(sb, ["check"]).code).toBe(0);
+    // в файле — только облачный хук: файл уходит, удаление — в коммите обновления
+    repo.commit({ ".claude/settings.json": JSON.stringify({ hooks: { SessionStart: [PREVIOUS] } }, null, 2) + "\n" }, "chore: хук прошлой версии");
+    expect(elves(sb, ["check"]).stdout).toContain("  - .claude/settings.json — the cloud session's SessionStart hook of a previous version");
+    u = elves(sb, ["update"]);
+    expect(u.code).toBe(0);
+    expect(existsSync(path.join(sb.proj, ".claude"))).toBe(false);
+    execFileSync("sh", ["-c", add(u.stdout)], { cwd: sb.proj, env: sb.env });
+    expect(repo.git("diff", "--cached", "--name-status")).toBe("D\t.claude/settings.json");
+    expect(elves(sb, ["check"]).code).toBe(0);
+  });
 });
 
 /**
@@ -333,7 +377,7 @@ describe("Манифест проекта — на месте и в git: без 
   const MISSING = (root: string) =>
     `Elves in the project: ❌ no .agents/elves.json in ${root} — the project language is unknown: copy the manifest from the main checkout (the first line of git worktree list) or commit it there — @miroshnik/elves is in package.json, the github skill refuses to write names without it\n`;
   const UNTRACKED =
-    "  ❌ .agents/elves.json — not in git: another checkout, a fresh worktree and a cloud session don't see it, the github skill refuses to write names there; bunx @miroshnik/elves update puts it into the commit\n";
+    "  ❌ .agents/elves.json — not in git: another checkout and a fresh worktree don't see it, the github skill refuses to write names there; bunx @miroshnik/elves update puts it into the commit\n";
 
   it("check проекта с пакетом Elves в devDependencies и без манифеста — ❌ манифест отсутствует, а не not installed", () => {
     writePkg({ devDependencies: { "@miroshnik/elves": V1 } });
@@ -356,7 +400,7 @@ describe("Манифест проекта — на месте и в git: без 
     expect(snapshot(sb.proj)).toEqual(before);
   });
 
-  it("check проекта с манифестом не в git — ❌ с причиной: другой чекаут и облачная сессия его не увидят", () => {
+  it("check проекта с манифестом не в git — ❌ с причиной: другой чекаут и свежий worktree его не увидят", () => {
     writePkg({});
     expect(elves(sb, ["install", "--lang", "ru"]).code).toBe(0);
     commitAll("chore: флоу Elves", ".agents/elves.json");
@@ -1098,8 +1142,8 @@ describe("Версия пакета проекта и копия на машин
 /**
  * Пакет из npm — `npm i -g`, `bun add -g` — сам релиз (#557): его версия — тег релиза (`ГГГГ.ММДД.N` ↔
  * `vГГГГ.ММ.ДД.N`), коммит — `gitHead`, который пишет `elves pack`. SHA в спецификаторе у него нет, и без этого
- * установщик счёл бы себя пускателем из main и перезапустился бы через `bunx github:` — в облачной сессии это 403, а в
- * setup script установка шла бы из архива GitHub, а не из npm. `check` и `update` сверяют с последним релизом и
+ * установщик счёл бы себя пускателем из main и перезапустился бы через `bunx github:` — установка шла бы из архива
+ * GitHub, а не из npm, и по сети. `check` и `update` сверяют с последним релизом и
  * перезапускаются пакетом его версии из npm.
  */
 describe("Пакет из npm — сам релиз: install -g ставит его версию, check -g и update -g — по последнему релизу пакета", () => {
@@ -1628,16 +1672,6 @@ describe("В начале сессии Claude Code проверка идёт с�
       expect(elves(sb, ["check", "--hook"], { env: { CLAUDE_CODE_SESSION_ID: SESSION } }).stdout).toContain(`\nfake-machine task resume ${SESSION}\n`);
     });
 
-    // в облачной сессии Projects недоступны (403): task resume там отказывает, и строка ! шумела бы на каждом старте
-    it("облачная сессия: скилл github не зовётся — Projects там недоступны", () => {
-      elves(sb, ["install", "-g"]);
-      fakeGithub(sb.home, "fake-machine");
-      const out = elves(sb, ["check", "--hook"], { input, env: { CLAUDE_CODE_REMOTE: "true" } }).stdout;
-      expect(out).toContain("Elves flow (AGENTS.md, «First step of a session»):\n");
-      expect(out).not.toContain("fake-machine");
-      expect(out).not.toContain("task resume");
-    });
-
     // страховка от перегиба: хук не зовёт скилл на каждом старте вслепую — без сессии закрепления не найти
     it("без id сессии скилл github не зовётся", () => {
       elves(sb, ["install", "-g"]);
@@ -1685,59 +1719,6 @@ describe("Симлинки переименования флоу на машин
     expect(elves(sb, ["update", "-g"]).code).toBe(0);
     expect(snapshot(path.join(sb.home, ".claude/est"))).toEqual({ "repos.json": "{}\n" });
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
-  });
-});
-
-/**
- * Облачная сессия Claude Code (#598): Bun образа отстаёт от `packageManager` проекта (1.4.2 без `bun check` 1.4.3), а
- * тестам клона Elves нужен zsh (capability `elves#agent-shell`), которого в образе нет, — и списков apt в образе нет тоже.
- * Ставит их хук SessionStart проекта на старте облачной сессии (#610, capability `elves#install`); `check` облачной сессии
- * называет окружение, где их всё же нет (проект без хука, шаг хука не удался, кеш setup script со старым Bun), строкой
- * с командой — её сессия запускает сама. Код check строка не меняет: окружение — не отставание флоу.
- */
-describe("check облачной сессии называет окружение без Bun проекта и zsh — строкой с командой", () => {
-  const cloud = { CLAUDE_CODE_REMOTE: "true" };
-  const BUN = "npm i -g bun@latest";
-  const ZSH = "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold zsh";
-  const line = (missing: string, fix: string) => `  cloud environment: ${missing} — the session runs it itself: ${fix}; at a cloud session's start the project's SessionStart hook does it (docs/cloud-sessions.md)\n`;
-  // клон Elves — по имени пакета; zsh на PATH песочницы — исполняемый файл: check ищет его по PATH
-  const clone = (packageManager: string) => writePkg({ name: "@miroshnik/elves", packageManager });
-  const zsh = () => writeFileSync(path.join(sb.bin, "zsh"), "#!/bin/sh\n", { mode: 0o755 });
-
-  it("check облачной сессии: Bun старше packageManager проекта — строка окружения с версиями и командой", () => {
-    writePkg({ packageManager: "bun@99.0.0+sha512.0" });
-    elves(sb, ["install"]);
-    const r = elves(sb, ["check"], { env: cloud });
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain(line(`Bun ${Bun.version} is older than packageManager bun@99.0.0`, BUN));
-    expect(r.stdout).toEndWith(MODE_ASK);
-  });
-
-  it("check облачной сессии в клоне Elves без zsh — строка окружения с командой apt", () => {
-    clone("bun@99.0.0");
-    const r = elves(sb, ["check"], { env: cloud });
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain(line(`Bun ${Bun.version} is older than packageManager bun@99.0.0; no zsh for tests/capabilities/elves/agent-shell`, `${BUN} && ${ZSH}`));
-    clone(`bun@${Bun.version}`);
-    expect(elves(sb, ["check"], { env: cloud }).stdout).toContain(line("no zsh for tests/capabilities/elves/agent-shell", ZSH));
-  });
-
-  it("check облачной сессии с Bun не старше packageManager и zsh на PATH — без строки окружения", () => {
-    zsh();
-    for (const version of [Bun.version, "1.0.0"]) {
-      clone(`bun@${version}`);
-      const r = elves(sb, ["check"], { env: cloud });
-      expect(r.code).toBe(0);
-      expect(r.stdout).toContain("an Elves clone");
-      expect(r.stdout).not.toContain("cloud environment");
-    }
-  });
-
-  it("check вне облачной сессии окружение облака не проверяет: Bun старше packageManager — без строки окружения", () => {
-    clone("bun@99.0.0");
-    const r = elves(sb, ["check"]);
-    expect(r.stdout).toContain("an Elves clone");
-    expect(r.stdout).not.toContain("cloud environment");
   });
 });
 
