@@ -115,7 +115,7 @@ const BEGIN = "<!-- elves:begin";
 const END = "<!-- elves:end -->";
 /**
  * The block in a project's AGENTS.md: the canon and the skills are on the machine (`install -g`), not in the
- * repository — the agents without the machine's rules (Codex and others without a global rules file) read them by it.
+ * repository — the agents without the machine's rules (without a global rules file) read them by it.
  */
 const BLOCK = [
   `${BEGIN} — set by \`${RUN} install\`, don't edit by hand -->`,
@@ -185,7 +185,7 @@ settings. --lang <code> — the project language the agent works in: dialog, tas
 terminal — the previous one. In an Elves clone writes only the manifest — auto and language, env and batch carried
 over as in a project — and its cloud hook — with zsh, the flow from the clone itself.
 -g — onto the machine: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md and the global
-rule files of Codex, Gemini CLI, Copilot, OpenCode and Amp linking to it (someone else's file stays), the skills
+rule files of Gemini CLI, Copilot, OpenCode and Amp linking to it (someone else's file stays), the skills
 (~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
 the first directory of PATH inside the home directory that can be written: with --link a symlink to the clone's
 bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
@@ -1373,10 +1373,9 @@ function installProject(root: string, auto = autoOf(root), language = languageOf
 
 /**
  * Agents' global rule files: the agent is on the machine — its directory in the home directory (or the command on
- * PATH), the file — the canon's AGENTS.md. Cursor has no such file.
+ * PATH), the file — the canon's AGENTS.md. Cursor has no such file; Codex is out of the flow (#836).
  */
-const AGENT_RULES = [
-  { dir: ".codex", cmd: "codex", file: ".codex/AGENTS.md" },
+const AGENT_RULES: { dir: string; cmd?: string; file: string }[] = [
   { dir: ".gemini", file: ".gemini/GEMINI.md" },
   { dir: ".copilot", file: ".copilot/copilot-instructions.md" },
   { dir: ".config/opencode", file: ".config/opencode/AGENTS.md" },
@@ -1385,7 +1384,7 @@ const AGENT_RULES = [
 
 /**
  * The other agents get the machine's canon by their global rule file — a symlink to the canon's AGENTS.md, as before
- * #180: Codex glues it to the project's AGENTS.md, Gemini CLI, Copilot, OpenCode and Amp read it the same way. A file
+ * #180: Gemini CLI, Copilot, OpenCode and Amp read it next to the project's own rules. A file
  * is ours when it is missing, empty or a symlink into the canon; someone else's file or symlink — the user's own rules — stays, with a line
  * where the canon is.
  */

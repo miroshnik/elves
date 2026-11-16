@@ -334,7 +334,7 @@ describe("Файлы флоу не игнорируются git проекта �
 
 /**
  * Тяжёлые проверки проекта идут очередью машины (capability `slot`). Обёртка — в самих скриптах `package.json`: их
- * зовёт любой — Claude, Codex, человек в терминале. `build` не оборачивается — его запускают хостинг и Docker, где
+ * зовёт любой — агент, человек в терминале, `github pr premerge`. `build` не оборачивается — его запускают хостинг и Docker, где
  * шима или пакета может не быть; watch — долгий, занял бы слот надолго.
  */
 describe("Проверки проекта идут очередью машины: install оборачивает их скрипты package.json в шим slot", () => {
@@ -686,12 +686,12 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(existsSync(path.join(proj, ".agents"))).toBe(false);
   });
 
-  it("install -g ставит файлы правил Codex, Gemini CLI, Copilot, OpenCode и Amp ссылкой на канон машины, а чужой файл не трогает", () => {
-    for (const dir of [".codex", ".copilot", ".config/opencode", ".config/amp"]) mkdirSync(path.join(home, dir), { recursive: true });
+  it("install -g ставит файлы правил Gemini CLI, Copilot, OpenCode и Amp ссылкой на канон машины, а чужой файл не трогает", () => {
+    for (const dir of [".copilot", ".config/opencode", ".config/amp"]) mkdirSync(path.join(home, dir), { recursive: true });
     writeTree(home, { ".gemini/GEMINI.md": "мои правила\n" });
     const r = install(["-g"]);
     expect(r.code).toBe(0);
-    for (const file of [".codex/AGENTS.md", ".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md", ".config/amp/AGENTS.md"]) {
+    for (const file of [".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md", ".config/amp/AGENTS.md"]) {
       expect(isLink(path.join(home, file))).toBe(true);
       expect(realpathSync(path.join(home, file))).toBe(canon());
     }
@@ -700,6 +700,17 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(r.stdout).toContain("~/.gemini/GEMINI.md — the user's own rules: left as is; the canon — ~/.agents/elves/AGENTS.md\n");
     expect(install(["-g"]).code).toBe(0);
     expect(read(path.join(home, ".gemini/GEMINI.md"))).toBe("мои правила\n");
+  });
+
+  /**
+   * Codex убран (#836): за всё время на машине четыре его сессии, после 15 октября — ни одной. Его каталог в домашнем
+   * установке безразличен — файла правил Codex она не пишет; общее для агентов — блок в `AGENTS.md` проекта и скиллы
+   * в `~/.agents/skills` — остаётся.
+   */
+  it("Установка на машину ничего не пишет в каталог Codex", () => {
+    mkdirSync(path.join(home, ".codex"));
+    expect(install(["-g"]).code).toBe(0);
+    expect(readdirSync(path.join(home, ".codex"))).toEqual([]);
   });
 
   /**
