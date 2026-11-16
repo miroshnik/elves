@@ -39,7 +39,24 @@ export interface Test {
   reason: string; // skip reason, if the report knows it
   variants: number; // identical records from several reports (Playwright projects) are folded
   body?: string; // call arguments after the name without whitespace — only from source parsing (the test body)
+  existing?: Existing; // the existing-behavior mark before the test or its describe — only from source parsing (spec-red)
 }
+
+/**
+ * A test of existing behavior (#844) — a mark in a comment right before its `it` or its `describe` (all of its tests):
+ * `// spec-existing #N: reason` — a migrated spec, a test «from code» by a decision's trace. Such a test was green
+ * before the PR, and spec-red expects it green on the base code; an added test without the mark — red there. `issue`
+ * and `reason` — empty when the mark lacks them (spec-red names it); `attached` — the mark stands before a test call.
+ */
+export interface Existing {
+  line: number;
+  issue: number | null;
+  reason: string;
+  attached: boolean;
+}
+
+// the mark starts the comment line's text, like spec-exception; the reason runs to the end of the line
+const EXISTING = /^spec-existing\b\s*(?:#(\d+))?\s*:?\s*(.*?)\s*(?:\*\/)?\s*$/;
 
 export function makeTest(
   file: string,
@@ -783,24 +800,51 @@ export function jsdocText(comment: string): string {
 function jsdocs(source: string, ast: Parsed): { at: Map<number, string>; head: { at: number; text: string } | null } {
   const at = new Map<number, string>();
   let head: { at: number; text: string } | null = null;
-  const blank = (from: number, to: number) => !source.slice(from, to).trim();
   const isDoc = (c: AstComment) => source.startsWith("/**", c.start) && !source.startsWith("/**/", c.start);
-  const comments = ast.comments;
   const codeFrom = ast.program.interpreter?.end ?? 0;
+  commentGroups(source, ast).forEach(({ group, after }, i) => {
+    const docs = group.filter(isDoc).map((c) => jsdocText(source.slice(c.start, c.end)));
+    if (!docs.length) return;
+    at.set(after, docs[docs.length - 1]!);
+    if (i === 0 && !source.slice(codeFrom, group[0]!.start).trim()) head = { at: docs.length > 1 ? -1 : after, text: docs[0]! };
+  });
+  return { at, head };
+}
+
+/**
+ * Groups of consecutive comments with only whitespace between them and `after` — the start of the code after the
+ * group: what the group stands before (JSDoc prose, the existing-behavior mark).
+ */
+function commentGroups(source: string, ast: Parsed): { group: AstComment[]; after: number }[] {
+  const out: { group: AstComment[]; after: number }[] = [];
+  const comments = ast.comments;
   for (let i = 0; i < comments.length; ) {
     let j = i;
-    while (j + 1 < comments.length && blank(comments[j]!.end, comments[j + 1]!.start)) j++;
-    const group = comments.slice(i, j + 1);
+    while (j + 1 < comments.length && !source.slice(comments[j]!.end, comments[j + 1]!.start).trim()) j++;
     let after = comments[j]!.end;
     while (after < source.length && /\s/.test(source[after]!)) after++;
-    const docs = group.filter(isDoc).map((c) => jsdocText(source.slice(c.start, c.end)));
-    if (docs.length) {
-      at.set(after, docs[docs.length - 1]!);
-      if (i === 0 && blank(codeFrom, group[0]!.start)) head = { at: docs.length > 1 ? -1 : after, text: docs[0]! };
-    }
+    out.push({ group: comments.slice(i, j + 1), after });
     i = j + 1;
   }
-  return { at, head };
+  return out;
+}
+
+/** Existing-behavior marks (`Existing`) by the start of the code after their comment group. */
+function existingMarks(source: string, ast: Parsed): Map<number, Existing> {
+  const out = new Map<number, Existing>();
+  for (const { group, after } of commentGroups(source, ast)) {
+    for (const c of group) {
+      const first = source.slice(0, c.start).split("\n").length;
+      source
+        .slice(c.start, c.end)
+        .split("\n")
+        .forEach((l, i) => {
+          const m = EXISTING.exec(l.replace(/^\s*(?:\/\/+|\/\*+|\*+)?\s*/, ""));
+          if (m && !out.has(after)) out.set(after, { line: first + i, issue: m[1] ? Number(m[1]) : null, reason: m[2]!, attached: false });
+        });
+    }
+  }
+  return out;
 }
 
 /** Tests from a TS/JS source. */
@@ -814,12 +858,14 @@ export function parseJs(file: string, source: string): Test[] {
  * argument `<…>` allowed anywhere; describe opens nesting for all of its arguments. A name that can't be computed goes
  * to `unnamed`, and the call isn't parsed further: the chain of its tests is unknown. JSDoc right before a call is its
  * prose; the file's first JSDoc followed by something other than a call (usually imports) is the file's prose. Harness
- * calls (`HARNESS_CALLS`) go to `checks` with the describe chain: their tests aren't named in the source. Can't parse —
- * an error.
+ * calls (`HARNESS_CALLS`) go to `checks` with the describe chain: their tests aren't named in the source. The
+ * existing-behavior mark before a call (`Existing`) — on its test or on every test of its describe, the nearest one
+ * wins; `existing` — every mark of the file, `attached` or not. Can't parse — an error.
  */
-export function scanJs(file: string, source: string): { tests: Test[]; docs: Docs; unnamed: Unnamed[]; checks: HarnessCall[] } {
+export function scanJs(file: string, source: string): { tests: Test[]; docs: Docs; unnamed: Unnamed[]; checks: HarnessCall[]; existing: Existing[] } {
   const ast = parseCode(source, file);
   const doc = jsdocs(source, ast);
+  const marks = existingMarks(source, ast);
   const out: Test[] = [];
   const unnamed: Unnamed[] = [];
   const checks: HarnessCall[] = [];
@@ -833,7 +879,7 @@ export function scanJs(file: string, source: string): { tests: Test[]; docs: Doc
     m.set(k, prev && prev !== text ? prev + "\n\n" + text : text);
   };
 
-  const visit = (chain: string[]) => (n: AstNode): boolean => {
+  const visit = (chain: string[], outer?: Existing) => (n: AstNode): boolean => {
     if (n.type !== "CallExpression") return true;
     const call = testCall(n);
     if (!call) {
@@ -852,19 +898,23 @@ export function scanJs(file: string, source: string): { tests: Test[]; docs: Doc
       return false;
     }
     const inner = [...chain, name];
+    const mark = marks.get(n.start);
+    if (mark) mark.attached = true;
+    const existing = mark ?? outer;
     if (DESCRIBE_KINDS.has(call.kind)) {
       addDoc(docs.describes, inner, doc.at.get(n.start));
     } else {
       // the body is the rest of the call's arguments: a renamed test with the same check is recognized by it
       const t = makeTest(file, chain, name);
       t.body = source.slice(first!.end, n.end - 1).replace(/\s+/g, "");
+      if (existing) t.existing = existing;
       out.push(t);
       addDoc(docs.tests, inner, doc.at.get(n.start));
     }
-    for (const a of rest) walkAst(a, visit(DESCRIBE_KINDS.has(call.kind) ? inner : chain));
+    for (const a of rest) walkAst(a, visit(DESCRIBE_KINDS.has(call.kind) ? inner : chain, existing));
     return false;
   };
   walkAst(ast.program, visit([]));
   if (doc.head && !calls.has(doc.head.at)) docs.file = doc.head.text;
-  return { tests: out, docs, unnamed, checks };
+  return { tests: out, docs, unnamed, checks, existing: [...marks.values()] };
 }

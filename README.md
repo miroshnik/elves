@@ -87,7 +87,7 @@ bunx @miroshnik/elves check -g     # is the flow behind the latest release: 0 �
 bunx @miroshnik/elves update -g    # bring it to the latest release
 ```
 
-Without `-g` — the same for the project. `install` in a project asks whether the agent runs a task entirely by itself, up to merging its own PR on green checks (`auto`, no by default), and which language it works in; in Claude Code the `SessionStart` hook puts the `check` output at the start of every session. The flow follows releases — date tags that `elves release` cuts as the owner's step and CI publishes to npm with `elves pack <tag>`. In a project the skills' scripts run at its package version, as `bun --no-env-file node_modules/.bin/elves <script>`: `elves spec-doc`, `elves spec-diff`, `elves spec-publish`, `elves spec-run`, `elves spec-shard`, `elves spec-claims`, `elves spec-break`, `elves precommit`, `elves slot`, `elves task-env up`, `elves task-env e2e`, `elves task-env down`, `elves task-env prune`, `elves task-env check`, `elves task-env proxy up`, `elves task-env proxy down`, `elves task-env proxy status`.
+Without `-g` — the same for the project. `install` in a project asks whether the agent runs a task entirely by itself, up to merging its own PR on green checks (`auto`, no by default), and which language it works in; in Claude Code the `SessionStart` hook puts the `check` output at the start of every session. The flow follows releases — date tags that `elves release` cuts as the owner's step and CI publishes to npm with `elves pack <tag>`. In a project the skills' scripts run at its package version, as `bun --no-env-file node_modules/.bin/elves <script>`: `elves spec-doc`, `elves spec-diff`, `elves spec-publish`, `elves spec-run`, `elves spec-shard`, `elves spec-claims`, `elves spec-break`, `elves spec-red`, `elves precommit`, `elves slot`, `elves task-env up`, `elves task-env e2e`, `elves task-env down`, `elves task-env prune`, `elves task-env check`, `elves task-env proxy up`, `elves task-env proxy down`, `elves task-env proxy status`.
 
 What goes where, the agent's sandbox, the mode and the language, releases, the package in a project and working from a clone — [`docs/installation.md`](docs/installation.md).
 
@@ -115,9 +115,9 @@ A browser page: sessions at work and what each waits for — CI, merge, deploy, 
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
-The spec from tests: documentation from runner reports (into the `spec` branch, if the project publishes it), the PR's requirement diff, CI shards, entry points called by tests, check by breaking, the checks before a commit and the harness of deterministic checks.
+The spec from tests: documentation from runner reports (into the `spec` branch, if the project publishes it), the PR's requirement diff, CI shards, entry points called by tests, check by breaking, the PR's new tests red on the base code, the checks before a commit and the harness of deterministic checks.
 
-`spec-doc` · `spec-diff` · `spec-publish` · `spec-run` · `spec-shard` · `spec-claims` · `spec-break` · `precommit` · `harness.ts`
+`spec-doc` · `spec-diff` · `spec-publish` · `spec-run` · `spec-shard` · `spec-claims` · `spec-break` · `spec-red` · `precommit` · `harness.ts`
 
 ### [`ci-wait`](skills/ci-wait/SKILL.md) — wait for checks, don't guess
 
