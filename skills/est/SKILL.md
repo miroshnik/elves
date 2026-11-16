@@ -1,13 +1,13 @@
 ---
 name: est
-description: Records the actual of GitHub tasks from Claude Code, Codex and claude.ai/code cloud session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); in a cloud session when closing a task — its part of the actual («Actual (cloud)»); when the cloud part wasn't counted (a Claude-Session trailer in commits, «not imported» in the actual) — importing the session's events; when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
+description: Records the actual of GitHub tasks from Claude Code and claude.ai/code cloud session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); in a cloud session when closing a task — its part of the actual («Actual (cloud)»); when the cloud part wasn't counted (a Claude-Session trailer in commits, «not imported» in the actual) — importing the session's events; when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
 allowed-tools: Bash(bun *skills/est/scripts/est.ts *) Bash(gh issue view *) Bash(gh pr view *)
 ---
 
 # est — the actual from transcripts
 
-The actual of a task is measured from the agent's transcripts (Claude Code,
-Codex), not reported from memory — the flow is measured by it. Tasks have no
+The actual of a task is measured from Claude Code's transcripts, not reported
+from memory — the flow is measured by it. Tasks have no
 estimate: they take 15–30 minutes, and an estimate from analogs landed within
 ×0.5…×2 in only 48–67 % of tasks. The script `scripts/est.ts` does everything
 deterministic (transcripts, GraphQL, project fields, the comment); the agent's
@@ -25,7 +25,7 @@ calendar time. Manual work outside the agent (> 0.5 h) the human
 adds themselves as a line «+ manually: N h» in the actual
 comment. The comment's language — reference.md, "Comment language".
 
-**The source of the actual is the agent's transcripts** (Claude Code, Codex,
+**The source of the actual is the agent's transcripts** (Claude Code,
 claude.ai/code cloud sessions — section "Cloud session"), not memory and not a
 number by eye. A task done by an agent whose transcripts `est` doesn't read has
 its actual "unavailable" until its source is added.
@@ -183,6 +183,3 @@ from its actual (details — reference.md, "Linking — details"):
 - Sessions with < 3 prompts and no PR or commits (automatic routines) the script
   skips; if a task's actual is suspiciously small — check whether the work was in
   such a session or on someone else's branch.
-- Codex sessions are read too, with no branch in their records: linking — by the
-  number in the first prompt and commit hashes; `gpt-*` models — «no price» until
-  set in `prices.json` (reference.md, "Codex sessions").

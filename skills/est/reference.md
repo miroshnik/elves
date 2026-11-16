@@ -31,7 +31,7 @@ pinned to another task doesn't go to this one, whatever features it has — but
 a subagent whose assignment names a task («Task #N») does: an executor the
 session queued on the owner's "yes" (#546), its records go to task N, not to
 the pin. Sessions
-without pinning (before it, cloud, Codex, an epic's session, the file deleted) —
+without pinning (before it, cloud, an epic's session, the file deleted) —
 by features: the PR's commit hashes in tool outputs, `pr-link` records of its
 repository, a branch with the task number, `#N` in the session's name and first
 prompt or in a subagent's assignment. Then it computes active hours — including
@@ -63,7 +63,7 @@ the slot queue (`slot: waited …` in the output; a background command's — fro
 its output file while it exists). A moment inside calls of two kinds goes to
 the first of CI, after the merge, checks; the split is in minutes of the actual
 (a shared PR's share too), the rest — the model and the other tools. A
-transcript without the permission decision (an older Claude Code, Codex) has
+transcript without the permission decision (an older Claude Code) has
 the approval wait inside the call's time — `est fact` prints it as a `○` line.
 
 A session from the folder of another registry repository (the conversation there
@@ -352,12 +352,3 @@ cache write — in total and per PR.
   worktree): `git log` of a neighboring worktree doesn't hand the session's time
   to someone else's task, nor does the session's `git worktree list` with a
   commit its subagent made in its own worktree.
-
-## Codex sessions
-
-Codex sessions (`~/.codex/sessions/**/*.jsonl`, `archived_sessions`) are read
-the same way: prompts — `UserMessage`, commit hashes — from tool outputs,
-tokens — `token_usage_record` (once per response); records have no branch, so
-linking is by the number in the first prompt and by commit hashes. `gpt-*`
-models aren't in the price list — tokens are counted, the cost is marked
-«no price» until it is set in `prices.json`.
