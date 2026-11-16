@@ -1,12 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { fakeGh, type GhArtifact, ghRun, type GhRun, gitRepo, runScript, tmpDir, writeTree } from "../../lib/spec.ts";
+import { documentsOf } from "../../lib/yaml-fragments.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
+
+const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 let dir: string;
 let cleanup: () => void;
@@ -34,6 +38,41 @@ const docs = (pages: Record<string, string>) => {
 };
 const publish = (...args: string[]) => runScript("spec-publish", args, work);
 const remoteLog = () => git(work, "log", "--format=%s", "origin/spec");
+
+const CI_MD = "skills/spec/ci.md";
+const OPTIONAL = "## Publishing the documentation — optional";
+
+/** Job фрагментов YAML и их шаги `run` и `uses … with.name`: то, по чему видна публикация. */
+function jobsOf(markdown: string): { id: string; steps: string[] }[] {
+  return documentsOf(CI_MD, markdown).flatMap((d) => {
+    const jobs = (Bun.YAML.parse(d.text) as { jobs?: Record<string, { steps?: Record<string, unknown>[] }> } | null)?.jobs ?? {};
+    return Object.entries(jobs).map(([id, job]) => ({
+      id,
+      steps: (job?.steps ?? []).map((s) => [s.run, s.uses, (s.with as { name?: unknown } | undefined)?.name].filter((x) => typeof x === "string").join(" ")),
+    }));
+  });
+}
+
+/**
+ * Публикация документации — по желанию проекта (#838): спеку читают из дерева `tests/`, ветку `spec` агенты за полмесяца
+ * открыли раз. Основной фрагмент CI скилла её не ставит — ни job `spec-publish` с токеном на запись, ни выгрузки
+ * `docs/spec` для него; всё это — в необязательном разделе `ci.md`, который проект берёт, если публикует.
+ */
+describe("Публикация спеки — по желанию проекта", () => {
+  it("основной фрагмент CI не содержит публикации, необязательный — содержит", () => {
+    const text = readFileSync(path.join(ROOT, CI_MD), "utf8");
+    const at = text.indexOf(`\n${OPTIONAL}\n`);
+    expect(at).toBeGreaterThan(0);
+    const publishing = (j: { id: string; steps: string[] }) => j.id === "spec-publish" || j.steps.some((s) => /spec-publish|docs-spec/.test(s));
+    // основной фрагмент — до первого раздела: его YAML копируют целиком
+    const main = jobsOf(text.slice(0, text.indexOf("\n## ")));
+    expect(main.map((j) => j.id)).toEqual(expect.arrayContaining(["test-spec", "unit", "spec", "spec-diff"]));
+    expect(main.filter(publishing).map((j) => j.id)).toEqual([]);
+    const rest = text.slice(at + 1);
+    const optional = jobsOf(rest.slice(0, rest.indexOf("\n## ", 1) < 0 ? undefined : rest.indexOf("\n## ", 1)));
+    expect(optional.filter((j) => j.id === "spec-publish" && j.steps.some((s) => /\bspec-publish\b/.test(s)))).not.toEqual([]);
+  });
+});
 
 describe("Документация публикуется в ветку spec, а не коммитится в main", () => {
   it("корень ветки spec — содержимое docs/spec, в сообщении — SHA main, из которого собрано; main не меняется", () => {

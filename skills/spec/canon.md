@@ -246,8 +246,9 @@ no decision claims is dead and is deleted.
   `<section>.md`, what holds — `describe`, what checks it — the tests,
   collapsed under it; for a standard — the examples' code and the exceptions), the architecture page from the model (C4 diagrams
   and the module table) and sequence diagrams from scenario traces.
-  `docs/spec` isn't in `main`: after a merge CI publishes it to the `spec`
-  branch (`spec-publish`); review goes by `spec-diff`. Product documents
+  `docs/spec` isn't in `main`: the spec is read in the `tests/` tree, the
+  pages — in the `spec` branch if the project publishes it (`spec-publish`,
+  optional); review goes by `spec-diff`. Product documents
   (vision, business decisions, research) aren't spec and live separately.
 - **A recurring decision is a standard:** on task close (check 5 of the "Epic
   refresh on task close" section in `AGENTS.md`) a repetition found becomes a

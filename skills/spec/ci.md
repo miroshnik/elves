@@ -15,20 +15,21 @@ locally the same scripts run what CI runs. The scripts are
 wrapped in `slot` under Bun (the `slot` skill; no queue in CI) — hence
 `oven-sh/setup-bun@v2` in those jobs. The jobs write blob reports, the
 `spec` job merges them with the runners' own tools and builds `docs/spec` with
-`--strict`; on `main` it hands it as an artifact to the `spec-publish` job —
-the only one with a write token (no CI on `main` — publishing on PR merge,
-section at the end). The skill's scripts are the project's package
+`--strict` — the check of the tree and the names; publishing `docs/spec` to the
+`spec` branch is the project's choice, not part of this fragment (section
+"Publishing the documentation — optional"). The skill's scripts are the project's package
 (`@miroshnik/elves` in `devDependencies`) under Bun: `oven-sh/setup-bun@v2`
-next to the project's Node in `spec`, instead of it in `spec-publish` and
-`spec-diff`. A job with the project's dependencies calls them
+next to the project's Node in `spec`, instead of it in `spec-diff`. A job
+with the project's dependencies calls them
 `bun --no-env-file node_modules/.bin/elves <script>` — a step doesn't see
 `node_modules/.bin` (on Yarn 2+ — the `bunx` form below in every job: PnP
-has no `node_modules`, and Yarn runs the `.ts` bin by Node); `spec-publish`
-and `spec-diff` don't install the project's dependencies — they take the package alone at the project's version,
-`bunx @miroshnik/elves@<version>`: the job with the write token runs no
-install of the project's packages. `spec-diff` is its own light job after
+has no `node_modules`, and Yarn runs the `.ts` bin by Node); `spec-diff`
+doesn't install the project's dependencies — it takes the package alone at the project's version,
+`bunx @miroshnik/elves@<version>`. `spec-diff` is its own light job after
 `spec`: git history, Bun and the merged reports (harness tests are visible only in the
-report; their base is the `tests.json` of the `spec` branch). The
+report; their base is the `tests.json` of the `spec` branch, if the project
+publishes it — without the branch a line under «Base» says they weren't
+compared, the lists go by the sources). The
 `.spec-claims.xml` claims report goes there too: its tests are in `tests.json`,
 and without the report they show up as "deleted" in every PR.
 
@@ -38,7 +39,7 @@ on:
   push:
     branches: [main]
 
-concurrency: # main — a run gets its own group: it doesn't wait and isn't displaced; the queue is at spec-publish
+concurrency: # main — a run gets its own group: it doesn't wait and isn't displaced
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -155,9 +156,6 @@ jobs:
       - run: pnpm exec playwright merge-reports --reporter=json playwright-blob
         env: { PLAYWRIGHT_JSON_OUTPUT_NAME: .spec-playwright.json }
       - run: pnpm spec:doc
-      - if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
-        with: { name: docs-spec, path: docs/spec/, retention-days: 1 }
       - if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
@@ -168,21 +166,6 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
-  spec-publish:
-    if: github.event_name == 'push'
-    needs: spec
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions: { contents: write } # push to the spec branch — only here
-    concurrency: { group: spec-publish, queue: max } # a pending publication isn't displaced by the next one
-    steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # main runs are parallel: history for the "already newer" check
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/download-artifact@v8
-        with: { name: docs-spec, path: docs/spec }
-      - run: bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)" spec-publish # the project's version, without its dependencies
-
   spec-diff:
     if: github.event_name == 'pull_request'
     needs: spec
@@ -190,7 +173,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # merge-base with the base branch, and the spec branch
+        with: { fetch-depth: 0 } # merge-base with the base branch, and the spec branch if the project publishes it
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v8
         with: { name: spec-reports }
@@ -198,11 +181,6 @@ jobs:
           elves="bunx @miroshnik/elves@$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)"
           $elves spec-diff --base "origin/${{ github.base_ref }}" --report .spec-report.json --report .spec-playwright.json --report .spec-claims.xml --full >> "$GITHUB_STEP_SUMMARY"
 ```
-
-The publish job is named `spec-publish` (in a reusable workflow — `<job> /
-spec-publish`): by this name `github pr premerge` doesn't count its red as a
-red `main`, and `ci-wait` doesn't wait for it — publishing the documentation
-isn't a check (#443).
 
 Every job has `timeout-minutes`, and a step that installs packages from the
 network (`pnpm install`, `playwright install --with-deps` — browsers and apt
@@ -217,17 +195,14 @@ No Playwright — no `e2e` job, no steps for it in `spec` and no second report
 in `spec:doc`. No shards — `unit` without the matrix and the shard steps, `pnpm test`
 as is; `test-spec` stays a job
 of its own: it doesn't wait for the long branch, and a broken standard is
-visible in a minute. `spec-publish` stays separate as well.
+visible in a minute.
 Elves itself runs on Bun — its `.github/workflows/ci.yml` is no model for a
 project on Node.
 
 The `main` run is in its own group (`github.run_id`): the tests need no shared
 resource, and `queue: max` doesn't combine with cancelling PR runs in one
-workflow. Only `spec-publish` has a queue; publications don't go in merge
-order, and the "already newer" check (`spec-publish` prints `already newer`) keeps
-an old one from landing over a new one — hence the checkout with history. A
-deploy can't do this in the same workflow — it needs merge order: a separate
-workflow (`docs/ci-concurrency.md`).
+workflow. A deploy needs merge order — a separate workflow
+(`docs/ci-concurrency.md`).
 
 ## Shards by durations
 
@@ -353,8 +328,8 @@ jobs:
   number (`docs/ci-concurrency.md`).
 - **The task PR's spec diff is the agent's**: its body is `spec-diff` output
   against the batch branch, the names by the sources; the release PR's
-  `spec-diff` with the reports and the `spec` branch as the base names the
-  whole batch, the items only a run names among them.
+  `spec-diff` with the reports names the whole batch — with the `spec` branch
+  as the base, the items only a run names among them.
 - **`elves check` holds a batch project to it** (`"batch": true` in
   `.agents/elves.json`, an Elves clone too): a `❌` line and exit code 1 for
   a workflow of `.github/workflows/*.y(a)ml` that runs on a PR into a batch
@@ -362,16 +337,68 @@ jobs:
   `batch/…` in; a paths filter or `types` without `synchronize` — `❌` too,
   it may run.
 
-## No CI on `main` — publishing on PR merge
+## Publishing the documentation — optional
+
+The agents read the spec from the `tests/` tree — the prose of `<topic>.md`
+and `<section>.md` next to the tests, the names in `spec-diff`; the generated
+pages in a branch were read once in half a month (#838). A project that wants
+them readable on GitHub without a run publishes `docs/spec` to the `spec`
+branch: `spec-publish` puts it at the branch root, `Source: <SHA>` in the
+commit. With the branch, `spec-diff` also compares harness tests — their base
+is the branch's `tests.json`. Two additions to the main fragment: in the
+`spec` job, after `spec:doc`, `docs/spec` as an artifact on `main`
+
+```yaml
+      - if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with: { name: docs-spec, path: docs/spec/, retention-days: 1 }
+```
+
+and the `spec-publish` job — the only one with a write token; it doesn't
+install the project's dependencies, it takes the package alone at the
+project's version:
+
+```yaml
+jobs:
+  spec-publish:
+    if: github.event_name == 'push'
+    needs: spec
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: write } # push to the spec branch — only here
+    concurrency: { group: spec-publish, queue: max } # a pending publication isn't displaced by the next one
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 } # main runs are parallel: history for the "already newer" check
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v8
+        with: { name: docs-spec, path: docs/spec }
+      - run: bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)" spec-publish # the project's version, without its dependencies
+```
+
+- The job is named `spec-publish` (in a reusable workflow — `<job> /
+  spec-publish`): by this name `github pr premerge` doesn't count its red as
+  a red `main`, and `ci-wait` doesn't wait for it — publishing the
+  documentation isn't a check (#443).
+- Only `spec-publish` has a queue: `main` runs are parallel, publications
+  don't go in merge order, and the "already newer" check (`spec-publish`
+  prints `already newer`) keeps an old one from landing over a new one —
+  hence the checkout with history.
+- A project that stops publishing removes the job and the artifact step; the
+  `spec` branch stays as it was, and `spec-diff` would compare harness tests
+  against its old `tests.json` — `spec-diff` without `--report`, or delete
+  the branch.
+
+### No CI on `main` — publishing on PR merge
 
 A project whose whole CI runs on PRs, with no tests run on `main`, publishes
 from the PR's own run: the `spec` job hands `docs/spec` as an artifact on PRs
 too, and a light workflow on merge downloads it and calls `spec-publish`. With
-CI on `main` — the variant above: it builds what actually ended up in `main`.
+CI on `main` — the jobs above: it builds what actually ended up in `main`.
 Without it — this one; there is no need to bring back CI on `main` for the
 documentation.
 
-In the workflow above: `on` is only `pull_request`, there is no `spec-publish`
+In the main fragment: `on` is only `pull_request`, there is no `spec-publish`
 job, and in the `spec` job the artifact is uploaded on every run, named after
 the tree the run checked, and lives longer than the PR waits for its merge:
 
@@ -436,7 +463,7 @@ jobs:
 - After a skip, the publication is older than the merge-base of the following
   PRs — `spec-diff` says so in a line under "Base".
 
-## The host builds every branch
+### The host builds every branch
 
 Vercel (and any host with git integration for all branches) also builds the
 `spec` branch — by the config from its tree, which has neither code nor a

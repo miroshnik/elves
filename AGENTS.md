@@ -226,7 +226,7 @@ Exceptions — a mark in the element's file or an `exceptions/` file, with an
 `#issue`, a reason, a ratchet. Test names are statements in the project
 language; a code task gets the scenarios section (future `it` names) before
 code. The PR body is `spec-diff` output; docs — generated (`spec-doc`),
-published by CI to the `spec` branch. A recurring decision — a "Standard · …"
+in the `spec` branch if the project publishes it. A recurring decision — a "Standard · …"
 issue, a rule in `tests/standards/`; repeats in a PR's files — fixed in it.
 The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
 
