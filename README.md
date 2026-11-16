@@ -103,7 +103,7 @@ The GitHub project and tasks, a command per step: a task with its fields, its qu
 
 ### [`est`](skills/est/SKILL.md) — the actual from transcripts
 
-The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts; a period's summary across all of a repository's sessions — the flow before and after a change.
+The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code transcripts, local and cloud; a period's summary across all of a repository's sessions — the flow before and after a change.
 
 `est fact` · `est period` · `est cloud-import`
 
