@@ -106,8 +106,9 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
 - **What GitHub keeps natively isn't repeated in an issue's text** —
   sub-issues, blocked by, `Status`, milestone, labels, fields, the PR: a copy
   goes stale; an epic's description has no list of subtasks or stages.
-- **One GitHub Project per repository**, named after it, with all tasks;
-  `project check` once per session, ❌ — `project fix`. `Status` I set
+- **A GitHub Project (optional)** per repository, named after it, with all
+  tasks: `project check` once per session, ❌ — `project fix`; none — status
+  by facts. `Status` I set
   **myself, immediately**: `task status`, `task close`, `task drop` (won't
   do, duplicate). An organization's open task requires `Priority`
   (`Urgent` → `Low`, `Medium` by default). A milestone (an epic stage, a
