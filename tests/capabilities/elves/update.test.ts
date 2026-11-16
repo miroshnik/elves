@@ -728,7 +728,7 @@ const MAIN_CI = /^[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/sp
  * требования job публикации в `check` нет, тест держит, чтобы оно не появилось.
  */
 describe("check и публикация спеки", () => {
-  it("check не требует job публикации спеки", () => {
+  it("`check` не требует job публикации спеки", () => {
     elves(sb, ["install"]);
     workflow("ci.yml", MAIN_CI);
     expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
