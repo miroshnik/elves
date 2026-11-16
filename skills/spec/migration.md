@@ -122,4 +122,5 @@ is a thin wrapper: argument parsing and a call to the core.
 The epic's last subtask: all groups have outcomes and no references to the old
 spec are left in the code — the corpus is deleted in one PR, together with its
 mentions in the project's rules. A before-and-after comparison — from the `est`
-actuals (`est history`), as a separate task, once a sample accumulates.
+summary of the periods before and after (`est period`), as a separate task, once
+a sample accumulates.
