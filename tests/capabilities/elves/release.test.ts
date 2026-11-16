@@ -157,8 +157,8 @@ describe("Релиз — тег по дате на origin/main и список �
 });
 
 /**
- * Пакет `@miroshnik/elves` в npm — то, что проект ставит в devDependencies без копии флоу, а облачная сессия получает
- * из реестра (`github:` в ней — 403, #555). Версия — тег релиза в виде semver, публикует CI по тегу.
+ * Пакет `@miroshnik/elves` в npm — то, что проект ставит в devDependencies без копии флоу, а команды флоу берут из
+ * реестра. Версия — тег релиза в виде semver, публикует CI по тегу.
  */
 describe("Релиз публикуется в npm пакетом @miroshnik/elves: версия — тег релиза, публикует CI по тегу", () => {
   it("bun install проекта с @miroshnik/elves в devDependencies приносит пакет с бинарём elves", () => {
