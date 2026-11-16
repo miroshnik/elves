@@ -183,7 +183,7 @@ describe("Каждая job ограничена по времени: завис�
     name: (j) => `${j.key} ограничена по времени`,
     check: throwing(jobViolation),
     violator: { name: "job tests прогона PR #662", item: jobItems("ci.yml", "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bun test\n")[0]! },
-    includes: [`${CI} jobs.tests`, `${CI} jobs.spec-publish`, `${WORKFLOWS}/npm.yml jobs.publish`, `${SPEC_CI} jobs.e2e`, "docs/ci-concurrency.md jobs.deploy-dev"],
+    includes: [`${CI} jobs.tests`, `${WORKFLOWS}/npm.yml jobs.publish`, `${SPEC_CI} jobs.e2e`, "docs/ci-concurrency.md jobs.deploy-dev"],
   });
 
   it("пример: job без предела — ошибка с файлом и job", () => {

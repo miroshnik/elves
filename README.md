@@ -11,7 +11,6 @@ Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
 [![CI](https://github.com/miroshnik/elves/actions/workflows/ci.yml/badge.svg)](https://github.com/miroshnik/elves/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/miroshnik/elves?sort=date&label=release)](https://github.com/miroshnik/elves/releases)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-standard-6f42c1)](https://agentskills.io)
-[![Spec](https://img.shields.io/badge/spec-branch-0e8a16)](https://github.com/miroshnik/elves/tree/spec)
 
 [The idea](#the-idea) · [Why](#why) · [Elves and OpenSpec](#elves-and-openspec) · [Installation](#installation) · [Skills](#skills) · [Layout](#repository-layout)
 
@@ -71,7 +70,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 | **What keeps the spec true** | the agent's discipline; `validate` checks structure, not truth | CI: behavior changed without a test — red |
 | **Agreement before code** | `proposal.md`, `tasks.md` | the issue: `## Questions` and `## Scenarios` — future test names |
 | **A change in the PR** | ADDED / MODIFIED / REMOVED deltas — separate files written by the agent | `spec-diff` from git: added, changed and removed requirements |
-| **Documentation** | the specs themselves — read them whole | generated from test names into the `spec` branch after merge, not into `main` |
+| **Documentation** | the specs themselves — read them whole | the `tests/` tree: a decision's prose next to its tests; pages from test names — into the `spec` branch, if the project publishes them |
 
 **What a live project showed.** A product project on OpenSpec — 68 specs, ≈1000 requirements, 3 MB of Markdown — with `openspec validate --strict` green: 6 of 11 requirements checked were stale, and in a measured task ≈26% of what the agent read was OpenSpec artifacts. Its 1052 requirements moved into tests in 13 PRs: only 56% had a test; check by breaking found at least 165 tests that counted as coverage but didn't catch the breakage, and 70 bugs turned up along the way. How to migrate — [`skills/spec/migration.md`](skills/spec/migration.md). The spec format isn't the main token cost, though: subagents and what they are told to read cost more.
 
@@ -116,7 +115,7 @@ A browser page: sessions at work and what each waits for — CI, merge, deploy, 
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
-The spec from tests: documentation from runner reports into the `spec` branch, the PR's requirement diff, CI shards, entry points called by tests, check by breaking, the checks before a commit and the harness of deterministic checks.
+The spec from tests: documentation from runner reports (into the `spec` branch, if the project publishes it), the PR's requirement diff, CI shards, entry points called by tests, check by breaking, the checks before a commit and the harness of deterministic checks.
 
 `spec-doc` · `spec-diff` · `spec-publish` · `spec-run` · `spec-shard` · `spec-claims` · `spec-break` · `precommit` · `harness.ts`
 
@@ -166,15 +165,7 @@ bin/shims/         commands the SessionStart hook adds to the end of the agent's
 
 **A skill = a prompt + scripts** following the open [Agent Skills](https://agentskills.io) standard: a `<name>/` folder with `SKILL.md` — when and what to call — and `scripts/` for the deterministic part, TypeScript under Bun (`bun script.ts`: no build, no dependencies, imports with `.ts`); reference material — `reference.md` and the scripts' `--help`. Third-party code a script can't do without goes into `scripts/vendor/` as a file with its license, not as a dependency. Everything that depends on specific repositories goes into local configuration, not into the skill.
 
-Elves lives by its own flow: the spec — [`tests/`](tests), its documentation — in the [`spec` branch](https://github.com/miroshnik/elves/tree/spec), tasks — in [Issues](https://github.com/miroshnik/elves/issues) and the [elves project](https://github.com/users/miroshnik/projects/6).
-
-The spec is read from the branch, not from the working tree — the same in any project with the flow:
-
-```bash
-git fetch origin spec
-git show origin/spec:README.md                 # table of contents: capabilities, architecture, standards
-git show origin/spec:capabilities/est.md       # a decision page: why, what holds, what checks it
-```
+Elves lives by its own flow: the spec — [`tests/`](tests), tasks — in [Issues](https://github.com/miroshnik/elves/issues) and the [elves project](https://github.com/users/miroshnik/projects/6).
 
 ```bash
 bun install

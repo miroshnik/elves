@@ -159,7 +159,7 @@ describe("Каждый блок concurrency с общей группой — que
     ],
     // блок, ушедший от разбора (другой отступ, другой вид фрагмента), выпал бы из реестра молча
     includes: [
-      ".github/workflows/ci.yml jobs.spec-publish.concurrency «spec-publish»",
+      ".github/workflows/ci.yml concurrency «ci-${{ github.event.pull_request.number || github.run_id }}»",
       "docs/ci-concurrency.md concurrency «cd-${{ github.ref }}»",
       "docs/ci-concurrency.md jobs.deploy-dev.concurrency «deploy-dev»",
       "skills/spec/ci.md jobs.spec-publish.concurrency «spec-publish»",

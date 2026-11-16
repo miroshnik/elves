@@ -60,8 +60,7 @@
     "test:spec": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test tests/standards'",
     "typecheck": "bun --no-env-file skills/slot/scripts/slot.ts 'bun check'",
     "spec:doc": "bun test --reporter=junit --reporter-outfile=.spec-report.xml && bun --no-env-file skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
-    "spec:diff": "bun --no-env-file skills/spec/scripts/spec-diff.ts",
-    "spec:publish": "bun --no-env-file skills/spec/scripts/spec-publish.ts"
+    "spec:diff": "bun --no-env-file skills/spec/scripts/spec-diff.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
