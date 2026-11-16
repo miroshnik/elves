@@ -1079,14 +1079,22 @@ describe("Тесты харнесса — в диффе спеки: назван
     expect(r.stdout).toContain("Тесты не менялись.");
   });
 
-  it("без базы в ветке spec — дифф по исходникам, и это сказано", () => {
-    const base = repo.commit({ [STD]: ts(`it("a пишет аудит", () => {});`) });
-    repo.commit({ [STD]: registry });
-    report(["a пишет аудит"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain("в ветке spec нет tests.json для базы — дифф по исходникам, тестов харнесса в нём не видно");
-    expect(r.stdout).toContain("**Удалены (1):**");
+  // ветку spec проект публикует по желанию (#838): без неё CI всё равно передаёт отчёт — раздел идёт по исходникам, а
+  // что тесты харнесса не сравнивались, говорит одна строка
+  it("spec-diff без ветки spec печатает раздел по статическому разбору и одной строкой говорит, что тесты харнесса не сравнивались", () => {
+    const base = repo.commit({ [STD]: ts(`it("a пишет аудит", () => {});`), [BILLING]: ts(`it("x", () => {});`) });
+    repo.commit({ [STD]: registry, [BILLING]: ts(`it("x", () => {}); it("y", () => {});`) });
+    report(["a пишет аудит", "c пишет аудит"]);
+    for (const [branch, ...args] of [["origin/spec"], ["spec", "--spec-branch", "spec"]]) {
+      const r = diffFrom(base, "--report", "r.json", ...args);
+      expect(r.code).toBe(0);
+      // по исходникам: тест, который теперь порождает реестр, — удалён, тестов из отчёта в списках нет
+      expect(r.stdout).toContain("**Удалены (1):**\n\n- `tests/standards/audit` · a пишет аудит\n");
+      expect(r.stdout).toContain("**Добавлены (1):**\n\n- `tests/capabilities/billing` · y\n");
+      expect(r.stdout).not.toContain("c пишет аудит");
+      const note = `_Тесты харнесса не сравнивались: нет ветки ${branch} с tests.json для базы — дифф по исходникам._`;
+      expect(r.stdout.split("\n").filter((l) => l.includes("Тесты харнесса"))).toEqual([note]);
+    }
   });
 
   it("в сводке по папкам видно, сколько тестов порождено харнессом", () => {
