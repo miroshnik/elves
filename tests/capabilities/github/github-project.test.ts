@@ -148,6 +148,50 @@ describe("check показывает каждое расхождение с ка
   });
 });
 
+/**
+ * Задачи больше не оценивают (#835): поле «Оценка, ч» канону не нужно. В проектах оно осталось со значениями старых
+ * задач — это не расхождение, а след: строка `○`, пункт ✅; удаляет его только `fix --confirm`, с ним и его колонку.
+ */
+describe("Поле оценки — не канон проекта", () => {
+  /** Проект без старого поля оценки: ни поля, ни его колонки в «Таблице». */
+  function withoutEstimate(f: FakeGitHub): FakeGitHub {
+    const old = f.field("Оценка, ч").id;
+    f.project().fields.nodes = f.project().fields.nodes.filter((x: { id: string }) => x.id !== old);
+    for (const v of f.project().views.nodes) v.fields.nodes = v.fields.nodes.filter((x: { id: string }) => x.id !== old);
+    return f;
+  }
+
+  it("`project check` не требует поля «Оценка, ч»", () => {
+    const r = check(withoutEstimate(fake()));
+    expect(r.code).toBe(0);
+    expect(marks(r.out)).toMatchObject({ Views: "✅", Fields: "✅" });
+    expect(r.out).toContain("✅ Fields «Факт, ч», «Токены, млн», «Стоимость, $» (Number), no other custom ones");
+    expect(r.out).not.toContain("Оценка, ч");
+  });
+
+  it("Оставшееся в проекте поле «Оценка, ч» — строка `○`, не ошибка", () => {
+    const f = fake();
+    const old = f.field("Оценка, ч").id;
+    const r = check(f);
+    expect(r.code).toBe(0);
+    expect(marks(r.out)).toMatchObject({ Views: "✅", Fields: "✅" });
+    expect(r.out).toContain("   ○ «Оценка, ч» — the old estimate field: tasks aren't estimated any more, fix --confirm deletes it");
+
+    // fix без --confirm поле не трогает и называет шаг, код — по канону, 0
+    const plain = fix(f);
+    expect(plain.code).toBe(0);
+    expect(f.mutations).toEqual([]);
+    expect(plain.out).toContain("Optional, on the user's confirmation — fix --confirm:\n1. delete field «Оценка, ч» (the old estimate)");
+    expect(plain.out).not.toContain("Confirmation needed");
+
+    const confirmed = fix(f, { confirm: true });
+    expect(confirmed.code).toBe(0);
+    expect(byOp(f, "DeleteField")).toEqual([{ fieldId: old }]);
+    expect(confirmed.out).toContain("+ delete field «Оценка, ч» (the old estimate)");
+    expect(check(f).out).not.toContain("Оценка, ч");
+  });
+});
+
 describe("fix доводит проект до канона: через API — сам, остальное — шагом UI или после подтверждения", () => {
   it("исправимое через API исправляет сам и сверяет заново: все ✅, код 0", () => {
     const f = fake();
@@ -215,7 +259,8 @@ describe("fix доводит проект до канона: через API — 
     }
 
     const after = fix(f, { confirm: true });
-    expect(ops(f).sort()).toEqual(["DeleteField", "DeleteView", "RenameProject", "UpdateField"]);
+    // второй DeleteField — старое поле оценки «Оценка, ч» записанного проекта (#835): --confirm убирает и его
+    expect(ops(f).sort()).toEqual(["DeleteField", "DeleteField", "DeleteView", "RenameProject", "UpdateField"]);
     expect(byOp(f, "UpdateField")[0].singleSelectOptions[2]).toEqual({ id: doneId, name: "Готово", color: "PURPLE", description: "" });
     expect(after.code).toBe(0);
     expect(Object.values(marks(after.out))).not.toContain("❌");
@@ -257,13 +302,13 @@ describe("fix доводит проект до канона: через API — 
     const status = created.fields.nodes.find((x: { name: string }) => x.name === "Status");
     expect(byOp(f, "UpdateField")[0].singleSelectOptions.map((o: { id: string; name: string }) => [o.name, o.id])).toEqual(status.options.map((o: { id: string; name: string }) => [o.name, o.id]));
     expect(status.options.map((o: { name: string }) => o.name)).toEqual(["Бэклог", "В работе", "Готово"]);
-    // колонки «Таблицы» — следующим ходом: поле «Оценка, ч» создаётся тем же ходом, что и переименование View 1
+    // колонки «Таблицы» — следующим ходом: этим ходом View 1 только переименовывается
     expect(byOp(f, "UpdateView")).toEqual([
       { viewId: created.views.nodes[0].id, name: "Таблица" },
       { viewId: created.views.nodes[0].id, configuration: { visibleFieldIds: fieldIds(f, TABLE_COLUMNS) } },
     ]);
     expect(byOp(f, "CreateView").map((v) => v.name)).toEqual(["Доска", "Роадмэп"]);
-    expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Оценка, ч", "Факт, ч", "Токены, млн", "Стоимость, $"]);
+    expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Факт, ч", "Токены, млн", "Стоимость, $"]);
     expect(marks(r.out)).toMatchObject({ Project: "✅", Views: "❌", Status: "✅", Fields: "✅", Workflows: "❌", Open: "✅" });
     expect(r.out).toContain(`«Таблица»: View options → Group by → Status → Save — ${created.url}/views/1`);
   });
@@ -305,7 +350,7 @@ function setColumns(f: FakeGitHub, view: string, names: string[]): void {
   f.view(view).fields.nodes = names.map((n) => ({ id: f.field(n).id, name: n, dataType: f.field(n).dataType }));
 }
 const fieldIds = (f: FakeGitHub, names: string[]) => names.map((n) => f.field(n).id);
-const TABLE_COLUMNS = ["Title", "Status", "Labels", "Assignees", "Sub-issues progress", "Оценка, ч"];
+const TABLE_COLUMNS = ["Title", "Status", "Labels", "Assignees", "Sub-issues progress"];
 const BOARD_COLUMNS = ["Title", "Status", "Labels", "Sub-issues progress"];
 
 // Проекты, заведённые до копии эталона или правленные руками, проходили check, а выглядели по-разному (#634): в «Таблице»
@@ -317,7 +362,7 @@ describe("Представления, Status и workflow — как у этал�
     setColumns(f, "Доска", ["Title", "Labels"]);
     const r = check(f);
     expect(marks(r.out).Views).toBe("❌");
-    expect(r.out).toContain("· «Таблица» columns: missing «Labels», «Оценка, ч»; extra «Linked pull requests»");
+    expect(r.out).toContain("· «Таблица» columns: missing «Labels»; extra «Linked pull requests»");
     expect(r.out).toContain("· «Доска» columns: missing «Status», «Sub-issues progress»");
     const after = fix(f);
     expect(byOp(f, "UpdateView")).toEqual([
@@ -432,7 +477,9 @@ describe("В организации сверяются ещё поле Priority 
     fix(f, { repo: ORG });
     expect(ops(f)).toEqual([]);
     fix(f, { repo: ORG, confirm: true });
-    expect(ops(f)).toEqual(["DeleteField", "AddIssueField"]);
+    // первым --confirm убирает старое поле оценки записанного проекта (#835), затем — своё поле Priority
+    expect(ops(f)).toEqual(["DeleteField", "DeleteField", "AddIssueField"]);
+    expect(byOp(f, "DeleteField").at(-1)).toEqual({ fieldId: "PVTSSF_own" });
     expect(f.project().fields.nodes.filter((x: { name: string }) => x.name === "Priority").map((x: { isIssueField: boolean }) => x.isIssueField)).toEqual([true]);
   });
 
@@ -860,7 +907,7 @@ describe("Канон проекта — на языке проекта из .age
     expect(status.options.map((o: { name: string }) => o.name)).toEqual(["Backlog", "In progress", "Done"]);
     expect(byOp(f, "UpdateView")[0]).toEqual({ viewId: f.project().views.nodes[0].id, name: "Table" });
     expect(byOp(f, "CreateView").map((v) => v.name)).toEqual(["Board", "Roadmap"]);
-    expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Estimate, h", "Actual, h", "Tokens, M", "Cost, $"]);
+    expect(byOp(f, "CreateField").map((v) => v.name)).toEqual(["Actual, h", "Tokens, M", "Cost, $"]);
     expect(marks(r.out)).toMatchObject({ Project: "✅", Status: "✅", Fields: "✅", Open: "✅" });
     expect(r.out).toContain("«Table»: View options → Group by → Status → Save");
   });
@@ -870,7 +917,7 @@ describe("Канон проекта — на языке проекта из .age
     const en = checkout(EN);
     const ids = (names: string[]) => names.map((n) => f.field(n)?.id ?? null);
     const options = f.field("Status").options.map((o: { id: string }) => o.id);
-    const fields = ids(["Оценка, ч", "Факт, ч", "Токены, млн", "Стоимость, $"]);
+    const fields = ids(["Факт, ч", "Токены, млн", "Стоимость, $"]);
     const before = f.items().map((it: { status: { name: string } | null }) => it.status?.name ?? null);
     expect(marks(check(f, REPO, en).out)).toMatchObject({ Views: "❌", Status: "❌", Fields: "❌" });
 
@@ -878,7 +925,9 @@ describe("Канон проекта — на языке проекта из .age
     const r = fix(f, { confirm: true, cwd: en });
     expect(r.code).toBe(0);
     expect(f.field("Status").options.map((o: { id: string; name: string }) => [o.id, o.name])).toEqual(options.map((id: string, i: number) => [id, ["Backlog", "In progress", "Done"][i]]));
-    expect(ids(["Estimate, h", "Actual, h", "Tokens, M", "Cost, $"])).toEqual(fields);
+    expect(ids(["Actual, h", "Tokens, M", "Cost, $"])).toEqual(fields);
+    // старое поле оценки — на любом языке словаря: --confirm его удаляет, а не переименовывает (#835)
+    expect(ids(["Оценка, ч", "Estimate, h"])).toEqual([null, null]);
     expect(f.project().views.nodes.map((v: { name: string }) => v.name).sort()).toEqual(["Board", "Roadmap", "Table"]);
     const ru = { Бэклог: "Backlog", "В работе": "In progress", Готово: "Done" } as Record<string, string>;
     expect(f.items().map((it: { status: { name: string } | null }) => it.status?.name ?? null)).toEqual(before.map((n: string | null) => (n === null ? null : (ru[n] ?? null))));

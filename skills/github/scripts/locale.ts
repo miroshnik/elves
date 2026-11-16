@@ -47,6 +47,7 @@ export interface Names {
    */
   labels: { questions: string; questionsDescription: string; epicDescription: string; externalBlocker: string };
   status: { backlog: string; inProgress: string; done: string };
+  /** `estimate` — the old estimate field (#835): not the canon's, `project check` recognizes it to name it. */
   fields: { estimate: string; actual: string; tokens: string; cost: string };
   views: { board: string; table: string; roadmap: string };
   labelMarkers: { decision: string; slice: string; architecturePath: string };

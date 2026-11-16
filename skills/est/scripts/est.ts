@@ -3956,22 +3956,6 @@ function cmdFact(args: FactArgs): number {
   return 0;
 }
 
-/**
- * An answer to a question in the questions section: from "Answer…:" (`est.answer` in any dictionary language) to the
- * next list item or a blank line.
- */
-const ANSWER_RE = new RegExp(String.raw`\s*(?:\*\*)?(?:${locale.every((n) => n.est.answer).map(locale.escapeRe).join("|")})[^:\n]*:(?:\*\*)?[^\n]*(?:\n(?![ \t]*(?:\d+\.|$))[^\n]*)*`, "gm");
-/** The issue's questions section — `sections.questions` in any dictionary language — up to the next section. */
-const QUESTIONS_RE = new RegExp(String.raw`(?<=^|\n)(?:${locale.every((n) => n.sections.questions).map(locale.escapeRe).join("|")})\n[\s\S]*?(?=\n## |$)`);
-
-/**
- * Issue description size, chars: answers to questions and ✅ marks don't count — they are added after the task is
- * created.
- */
-export function descSize(body: string): number {
-  return body.replace(QUESTIONS_RE, (sec) => sec.replace(ANSWER_RE, "").replace(/✅\s*/g, "")).length;
-}
-
 // ----------------------------------------------------------------------------
 // The period command — summary of all the repo's sessions over a period, not tied to tasks
 // ----------------------------------------------------------------------------

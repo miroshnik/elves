@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields and the estimate); `task start`, `task show` (not `gh issue view`), `task answer` and `task edit` (not `gh issue edit`); `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
+description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields); `task start`, `task show` (not `gh issue view`), `task answer` and `task edit` (not `gh issue edit`); `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
 allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-url *)
 ---
 
@@ -56,7 +56,7 @@ gaps — `reference.md`, "Project check and fix".
 ## Tasks and PRs
 
 ```bash
-bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" --branch-type <type> [--body-file F | --body "…"] [--type Task|Bug|Epic] \
+bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" [--body-file F | --body "…"] [--type Task|Bug|Epic] \
     [--epic N] [--milestone "…"] [--blocked-by N,N] [--priority Urgent|High|Medium|Low] \
     [--labels <decision>,<kind>:<new decision>,<label>] [--repo owner/repo]
     # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
@@ -79,8 +79,8 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 
 | Moment | Action |
 |---|---|
-| New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new --branch-type <type>` — it sets the estimate itself (an epic isn't estimated: its estimate is the sum of its subtasks, `reference.md`) |
-| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work (restart: `--resume`); then In progress, the branch renamed, the estimate if missing, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
+| New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new` |
+| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work (restart: `--resume`); then In progress, the branch renamed, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
 | An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
 | Editing the description | `task edit N`, not `--body-file` |
 | Branch committed — the tail | `task finish N` in the background (a subagent — `--timeout 240`, code 5 — again): push, PR, labels, CI, `premerge`; code 4 — `gh pr merge <PR> --rebase` as a separate call, then `task finish N` in the background: the deploy, the refresh prompt (code 4 — its subagent in the background; after its answer — `task finish N`), `task close`; other codes — its `Next:` |
@@ -96,13 +96,9 @@ bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
 What the agent gets wrong without the details (all of them — `reference.md`,
 "Task and PR commands"):
 
-- **`task new`** — `--branch-type` (`feat fix docs refactor perf test chore
-  ci build research`) is required for a task, a bug without it is `fix`, an
-  epic gets none. The estimate — `task new` itself: the agent has no step and
-  doesn't open the `est` skill.
-  `--labels`: a decision from the default branch — by name (`billing`), a new
-  decision — `kind:name` (`capability:export`), a regular or slice label — by
-  name, it must exist. The `questions` label — `task new` itself, when the
+- **`task new`** — `--labels`: a decision from the default branch — by name
+  (`billing`), a new decision — `kind:name` (`capability:export`), a regular
+  or slice label — by name, it must exist. The `questions` label — `task new` itself, when the
   description has a question without ✅. Everything is checked before
   creating: an error (code 2) leaves no half-made task.
 - **`task answer`** — a question with ✅ is refused: a changed answer — `task

@@ -83,7 +83,7 @@ milestones). When to call each command — `SKILL.md`; syntax —
 - **Nothing native is duplicated in text:** status — only the project's
   `Status` field (section "Project (GitHub Projects)" below), links — only
   sub-issue and blocked by, a stage — only the milestone, the decisions a
-  task changes — only decision labels, estimate and actual — only the fields,
+  task changes — only decision labels, the actual — only the fields,
   the PR — only `Closes #N`; the issue's text holds what GitHub doesn't keep
   (goal, context, the agreed design, questions, scenarios). An epic is closed
   when all its subtasks are closed.
@@ -102,7 +102,7 @@ added to the project right on creation (`github task new`). Required:
   - `Board` (BOARD_LAYOUT, columns by `Status`) — cards show Title, Status,
     Labels, Sub-issues progress;
   - `Table` (TABLE_LAYOUT, grouped by `Status`) — columns Title, Status,
-    Labels, Assignees, Sub-issues progress, «Estimate, h»;
+    Labels, Assignees, Sub-issues progress;
   - `Roadmap` (ROADMAP_LAYOUT).
 - **The `Status` field** with options `Backlog` → `In progress` → `Done`,
   colored `GREEN`, `YELLOW`, `PURPLE` (a new GitHub project's colors);
@@ -120,7 +120,7 @@ added to the project right on creation (`github task new`). Required:
   - **closed without being done** (won't do, duplicate, replaced by other
     tasks) — I close it as not planned and **remove it from the project**
     (`github task drop <N>`): it doesn't get into Done and doesn't count in
-    the epic's estimate.
+    the epic's actual.
   Epic: In progress when its first subtask is taken; Done when all are done
   (those closed as not planned don't count — they are no longer in the
   project).
@@ -134,16 +134,11 @@ added to the project right on creation (`github task new`). Required:
   otherwise the workflow puts it into Done. "Auto-archive items" (`is:issue
   is:closed updated:<@today-2w`) takes a task closed and untouched for two
   weeks off the board and the table.
-- **The `Estimate, h` field** (Number) — the agent's active hours
-  (`AGENTS.md`, section "Estimate and actual — the `est` skill"). Set **only
-  by `github task new`** (the `est` script inside) — from analogs with
-  actuals picked by the script, not off the top of my head: for every subtask
-  and small task on creation; fewer than two analogs in the repository — no
-  estimate; for an epic — the sum of its subtasks' estimates, recalculated
-  when a subtask is added or its estimate changes. After work starts I don't rewrite the estimate — the
-  discrepancy is explained in the actual comment.
+- **No estimate field:** tasks aren't estimated (`AGENTS.md`, section
+  "Actual — the `est` skill"); a project that still has the old «Estimate, h»
+  gets an `○` line from `project check`, `project fix --confirm` deletes it.
 - **The `Actual, h`, `Tokens, M`, `Cost, $` fields** (Number) — the actual:
-  active hours, all tokens
+  the agent's active hours, all tokens
   of the linked model responses (input, output, cache write and read,
   including subagents) and their price at public API rates — an **API
   equivalent**: not charged on a subscription, but comparable across tasks
@@ -197,10 +192,10 @@ on the epics themselves), **an epic's stage** (a set of its subtasks).
   milestones I create together with the epic, as soon as the plan is agreed
   (later stages may be refined).
 - **A stage not yet broken down** → the milestone has one stage task with a
-  checklist (`<Epic> · Stage N. …`, a sub-issue of the epic, an estimate for
-  the whole stage; an exception to the "one PR" rule; its items aren't issues
+  checklist (`<Epic> · Stage N. …`, a sub-issue of the epic, for the whole
+  stage; an exception to the "one PR" rule; its items aren't issues
   yet, so the checklist isn't a copy). Decomposition: issues
-  from the checklist items (the same milestone, sub-issues, with estimates),
+  from the checklist items (the same milestone, sub-issues),
   then the stage task — not planned and out of the project.
 - **Due date** — only a real deadline (then the set shows on the roadmap).
 - **I close it myself** when the set's last task is closed; I reopen it if a
@@ -360,8 +355,12 @@ outside git — ❌, `update` puts it into its commit.
    columns aren't compared: the API gives it the default ones.
 3. `Status`: `Backlog` → `In progress` → `Done`, colors `GREEN`, `YELLOW`,
    `PURPLE`; descriptions aren't compared.
-4. Fields «Estimate, h», «Actual, h», «Tokens, M», «Cost, $» (Number), no
-   custom fields beyond the canon.
+4. Fields «Actual, h», «Tokens, M», «Cost, $» (Number), no custom fields
+   beyond the canon; the old «Estimate, h» (in any dictionary language) isn't
+   a discrepancy — an `○` line, the item stays ✅, its `Table` column isn't
+   «extra»; `fix --confirm` deletes it (with the column), `fix` without it
+   names the step under «Optional, on the user's confirmation» and doesn't
+   fail on it.
 5. Organization only: `Priority` — the organization's issue field, connected,
    `Table` and `Board` are sorted by it; issue types — exactly «Task»,
    «Bug», «Epic». A personal account has none — a `➖` line.
@@ -550,26 +549,14 @@ topic's. A question
 without ✅ in the description's questions section — the `questions` label in
 the same mutation (created if missing), a `+` line names the open questions;
 none open — no label. Prints `Created #N …`, `+` lines and the next step.
-
-### The estimate — by task new itself
-
-Like the actual in `task close`:
-after creating a task or a bug it runs `est estimate <N> --type <branch type>
---write` by the est script next to it (`../est/scripts/est.ts`) and prints its
-output — the script picks the analogs, the agent has no step and doesn't open the
-`est` skill. `--branch-type` — the type of the task's branch (`feat fix docs
-refactor perf test chore ci build research`) and of its estimate: required for
-a task, a bug without it is `fix`, an epic gets none (error before creating —
-an epic has no branch and no estimate of its own). Fewer than two analogs with
-an actual in the repository — est prints «No estimate», the task stays without
-one; est is missing — the line `○ no estimate`, failed — its error as a `!`
-line; the task is created anyway (code 0). In a session with a
+No estimate (#835) and no branch type: the type comes with the branch in
+`task start --branch`. In a session with a
 pinned task (`task status` below) — a second line «Next:»: the session runs
 `owner/repo#N`, `#M` isn't taken here — the question to the owner «queue #M?»,
 "yes" — a background subagent in its own worktree with the printed prompt (the
 executor's, as in `task queue`): the session launches it at once and goes on
 with its own task (#546; a session card waited for the owner's click). An
-epic — instead, after the line about its estimate: once its subtasks are created,
+epic — instead: once its subtasks are created,
 the question «run the dispatcher on epic #M?», "yes" — `task queue
 --epic M` in this session.
 
@@ -577,8 +564,8 @@ the question «run the dispatcher on epic #M?», "yes" — `task queue
 
 The task in one output instead of `gh issue view` per piece
 (the description, then the epic, its subtasks, the PR and its checks): the
-title and link; the type, the state if closed, `Status`, the estimate and the
-actual, `Priority`, milestone and labels in one line; the epic with its open
+title and link; the type, the state if closed, `Status`, the actual,
+`Priority`, milestone and labels in one line; the epic with its open
 questions and other open tasks (`- question k. …`, `- task #M «…»`); an
 epic's open subtasks; open blockers; each PR with its state and its head's
 checks (`checks: 2 ✅, 1 ⏳ (e2e), 1 ❌ (lint)`; skipped and neutral — ✅,
@@ -593,9 +580,9 @@ answer N k "<answer>"`; the epic's — under its `- question k. …`): an item
 text without numbered items — to each open one; the comments of the task,
 then of its epic (`Comments: n`, `Epic #M comments: n`, the latest 100):
 the author, the time in UTC and the whole text, indented; the flow's own —
-est's estimate and actual (by their markers: a human's «Estimate: …» isn't
-one), the epic refresh's report and the script's fixes, «closed by PR» — one
-line with the kind (`— flow: estimate`), without the text; State — whole
+est's actual and, on old tasks, its estimate (by their markers: a human's
+«Estimate: …» isn't one), the epic refresh's report and the script's fixes,
+«closed by PR» — one line with the kind (`— flow: actual`), without the text; State — whole
 (`— State:`), a handoff; State and an external blocker's reason aren't
 answers (#651: an answer in a comment was lost — the executor asked again or
 answered auto over it); then the description as is. Read-only, one GraphQL
@@ -648,9 +635,8 @@ in one message, auto mode — `task answer --auto`, then `task start` again);
 the task in work elsewhere (`! #N is in work elsewhere — …`: an open PR of it,
 into a batch branch too, or a branch `*/N-*` locally or on origin that isn't
 the current one) — continue that work or wait for its merge. Then `task
-status N "In progress" --branch` (below: the pin, the epic, the rename), `est
-estimate --write` when the task has no estimate (the type — from `--branch`),
-and the next lines: the session name `«#N <title>»`, `Branch:`, the number of
+status N "In progress" --branch` (below: the pin, the epic, the rename) and
+the next lines: the session name `«#N <title>»`, `Branch:`, the number of
 scenarios (none — an `○` line: a code task gets them before code) and, in
 Claude Code (`CLAUDECODE=1`), `ToolSearch select:…` with the app tools the
 flow calls in a task (session title, PR monitor, `TaskStop`, archive) — one
@@ -1321,8 +1307,8 @@ bisect.
 
 Closes as not planned (with `--duplicate-of` — as a
 duplicate with a link) and removes it from the project: otherwise "Item closed"
-would put it in Done and into the epic's estimate. It doesn't touch a completed
-one. A subtask — a hint to recalculate the epic's estimate.
+would put it in Done and into the epic's actual. It doesn't touch a completed
+one.
 
 ### task actualize
 
@@ -1357,8 +1343,8 @@ an example in the assignment: JSON `{ "report": "…", "edits": [ … ] }`, each
 edit one action on the epic or its open task (`task`) — `replace` … `with`
 (`""` removes a copy of a link), `add` an `item` into a section, `check` an
 item, `answer` k with `text` (`auto`), `unblock` a blocker, `close` `done` or
-`not needed` (as `task drop`), `new` — a task of the epic (`branchType`,
-`body`; `epic: false` — outside it), its number in the report as `#new1`.
+`not needed` (as `task drop`), `new` — a task of the epic (`body`;
+`epic: false` — outside it), its number in the report as `#new1`.
 Every edit is checked before any write — the description edits in order, each
 on the result of the previous one, as `task edit`; a shipped task, the epic's
 close, a missing text or question, a blocker that isn't there — the whole file
@@ -1611,14 +1597,8 @@ gh api -X PATCH repos/{owner}/{repo}/milestones/<number> -f state=closed
 
 ### Numeric project fields
 
-`Estimate, h`, `Actual, h`, `Tokens, M`, `Cost, $` are set only by the
-`est` script (`github task new` and `task close` run it). By hand — only an epic's `Estimate, h`, the sum of its subtasks'
-estimates:
-
-```bash
-gh project item-edit --id <item-id> --project-id <project-id> --field-id <estimate-field-id> --number 4.5
-```
-
-Project, field and option IDs — `gh project view` / `gh project field-list`
-(in the JSON of `gh project item-list` the keys of Cyrillic-named fields are
+`Actual, h`, `Tokens, M`, `Cost, $` are set only by the `est` script
+(`github task close` runs it), never by hand; an epic's — the sum of its
+subtasks', `est fact <epic> --write`. Project, field and option IDs — `gh
+project view` / `gh project field-list` (in the JSON of `gh project item-list` the keys of Cyrillic-named fields are
 garbled — don't rely on them; `est` finds fields by exact name via GraphQL).

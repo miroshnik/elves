@@ -22,8 +22,8 @@ Claude Code · Codex · Gemini CLI · Cursor · Copilot · OpenCode · Amp
 
 Elves is how an agent carries a task from issue to production, written down once for all agents and all projects:
 
-- **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and estimates, branches and PRs, merging and CI, the specification, production.
-- **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, estimates from actuals, the spec from tests, waiting for CI.
+- **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production.
+- **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
 - **The installer** — puts the canon, the skills and the hook onto the machine, for all agents at once; a project keeps only the package version in `devDependencies` — CI, colleagues and the cloud session get it from npm — and gets the flow through releases.
 
 ## The idea
@@ -55,7 +55,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 | Knowledge lives in the chat and the agent's memory; the next session starts from scratch | Agreed — in the issue: the goal, `## Questions` with answers, `## Scenarios` — future test names; every fact has one home; before a pause — a State comment | [Task tracking](AGENTS.md#task-tracking) · [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff) |
 | Rules-as-text go stale silently; a green test may catch nothing | Every decision is held by a deterministic check; a test failed — its root cause is fixed, not a retry added | [Specification — decisions](AGENTS.md#specification--decisions) · [Tests and code](AGENTS.md#tests-and-code) |
 | Work isn't linked to a task | Session = task = branch = PR (`#42 …`, `feat/42-slug`, `Closes #42`); a second task — to Backlog and, on a "yes", to a background executor | [Session and branch](AGENTS.md#session-and-branch--one-task) |
-| Estimates are guesses | From analogs with a measured actual: active hours, tokens and $ from the agent's transcripts | [Estimate and actual](AGENTS.md#estimate-and-actual--the-est-skill) |
+| The flow's cost is a guess | A measured actual of every task: active hours, tokens and $ from the agent's transcripts | [Actual](AGENTS.md#actual--the-est-skill) |
 | The agent merges on its own — or asks about everything | Reversible — on its own, irreversible — on an explicit "yes"; `auto` runs a task by itself, up to merging its own PR on green checks | [What I do without asking](AGENTS.md#what-i-do-without-asking-and-what-needs-a-yes) |
 | PRs wait in a merge queue | Each PR merges on its own green checks; `main` moved after its CI — fast checks on the merge first; after a deploy — its statuses | [Git, PRs and merging](AGENTS.md#git-prs-and-merging) |
 | Each project has its own process, and the agent improvises its routine | One canon for all projects and agents, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow) |
@@ -97,15 +97,15 @@ Installed onto the machine with the flow; the agent picks a skill up by itself f
 
 ### [`github`](skills/github/SKILL.md) — project and tasks by the canon
 
-The GitHub project and tasks, a command per step: a task with its fields and estimate, its questions and answers, its tail from branch to close — PR, CI, merge, deploy, epic refresh — and a dispatcher's queue of background executors.
+The GitHub project and tasks, a command per step: a task with its fields, its questions and answers, its tail from branch to close — PR, CI, merge, deploy, epic refresh — and a dispatcher's queue of background executors.
 
 `github project check` · `github project fix` · `github task new | show | answer | edit | start | status | drop | actualize | close | finish | resume | queue` · `github batch release` · `github pr labels | premerge`
 
-### [`est`](skills/est/SKILL.md) — estimates from actuals
+### [`est`](skills/est/SKILL.md) — the actual from transcripts
 
-An estimate from analogs with a measured actual, set by `github task new` itself; the actual — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts.
+The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code, Codex and cloud session transcripts; a period's summary across all of a repository's sessions — the flow before and after a change.
 
-`est estimate` · `est fact` · `est history` · `est backtest` · `est period` · `est cloud-import`
+`est fact` · `est period` · `est cloud-import`
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
