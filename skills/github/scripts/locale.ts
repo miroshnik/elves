@@ -1,7 +1,7 @@
 /**
- * locale — the project language and the names in it, one module for the scripts of all skills and the installer: `est`,
- * `spec` and `dashboard` import it from `github` — there's one dictionary, in this skill's `locales/`, and `github`
- * doesn't depend on them; the installer in `bin/` imports it from its own package.
+ * locale — the project language and the names in it, one module for the scripts of all skills and the installer: `est`
+ * and `spec` import it from `github` — there's one dictionary, in this skill's `locales/`, and `github` doesn't depend
+ * on them; the installer in `bin/` imports it from its own package.
  *
  * The language is `language` in `.agents/elves.json` of the project root (the nearest directory up with `.git`,
  * otherwise the directory itself; `manifestOf`, the one reader of the manifest): no field or no manifest — `en` for reading, while the commands that write names to GitHub refuse without it (`missingManifest`, #681). Names

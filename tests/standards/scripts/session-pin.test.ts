@@ -83,7 +83,7 @@ const readsPins = (f: SourceFile): boolean => PINS_DIR.test(codeOnly(f.text, f.f
 
 const registry = await copies();
 
-describe("Закрепление разбирается одинаково в github, est и dashboard: owner/repo#N — задача, другое — не закрепление", () => {
+describe("Закрепление разбирается одинаково в github и est: owner/repo#N — задача, другое — не закрепление", () => {
   invariant(it, {
     registry: "скрипты скиллов с разбором закрепления",
     items: registry,

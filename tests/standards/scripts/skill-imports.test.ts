@@ -14,7 +14,6 @@ const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
  */
 const DEPENDS: Record<string, readonly string[]> = {
   "ci-wait": [],
-  dashboard: ["est", "github", "task-env"],
   est: ["github"],
   github: [],
   slot: [],
@@ -99,7 +98,7 @@ describe("Скрипт скилла импортирует другой скил
       { name: "скилла нет в списке зависимостей", item: fake("x", ["skills/x/scripts/x.ts", "export const x = 1;\n"]) },
     ],
     // реестр — каталоги skills/: скилл, у которого запрос потерял файлы, был бы «без импортов» молча
-    includes: ["dashboard", "est", "github", "spec"],
+    includes: ["est", "github", "spec"],
   });
 
   describe("примеры", () => {

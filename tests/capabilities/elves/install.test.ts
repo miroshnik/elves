@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readF
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
+import { sources } from "../../../skills/spec/scripts/harness.ts";
 import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
 import { bareClone, BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
@@ -11,7 +12,7 @@ import { SPAWN_TIMEOUT, unprivilegedOwns } from "../../lib/spawn.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
-const SKILLS = ["ci-wait", "dashboard", "est", "github", "slot", "spec", "task-env"];
+const SKILLS = ["ci-wait", "est", "github", "slot", "spec", "task-env"];
 /** Версия пакета релиза, которым ставится флоу, — `2026.1015.1` у тега `v2026.10.15.1`. */
 const VERSION = "2026.1015.1";
 
@@ -819,6 +820,41 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     mkdirSync(priv);
     install(["-g"], proj, { ELVES_PRIVATE: priv });
     expect(readlinkSync(path.join(home, ".config/elves"))).toBe(priv);
+  });
+});
+
+/**
+ * Скилл `dashboard` убран (#834): его вкладку «Сессии» повторяют боковая панель и уведомления приложения, «Оценку и
+ * факт» — `est period`. Машина прошлой версии держит его каталог и ссылку Claude Code — обновление убирает их, как любой
+ * скилл, которого в Elves больше нет; скрипты флоу его не зовут и не упоминают.
+ */
+describe("Скилла dashboard во флоу нет: установка его не ставит, обновление машины убирает", () => {
+  const dashboard = () => [path.join(home, ".agents/skills/dashboard"), path.join(home, ".claude/skills/dashboard")];
+
+  it("Установка на машину не ставит скилл `dashboard`", () => {
+    mkdirSync(path.join(home, ".claude"));
+    expect(install(["-g"]).code).toBe(0);
+    expect(dashboard().filter((p) => !gone(p))).toEqual([]);
+    expect(JSON.parse(read(path.join(home, ".agents/elves.json"))).skills).not.toContain("dashboard");
+  });
+
+  it("Обновление машины убирает скилл `dashboard`, поставленный прошлой версией", () => {
+    mkdirSync(path.join(home, ".claude"));
+    const prev = elvesPackage(path.join(tmp, "prev"), {
+      "skills/dashboard/SKILL.md": "---\nname: dashboard\ndescription: страница сессий\n---\n",
+      "skills/dashboard/scripts/dashboard.ts": "export {};\n",
+    });
+    expect(elves(sb, ["install", "-g"], { bin: prev.bin }).code).toBe(0);
+    expect(readlinkSync(path.join(home, ".claude/skills/dashboard"))).toBe("../../.agents/skills/dashboard");
+    expect(elves(sb, ["update", "-g"]).code).toBe(0);
+    expect(dashboard().filter((p) => !gone(p))).toEqual([]);
+    const check = elves(sb, ["check", "-g"]);
+    expect(check.code).toBe(0);
+    expect(check.stdout + check.stderr).not.toContain("dashboard");
+  });
+
+  it("Ни один скрипт флоу не импортирует и не называет `dashboard`", () => {
+    expect(sources(REPO, ["bin", "skills"]).filter((f) => /\bdashboard\b/i.test(f.text)).map((f) => f.file)).toEqual([]);
   });
 });
 

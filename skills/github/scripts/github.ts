@@ -1853,7 +1853,7 @@ function pinTask(io: Io, slug: string, number: number, epic: number | null): voi
   created(path.join(path.dirname(file), ".gitignore"), "*\n");
   if (created(file, pinLine(slug, number))) return;
   const now = pinnedTask(io)!;
-  // not a pin — the session is free for est and the dashboard too: the file takes the task
+  // not a pin — the session is free for est too: the file takes the task
   if (!now.task) {
     writeFileSync(file, pinLine(slug, number));
     return io.out(`○ the session pin ${file} held «${now.line}», not owner/repo#N — replaced with ${task}`);
@@ -2212,7 +2212,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const dup = found.find((x) => x?.title === title);
   if (dup) throw new GhError(`an open task with this title already exists: #${dup.number}`);
   const wanted = [...new Set(o.labels ?? [])];
-  // open questions in the description — the questions label: the dashboard and the queue find the task by it
+  // open questions in the description — the questions label: on GitHub it marks the task waiting for the owner's answers
   const open = questionItems(o.body).filter((x) => !x.answered).map((x) => x.k);
   const repoLabels = wanted.length || open.length ? loadLabels(io, slug) : [];
   const has = (n: string) => repoLabels.find((x) => x.name === n);
@@ -4427,11 +4427,10 @@ const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
  * The items of the issue's questions section ("## Questions" in any language of the dictionary, up to the next section
  * or a thematic break): the number, the first line, all the item's non-empty lines and whether it is answered — ✅ at
  * the start of its answer (`ANSWER_MARK_RE`); `first` and `last` — the indexes of the item's first and last non-empty
- * line in the description's lines. The dashboard lists the open ones and the answers marked auto, `task actualize`
- * removes the questions label from a task without open ones, `task show` names them, `task answer` puts the answer
- * into the item.
+ * line in the description's lines. `task actualize` removes the questions label from a task without open ones, `task
+ * show` names them, `task answer` puts the answer into the item.
  */
-export function questionItems(body: string): { k: number; text: string; lines: string[]; answered: boolean; first: number; last: number }[] {
+function questionItems(body: string): { k: number; text: string; lines: string[]; answered: boolean; first: number; last: number }[] {
   const lines = body.split(/\r?\n/);
   const from = lines.findIndex((l) => QUESTIONS_SECTION_RE.test(l));
   if (from < 0) return [];
@@ -5032,7 +5031,7 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
       cleanupBranches(io, number, [...shipped, ...ofTask].filter((p) => !live(p.head).length));
     }
   }
-  // three lines — in the project language: dashboard parses them
+  // three lines — in the project language (AGENTS.md, "Language")
   io.out(
     `Next: the last line of the answer is one of three: ${q(N.lastLine.done)}; ` +
       `the owner has something to decide — ${q(`${N.lastLine.questions} …`)} with the questions themselves, without ${q(N.lastLine.done)}; ` +
@@ -5368,7 +5367,7 @@ export function cmdTaskResume(io: Io): number {
   }
   const pin = pinnedTask(io);
   if (!pin) return 0;
-  // not a pin — the session has no task, as for est and the dashboard; the line names the file for a human
+  // not a pin — the session has no task, as for est; the line names the file for a human
   if (!pin.task) return io.out(`○ the session pin ${pin.file} — «${pin.line}», not owner/repo#N: the session has no task`), 0;
   const { slug, number } = pin.task;
   const task = `session task ${slug}#${number}`;

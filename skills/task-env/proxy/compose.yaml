@@ -17,22 +17,11 @@ services:
       # task containers sit in several networks: a task stack's service names the proxy's one by the label
       # traefik.docker.network; a container without the label is reached through the proxy's own
       - --providers.docker.network=${ELVES_PROXY:?set by task-env.ts}
-      # the API — the routes for the dashboard: on the web entry point by the host <name>.localhost (labels below),
-      # without Traefik's own UI
-      - --api=true
-      - --api.dashboard=false
       # /ping on the internal entry point :8080 — for the healthcheck, not published
       - --ping=true
     ports:
       # the loopback only: task apps aren't visible on the local network
       - 127.0.0.1:${ELVES_PROXY_PORT:?set by task-env.ts}:80
-    labels:
-      # the router is named after the proxy: a test proxy sees this container's labels too, and routers of one name
-      # with different rules Traefik would drop
-      - traefik.enable=true
-      - traefik.http.routers.${ELVES_PROXY:?set by task-env.ts}-api.rule=Host(`${ELVES_PROXY:?set by task-env.ts}.localhost`)
-      - traefik.http.routers.${ELVES_PROXY:?set by task-env.ts}-api.entrypoints=web
-      - traefik.http.routers.${ELVES_PROXY:?set by task-env.ts}-api.service=api@internal
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [proxy]

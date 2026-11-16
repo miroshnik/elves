@@ -45,11 +45,10 @@ bun --no-env-file <skill dir>/scripts/task-env.ts e2e -- npx playwright test   #
   `http://<service>.e2e.<N>.<project>.localhost`: one proxy per machine
   (Traefik) routes them to containers by their labels, nothing is published
   on the host, a different host has its own cookies — the `task-env` skill,
-  section "The proxy". The addresses of the tasks in progress are on the
-  dashboard's Sessions tab (the `dashboard` skill). A database or a queue has
-  no address: inside the stack it is reached by the service name
-  (`db:5432`), from the host — by a published `127.0.0.1::5432` (`docker
-  compose -p <stack> port db 5432`, in e2e — `TASK_ENV_DB_5432`).
+  section "The proxy". A database or a queue has no address: inside the
+  stack it is reached by the service name (`db:5432`), from the host — by a
+  published `127.0.0.1::5432` (`docker compose -p <stack> port db 5432`, in
+  e2e — `TASK_ENV_DB_5432`).
 - **Other stacks aren't mine.** A stack is taken down only by `task-env down`
   of my own task (`task close` of the `github` skill calls it); `docker
   compose down`, `stop` or `rm` of another stack — never: the stack's name

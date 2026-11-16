@@ -49,9 +49,9 @@ every project, whatever its `CLAUDE.md`.
   project's. `SKILL.md` frontmatter also reads `when_to_use`,
   `argument-hint`, `allowed-tools`.
 - The Bash sandbox: `gh` in it fails on TLS (`x509: OSStatus -26276`). A
-  skill script that calls `gh` (`github`, `est`, `dashboard`, `spec-run`) —
-  at once a separate call with `dangerouslyDisableSandbox`: no
-  `excludedCommands` entry takes `bun <file>` out. Entries `gh *` and `bash
+  skill script that calls `gh` (`github`, `est`, `spec-run`) — at once a
+  separate call with `dangerouslyDisableSandbox`: no `excludedCommands`
+  entry takes `bun <file>` out. Entries `gh *` and `bash
   <path>/wait-ci.sh *` (`ci-wait`) do — the owner's step; without them — the
   same separate call. The `task-env` skill, "Docker and the sandbox".
 - A subagent that writes gets `isolation: worktree`: an isolated session

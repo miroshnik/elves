@@ -180,8 +180,8 @@ describe("Ссылка на раздел документа флоу по наз
     });
 
     it("ссылка на переименованный раздел роняет проверку", () => {
-      const src = { file: "skills/dashboard/scripts/sessions.ts", text: '// the canon (AGENTS.md, "Epic refresh on task close")\n' };
-      expect(check(src)).toEqual(["skills/dashboard/scripts/sessions.ts:1: в AGENTS.md нет раздела «Epic refresh on task close» — раздел переименован? поправь ссылку (tests/standards/documents/section-refs)"]);
+      const src = { file: "skills/slot/scripts/slot.ts", text: '// the canon (AGENTS.md, "Epic refresh on task close")\n' };
+      expect(check(src)).toEqual(["skills/slot/scripts/slot.ts:1: в AGENTS.md нет раздела «Epic refresh on task close» — раздел переименован? поправь ссылку (tests/standards/documents/section-refs)"]);
     });
 
     it("ссылка на SKILL.md без имени скилла ищет раздел в SKILL.md того же скилла", () => {

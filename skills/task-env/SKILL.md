@@ -129,8 +129,7 @@ owner's step: Docker Desktop → Settings → Docker Engine,
 `proxy/compose.yaml` next to this file — the Compose project `elves-proxy`: Traefik publishes only containers with
 `traefik.enable=true` on `127.0.0.1:80` — not on the local network — and comes back with Docker (`proxy down`
 removes it for good). Routes follow Docker events — no reload; an unknown host — `404`. `proxy up` again after a
-skill update brings the container to the new compose file. Its network, health and the API the dashboard reads
-addresses from — reference.md, "The proxy".
+skill update brings the container to the new compose file. Its network and health — reference.md, "The proxy".
 
 ## Compose file isolation rules
 
@@ -221,11 +220,6 @@ every listen on it. The owner turns it on in `~/.claude/settings.json`:
   reach `http://<service>.<N>.<project>.localhost` through the proxy without
   leaving the sandbox; without the setting only an unsandboxed command or the
   agent's browser pane does.
-- **Tests that open a local port** — the dashboard's (its server, a fake proxy
-  API) and this skill's (a fake Traefik API) — run in the sandbox.
-- **The dashboard's server** listens in the sandbox and reads the proxy's
-  routes, but the dashboard itself still runs outside it: the `gh` it starts
-  fails TLS there (the `dashboard` skill, section "Pitfalls").
 
 It opens the loopback only: Docker stays outside the sandbox (above), other
 hosts — by the sandbox's allowlist.
