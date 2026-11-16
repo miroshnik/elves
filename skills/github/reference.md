@@ -718,7 +718,7 @@ and Done — no refusal; a task handed out to an executor of this session (`task
 queue --assignment`, below) — neither a pin nor a refusal, an `○` line: the
 executor is a subagent with the session's id. No command removes the pin:
 a mistaken one is removed by a human, by deleting the file. A line not of the
-form `owner/repo#N` isn't a pin — for `est` and the dashboard either
+form `owner/repo#N` isn't a pin — for `est` either
 (`tests/standards/scripts/session-pin`): In progress replaces it with the task, an `○`
 line. `est` counts the actual by the pin: the whole session goes to this task.
 No variable (not Claude Code) — the line `○ session not recognized …`, the

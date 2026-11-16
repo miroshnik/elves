@@ -35,7 +35,7 @@ export const REGISTRY_PATH = path.join(EST_DIR, "repos.json");
 const CACHE_DIR = path.join(EST_DIR, "cache");
 // Actual sources: Claude Code transcripts (~/.claude/projects), Codex sessions (~/.codex/sessions) and event exports
 // of Claude Code cloud sessions (<state directory>/cloud/<owner>/<repo>/<session>.json, est cloud-import).
-export const PROJECTS_DIR = path.join(HOME, ".claude", "projects");
+const PROJECTS_DIR = path.join(HOME, ".claude", "projects");
 const CODEX_DIRS = [path.join(HOME, ".codex", "sessions"), path.join(HOME, ".codex", "archived_sessions")];
 export const CLOUD_DIR = path.join(EST_DIR, "cloud");
 // Session pinning to tasks: `github task status` "In progress" writes <state directory>/sessions/<session id> with the
@@ -166,7 +166,7 @@ const BASE_BRANCHES = new Set(["main", "master", "develop", "dev", "staging", "p
 //                         "project": {"owner": "<owner>", "number": <N>}}}
 // Without an entry the repo is determined from git remote origin of the current directory, the project — by its
 // link to the repository; paths are needed to find transcripts (~/.claude/projects).
-export type Registry = Record<string, { paths?: string[]; project?: { owner: string; number: number | string } }>;
+type Registry = Record<string, { paths?: string[]; project?: { owner: string; number: number | string } }>;
 
 // Files not counted in the diff: lock files, snapshots, minified code, build output.
 const DIFF_EXCLUDE = new RegExp(
@@ -201,7 +201,7 @@ export function parseTs(s: string | null | undefined): number | null {
 
 const two = (n: number) => String(n).padStart(2, "0");
 
-export function fmtLocal(epoch: number): string {
+function fmtLocal(epoch: number): string {
   const d = new Date(epoch * 1000);
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
@@ -232,7 +232,7 @@ export function quantile(sortedVals: number[], q: number): number | null {
   return sortedVals[lo]! + (sortedVals[hi]! - sortedVals[lo]!) * (pos - lo);
 }
 
-export function median(vals: number[]): number {
+function median(vals: number[]): number {
   const s = [...vals].sort((a, b) => a - b);
   const n = s.length;
   if (!n) throw new EstError("median of an empty list");
@@ -278,7 +278,7 @@ export function loadJson<T>(file: string, dflt: T): T {
 
 export function saveJson(file: string, data: unknown): void {
   mkdirSync(path.dirname(file), { recursive: true });
-  // each write has its own temp file: concurrent est runs (parallel sessions, sweep, dashboard) write one cache (#347)
+  // each write has its own temp file: concurrent est runs (parallel sessions, sweep) write one cache (#347)
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   writeFileSync(tmp, JSON.stringify(data));
   renameSync(tmp, file);
@@ -388,7 +388,7 @@ function ghRest(p: string, method = "GET", body?: unknown): Any {
 // Repository registry and projects
 // ----------------------------------------------------------------------------
 
-export function loadRegistry(): Registry {
+function loadRegistry(): Registry {
   ensureConfigDir();
   if (!existsSync(REGISTRY_PATH)) {
     saveJson(REGISTRY_PATH, {});
@@ -420,7 +420,7 @@ function detectRepo(): string {
   return repo;
 }
 
-export function resolveRepo(arg?: string): string {
+function resolveRepo(arg?: string): string {
   const repo = arg || detectRepo();
   if (!/^[\p{L}\p{N}_.-]+\/[\p{L}\p{N}_.-]+$/u.test(repo)) throw new EstError(`invalid --repo format «${repo}», expected owner/repo`);
   return repo;
@@ -649,7 +649,7 @@ export function packPr(p: Any): PR {
 const nowTs = () => Date.now() / 1000;
 
 /** A repository + its GitHub project + caches. */
-export class Repo implements FactRepo {
+class Repo implements FactRepo {
   full: string;
   owner: string;
   name: string;
@@ -1047,7 +1047,7 @@ export function parseMarker(body: string | null | undefined, kind: string): Any 
 // Claude Code transcripts
 // ----------------------------------------------------------------------------
 
-export const encodePath = (p: string) => p.replace(/[^A-Za-z0-9]/g, "-");
+const encodePath = (p: string) => p.replace(/[^A-Za-z0-9]/g, "-");
 
 const HASH_RE = /(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])/g;
 // "#N" — boundaries like \w in Python (letters and digits of any alphabet)
@@ -1355,7 +1355,7 @@ export const CALL_KINDS = ["work", "flow", "harness", "checks"] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 
 // the flow's skills whose scripts are its mechanics — run by their path: the machine's copy, a clone, a project's package
-const FLOW_SKILLS = ["github", "est", "ci-wait", "dashboard", "slot", "task-env", "spec"];
+const FLOW_SKILLS = ["github", "est", "ci-wait", "slot", "task-env", "spec"];
 const RUNNER = String.raw`(?:(?:bun|bunx|node|npx|tsx|bash|sh|zsh)(?:\s+-{1,2}[\w-]+(?:=\S+)?)*\s+)?['"]?(?:[^\s'"]*\/)?`;
 
 /**
@@ -3484,7 +3484,7 @@ export function factCommentBody(res: Fact, est: number | null, keptLines: string
   if (res.steps && res.kinds) text += "\n" + overheadTxt(res, language);
   if (res.waits) text += "\n" + waitsTxt(res.waits, language);
   const marker: Record<string, unknown> = { v: 1, h, manual, wall: res.wall, cov: res.cov, sessions: res.sessions, prompts: res.prompts, agents: res.agents ?? 0, prs: res.prs, commits: res.commits, diff: res.diff, cause };
-  if (res.waits) marker.waits = res.waits; // minutes: est history and the dashboard show them and their medians
+  if (res.waits) marker.waits = res.waits; // minutes: est history shows them and their medians
   if (res.tok) {
     marker.tok = res.tok;
     marker.usd = res.usd ?? null;
@@ -3699,7 +3699,7 @@ export function historyTable(rows: Row[]): string[] {
 }
 
 /** The waits of a recorded actual — the `waits` of the "Actual" marker, minutes; an actual before the split — null. */
-export function markerWaits(fm: Any): Waits | null {
+function markerWaits(fm: Any): Waits | null {
   const w = fm?.waits;
   if (!w || typeof w !== "object") return null;
   const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -3707,14 +3707,14 @@ export function markerWaits(fm: Any): Waits | null {
 }
 
 /** Median waits of the latest tasks and of the previous ones; a median of fewer than `min` tasks is noise — none. */
-export interface WaitsShift {
+interface WaitsShift {
   now: Waits | null;
   prev: Waits | null;
   n: number;
 }
 
 /** Medians of each kind of wait over the latest `window` tasks and the `window` before them (oldest first). */
-export function waitsShift(ws: Waits[], window = 10, min = 3): WaitsShift {
+function waitsShift(ws: Waits[], window = 10, min = 3): WaitsShift {
   const med = (xs: Waits[]): Waits => ({ ci: median(xs.map((w) => w.ci)), merged: median(xs.map((w) => w.merged)), checks: median(xs.map((w) => w.checks)), slot: median(xs.map((w) => w.slot)), rest: median(xs.map((w) => w.rest)) });
   const last = ws.slice(-window);
   const before = ws.slice(-2 * window, -window);
@@ -3731,7 +3731,7 @@ export function waitsHistoryLine(rows: Row[], window = 10): string | null {
 }
 
 /** "CI 4 min · after the merge 4 · checks 6 (slot queue 1) · rest 15" — the waits of a task or their medians, in English. */
-export const waitsBrief = (w: Waits) => waitsTxt(w, "en").replace(/^Waits: /, "").replace(/\.$/, "");
+const waitsBrief = (w: Waits) => waitsTxt(w, "en").replace(/^Waits: /, "").replace(/\.$/, "");
 
 interface HistoryArgs {
   repo?: string;
@@ -4660,7 +4660,7 @@ function cmdBacktest(args: { repo?: string; allRepos: boolean }): void {
 const TARIFF_NOTE = "the $ trend mixes the flow with the model rate: compare the flow by tokens and output";
 
 /** $ by model from the "Actual" markers (models: {model: {mtok, usd}}); a model without a price is skipped. */
-export function usdByModel(markers: Any[]): Record<string, number> {
+function usdByModel(markers: Any[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const fm of markers) {
     for (const [m, v] of Object.entries(fm?.models ?? {})) {
@@ -4672,7 +4672,7 @@ export function usdByModel(markers: Any[]): Record<string, number> {
 }
 
 /** $ shares by model, descending: [model, share 0…1]. */
-export function usdShares(byModel: Record<string, number>): [string, number][] {
+function usdShares(byModel: Record<string, number>): [string, number][] {
   const total = Object.values(byModel).reduce((a, x) => a + x, 0);
   if (!(total > 0)) return [];
   return Object.entries(byModel)
@@ -4682,7 +4682,7 @@ export function usdShares(byModel: Record<string, number>): [string, number][] {
 }
 
 /** «claude-opus-5 62 %, claude-fable-5-1 38 %, claude-haiku-4-5 <1 %». */
-export const sharesTxt = (shares: [string, number][]) => shares.map(([m, x]) => `${m} ${Math.round(x * 100) || "<1"} %`).join(", ");
+const sharesTxt = (shares: [string, number][]) => shares.map(([m, x]) => `${m} ${Math.round(x * 100) || "<1"} %`).join(", ");
 
 /** A moment for --since/--until: 90d / 12w / 6m / 48h ago, a YYYY-MM-DD date (local midnight) or an ISO time. */
 export function parseWhen(s: string, now = nowTs()): number {

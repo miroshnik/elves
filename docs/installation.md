@@ -6,7 +6,7 @@ project and working on the flow from a clone.
 
 ## Requirements and commands
 
-You need `git` and [Bun](https://bun.sh) ≥ 1.2 — the installer (`bunx`) and the skill scripts run under it; a project's CI on Node adds the `oven-sh/setup-bun` step; the `github`, `est` and `dashboard` skills need [`gh`](https://cli.github.com) with the `project` scope (`gh auth refresh -s project`); `task-env` needs Docker with Compose (Docker Desktop on macOS).
+You need `git` and [Bun](https://bun.sh) ≥ 1.2 — the installer (`bunx`) and the skill scripts run under it; a project's CI on Node adds the `oven-sh/setup-bun` step; the `github` and `est` skills need [`gh`](https://cli.github.com) with the `project` scope (`gh auth refresh -s project`); `task-env` needs Docker with Compose (Docker Desktop on macOS).
 
 `install -g` puts the canon, skills and the hook for every agent the machine has, and the `elves` command on `PATH`; a global package does the same — `bun add -g @miroshnik/elves && elves install -g`. `install` in a project runs from the root of a git repository; the package version, the manifest, the shim and the `AGENTS.md` block are committed with the project. The fallback — straight from GitHub, any command: `bunx github:miroshnik/elves <command>` (section "Releases and the up-to-date check").
 

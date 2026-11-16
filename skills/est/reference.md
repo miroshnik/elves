@@ -205,8 +205,7 @@ and on a fifth — the waits, minutes (section "Waits"):
 
 In the marker — `waits` (`ci`, `merged`, `checks`, `slot`, `rest`, minutes to a
 tenth): `est history` shows them as columns and the medians of the last 10
-tasks against the previous 10, the dashboard («Estimate and actual») — as a
-tile and columns. The estimate doesn't use them yet.
+tasks against the previous 10. The estimate doesn't use them yet.
 
 ## Tokens and cost
 
@@ -359,7 +358,7 @@ The flow's price is in its turns: every turn re-reads the context. The summary
 splits the turns and their $ by kind — in total and per merged PR:
 
 - **flow** — the flow's overhead: its skills' scripts run by path (`github`,
-  `est`, `ci-wait` with the CI waits, `dashboard`, `slot`, `task-env`, `spec`),
+  `est`, `ci-wait` with the CI waits, `slot`, `task-env`, `spec`),
   the installer (`bunx @miroshnik/elves`, `bin/elves.ts`), `gh`, git (but
   `git grep` and `git blame` — work);
 - **harness** — the agent app's own tools: ToolSearch, the plan and to-dos,

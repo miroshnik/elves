@@ -139,7 +139,7 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
       { name: "описание скилла длиннее 1 024 символов", item: described(`"${"a".repeat(1025)}"`) },
       { name: "описание без кавычек, обрезанное комментарием YAML", item: described("When — do all tasks of epic #M, fix all bugs") },
     ],
-    includes: ["skills/github/SKILL.md", "skills/task-env/SKILL.md", "skills/dashboard/SKILL.md"],
+    includes: ["skills/github/SKILL.md", "skills/task-env/SKILL.md", "skills/est/SKILL.md"],
   });
 
   it("описание в кавычках с « #» и многострочное без кавычек — не обрезаны", () => {

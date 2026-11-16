@@ -1,7 +1,7 @@
 # task-env — reference
 
 The details behind `SKILL.md` of this skill: what `up` passes to Compose, how `down`, `prune` and a stack that didn't
-come up report, exit codes, the proxy's container and API, the labels of a task stack's service, what the compose file
+come up report, exit codes, the proxy's container, the labels of a task stack's service, what the compose file
 check reads and what was checked on the machine. When to run what and the rules — `SKILL.md`; each command's syntax, exit codes and
 examples — `task-env <command> --help`.
 
@@ -137,7 +137,7 @@ fails, the Docker VM can't fit the stack); `e2e` — the command's, otherwise as
 if a stack or an image isn't removed, Docker is unavailable or (`prune`) a task's state isn't checked; `proxy status` — 0 running, 1 not running (the start command),
 2 no Docker; `check` — 0 the rules hold or no compose file (`!` lines too), 1 violations, 2 not checked.
 
-## The proxy — container, routes, API
+## The proxy — container and routes
 
 `proxy/compose.yaml` of the skill — the Compose project `elves-proxy`:
 
@@ -150,25 +150,11 @@ if a stack or an image isn't removed, Docker is unavailable or (`prune`) a task'
 | entry point | `web` — HTTP on `127.0.0.1:80`; not on all interfaces: task apps aren't visible on the local network |
 | restart | `unless-stopped` — comes back with Docker; `proxy down` removes it for good |
 | health | `traefik healthcheck --ping`: `proxy up` returns when the proxy serves |
-| API | Traefik's routes on the `web` entry point by the host `elves-proxy.localhost` — a router `elves-proxy-api` of the proxy's own labels to `api@internal`; no UI |
 
 Routes follow Docker events: a container appears in them when it starts and
 leaves them when it stops — no reload. An unknown host — `404` from Traefik.
 `proxy up` again after a skill update brings the container to the new compose
 file.
-
-The API is how the dashboard sees a task's addresses: `proxyHosts` of the
-script reads `GET /api/http/routers` (page by page) on the proxy's port with
-the host `<name>.localhost` and returns the hosts of the enabled routers of
-`web`; the proxy isn't running — none. Not the Docker socket: access to
-Docker is access to the whole machine, while the routes over HTTP need only
-the loopback and answer the same in the sandbox and outside it. Not
-a published `:8080`: a second host port is one more setting and one more
-conflict, while `web` is on `127.0.0.1` already; a site that pointed its name
-at `127.0.0.1` (DNS rebinding) comes with its own host and gets `404`. The
-router is named after the proxy: a test proxy sees the labels of the
-machine's one, and routers of one name with different rules Traefik would
-drop.
 
 ## Labels of a task stack's service
 
@@ -200,8 +186,8 @@ file that joins the proxy's network by hand shares it as `external`, and
 - The address: `<service>.<N>.<project>.localhost`, e2e —
   `<service>.e2e.<N>.<project>.localhost`, without a task —
   `<service>.<project>.localhost`. `<project>` — the repository name in
-  lowercase letters, digits and `-` (`hostProject` of the script); a task's
-  host is parsed by `taskAddress`, its URL with the proxy's port — `addressUrl`.
+  lowercase letters, digits and `-` (`hostProject` of the script); its URL
+  with the proxy's port — `addressUrl`.
 - The port — the service's HTTP port inside the container; nothing is
   published on the host.
 - The proxy creates the network, so `proxy up` goes before the task stack —
@@ -250,8 +236,7 @@ its order: `compose.yaml`, `compose.yml`, `docker-compose.yaml`,
 - **`sandbox.network.allowLocalBinding: true`** (desktop app; the edit
   applied to the running session without a restart) — sandboxed commands
   reach the loopback: a task's address `http://web.<N>.<project>.localhost:<port>`
-  answers `200` to curl and to Bun `fetch`, the proxy's API gives its routes,
-  a closed port is `ECONNREFUSED` instead of `EPERM`; a command also listens
+  answers `200` to curl and to Bun `fetch`, a closed port is `ECONNREFUSED` instead of `EPERM`; a command also listens
   on a local port and connects to it. What it is for — `SKILL.md`, "Local
   ports and task addresses".
 - **`sandbox.excludedCommands`** (Claude Code in the desktop app): an edit
