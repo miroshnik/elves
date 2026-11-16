@@ -32,7 +32,8 @@ its actual "unavailable" until its source is added.
 
 **Project fields are set only by the script:** «Actual, h», «Tokens, M»,
 «Cost, $» — `est fact --write` inside `github task close`; never touch them by
-hand.
+hand. The fields are where the repository has a board; without one the actual
+is the comment alone.
 
 Run: `bun --no-env-file <skill folder>/scripts/est.ts <subcommand> …` (Bun, no
 dependencies) — the skill folder is the one holding this file (`~/.claude/skills/est`,

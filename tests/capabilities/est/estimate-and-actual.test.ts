@@ -1680,8 +1680,8 @@ describe("Пересчёт записанных фактов по модели",
   });
 });
 
-// `gh` — внешний край, подменяется он: ответы — из мира $FAKE_GH/world.json (репозиторий → видимость, номер проекта,
-// задачи с фактом и полями проекта), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
+// `gh` — внешний край, подменяется он: ответы — из мира $FAKE_GH/world.json (репозиторий → видимость, номер проекта —
+// без него доски нет, задачи с фактом и полями проекта), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
 // аргументах или теле которого есть match, падает со stderr, пока не исчерпано times (-1 — всегда).
 const FAKE_GH = `import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const dir = process.env.FAKE_GH;
@@ -1712,7 +1712,7 @@ if (args[1] === "graphql") {
   const repo = world[current(v.o + "/" + v.r)];
   const byProject = (pred) => Object.values(world).find((r) => pred(r.project));
   if (/^\\s*mutation/.test(query)) print({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: v.i } } } });
-  else if (query.includes("projectsV2(first:5)")) print({ data: { repository: { projectsV2: { nodes: [{ number: repo.project, title: "p", owner: { login: v.o } }] } } } });
+  else if (query.includes("projectsV2(first:5)")) print({ data: { repository: { projectsV2: { nodes: repo.project ? [{ number: repo.project, title: "p", owner: { login: v.o } }] : [] } } } });
   else if (query.includes("projectV2(number:$n)")) {
     const fields = { nodes: [{ id: "F_est", name: "Оценка, ч" }, { id: "F_fact", name: "Факт, ч" }, { id: "F_st", name: "Status", options: [] }] };
     const owner = query.includes("organization(") ? "organization" : "user";
@@ -1723,6 +1723,8 @@ if (args[1] === "graphql") {
     print({ data: { node: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
   } else if (query.includes("pullRequests(states:[OPEN]")) print({ data: { repository: { pullRequests: { nodes: [] } } } });
   else if (query.includes("issues(states:[CLOSED]")) print({ data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } });
+  // все issue репозитория с комментариями — строки задач без доски
+  else if (query.includes("issues(first:")) print({ data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: repo.issues.map(issueOf) } } } });
   else if (query.includes("pullRequests(first:")) {
     const pr = (p) => ({ number: p.number, title: "PR " + p.number, state: "MERGED", headRefName: "b" + p.number, baseRefName: "main", body: "", mergedAt: p.mergedAt,
       updatedAt: p.mergedAt, additions: 0, deletions: 0, changedFiles: 0, mergeCommit: null, closingIssuesReferences: { nodes: [] }, commits: { totalCount: 0, nodes: [] }, files: { nodes: [] } });
@@ -1730,7 +1732,7 @@ if (args[1] === "graphql") {
   } else if (query.includes("issue(number:$n)")) {
     const i = repo.issues.find((x) => x.number === v.n);
     print({ data: { repository: { issue: { ...issueOf(i), url: "", closedByPullRequestsReferences: { nodes: [] }, timelineItems: { nodes: [] }, closedEvents: { nodes: [] },
-      projectItems: { nodes: [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: fieldValues(i) }] }, comments: { nodes: [] } } } } });
+      projectItems: { nodes: repo.project ? [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: fieldValues(i) }] : [] }, comments: { nodes: [] } } } } });
   } else { console.error("fake gh: " + query.slice(0, 80)); process.exit(1); }
 } else if (args[0] === "api" && args[1] === "-X") {
   const [, owner, name] = /^repos\\/([^/]+)\\/([^/]+)/.exec(args[3]);
@@ -1805,6 +1807,23 @@ describe("Переименованный репозиторий — est рабо
     expect(r.comment).toStartWith("Факт: ");
     expect(r.writes.filter((c) => c.args[0] === "api" && c.args[1] === "-X").map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/42/comments"]]);
     expect(r.writes).toHaveLength(2); // комментарий и поле «Факт, ч»
+  });
+});
+
+/**
+ * Доска GitHub Projects — по желанию проекта (#847): поля факта — только где доска есть. Без неё — нет привязанного
+ * проекта и нет `project` в реестре — факт не ошибка, а комментарий задачи с маркером.
+ */
+describe("Репозиторий без доски — факт комментарием задачи", () => {
+  it("`est fact --write` без доски пишет факт комментарием и не ставит полей", () => {
+    // у репозитория нет проекта: projectsV2 — пустой список, в реестре — только каталоги
+    const r = withFakeGh(factWorld({}, { project: null }), ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.comment).toStartWith("Факт: ");
+    expect(r.writes.map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/42/comments"]]);
+    expect(r.calls.filter((c) => /updateProjectV2ItemFieldValue|addProjectV2ItemById/.test(c.stdin))).toEqual([]);
+    expect(r.stdout).toContain("no project fields: the repository has no board — the actual is the comment");
   });
 });
 
