@@ -25,7 +25,7 @@ also calls Docker for the task's stacks — the sandbox denies its socket
 
 ```bash
 bun --no-env-file <skill dir>/scripts/github.ts project check [--repo owner/repo]
-bun --no-env-file <skill dir>/scripts/github.ts project fix [--repo owner/repo] [--confirm] [--template owner/N | none]
+bun --no-env-file <skill dir>/scripts/github.ts project fix [--repo owner/repo] [--confirm] [--create [--template owner/N | none]]
 ```
 
 The repository — from `git remote get-url origin` or `--repo`, under its
@@ -37,7 +37,7 @@ types — `admin:org`.
 |---|---|
 | Session start, before working with tasks | `project check` — once per session |
 | `check` gave ❌ | `project fix` → UI steps → confirmations → `check` again |
-| Repository without a project | `project fix`: links the owner's project of the same name, otherwise copies the template, otherwise creates one |
+| Repository without a project | the board is optional: `check` — an `○` line, code 0; the tasks go by the facts (`reference.md`, "Project"); the owner wants one — `project fix --create`: links the owner's project of the same name, otherwise copies the template, otherwise creates one |
 | Cloud session | `task show`, `task answer`, `task edit`, `task new` — REST, no project (`docs/cloud-sessions.md`); others — code 2 |
 
 Codes: `0` — everything per the canon (for `fix` — and no steps left), `1` —

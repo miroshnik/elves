@@ -208,11 +208,6 @@ describe("task new заводит задачу со всем сразу", () => 
     });
     it("в личном аккаунте чужое значение --priority — ошибка, как в организации", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--priority", "P1"], "--priority: Urgent, High, Medium, Low"));
     it("блокера нет в репозитории", () => refused(new FakeGitHub(REC), ["--title", "Экспорт", "--blocked-by", "999"], "no issue #999 in miroshnik/elves"));
-    it("проекта нет — сначала project fix", () => {
-      const f = new FakeGitHub(REC);
-      f.unlinkAll();
-      refused(f, ["--title", "Экспорт"], "no project is linked to miroshnik/elves — github project fix first");
-    });
   });
 });
 
@@ -6110,5 +6105,98 @@ describe("task finish доводит задачу от ветки до закр�
     expect(statusSet(f).at(-1)).toEqual([49, "Готово"]);
     expect(git(work, "ls-remote", "--heads", "origin", REDO)).toBe("");
     expect(git(work, "branch", "--list", REDO)).toBe("");
+  });
+});
+
+/**
+ * Доска GitHub Projects — по желанию проекта (#847): без неё задачу ведут те же команды, шаги доски пропускаются строкой
+ * `○`, а статус — из фактов: открыта без ветки и PR — бэклог; ветка `*\/N-*` на origin, открытый PR или пин сессии — в
+ * работе; закрыта как выполненная — готово. Отменённая («не будем делать», дубль) — не готова.
+ */
+describe("Доска GitHub Projects — по желанию проекта: статус задачи из фактов", () => {
+  const BOARD = ["AddItem", "SetItemStatus", "DeleteItem"];
+  const boardOps = (f: FakeGitHub) => f.mutations.filter((m) => BOARD.includes(m.op));
+  /** Репозиторий без доски: к нему не привязан ни один проект. */
+  const noBoard = () => {
+    const f = new FakeGitHub(REC);
+    f.unlinkAll();
+    return f;
+  };
+
+  it("`task new` без проекта создаёт задачу и не пишет на доску", () => {
+    const f = noBoard();
+    const r = task(f, ["new", "--title", "Экспорт", "--epic", "45"]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(byOp(f, "CreateIssue")).toHaveLength(1);
+    expect(byOp(f, "CreateIssue")[0]).not.toHaveProperty("projectV2Ids");
+    expect(boardOps(f)).toEqual([]);
+    expect(r.out).toMatch(/^○ #\d+: Status «Бэклог» isn't set — no board \(GitHub Projects\)/m);
+    expect(r.out).toContain("+ subtask of epic #45");
+  });
+
+  it("`task start` без проекта берёт задачу в работу по ветке и пину сессии", () => {
+    const f = noBoard();
+    f.issue(49).body = "Что сделать.\n\n## Сценарии\n\n1. экспорт в PDF\n\n## Вопросы\n";
+    const { work } = worktree();
+    const config = scratch();
+    const run = githubOrigin((cmd: string, a: string[], cwd?: string) => (cmd === "bun" ? { status: 0, stdout: "", stderr: "" } : realRun(cmd, a, cwd)));
+    const r = task(f, ["start", "49", "--branch", "fix/49-invoice-export"], REPO, { run, cwd: work, env: { CLAUDE_CODE_SESSION_ID: SESSION, ELVES_CONFIG_DIR: config } });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(boardOps(f)).toEqual([]);
+    expect(pinned(config)).toBe("miroshnik/elves#49");
+    expect(git(work, "branch", "--show-current")).toBe("fix/49-invoice-export");
+    expect(r.out).toContain("○ #49: Status «В работе» isn't set — no board (GitHub Projects)");
+    // статус задачи — из фактов: пин этой сессии на машине, затем ветка задачи на origin
+    expect(task(f, ["show", "49"], REPO, { env: { ELVES_CONFIG_DIR: config } }).out.split("\n")[1]).toContain("no board — «В работе» by the facts: a session pin");
+    f.branches.push("fix/49-invoice-export");
+    expect(task(f, ["show", "49"], REPO, { env: { ELVES_CONFIG_DIR: scratch() } }).out.split("\n")[1]).toContain("no board — «В работе» by the facts: branch fix/49-invoice-export on origin");
+  });
+
+  it("`task queue` без проекта считает задачу с открытым PR или веткой задачи в работе", () => {
+    const f = noBoard();
+    f.prs[200] = { files: [], closes: [47], head: "feat/47-export", model: null, state: "OPEN" };
+    // ветка другой задачи с тем же хвостом номера — не ветка #49
+    f.branches.push("fix/49-invoice-export", "fix/149-other");
+    const r = task(f, ["queue", "--tasks", "42,47,49"], REPO, { ...inSession(scratch()), cwd: elsewhere() });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n").filter((l) => !l.startsWith("  ")).slice(0, 4)).toEqual([
+      "Queue miroshnik/elves (tasks #42, #47, #49): ready 1, «В работе» 2, not ready 0",
+      `+ #42 «${f.issue(42).title}»`,
+      `= #47 «${f.issue(47).title}» — open PR #200 https://github.com/miroshnik/elves/pull/200`,
+      `= #49 «${f.issue(49).title}» — «В работе» by the facts: branch fix/49-invoice-export on origin`,
+    ]);
+  });
+
+  it("`task close` без проекта пишет факт комментарием и не ставит полей", () => {
+    const f = noBoard();
+    f.prs[77] = { files: [], closes: [49], head: "fix/49-x", base: "main", model: null, merged: true };
+    const calls: string[][] = [];
+    const run = (cmd: string, args: string[], cwd?: string) =>
+      cmd !== "bun" ? realRun(cmd, args, cwd) : isTaskEnv(args) ? { status: 0, stdout: "", stderr: "" } : (calls.push(args), { status: 0, stdout: "", stderr: "" });
+    const r = task(f, ["close", "49", "--no-git"], REPO, { run });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(byOp(f, "CloseIssue")).toEqual([{ issueId: f.issue(49).id, stateReason: "COMPLETED" }]);
+    // факт — est: без доски он пишет только комментарий (тест est), task close полей и Status не ставит
+    expect(calls.map((a) => a.slice(-5))).toEqual([["fact", "49", "--repo", REPO, "--write"]]);
+    expect(boardOps(f)).toEqual([]);
+    expect(r.out).toContain("○ #49: Status «Готово» isn't set — no board (GitHub Projects)");
+  });
+
+  it("Задача, закрытая как «не будем делать», без доски не считается готовой", () => {
+    const f = noBoard();
+    const drop = task(f, ["drop", "49"]);
+    expect(drop.err).toBe("");
+    expect(drop.code).toBe(0);
+    expect(byOp(f, "CloseIssue")).toEqual([{ issueId: f.issue(49).id, stateReason: "NOT_PLANNED" }]);
+    expect(boardOps(f)).toEqual([]);
+    const dropped = task(f, ["show", "49"]).out.split("\n")[1];
+    expect(dropped).toContain("closed: not planned · no board — not done");
+    expect(dropped).not.toContain("«Готово»");
+    f.closed(42);
+    expect(task(f, ["show", "42"]).out.split("\n")[1]).toContain("closed · no board — «Готово» by the facts: closed as completed");
   });
 });

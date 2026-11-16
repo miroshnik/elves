@@ -603,6 +603,13 @@ fragment Head on PullRequest {
   PrShow: `query PrShow($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { ${PR_SHOW} } }
 }`,
+  // the repository's branches on GitHub — a task's status by the facts without a board (#847): `query` filters by a
+  // part of the name, a task's — `/N-`
+  TaskBranches: `query TaskBranches($owner: String!, $name: String!, $query: String, $after: String) {
+  repository(owner: $owner, name: $name) {
+    refs(refPrefix: "refs/heads/", query: $query, first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { name } }
+  }
+}`,
   IssueSearch: `query IssueSearch($q: String!) {
   search(query: $q, type: ISSUE, first: 100) { nodes { ... on Issue { number title state } } }
 }`,
@@ -1150,7 +1157,10 @@ function loadProject(io: Io, id: string, withItems = true): Project {
 const nums = (xs: { number: number }[]) => xs.map((x) => `#${x.number}`).join(", ");
 const q = (s: string) => `«${s}»`;
 
-/** All discrepancies with the canon by item; each has fix steps. No project — only the linking item. */
+/**
+ * All discrepancies with the canon by item; each has fix steps. No project — the board is optional (#847): an `○` line
+ * instead of the project's items, `fix --create` connects one; the default-branch rule and the merge method are checked.
+ */
 export function analyze(s: State): Check[] {
   const p = s.project;
   const checks: Check[] = [];
@@ -1161,7 +1171,7 @@ export function analyze(s: State): Check[] {
     return Object.assign((text: string, ...steps: Step[]) => c.problems.push({ text, steps }), { note, skip: (why: string) => void (c.skip = why) });
   };
 
-  const link = add("link", `Project linked to the repository and named ${q(s.repo.name)}`);
+  const link = add("link", p ? `Project linked to the repository and named ${q(s.repo.name)}` : "Board (GitHub Projects) — optional");
   // the default-branch rule and the merge method don't depend on the project
   const merge = () => {
     if (!s.merge) return;
@@ -1169,7 +1179,7 @@ export function analyze(s: State): Check[] {
     analyzeMethod(s.merge, s.repo.nameWithOwner, add("method", `PR merge method — rebase only`));
   };
   if (!p) {
-    link("no open project is linked to the repository", { kind: "api", text: `find, copy from the template or create project ${q(s.repo.name)} and link it to ${s.repo.nameWithOwner}` });
+    link.note("no board connected — tasks go without one, their status by the facts; connect one: github project fix --create");
     merge();
     return checks;
   }
@@ -1575,7 +1585,11 @@ function ensureProject(io: Io, s: State, template: string | null): string {
   return `created project ${q(s.repo.name)} (${created.url}), linked`;
 }
 
-export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template: string | null }): number {
+/**
+ * `create` — connect a board where there is none (#847, question 1: the board is optional, `install` connects none):
+ * without it fix leaves the repository without one and fixes the rest.
+ */
+export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template: string | null; create: boolean }): number {
   const done: string[] = [];
   const failed: string[] = [];
   const tried = new Set<string>();
@@ -1583,7 +1597,7 @@ export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template:
   let s = loadState(io, slug);
   // Rounds: a step may open the next one (a new Status field → the tasks' statuses); a step isn't done twice.
   for (let round = 0; round < 5; round++) {
-    if (!s.project) {
+    if (!s.project && opts.create) {
       try {
         done.push(ensureProject(io, s, opts.template));
       } catch (e) {
@@ -1731,38 +1745,57 @@ function restLoadIssue(io: Io, slug: string, number: number): Issue {
   };
 }
 
-interface TaskCtx {
-  slug: string;
-  repo: State["repo"];
+/** The repository's board: its project with Status by the canon. */
+interface Board {
   project: Project;
   status: Field;
 }
 
+interface TaskCtx {
+  slug: string;
+  repo: State["repo"];
+  /**
+   * The board is optional (#847): no open project linked to the repository — null. The commands go the same way, a
+   * board's step is an `○` line (`noBoard`), the status — by the facts (`factStatus`).
+   */
+  board: Board | null;
+}
+
+/** The repository's task context, once per command (`main` clears it): the board doesn't change while a command runs. */
+const contexts = new Map<string, TaskCtx>();
+
 /**
- * The repository and its project with Status by the canon: without them a task can't be created by the canon — run
- * project fix first. If the Status options are not in the project language but in another dictionary language (the
- * script wasn't called from the project checkout; the language changed and there was no fix yet), the task is handled
- * in the board's language: `project check` checks the language, not every command.
+ * The repository and its board with Status by the canon. No board — a context without it (#847); a board with Status
+ * not per the canon — run project fix first. If the Status options are not in the project language but in another
+ * dictionary language (the script wasn't called from the project checkout; the language changed and there was no fix
+ * yet), the task is handled in the board's language: `project check` checks the language, not every command.
  */
 function taskContext(io: Io, slug: string): TaskCtx {
+  const known = contexts.get(slug.toLowerCase());
+  if (known) return known;
   const repo = loadRepo(io, slug);
   const main = mainProject(repo);
-  if (!main) throw new GhError(`no project is linked to ${slug} — github project fix first`);
-  const project = loadProject(io, main.id, false);
-  const status = project.fields.find((f) => f.name === STATUS && f.options);
-  const onBoard = (n: Names) => !!status && [n.status.backlog, n.status.inProgress, n.status.done].every((name) => status.options!.some((o) => o.name === name));
-  const board = onBoard(N) ? N : locale.everyNames().find(onBoard);
-  if (!status || !board) throw new GhError(`the project's ${STATUS} is not per the canon — github project fix first`);
-  N = board;
-  return { slug, repo, project, status };
+  let board: Board | null = null;
+  if (main) {
+    const project = loadProject(io, main.id, false);
+    const status = project.fields.find((f) => f.name === STATUS && f.options);
+    const onBoard = (n: Names) => !!status && [n.status.backlog, n.status.inProgress, n.status.done].every((name) => status.options!.some((o) => o.name === name));
+    const names = onBoard(N) ? N : locale.everyNames().find(onBoard);
+    if (!status || !names) throw new GhError(`the project's ${STATUS} is not per the canon — github project fix first`);
+    N = names;
+    board = { project, status };
+  }
+  const ctx = { slug, repo, board };
+  contexts.set(slug.toLowerCase(), ctx);
+  return ctx;
 }
 
 const isEpic = (i: Issue, org: boolean) => (org ? locale.every((n) => n.issueTypes.epic).includes(i.type ?? "") : i.labels.includes(EPIC_LABEL));
-const itemIn = (ctx: TaskCtx, i: Pick<Issue, "items">) => i.items.find((it) => it.projectId === ctx.project.id) ?? null;
+const itemIn = (board: Board, i: Pick<Issue, "items">) => i.items.find((it) => it.projectId === board.project.id) ?? null;
 
-function setStatus(io: Io, ctx: TaskCtx, itemId: string, name: string): void {
-  const optionId = ctx.status.options!.find((o) => o.name === name)!.id;
-  mutate(io, { op: "SetItemStatus", input: { projectId: ctx.project.id, itemId, fieldId: ctx.status.id, value: { singleSelectOptionId: optionId } } });
+function setStatus(io: Io, board: Board, itemId: string, name: string): void {
+  const optionId = board.status.options!.find((o) => o.name === name)!.id;
+  mutate(io, { op: "SetItemStatus", input: { projectId: board.project.id, itemId, fieldId: board.status.id, value: { singleSelectOptionId: optionId } } });
 }
 
 /**
@@ -1770,20 +1803,89 @@ function setStatus(io: Io, ctx: TaskCtx, itemId: string, name: string): void {
  * createIssue, auto-add) while reading doesn't show it yet: addProjectV2ItemById then answers "Content already
  * exists" — re-read after a pause.
  */
-function ensureItem(io: Io, ctx: TaskCtx, i: Pick<Issue, "id" | "number" | "items">): { id: string; added: boolean } {
-  const it = itemIn(ctx, i);
+function ensureItem(io: Io, ctx: TaskCtx, board: Board, i: Pick<Issue, "id" | "number" | "items">): { id: string; added: boolean } {
+  const it = itemIn(board, i);
   if (it) return { id: it.id, added: false };
   try {
-    return { id: mutate(io, { op: "AddItem", input: { projectId: ctx.project.id, contentId: i.id } }).addProjectV2ItemById.item.id, added: true };
+    return { id: mutate(io, { op: "AddItem", input: { projectId: board.project.id, contentId: i.id } }).addProjectV2ItemById.item.id, added: true };
   } catch (e) {
     if (!/already exists/i.test((e as Error).message)) throw e;
   }
   for (let k = 0; k < 5; k++) {
     (io.sleep ?? pause)(1000);
-    const again = itemIn(ctx, loadIssue(io, ctx.slug, i.number));
+    const again = itemIn(board, loadIssue(io, ctx.slug, i.number));
     if (again) return { id: again.id, added: false };
   }
   throw new GhError(`#${i.number} is already in the project, but its item isn't visible — retry: github task status ${i.number} <status>`);
+}
+
+/**
+ * The task's Status on the board — its item, added if missing; no board (#847) — nothing is written: null, the
+ * caller prints `noBoard`. `added` — the task wasn't on the board.
+ */
+function putStatus(io: Io, ctx: TaskCtx, i: Pick<Issue, "id" | "number" | "items">, name: string): { added: boolean } | null {
+  if (!ctx.board) return null;
+  const item = ensureItem(io, ctx, ctx.board, i);
+  setStatus(io, ctx.board, item.id, name);
+  return { added: item.added };
+}
+
+/** A board's step skipped (#847): the `○` line of the task with what isn't written and where the status comes from. */
+const noBoard = (number: number, what: string) =>
+  `○ #${number}: ${what} — no board (GitHub Projects): the status is by the facts — the task's branch on origin, an open PR or a session pin — in work, closed as completed — done`;
+
+/** The task's branches on origin, or every branch — `refs/heads/*` of the repository on GitHub (`Q.TaskBranches`). */
+function originBranches(io: Io, slug: string, number?: number): string[] {
+  const [owner, name] = slug.split("/");
+  return pages<Any>((after) => graphql(io, Q.TaskBranches, { owner, name, query: number === undefined ? null : `/${number}-`, after }).repository.refs)
+    .map((r) => String(r?.name ?? ""))
+    .filter((b) => number === undefined || isTaskBranch(b, number));
+}
+
+/** The tasks pinned to sessions on this machine (`<config directory>/sessions/*`), `owner/repo#N` in lower case. */
+function machinePins(io: Io): Set<string> {
+  const dir = path.join(configDir(io.env), "sessions");
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => !f.startsWith(".")) : [];
+  return new Set(files.flatMap((f) => [sessionPin(readFileSync(path.join(dir, f), "utf8"))].filter((p) => p !== null).map((p) => `${p!.slug}#${p!.number}`.toLowerCase())));
+}
+
+/** What puts a task in work without a board (#847): its branches on origin and the session pins of this machine. */
+interface WorkFacts {
+  branches: (number: number) => string[];
+  pinned: (number: number) => boolean;
+}
+
+/**
+ * The facts, read once: `many` — of many tasks (a queue): all the repository's branches in one listing; otherwise — a
+ * task's own branches by its number. The pins — once.
+ */
+function workFacts(io: Io, slug: string, many = false): WorkFacts {
+  let all: string[] | null = null;
+  const own = new Map<number, string[]>();
+  let pins: Set<string> | null = null;
+  return {
+    branches: (n) => (many ? (all ??= originBranches(io, slug)).filter((b) => isTaskBranch(b, n)) : (own.get(n) ?? own.set(n, originBranches(io, slug, n)).get(n)!)),
+    pinned: (n) => (pins ??= machinePins(io)).has(`${slug}#${n}`.toLowerCase()),
+  };
+}
+
+/**
+ * A task's status by the facts — a repository without a board (#847): closed as completed — Done; closed otherwise (not
+ * planned, a duplicate) — none: it isn't done; open — In progress with an open PR (`openPr`, the caller's: linked or
+ * found), a task branch `*\/N-*` on origin or a session pin on this machine, otherwise Backlog. `why` — the fact.
+ */
+function factStatus(i: Pick<Issue, "number" | "state" | "stateReason">, openPr: number | undefined, facts: WorkFacts): { status: string | null; why: string } {
+  if (i.state !== "OPEN") return i.stateReason === "COMPLETED" ? { status: N.status.done, why: "closed as completed" } : { status: null, why: "closed, not done" };
+  if (openPr !== undefined) return { status: N.status.inProgress, why: `open PR #${openPr}` };
+  const branch = facts.branches(i.number)[0];
+  if (branch) return { status: N.status.inProgress, why: `branch ${branch} on origin` };
+  if (facts.pinned(i.number)) return { status: N.status.inProgress, why: "a session pin" };
+  return { status: N.status.backlog, why: "no task branch, open PR or session pin" };
+}
+
+/** The task's status — on the board, without one (#847) — by the facts. */
+function taskStatus(ctx: TaskCtx, i: Issue, openPr: number | undefined, facts: () => WorkFacts): string | null {
+  return ctx.board ? (itemIn(ctx.board, i)?.status ?? null) : factStatus(i, openPr, facts()).status;
 }
 
 /**
@@ -2180,7 +2282,8 @@ export const taskTemplate = (type: string): string =>
 
 export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const [owner, name] = slug.split("/");
-  // the cloud (#603): the repository's REST without the project — what it can't set, a line for a local session names
+  // the cloud (#603): the repository's REST without the project — what it can't set, a line for a local session names;
+  // a repository without a board (#847) — GraphQL, its board's step an `○` line
   const cloud = inCloud(io);
   const ctx = cloud ? null : taskContext(io, slug);
   const org = ctx ? ctx.repo.owner.org : rest(io, `repos/${slug}`).owner?.type === "Organization";
@@ -2295,8 +2398,9 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
     done.push(`label ${q(N.labels.questions)} — open questions in the description: ${open.join(", ")}`);
   }
   let created: { id: string; databaseId?: number; number: number; title: string; url: string; projectItems?: Any };
+  let unboarded = false;
   if (ctx) {
-    const input: Record<string, unknown> = { repositoryId: ctx.repo.id, title, body: o.body, projectV2Ids: [ctx.project.id] };
+    const input: Record<string, unknown> = { repositoryId: ctx.repo.id, title, body: o.body, ...(ctx.board ? { projectV2Ids: [ctx.board.project.id] } : {}) };
     if (issueType) input["issueTypeId"] = issueType.id;
     if (labels.length) input["labelIds"] = labels.map((l) => l.id);
     if (milestone) input["milestoneId"] = milestone.id;
@@ -2305,9 +2409,8 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
     created = mutate(io, { op: "CreateIssue", input }).createIssue.issue;
     // We set Status ourselves, without waiting for the "Item added to project" workflow.
     const listed = (created.projectItems?.nodes ?? []).map((it: Any) => ({ id: it.id, projectId: it.project.id, status: null }));
-    const item = ensureItem(io, ctx, { id: created.id, number: created.number, items: listed }).id;
-    setStatus(io, ctx, item, N.status.backlog);
-    done.push(`project ${q(ctx.project.title)}: ${STATUS} ${q(N.status.backlog)}`);
+    if (putStatus(io, ctx, { id: created.id, number: created.number, items: listed }, N.status.backlog)) done.push(`project ${q(ctx.board!.project.title)}: ${STATUS} ${q(N.status.backlog)}`);
+    else unboarded = true;
   } else {
     const payload: Record<string, unknown> = { title, body: o.body };
     if (org) payload["type"] = o.type;
@@ -2345,6 +2448,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
 
   io.out(`Created #${created.number} ${created.title} — ${created.url}`);
   for (const d of done) io.out(`+ ${d}`);
+  if (unboarded) io.out(noBoard(created.number, `${STATUS} ${q(N.status.backlog)} isn't set`));
   if (!org && o.priority) io.out(`○ ${PRIORITY} ${q(o.priority)} isn't kept: a personal account has no issue fields`);
   if (!org && task.type !== undefined && o.type !== N.issueTypes.epic) io.out(`○ type ${q(o.type)} isn't kept: a personal account has no issue types, only an epic gets its label`);
   for (const l of epicLabels) io.out(l);
@@ -2385,20 +2489,20 @@ export function cmdTaskStatus(io: Io, slug: string, number: number, name: string
   if (branch !== undefined && epicTask) throw new GhError(`--branch: #${number} is an epic — an epic has no branch`);
   // an epic isn't pinned: its session plans and hands out work, and the first subtask also sets the epic "In progress"
   if (status === N.status.inProgress && !epicTask) pinTask(io, slug, number, issue.parent?.number ?? null);
-  const item = ensureItem(io, ctx, issue);
-  setStatus(io, ctx, item.id, status);
-  io.out(`+ #${issue.number}: ${STATUS} ${q(status)}${item.added ? " (added to the project)" : ""}`);
+  // no board (#847): the pin and the branch are the facts that put the task in work
+  const put = putStatus(io, ctx, issue, status);
+  io.out(put ? `+ #${issue.number}: ${STATUS} ${q(status)}${put.added ? " (added to the project)" : ""}` : noBoard(issue.number, `${STATUS} ${q(status)} isn't set`));
   const code = branch === undefined || renameBranch(io, slug, branch) ? 0 : 1;
   if (!issue.parent) return code;
   const epic = loadIssue(io, slug, issue.parent.number);
-  const epicStatus = itemIn(ctx, epic)?.status ?? null;
-  if (status === N.status.inProgress && epic.state === "OPEN" && (epicStatus === null || epicStatus === N.status.backlog)) {
-    setStatus(io, ctx, ensureItem(io, ctx, epic).id, N.status.inProgress);
+  const epicStatus = ctx.board ? (itemIn(ctx.board, epic)?.status ?? null) : null;
+  if (ctx.board && status === N.status.inProgress && epic.state === "OPEN" && (epicStatus === null || epicStatus === N.status.backlog)) {
+    putStatus(io, ctx, epic, N.status.inProgress);
     io.out(`+ epic #${epic.number}: ${STATUS} ${q(N.status.inProgress)} — the first subtask is taken`);
   }
   if (status === N.status.inProgress && epic.state === "CLOSED") io.out(`Next: epic #${epic.number} is closed, but a subtask is in work again — reopen it (and its milestone, if closed).`);
   if (status === N.status.done && epic.state === "OPEN" && epic.subIssues.length && epic.subIssues.every((x) => x.state === "CLOSED")) {
-    io.out(`Next: all subtasks of epic #${epic.number} are closed — close the epic and set it to ${q(N.status.done)}.`);
+    io.out(`Next: all subtasks of epic #${epic.number} are closed — close the epic${ctx.board ? ` and set it to ${q(N.status.done)}` : ""}.`);
   }
   return code;
 }
@@ -2431,7 +2535,7 @@ function projectChecked(io: Io, slug: string): boolean {
     report(io, s, checks);
     return false;
   }
-  io.out(`✅ project check: ${s.repo.nameWithOwner} per the canon`);
+  io.out(`✅ project check: ${s.repo.nameWithOwner} per the canon${s.project ? "" : " — no board (GitHub Projects): a task's status is by the facts"}`);
   if (file) {
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
@@ -2504,12 +2608,14 @@ export function cmdTaskDrop(io: Io, slug: string, number: number, duplicateOf?: 
     mutate(io, { op: "CloseIssue", input: { issueId: issue.id, stateReason: dup ? "DUPLICATE" : "NOT_PLANNED", ...(dup ? { duplicateIssueId: dup.id } : {}) } });
     io.out(`+ #${number} closed: ${dup ? `duplicate of #${dup.number}` : "not planned"}`);
   }
-  // "Item closed" would put a task closed without doing it into "Done" — it has no place in the project
-  const item = itemIn(ctx, issue);
+  // "Item closed" would put a task closed without doing it into "Done" — it has no place in the project; no board
+  // (#847) — nothing to remove: by the facts a task closed without being done isn't done
+  const item = ctx.board ? itemIn(ctx.board, issue) : null;
   if (item) {
-    mutate(io, { op: "DeleteItem", input: { projectId: ctx.project.id, itemId: item.id } });
-    io.out(`+ #${number} removed from project ${q(ctx.project.title)}`);
+    mutate(io, { op: "DeleteItem", input: { projectId: ctx.board!.project.id, itemId: item.id } });
+    io.out(`+ #${number} removed from project ${q(ctx.board!.project.title)}`);
   }
+  if (!ctx.board) io.out(noBoard(number, "nothing to remove from a board"));
   return 0;
 }
 
@@ -2741,16 +2847,18 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   const priority: string | null = (i.issueFieldValues?.nodes ?? []).find((v: Any) => v?.field?.name === PRIORITY)?.name ?? null;
   const reason: Record<string, string> = { NOT_PLANNED: ": not planned", DUPLICATE: ": duplicate" };
   const shownLabels = labels.filter((l) => !(l === EPIC_LABEL && !i.issueType));
+  // no board (#847) — the status by the facts, after the PRs: an open one is one of them
+  const board = cloud || taskContext(io, slug).board !== null;
   const facts = [
     type,
     i.state === "CLOSED" ? `closed${reason[i.stateReason] ?? ""}` : null,
-    cloud ? "no project in the cloud (docs/cloud-sessions.md)" : !items.length ? "not in the project" : status ? `${STATUS} ${q(status)}` : `no ${STATUS}`,
+    cloud ? "no project in the cloud (docs/cloud-sessions.md)" : !board ? "" : !items.length ? "not in the project" : status ? `${STATUS} ${q(status)}` : `no ${STATUS}`,
     actual ? `${q(actual.field.name)} ${actual.number}` : null,
     priority ? `${PRIORITY} ${priority}` : null,
     i.milestone ? `milestone ${q(i.milestone.title)}` : null,
     shownLabels.length ? `labels: ${shownLabels.join(", ")}` : null,
   ];
-  const out = [`#${i.number} ${i.title} — ${i.url}`, facts.filter(Boolean).join(" · ")];
+  const out = [`#${i.number} ${i.title} — ${i.url}`, ""];
   const epicComments = i.parent ? shownComments(i.parent.comments) : null;
   let epicOpen: ShownTask["epicOpen"] = null;
   let prs: ShownPr[] = [];
@@ -2781,6 +2889,11 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
     }
     out.push(...(prs.length ? prs.map(prLine) : ["PR: none"]));
   }
+  if (!board) {
+    const fact = factStatus(i, prs.find((p) => p.state === "OPEN" && !p.merged)?.number, workFacts(io, slug));
+    facts[2] = fact.status === null ? "no board — not done" : `no board — ${q(fact.status)} by the facts: ${fact.why}`;
+  }
+  out[1] = facts.filter(Boolean).join(" · ");
   const lines = (i.body ?? "").trimEnd().split(/\r?\n/);
   const questions = questionItems(i.body ?? "");
   const open = questions.filter((x) => !x.answered).map((x) => x.k);
@@ -3246,6 +3359,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const ready: Issue[] = [];
   const running: string[] = [];
   const waiting: string[] = [];
+  const facts = workFacts(io, slug, true);
   /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
   const settled: number[] = [];
   /**
@@ -3269,7 +3383,9 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     }
     if (want && typeAliases()[(i.type ?? "").toLowerCase()] !== want) continue;
     if (o.priority?.length && !o.priority.includes(i.priority ?? DEFAULT_PRIORITY)) continue;
-    const status = itemIn(ctx, i)?.status ?? null;
+    // no board (#847) — by the facts: the task branch on origin, a session pin; its open PR is a line of its own
+    const fact = ctx.board ? null : factStatus(i, undefined, facts);
+    const status = ctx.board ? (itemIn(ctx.board, i)?.status ?? null) : fact!.status;
     // the task is in work: In progress, an open PR (the executor waits for its CI — #513: it was ○ and the dispatcher
     // lost it from both lists), or handed out to an executor of this session that hasn't set In progress yet
     const pr = openPr(i);
@@ -3277,7 +3393,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     const merged = inBatch?.(i.number, i.prs);
     const work = [
       closer === null ? "" : `PR #${closer} merged and closed the issue — waits for the deploy and task close`,
-      closer === null && status === N.status.inProgress ? q(N.status.inProgress) : "",
+      closer === null && status === N.status.inProgress ? `${q(N.status.inProgress)}${fact ? ` by the facts: ${fact.why}` : ""}` : "",
       pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`,
       merged === undefined ? "" : `PR #${merged} merged into ${batch} — the task closes with the batch's release`,
     ].filter(Boolean);
@@ -4382,7 +4498,7 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   const auto = locale.autoProject(io.cwd ?? process.cwd());
   if (o.cloud) return cloudBrief(io, slug, issue, dispatched, auto), 0;
   // a fix starts a new branch from the batch: the task's earlier branch is in the batch already — no restart line
-  const inProgress = itemIn(taskContext(io, slug), issue)?.status === N.status.inProgress;
+  const inProgress = taskStatus(taskContext(io, slug), issue, issue.prs.find((p) => p.state === "OPEN")?.number, () => workFacts(io, slug)) === N.status.inProgress;
   const restart = fix || inProgress ? taskBranchesHere(io, slug, number) : [];
   const vars = {
     task: N.subagentPrompt.task,
@@ -4721,11 +4837,13 @@ function refreshEpic(io: Io, slug: string, epicNumber: number | null, group: Iss
   }
   lines.push("", locale.fill(N.actualize.epic, { ...vars, title: epic.title }), textBlock(epic.body), "", N.actualize.openTasks);
   const openPr = openPrOf(io, slug);
+  const facts = workFacts(io, slug, true);
   /** Where a repeat finding of check 5 goes (#636): a task in Backlog takes it as an item, one already going doesn't. */
   const target = (n: number): string[] => {
     const i = loadIssue(io, slug, n);
-    const status = itemIn(ctx!, i)?.status ?? null;
     const pr = openPr(i);
+    // no board (#847) — by the facts: its open PR is a mark of its own
+    const status = taskStatus(ctx!, i, undefined, () => facts);
     const work = [status === N.status.inProgress ? locale.fill(N.actualize.taskStatus, { status }) : "", pr === undefined ? "" : locale.fill(N.actualize.taskPr, { pr })].filter(Boolean);
     if (work.length) return [locale.fill(N.actualize.inWork, { work: work.join(", ") })];
     return status === N.status.backlog ? [locale.fill(N.actualize.backlog, { status: locale.fill(N.actualize.taskStatus, { status }) })] : [];
@@ -4892,9 +5010,9 @@ function applyRefresh(io: Io, slug: string, file: string, r: { numbers: number[]
       continue;
     }
     mutate(io, { op: "CloseIssue", input: { issueId: t.id, stateReason: "COMPLETED" } });
-    const item = ensureItem(io, ctx!, loadIssue(io, slug, t.number));
-    setStatus(io, ctx!, item.id, N.status.done);
-    io.out(`+ #${t.number} closed as done: ${STATUS} ${q(N.status.done)}`);
+    const put = putStatus(io, ctx!, loadIssue(io, slug, t.number), N.status.done);
+    io.out(`+ #${t.number} closed as done${put ? `: ${STATUS} ${q(N.status.done)}` : ""}`);
+    if (!put) io.out(noBoard(t.number, `${STATUS} ${q(N.status.done)} isn't set`));
   }
   const text = report.replace(NEW_REF_RE, (_, k) => `#${numbers[Number(k) - 1] ?? `new${k}`}`);
   mutate(io, { op: "AddComment", input: { subjectId: r.epic.id, body: locale.fill(N.actualize.report, { number: r.numbers.join(", #"), text }) } });
@@ -5031,17 +5149,17 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
     const owner = taskBranch(p.head)?.issue;
     if (owner && owner !== number) io.out(`○ #${number} was done in PR #${p.number} on the branch of #${owner} (${p.head}): the work went in #${owner}'s session — an actual unavailable above is in #${owner}'s`);
   }
-  const item = ensureItem(io, ctx, issue);
-  setStatus(io, ctx, item.id, N.status.done);
-  io.out(`+ #${number}: ${STATUS} ${q(N.status.done)}${item.added ? " (added to the project)" : ""}`);
+  // no board (#847): done by the facts — closed as completed; the actual is est's comment, the fields are a board's
+  const put = putStatus(io, ctx, issue, N.status.done);
+  io.out(put ? `+ #${number}: ${STATUS} ${q(N.status.done)}${put.added ? " (added to the project)" : ""}` : noBoard(number, `${STATUS} ${q(N.status.done)} isn't set`));
   closeMilestone(io, slug, issue, wasOpen);
   if (issue.parent) {
     const epic = loadIssue(io, slug, issue.parent.number);
     const open = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).length;
     if (epic.state === "OPEN" && epic.subIssues.length && !open) {
       mutate(io, { op: "CloseIssue", input: { issueId: epic.id, stateReason: "COMPLETED" } });
-      setStatus(io, ctx, ensureItem(io, ctx, epic).id, N.status.done);
-      io.out(`+ epic #${epic.number} closed and in ${q(N.status.done)}: all subtasks are closed`);
+      const done = putStatus(io, ctx, epic, N.status.done);
+      io.out(`+ epic #${epic.number} closed${done ? ` and in ${q(N.status.done)}` : ""}: all subtasks are closed`);
       closeMilestone(io, slug, epic, true);
     } else if (epic.state === "OPEN") io.out(`○ epic #${epic.number}: open subtasks ${open}`);
   }
@@ -5181,11 +5299,9 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
     if (work) {
       if (issue.stateReason !== "COMPLETED") return stop(1, `! #${number} is closed as ${issue.stateReason ?? "not planned"}, but ${work}`, `gh issue reopen ${number} --repo ${slug}, then ${again}`);
       mutate(io, { op: "ReopenIssue", input: { issueId: issue.id } });
-      if (!inCloud(io)) {
-        const ctx = taskContext(io, slug);
-        setStatus(io, ctx, ensureItem(io, ctx, issue).id, N.status.inProgress);
-      }
-      io.out(`+ #${number} reopened, ${STATUS} ${q(N.status.inProgress)}: ${work} — the task's merged PR isn't its finish`);
+      // no board (#847) — the task's work is the fact that puts it in work
+      const put = inCloud(io) || putStatus(io, taskContext(io, slug), issue, N.status.inProgress) !== null;
+      io.out(`+ #${number} reopened${put ? `, ${STATUS} ${q(N.status.inProgress)}` : ""}: ${work} — the task's merged PR isn't its finish`);
       return cmdTaskFinish(io, slug, number, { ...o, timeout: Math.max(0, left()) });
     }
     if (!closer || tailOver(io, slug, number)) return io.out(`= #${number} is closed — nothing to finish`), 0;
@@ -5319,12 +5435,16 @@ function finishBase(io: Io, slug: string, number: number, found: ReturnType<type
 
 /**
  * The tail is over — what `task close` leaves (#761, question 1): Status Done and the actual written, not the issue's
- * state, which «Closes #N» sets at the merge. In the cloud there is no project to read — over, as before.
+ * state, which «Closes #N» sets at the merge. No board (#847) — done by the facts (closed as completed) and est's
+ * actual comment (its `<!-- fact {…} -->` marker): the fields are a board's. In the cloud there is no project to read —
+ * over, as before.
  */
 function tailOver(io: Io, slug: string, number: number): boolean {
   if (inCloud(io)) return true;
   const [owner, name] = slug.split("/");
-  const values = itemValues(graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue, name!);
+  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  if (!taskContext(io, slug).board) return i?.state === "CLOSED" && i.stateReason === "COMPLETED" && shownComments(i.comments).nodes.some((c) => commentKind(c) === "actual");
+  const values = itemValues(i, name!);
   const done = values.some((v) => v?.field?.name === STATUS && locale.every((n) => n.status.done).includes(v.name));
   const actual = values.some((v) => v?.__typename === "ProjectV2ItemFieldNumberValue" && locale.every((n) => n.fields.actual).includes(v.field?.name));
   return done && actual;
@@ -6766,28 +6886,32 @@ const HELP: Record<string, string> = {
   "project check": `github project check [--repo owner/repo]
 
 Items ✅/❌; code 0 — everything per the canon, 1 — there are ❌. Decision labels — by the default branch's spec tree; a
-new decision's label on an open task and a slice label («Slice: …») with a decision's name — an ○ line, not ❌.
+new decision's label on an open task and a slice label («Slice: …») with a decision's name — an ○ line, not ❌. The
+board (GitHub Projects) is optional: no project linked — an ○ line «no board connected», the default-branch rule and the
+merge method are checked, code 0.
 
 Examples:
   github project check
   github project check --repo acme/shop`,
-  "project fix": `github project fix [--repo owner/repo] [--confirm] [--template owner/N | none]
+  "project fix": `github project fix [--repo owner/repo] [--confirm] [--create [--template owner/N | none]]
 
 Fixes via the API and prints UI steps with links; deleting and renaming in a project with tasks and organization
-settings — only with --confirm (after the user's "yes"). No project — links the one of the same name, otherwise copies
-the template (${DEFAULT_TEMPLATE}), otherwise creates one.
+settings — only with --confirm (after the user's "yes"). The board is optional: no project — fix leaves it so and fixes
+the rest; --create connects one — links the one of the same name, otherwise copies the template (${DEFAULT_TEMPLATE}),
+otherwise creates one.
 
 Examples:
   github project fix
-  github project fix --confirm --template none`,
+  github project fix --create --template none`,
   "task new": `github task new --title "…" [--body "…" | --body-file F] [--type Task|Bug|Epic] [--epic N]
                 [--milestone "…"] [--blocked-by N,N] [--priority Urgent|High|Medium|Low]
                 [--labels <decision>,<kind>:<new decision>,<label>] [--repo owner/repo]
 
 A task by the canon: type, project and Backlog, Priority, epic, blocked by, milestone, decision labels, the questions
 label when the description has a question without ✅ (created if missing); prints what was created and the next
-step. A Claude Code cloud session — over the repository's REST, without the project: Status and an organization's
-Priority — a line for a local session.
+step. No board (GitHub Projects) — the task without one, an ○ line: its status is by the facts. A Claude Code cloud
+session — over the repository's REST, without the project: Status and an organization's Priority — a line for a local
+session.
 
 Examples:
   github task new --title "Billing · Export invoices to PDF" --epic 40 --body-file task.md
@@ -6797,7 +6921,9 @@ Examples:
 The task in one output: title, type, Status, actual, the epic with its open questions and tasks, subtasks, open
 blockers, the PRs with their checks, open and answered questions (a comment that looks like an answer — a «?» line at
 the question), the comments of the task and its epic (the flow's own — one line with the kind), the description;
-read-only. A cloud session — over the repository's REST, without the project's fields; the PRs — by the task branch or
+read-only. No board (GitHub Projects) — the status by the facts: closed as completed — Done, closed otherwise — not
+done; open — In progress with an open PR, a task branch */<N>-* on origin or a session pin on this machine, otherwise
+Backlog. A cloud session — over the repository's REST, without the project's fields; the PRs — by the task branch or
 «Closes #N».
 
 Examples:
@@ -6863,14 +6989,16 @@ session (file sessions/<CLAUDE_CODE_SESSION_ID> in ~/.config/elves): another tas
 (code 2) with the question to the owner whether to queue it and its executor's prompt; a task handed out to an
 executor of this session (task queue --assignment) isn't pinned; a human removes the pin. --branch — the worktree
 tool's branch becomes the task branch (git branch -m with its .git/config section); a .git/config locked by another
-checkout — retried ~10 s, then a ! line with the command that finishes it (code 1).
+checkout — retried ~10 s, then a ! line with the command that finishes it (code 1). No board (GitHub Projects) — Status
+isn't written, an ○ line: the pin and the branch are the facts the status is read by.
 
 Examples:
   github task status 42 "In progress" --branch feat/42-invoice-export
   github task status 42 Backlog`,
   "task drop": `github task drop <N> [--duplicate-of M] [--repo owner/repo]
 
-Closes the task without doing it (not planned) and removes it from the project.
+Closes the task without doing it (not planned) and removes it from the project; no board — nothing to remove: by the
+facts a task closed without being done isn't done.
 
 Examples:
   github task drop 42
@@ -6910,7 +7038,8 @@ github task queue --assignment <N> [--cloud | --session] [--main] [--repo owner/
 The dispatcher session's queue: ready tasks (open, not an epic, not in work, no open blockers — other repositories'
 too —, no external blocker label) by Priority, then number, each with its executor's prompt; the rest — in work (=: In
 progress, an open PR with its link, handed out to an executor of this session) and ○ lines with the reason (the
-label's — from the latest «External blocker: …» comment). Marks the session as a dispatcher
+label's — from the latest «External blocker: …» comment). No board (GitHub Projects) — In progress by the facts: a task
+branch */<N>-* on origin or a session pin on this machine. Marks the session as a dispatcher
 (dispatchers/<CLAUDE_CODE_SESSION_ID> in ~/.config/elves, its first line — the queue command): task status in it doesn't pin — the executors are subagents
 with the session's id; a session with a pinned task keeps it. Before the queue, in the repository's checkout —
 finished agents' worktrees (.claude/worktrees/agent-*, detached or on worktree-agent-*, not locked by a live process,
@@ -6969,7 +7098,8 @@ the batch's release — then the release PR is its merged PR, and the batch bran
 PR is into it; its refresh — one for the release's tasks of the epic, the report naming them («Refresh after #N, #M,
 result: …»). The release merged without Closes #N (a red release's fix PR closed the task, merged into the batch after
 the release PR opened) — no refusal: the task is closed as released by that PR, a comment names it; a task done in
-another task's PR (on its branch) — an ○ line: the work went in that task's session, the actual too. A task of the scripts' own repository: before the actual the scripts'
+another task's PR (on its branch) — an ○ line: the work went in that task's session, the actual too. No board (GitHub
+Projects) — no Status and no fields: an ○ line, done by the facts (closed as completed), the actual — est's comment. A task of the scripts' own repository: before the actual the scripts'
 clone catches up with origin (pull --ff-only; only on the default branch, without uncommitted changes). Docker and gh
 don't work in an agent's sandbox — run it outside.
 
@@ -7117,6 +7247,7 @@ export function main(argv: string[], io: Io): number {
   const help = helpOf(argv);
   if (help) return io.out(help), 0;
   N = locale.names(locale.projectLanguage(io.cwd ?? process.cwd()));
+  contexts.clear();
   try {
     const [group, cmd, ...rest] = argv;
     if (!group) return io.out(OVERVIEW), 2;
@@ -7252,11 +7383,11 @@ export function main(argv: string[], io: Io): number {
       if (cmd === "close") return cmdTaskClose(io, slug, number, { git: !values["no-git"] });
       return cmdTaskDrop(io, slug, number, values["duplicate-of"] === undefined ? undefined : issueNumber(values["duplicate-of"], "--duplicate-of"));
     }
-    const { values } = parse(command, { args: rest, options: { repo: { type: "string" }, confirm: { type: "boolean", default: false }, template: { type: "string", default: DEFAULT_TEMPLATE } } });
+    const { values } = parse(command, { args: rest, options: { repo: { type: "string" }, confirm: { type: "boolean", default: false }, create: { type: "boolean", default: false }, template: { type: "string", default: DEFAULT_TEMPLATE } } });
     const slug = repoOf(values.repo);
     const template = values.template === "none" ? null : values.template!;
     if (template && !/^[\w.-]+\/\d+$/.test(template)) throw new GhError(`invalid --template «${template}», expected owner/N or none`);
-    return cmd === "check" ? cmdCheck(io, slug) : cmdFix(io, slug, { confirm: values.confirm!, template });
+    return cmd === "check" ? cmdCheck(io, slug) : cmdFix(io, slug, { confirm: values.confirm!, template, create: values.create! });
   } catch (e) {
     if (e instanceof CallError) {
       // one line of what was wrong and the command that works — not «see --help» (#841)

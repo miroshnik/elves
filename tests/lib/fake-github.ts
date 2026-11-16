@@ -108,6 +108,11 @@ export class FakeGitHub {
    */
   cloud = false;
   rest: { method: string; route: string; payload: Any }[] = [];
+  /**
+   * Ветки репозитория на GitHub (TaskBranches — `refs(refPrefix: "refs/heads/", query:)`): по ним статус задачи без доски
+   * — «в работе», если есть ветка задачи (#847). `query` GitHub сверяет подстрокой имени.
+   */
+  branches: string[] = ["main"];
   private seq = 0;
 
   constructor(recording: Recording) {
@@ -207,6 +212,10 @@ export class FakeGitHub {
     if (op === "MergeRules") return JSON.stringify(this.mergeRules());
     if (op === "ProjectItems") return JSON.stringify(this.listedItems(variables.id));
     if (op === "IssueItems") return JSON.stringify(this.issueItems(variables.ids));
+    if (op === "TaskBranches") {
+      const nodes = this.branches.filter((b) => !variables.query || b.includes(variables.query)).map((name) => ({ name }));
+      return JSON.stringify({ data: { repository: { refs: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
+    }
     if (op === "ModelAt") {
       const pr = Object.values(this.prs).find((x) => x.head === variables.expression.split(":")[0]);
       return JSON.stringify({ data: { repository: { object: pr?.model == null ? null : { text: pr.model } } } });
@@ -812,6 +821,8 @@ export class FakeGitHub {
     return this.project().fields.nodes.find((f: Any) => f.name === name);
   }
   item(number: number): Any {
+    // к репозиторию не привязан ни один проект — доски нет (#847), элемента у задачи нет
+    if (!this.repo.projectsV2.nodes.length) return undefined;
     return this.items().find((it: Any) => it.content?.number === number);
   }
   workflow(name: string): Any {

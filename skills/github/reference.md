@@ -81,9 +81,11 @@ command's summary — `github <command> --help`. Examples use made-up owners and
   (`gh issue list --search`); before starting work — that it isn't already
   going in a parallel session (`AGENTS.md`, section "Git, PRs and merging").
 - **Nothing native is duplicated in text:** status — only the project's
-  `Status` field (section "Project (GitHub Projects)" below), links — only
+  `Status` field (section "Project (GitHub Projects)" below; no board — the
+  facts), links — only
   sub-issue and blocked by, a stage — only the milestone, the decisions a
-  task changes — only decision labels, the actual — only the fields,
+  task changes — only decision labels, the actual — only the fields (no
+  board — est's «Actual» comment),
   the PR — only `Closes #N`; the issue's text holds what GitHub doesn't keep
   (goal, context, the agreed design, questions, scenarios). An epic is closed
   when all its subtasks are closed.
@@ -92,8 +94,25 @@ command's summary — `github <command> --help`. Examples use made-up owners and
 
 ## Project (GitHub Projects)
 
-Every repository has **exactly one** GitHub Project linked to the repo
-(`github project fix`); the project name = the repository name. It holds
+**The board is optional** (#847): a repository without one is no
+discrepancy — `project check` prints an `○` line «no board connected» and
+exits 0, `install` connects none, `project fix --create` connects one (the
+owner's choice: the board is for a human, not every project needs it).
+Without a board the same commands run — `task new`, `show`, `start`,
+`status`, `drop`, `close`, `finish`, `actualize`, `queue`, `batch release`
+and `est fact --write`: a board's step is an `○` line, and **a task's status
+is by the facts** — closed as completed — Done; closed otherwise (not
+planned, a duplicate) — not done; open with an open PR (linked, or by the
+task branch and «Closes #N»), a task branch `*/N-*` on origin or a session
+pin on this machine (`sessions/` of `~/.config/elves`) — In progress;
+otherwise — Backlog. The actual's fields are a board's: without one the
+actual is est's «Actual» comment with its marker, and `task close`'s tail
+counts as over by it and the completed close. One path for every command
+(`taskContext` with its `board`, `factStatus`), not a check per command.
+
+Where there is a board, every repository has **exactly one** GitHub Project
+linked to the repo (`github project fix --create`); the project name = the
+repository name. It holds
 **all** epics and tasks of the repository — we don't create separate projects
 per epic/area (an area = an epic inside the shared project). All tasks are
 added to the project right on creation (`github task new`). Required:
@@ -161,9 +180,10 @@ description and README — isn't in the canon: a copy of the template carries
 it, nothing checks it. Readiness — the status and *blocked by*; stages —
 milestones (the `Milestone` field).
 
-The project — the `github` skill: `project check` once per session before
-working with tasks, ❌ — `project fix`. No project — `fix` links one, copies
-the template or creates one; what the API lacks (workflows, sorting) — UI
+The project — the `github` skill: where there is a board, `project check`
+once per session before working with tasks, ❌ — `project fix`. No project —
+`fix --create` links one, copies the template or creates one (`fix` without
+it leaves the repository without a board); what the API lacks (workflows, sorting) — UI
 steps: the agent goes through them with the session's browser without asking
 separately, without a browser — links to the user. Deleting or renaming in a
 project that has already been used and changing organization settings — only
@@ -347,7 +367,8 @@ package without the manifest — ❌ instead of «not installed», the manifest
 outside git — ❌, `update` puts it into its commit.
 
 1. The project is linked to the repository, it is the only one, its title =
-   the repository name.
+   the repository name; none — an `○` line, the board is optional: items 2–9
+   aren't checked, 10 and 11 are; `fix --create` connects one.
 2. Views `Board` (BOARD, columns by `Status`), `Table` (TABLE, grouped by
    `Status`), `Roadmap` (ROADMAP), filters empty, no others; the columns of
    `Board` and `Table` — the canon's set (a built-in field by its type, the
