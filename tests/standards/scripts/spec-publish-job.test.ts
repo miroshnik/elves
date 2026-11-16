@@ -216,13 +216,13 @@ const one = (file: string, text: string): Job => {
 
 const JOBS = FRAGMENT_FILES.flatMap((f) => jobsOf(f, readFragmentFile(f)));
 
-describe("job публикации во фрагментах CI скилла spec и в CI Elves назван так, что оба скрипта узнают его публикацией", () => {
+describe("job публикации во фрагментах CI скилла spec и в workflow проекта назван так, что оба скрипта узнают его публикацией", () => {
   invariant(it, {
     registry: "job публикации спеки в .github/workflows и YAML-фрагментах skills/**/*.md и docs/*.md",
     items: JOBS,
     key: (j) => j.key,
     // job, ушедший от разбора (другой шаг публикации, другой вид фрагмента), выпал бы из реестра молча
-    includes: [".github/workflows/ci.yml jobs.spec-publish", "skills/spec/ci.md jobs.spec-publish", "skills/spec/ci.md jobs.spec-publish (2)"],
+    includes: ["skills/spec/ci.md jobs.spec-publish", "skills/spec/ci.md jobs.spec-publish (2)"],
     name: (j) => `${j.key}: check-run «${j.checkRun}» — публикация для github и ci-wait`,
     check: (j) => {
       const v = violation(j);

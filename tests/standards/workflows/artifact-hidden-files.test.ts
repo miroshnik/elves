@@ -104,7 +104,7 @@ describe("Каждая загрузка артефакта со скрытым �
     },
     // шаг, ушедший от разбора (другой вид фрагмента, флоу-запись), выпал бы из реестра молча
     includes: [
-      ".github/workflows/ci.yml artifact «docs-spec»",
+      "skills/spec/ci.md artifact «docs-spec»",
       "skills/spec/ci.md artifact «spec-journal-unit-${{ matrix.shard }}»",
       "skills/spec/ci.md artifact «spec-reports»",
     ],

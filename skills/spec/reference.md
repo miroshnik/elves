@@ -212,10 +212,11 @@ Tests that the harness generates (per registry item, «not empty»,
 violator, exceptions, examples) aren't in the sources — only the report sees
 them. `--report <report>` (repeatable) adds them to the parsed ones: the head
 — from the PR run's report, the base — `tests.json` of the `spec` branch
-(written by `spec-doc`, published by `spec-publish`) from the commit whose
+(written by `spec-doc`, published by `spec-publish` where the project
+publishes) from the commit whose
 `Source:` is the merge-base or its ancestor (`--spec-branch`, default
-`origin/spec`). No such commit — a diff by sources, and the line under «Base»
-says so. `Source:` older than the diff base (publishing on a PR merge
+`origin/spec`). No branch or no such commit — a diff by sources, and the line
+under «Base» says the harness tests weren't compared. `Source:` older than the diff base (publishing on a PR merge
 was skipped, `spec-run`) — the line names both commits: the lists may contain
 tests of PRs merged between them. A merge that didn't change the spec doesn't
 create a gap: `spec-publish` confirms the publication with a new `Source:`.
@@ -313,7 +314,8 @@ new commits with tests — regenerate it and replace it.
 
 ## spec-publish — the branch, retries, exit codes
 
-The root of the `spec` branch is the contents of `docs/spec`; the commit
+Optional — for a project that publishes its documentation (`ci.md`,
+"Publishing the documentation — optional"). The root of the `spec` branch is the contents of `docs/spec`; the commit
 message has `Source: <SHA>` it was built from (default `HEAD`; publishing on a
 PR merge without CI on `main` — the merge SHA, `ci.md`: `spec-diff` searches
 its ancestors). The working copy and `HEAD` aren't touched: the tree is
@@ -498,7 +500,6 @@ the project's CI" below.
    ```json
    "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.json .spec-playwright.json .spec-claims.xml --strict",
    "spec:diff": "bun --no-env-file node_modules/.bin/elves spec-diff",
-   "spec:publish": "bun --no-env-file node_modules/.bin/elves spec-publish",
    "spec:claims": "bun --no-env-file node_modules/.bin/elves spec-claims --entries tests/standards/entry-points/entries.ts"
    ```
    Standards and architecture run once — the `test:spec` script, a fast CI job
@@ -517,8 +518,8 @@ the project's CI" below.
    spec-doc"). In `.gitignore`: `docs/spec/`, `.spec-*.json`, `.spec-*.xml`,
    `.spec-meta/`, `.spec-journal/`, `vitest-blob/`, `blob-report/`,
    `playwright-blob/`.
-3. **`docs/spec/` isn't committed to `main` — CI publishes it to the `spec`
-   branch:** it is a derived copy of the tests, and in `main` parallel PRs
+3. **`docs/spec/` isn't committed to `main`; publishing it to the `spec`
+   branch is optional:** it is a derived copy of the tests, and in `main` parallel PRs
    would conflict in its pages and table of contents. The reviewer sees the
    requirements delta in `spec-diff` (the PR body), a prose edit — in the
    test's JSDoc diff. Switching a project where `docs/spec` is already in
@@ -527,9 +528,10 @@ the project's CI" below.
 4. **CI.** Shards write blob reports, a separate `spec` job after all shards
    merges them with the runners' own tools (`vitest --merge-reports`,
    `playwright merge-reports` — all Playwright projects in one report) and
-   builds `docs/spec` with `--strict`; on `main` it hands it as an artifact to
-   the `spec-publish` job — only that job has a write token
-   (`contents: write`), and it doesn't install the project's dependencies. A
+   builds `docs/spec` with `--strict`; a project that publishes hands it on
+   `main` as an artifact to the `spec-publish` job — only that job has a write
+   token (`contents: write`), and it doesn't install the project's
+   dependencies (`ci.md`, "Publishing the documentation — optional"). A
    shard's files — from `spec-shard` by the last green run's durations
    (section "spec-shard — CI shards by durations"). A
    test failed — `spec` doesn't run: there is no point building documentation
@@ -803,6 +805,12 @@ the project's CI" below.
 
 ## Publishing — the `spec` branch, not `main`
 
+- **Optional (#838).** The agents read the spec in the `tests/` tree — the
+  prose of `<topic>.md` and `<section>.md`, the test names in `spec-diff`;
+  the branch was read once in half a month. The main CI fragment has no
+  publishing, `install`, `update` and `check` neither set it up nor require
+  it; without the branch `spec-diff` doesn't compare harness tests and says
+  so in a line.
 - **`docs/spec` is a derived copy of the tests.** In `main`, every branch
   regenerated the same pages and the table of contents: parallel PRs
   conflicted on every rebase, CI guarded "not behind", the agent regenerated

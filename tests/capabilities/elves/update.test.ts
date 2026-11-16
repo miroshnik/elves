@@ -719,6 +719,27 @@ describe("check проекта с пачками сверяет, что PR в в
   });
 });
 
+// основной фрагмент ci.md — первый YAML до разделов: его копирует проект, который спеку не публикует
+const MAIN_CI = /^[^]*?```yaml\n([^]*?)```/.exec(read(path.join(REPO, "skills/spec/ci.md")))![1]!;
+
+/**
+ * Публикация спеки — по желанию проекта (#838): `check` её не ставит и не требует. CI `check` читает у проекта с
+ * пачками, и CI по основному фрагменту `ci.md` — без job `spec-publish` — проходит без строк. Страховка от перегиба:
+ * требования job публикации в `check` нет, тест держит, чтобы оно не появилось.
+ */
+describe("check и публикация спеки", () => {
+  it("check не требует job публикации спеки", () => {
+    elves(sb, ["install"]);
+    workflow("ci.yml", MAIN_CI);
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+    // проект с пачками: on: — из фрагмента «Batches», джобы — основного
+    editManifest(sb.proj, { batch: true });
+    const on = /^on:\n(?: .*\n)+/m;
+    workflow("ci.yml", MAIN_CI.replace(on, on.exec(BATCHES_CI)![0]));
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+  });
+});
+
 /**
  * Клон Elves — сам канон: установку `check` в нём не сверяет, но пачки ведёт и Elves (`"batch": true`, #661) — его CI
  * сверяется, как CI тонкого проекта (#672): PR в ветку пачки CI не запускает (#676). Иначе Elves с workflow, что идёт на

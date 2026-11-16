@@ -1,7 +1,7 @@
-# CI Elves: тесты скиллов (bun test), типы, документация спеки собирается (--strict), дифф спеки в summary PR;
-# на main — публикация docs/spec в ветку spec (в main документации нет). Ветки и PR — параллельно, устаревший прогон PR отменяется;
-# прогон main не отменяется и не вытесняется (docs/ci-concurrency.md): группа у него своя — общий ресурс (ветка spec) только
-# у spec-publish, очередь — там. Elves — проект с пачками ("batch": true в .agents/elves.json, эпик #645): PR в ветку пачки
+# CI Elves: тесты скиллов (bun test), типы, документация спеки собирается (--strict), дифф спеки в summary PR; docs/spec
+# Elves не публикует (#838: спеку читают из дерева tests/). Ветки и PR — параллельно, устаревший прогон PR отменяется;
+# прогон main не отменяется и не вытесняется (docs/ci-concurrency.md): группа у него своя, общего ресурса у тестов нет.
+# Elves — проект с пачками ("batch": true в .agents/elves.json, эпик #645): PR в ветку пачки
 # batch/… CI не запускает — его ворота — проверки перед коммитом у исполнителя и github pr premerge (docs/testing.md);
 # полный набор (tests) — PR в main, выпуск пачки среди них, и сам main (skills/spec/ci.md, «Batches»).
 name: CI
@@ -47,26 +47,8 @@ jobs:
         timeout-minutes: 5
       - run: bun run typecheck
       - run: bun run spec:doc
-      - if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
-        with: { name: docs-spec, path: docs/spec/, retention-days: 1 }
+      # без --report: ветка spec на origin осталась от прежних публикаций, и база тестов харнесса по ней устарела бы —
+      # дифф по исходникам (skills/spec/ci.md, «Publishing the documentation — optional»)
       - name: Дифф спеки в summary
         if: github.event_name == 'pull_request'
-        run: bun run spec:diff --base "origin/${{ github.base_ref }}" --report .spec-report.xml --full >> "$GITHUB_STEP_SUMMARY"
-
-  # Токен на запись — только здесь: job не ставит зависимости и не идёт на PR. Публикации — по очереди, не отменяются и не
-  # вытесняются (queue: max); прогоны main параллельны, порядок публикаций держит «уже новее» spec-publish — нужна история.
-  spec-publish:
-    if: github.event_name == 'push'
-    needs: tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5 # обычно 10 с
-    permissions: { contents: write }
-    concurrency: { group: spec-publish, queue: max }
-    steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/download-artifact@v8
-        with: { name: docs-spec, path: docs/spec }
-      - run: bun run spec:publish
+        run: bun run spec:diff --base "origin/${{ github.base_ref }}" --full >> "$GITHUB_STEP_SUMMARY"
