@@ -125,7 +125,7 @@ machine. A script in `slot` calls turbo without pass-through — `install` and
 
 How many slots and how many executors a dispatcher runs at once (`github task
 queue`, its `Next:` line) is the machine's, not the project's: the same
-repository opens on a laptop, a workstation and in the cloud. `machine.json`
+repository opens on a laptop and a workstation. `machine.json`
 of the personal configuration directory sets them:
 
 ```json

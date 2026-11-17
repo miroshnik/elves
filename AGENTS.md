@@ -8,8 +8,7 @@ It lives in **miroshnik/elves** with the skills (`skills/*`) and references
 "Installation". A rule or skill change from
 another project's session is a task in Elves (project #6) without that
 project's names, for a separate session; I don't edit an Elves clone from
-someone else's session. A Claude Code **cloud session** sees only the
-repository and its project hook's flow — `docs/cloud-sessions.md`.
+someone else's session.
 
 **The repository is public:** no names, owners, paths or numbers of other
 repositories, no colleagues or clients — in files, git history or issues;
@@ -125,9 +124,9 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   (scope, not merges outside auto) — any session, its task stays; one started
   for it — in the project folder, not a worktree: executors start from `main`.
   `github task queue` prints executors' prompts; an executor — a background
-  subagent (own worktree) or a cloud session: at most the machine's executors
-  in subagents and 5 cloud sessions at once, the owner's number replaces
-  either (`task queue` names the executors, `slot`'s `machine.json` sets them); failed — a task
+  subagent (own worktree): at most the machine's executors at once, the
+  owner's number replaces it (`task queue` names the executors, `slot`'s
+  `machine.json` sets them); failed — a task
   comment, no restart; an executor session whose task closed — the dispatcher
   archives it in an auto project, not one still working in the background or
   awaiting the owner's answer; outside auto the owner closes it. A batch

@@ -24,7 +24,7 @@ Elves is how Claude Code carries a task from issue to production, written down o
 
 - **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production.
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
-- **The installer** — puts the canon, the skills and the hook onto the machine; a project keeps only the package version in `devDependencies` — CI, colleagues and the cloud session get it from npm — and gets the flow through releases.
+- **The installer** — puts the canon, the skills and the hook onto the machine; a project keeps only the package version in `devDependencies` — CI and colleagues get it from npm — and gets the flow through releases.
 
 ## The idea
 
@@ -78,7 +78,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 
 ## Installation
 
-You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github` and `est` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose.
+You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github` and `est` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose. The flow runs in a local Claude Code session: in a cloud one (claude.ai/code) its scripts refuse.
 
 ```bash
 bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the Claude Code hook
@@ -103,9 +103,9 @@ The GitHub project and tasks, a command per step: a task with its fields, its qu
 
 ### [`est`](skills/est/SKILL.md) — the actual from transcripts
 
-The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code transcripts, local and cloud; a period's summary across all of a repository's sessions — the flow before and after a change.
+The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code transcripts; a period's summary across all of a repository's sessions — the flow before and after a change.
 
-`est fact` · `est period` · `est cloud-import`
+`est fact` · `est period`
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
@@ -142,7 +142,6 @@ Mechanics the canon refers to; the agent reads them as needed.
 - [`docs/judgment.md`](docs/judgment.md) — judgment and edits: a mistake disguised as an outcome, a label is a claim, editing exactly what was named.
 - [`docs/production.md`](docs/production.md) — production: migrations, the right database, "didn't help" goes to production facts.
 - [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — parallel worktrees: shared files, ports, databases and `.git/config`.
-- [`docs/cloud-sessions.md`](docs/cloud-sessions.md) — the Claude Code cloud session: what it can't access, its brief, closing a task from there.
 - [`docs/prompt-cache.md`](docs/prompt-cache.md) — Claude Code's prompt cache TTL: 5 minutes or the hour, and when the hour pays off.
 - [`docs/other-agents.md`](docs/other-agents.md) — another agent instead of Claude Code: what to connect by hand and what doesn't work.
 
