@@ -76,7 +76,8 @@ command's summary — `github <command> --help`. Examples use made-up owners and
   `External blocker:` (`comments.externalBlocker`) and gives the reason; the
   blocker is lifted — the label is removed. *Relates to* — only in the UI and
   only if the link isn't "blocks". A task with an open *blocked by* or that
-  label isn't taken into work: `task queue` shows it as `○` with the blocker.
+  label isn't taken into work: `task queue` shows it as `○` with the blocker,
+  `task start` stops on it (code 1) by the same rules.
 - Before creating a new task we check that it doesn't exist yet
   (`gh issue list --search`); before starting work — that it isn't already
   going in a parallel session (`AGENTS.md`, section "Git, PRs and merging").
@@ -671,7 +672,11 @@ once per session (green — `✅ project check: …` and the marker
 `~/.config/elves/project-checks/<CLAUDE_CODE_SESSION_ID>`, the next call of
 the session — `= project check — done in this session`; ❌ — the report and
 code 1); the task as `task show` prints it; then the stops before any change,
-code 1: open questions of the task or its epic (`! open questions — …`: asked
+code 1: its blockers by `task queue`'s rules (`! #N is blocked — …`: an open
+*blocked by*, another repository's too, and the `external blocker` label with
+its reason; a blocker merged into the batch of this session's executor
+doesn't hold — its branch is cut from the batch; past the batch, `--main`, it
+holds); open questions of the task or its epic (`! open questions — …`: asked
 in one message, auto mode — `task answer --auto`, then `task start` again);
 the task in work elsewhere (`! #N is in work elsewhere — …`: an open PR of it,
 into a batch branch too, or a branch `*/N-*` locally or on origin that isn't
