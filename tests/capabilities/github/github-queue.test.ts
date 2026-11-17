@@ -335,10 +335,12 @@ describe("Сценарии очереди диспетчера на модели
  */
 describe("Справка github показывает таблицы переходов модели очереди", () => {
   const REFERENCE = readFileSync(new URL("../../../skills/github/reference.md", import.meta.url), "utf8");
+  /** Раздел справки `### task queue` — до следующего `### `: у выпуска пачки свои таблицы (github-release). */
+  const SECTION = REFERENCE.split(/^### /m).find((s) => s.startsWith("task queue\n")) ?? "";
   const rows = (text: string) => text.split("\n").filter((l) => /^\| `\w+` \| `\w+` \| `\w+` \|/.test(l));
 
   it("Справка task queue — строка на каждый переход задачи и исполнителя, лишних нет", () => {
     const expected = [...TRANSITIONS.map((t) => `| \`${t.from}\` | \`${t.event}\` | \`${t.to}\` | ${t.by} |`), ...EXECUTOR_TRANSITIONS.map((t) => `| \`${t.from}\` | \`${t.event}\` | \`${t.to}\` | ${t.step} |`)];
-    expect(rows(REFERENCE)).toEqual(expected);
+    expect(rows(SECTION)).toEqual(expected);
   });
 });

@@ -4020,6 +4020,14 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(posted(bare)[0].body).toBe(`Выпуск пачки \`${name}\` одним PR: полный CI и деплой — один раз на пачку. PR задач, влитые в неё: #300 (#47).\n\nCloses #47\n`);
   });
 
+  it("batch release без влитых в пачку задач отказывает: выпускать нечего", () => {
+    const { work, f, config, name } = started();
+    const r = release(f, work, config);
+    expect(r.code).toBe(2);
+    expect(r.err).toBe(`error: nothing is merged into ${name} — nothing to release`);
+    expect(posted(f)).toEqual([]);
+  });
+
   it("ветка пачки перед PR ребейзится на origin/main", () => {
     const { work, f, config, name } = started();
     mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");

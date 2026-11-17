@@ -1,8 +1,9 @@
 /**
  * The dispatcher's queue as a model (#843): the states of a task in the queue and of its executor, the transitions
- * between them and the dispatcher's step. Pure — the facts come from github.ts (GitHub, git, the session's hand-outs),
- * the model reads nothing itself; `task queue` prints its `+`, `=`, `○` lines and its `Next:` from it. Why each rule is
- * so — the decision `tests/capabilities/github/github-queue.md` and the tests next to it, one per transition.
+ * between them and the dispatcher's step; the batch's release on the same model (#867). Pure — the facts come from
+ * github.ts (GitHub, git, the session's hand-outs), the model reads nothing itself; `task queue` prints its `+`, `=`,
+ * `○` lines and its `Next:` from it, `batch release` — its step. Why each rule is so — the decisions
+ * `tests/capabilities/github/github-queue.md`, `github-release.md` and the tests next to them, one per transition.
  */
 
 /** A task's state in the dispatcher's queue, in the order of its way. */
@@ -242,3 +243,96 @@ export const executorAlive = (s: ExecutorState) => s === "working" || s === "wai
 
 /** The queue may remove a finished agent's worktree: its executor isn't alive and its task isn't live (open, or its tail not over). */
 export const worktreeRemovable = (executor: ExecutorState, taskLive: boolean) => !taskLive && !executorAlive(executor);
+
+/**
+ * The batch's release (#867) — the same model: its states, the transitions between them, the step of `batch release`.
+ * Why each rule is so — the decision `tests/capabilities/github/github-release.md` and its tests, one per transition.
+ */
+
+/** The release of the batch: no PR yet, its PR open (its checks running, none yet or green), red, merged. */
+export const RELEASE_STATES = ["none", "open", "red", "merged"] as const;
+export type ReleaseState = (typeof RELEASE_STATES)[number];
+
+/** The dispatcher's step after `batch release` — `Next:`: the release PR's checks and merge, the red one's fix, the merged one's closing steps. */
+export const RELEASE_STEPS = ["checks", "fix", "close"] as const;
+export type ReleaseStep = (typeof RELEASE_STEPS)[number];
+
+/** A transition of the release; `by` "batch release" — the command makes it itself; `step` — `Next:` while the release waits for it. */
+export interface ReleaseTransition {
+  from: ReleaseState;
+  event: string;
+  to: ReleaseState;
+  by: Actor | "batch release";
+  step?: ReleaseStep;
+}
+
+/**
+ * The release's transitions — the table `reference.md` ("batch release") shows. A state's step is the `step` of its
+ * first transition with one; `merged` → `none` — the queue starts the next batch from the merged default branch, and
+ * the session's batch is that one, without a release.
+ */
+export const RELEASE_TRANSITIONS: readonly ReleaseTransition[] = [
+  { from: "none", event: "opened", to: "open", by: "batch release" },
+  { from: "open", event: "checksRed", to: "red", by: "GitHub" },
+  { from: "open", event: "merged", to: "merged", by: "dispatcher", step: "checks" },
+  { from: "red", event: "fixMerged", to: "open", by: "executor", step: "fix" },
+  { from: "merged", event: "nextBatch", to: "none", by: "dispatcher", step: "close" },
+];
+
+/** The state the release moves to from `from` by `event`; no such transition — null. */
+export function releaseTransition(from: ReleaseState, event: string): ReleaseState | null {
+  return RELEASE_TRANSITIONS.find((t) => t.from === from && t.event === event)?.to ?? null;
+}
+
+/** What `batch release` knows of the release: its PR — merged, or open with its checks red or not; none — null. */
+export interface ReleaseFacts {
+  pr: { merged: boolean; red: boolean } | null;
+  /** The PRs with tasks merged into the batch branch: none — nothing to release. */
+  merged: number;
+}
+
+/** The release's state by its facts. */
+export function releaseStateOf(f: ReleaseFacts): ReleaseState {
+  if (f.pr === null) return "none";
+  return f.pr.merged ? "merged" : f.pr.red ? "red" : "open";
+}
+
+/** A release state's step — of its first transition with one (`RELEASE_TRANSITIONS`); none — null. */
+export const releaseStateStep = (s: ReleaseState): ReleaseStep | null => RELEASE_TRANSITIONS.find((t) => t.from === s && t.step)?.step ?? null;
+
+/**
+ * `batch release` by the facts: no PR and nothing merged into the batch — null, it refuses; otherwise the state it
+ * reads (`from`), the one it leaves the release in by its own transition (`none` — opened; another — the same) and
+ * `Next:` — the step of that one.
+ */
+export function releaseRun(f: ReleaseFacts): { from: ReleaseState; to: ReleaseState; next: ReleaseStep } | null {
+  const from = releaseStateOf(f);
+  if (from === "none" && f.merged === 0) return null;
+  const to = RELEASE_TRANSITIONS.find((t) => t.from === from && t.by === "batch release")?.to ?? from;
+  return { from, to, next: releaseStateStep(to)! };
+}
+
+/**
+ * The fix of a red release, the first that holds: a fix PR of its task open into the batch — wait for it; the guilty
+ * task named — its fix; not named by the labels — `batch release` names it by the bisect; not named after the bisect —
+ * the dispatcher by the failed checks' logs, or the owner.
+ */
+export const FIXES = ["wait", "guilty", "bisect", "owner"] as const;
+export type Fix = (typeof FIXES)[number];
+
+/** What the fix is chosen by. */
+export interface FixFacts {
+  /** A release task's fix PR is open into the batch. */
+  fixing: boolean;
+  /** The guilty task is named: the release's only task, by the labels, by the bisect. */
+  guilty: boolean;
+  /** The caller bisects — `batch release`; the queue names the guilty task by the labels only. */
+  bisects: boolean;
+}
+
+/** The fix of a red release by its facts (`FIXES`). */
+export function redFix(f: FixFacts): Fix {
+  if (f.fixing) return "wait";
+  if (f.guilty) return "guilty";
+  return f.bisects ? "owner" : "bisect";
+}
