@@ -10,6 +10,7 @@ import {
   factsWithModel, parsePeriods, periodSummary, periodTable, priceFor, PRICES, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
 } from "../../../skills/est/scripts/est.ts";
 import type { FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
+import { codeOnly } from "../../../skills/spec/scripts/harness.ts";
 import locale from "../../../skills/github/scripts/locale.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir } from "../../lib/spec.ts";
@@ -1449,8 +1450,9 @@ describe("Пересчёт записанных фактов по модели",
   });
 });
 
-// `gh` — внешний край, подменяется он: ответы — из мира $FAKE_GH/world.json (репозиторий → видимость, номер проекта —
-// без него доски нет, задачи с фактом и полями проекта), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
+// `gh` — внешний край, подменяется он: ответы — из мира $FAKE_GH/world.json (репозиторий → видимость, номер проекта с
+// элементами задач, привязанные проекты `projects` — без них один открытый проект с именем репозитория, если номер есть,
+// задачи с фактом и полями проекта), каждый вызов — строкой JSON в $FAKE_GH/calls.jsonl. Сбои — из $FAKE_GH/fails.json: вызов, в
 // аргументах или теле которого есть match, падает со stderr, пока не исчерпано times (-1 — всегда).
 const FAKE_GH = `import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const dir = process.env.FAKE_GH;
@@ -1479,16 +1481,19 @@ const fieldValues = (i) => ({ nodes: [...(i.fact ? [num("Факт, ч", i.fact)]
 if (args[1] === "graphql") {
   const { query, variables: v } = JSON.parse(stdin);
   const repo = world[current(v.o + "/" + v.r)];
+  // привязанные к репозиторию проекты: «projects» мира, без них — проект задач, открытый, с именем репозитория
+  const linked = (full) => (world[full].projects ?? (world[full].project ? [{ number: world[full].project, title: full.split("/")[1] }] : []))
+    .map((p) => ({ id: "P" + p.number, number: p.number, title: p.title, url: "https://github.com/orgs/o/projects/" + p.number, closed: !!p.closed }));
   const byProject = (pred) => Object.values(world).find((r) => pred(r.project));
   if (/^\\s*mutation/.test(query)) print({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: v.i } } } });
-  else if (query.includes("projectsV2(first:5)")) print({ data: { repository: { projectsV2: { nodes: repo.project ? [{ number: repo.project, title: "p", owner: { login: v.o } }] : [] } } } });
-  else if (query.includes("projectV2(number:$n)")) {
+  else if (query.includes("projectsV2(first: 20)")) print({ data: { repository: { projectsV2: { nodes: linked(current(v.o + "/" + v.r)) } } } });
+  else if (query.includes("fields(first:50)")) {
     const fields = { nodes: [{ id: "F_est", name: "Оценка, ч" }, { id: "F_fact", name: "Факт, ч" }, { id: "F_st", name: "Status", options: [] }] };
-    const owner = query.includes("organization(") ? "organization" : "user";
-    print({ data: { [owner]: { projectV2: { id: "P" + v.n, title: "p", number: v.n, fields } } } });
+    print({ data: { node: { id: v.id, title: "p", number: Number(v.id.slice(1)), fields } } });
   } else if (query.includes("node(id:$id)")) {
+    // элементы задач — только в проекте задач, в другом привязанном их нет
     const r = byProject((p) => "P" + p === v.id);
-    const nodes = r.issues.map((i) => ({ id: "PI_" + i.number, type: "ISSUE", content: issueOf(i), fieldValues: fieldValues(i) }));
+    const nodes = (r?.issues ?? []).map((i) => ({ id: "PI_" + i.number, type: "ISSUE", content: issueOf(i), fieldValues: fieldValues(i) }));
     print({ data: { node: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
   } else if (query.includes("pullRequests(states:[OPEN]")) print({ data: { repository: { pullRequests: { nodes: [] } } } });
   else if (query.includes("issues(states:[CLOSED]")) print({ data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } });
@@ -1582,8 +1587,8 @@ describe("Переименованный репозиторий — est рабо
 });
 
 /**
- * Доска GitHub Projects — по желанию проекта (#847): поля факта — только где доска есть. Без неё — нет привязанного
- * проекта и нет `project` в реестре — факт не ошибка, а комментарий задачи с маркером.
+ * Доска GitHub Projects — по желанию проекта (#847): поля факта — только где доска есть. Без неё — нет открытого
+ * привязанного проекта — факт не ошибка, а комментарий задачи с маркером.
  */
 describe("Репозиторий без доски — факт комментарием задачи", () => {
   it("`est fact --write` без доски пишет факт комментарием и не ставит полей", () => {
@@ -1595,6 +1600,48 @@ describe("Репозиторий без доски — факт коммента
     expect(r.writes.map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/42/comments"]]);
     expect(r.calls.filter((c) => /updateProjectV2ItemFieldValue|addProjectV2ItemById/.test(c.stdin))).toEqual([]);
     expect(r.stdout).toContain("no project fields: the repository has no board — the actual is the comment");
+  });
+});
+
+/**
+ * Есть ли у репозитория доска и какая — одно правило флоу, `mainProject` модуля `skills/github/scripts/board.ts` (#880):
+ * открытый привязанный проект с именем репозитория, иначе первый открытый привязанный. Своё правило est расходилось с
+ * github там, где владелец отказывается от доски, закрыв проект: est писал поля в закрытый проект и брал строки из его
+ * элементов, без задач, заведённых после закрытия.
+ */
+describe("Доска est — та же, что у github: правило выбора одно", () => {
+  /** Вызовы gh, в аргументах или теле которых есть `match`. */
+  const callsWith = (r: { calls: { args: string[]; stdin: string }[] }, match: string) => r.calls.filter((c) => `${c.args.join(" ")} ${c.stdin}`.includes(match));
+
+  it("est: у репозитория только закрытый привязанный проект — доски нет, факт — комментарий, строки — из issue репозитория", () => {
+    // в закрытом проекте элементы задач есть: доской его счёл бы только est со своим правилом
+    const r = withFakeGh(factWorld({}, { projects: [{ number: 1, title: "r", closed: true }] }), ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.comment).toStartWith("Факт: ");
+    expect(r.writes.map((c) => c.args.slice(2, 4))).toEqual([["POST", "repos/o/r/issues/42/comments"]]);
+    expect(r.stdout).toContain("no project fields: the repository has no board — the actual is the comment");
+    expect(callsWith(r, "fields(first:50)")).toEqual([]);
+    expect(callsWith(r, "items(first:100")).toEqual([]);
+    expect(callsWith(r, "issues(first:100").length).toBeGreaterThan(0);
+  });
+
+  it("est: два привязанных проекта — доска та же, что у github: открытый, названный именем репозитория", () => {
+    // первым GitHub отдаёт чужой проект — est со своим правилом взял бы его
+    const r = withFakeGh(factWorld({}, { projects: [{ number: 2, title: "Roadmap" }, { number: 1, title: "r" }] }), ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const field = r.calls.filter((c) => c.args[1] === "graphql" && /updateProjectV2ItemFieldValue/.test(c.stdin)).map((c) => JSON.parse(c.stdin).variables.p);
+    expect(field.length).toBeGreaterThan(0);
+    expect(new Set(field)).toEqual(new Set(["P1"]));
+    expect(callsWith(r, '"id":"P2"')).toEqual([]);
+  });
+
+  it("est: доску выбирает модуль github — своего поиска проекта в est нет", () => {
+    const est = codeOnly(readFileSync(EST, "utf8"), "est.ts");
+    expect(est).toMatch(/import \{[^}]*\bmainProject\b[^}]*\} from "\.\.\/\.\.\/github\/scripts\/board\.ts";/);
+    // привязанные проекты и сам проект est читает запросами модуля: своего запроса к списку проектов в est нет
+    expect(est).not.toMatch(/projectsV2\s*\(|projectV2\s*\(\s*number/);
   });
 });
 
@@ -2043,14 +2090,14 @@ describe("Сбой сети gh повторяется, ошибка запрос
     cleanup(); // свой каталог: кэш проекта первого запуска убрал бы вызовы второго
     ({ dir, cleanup } = tmpDir());
     const r = fact(
-      { match: "organization(login:$o)", times: 1, stderr: BAD_GATEWAY },
+      { match: "fields(first:50)", times: 1, stderr: BAD_GATEWAY },
       { match: "issues/42/comments", times: 2, stderr: onComments(42, TIMEOUT) },
       { match: "updateProjectV2ItemFieldValue", times: 1, stderr: RESET },
     );
     expect(r.code).toBe(0);
     expect(r.comment).toStartWith("Факт: ");
     // те же вызовы, что без сбоев, и по повтору на каждый сбой
-    expect(callsWith(r, "organization(login:$o)")).toBe(callsWith(clean, "organization(login:$o)") + 1);
+    expect(callsWith(r, "fields(first:50)")).toBe(callsWith(clean, "fields(first:50)") + 1);
     expect(callsWith(r, "issues/42/comments")).toBe(callsWith(clean, "issues/42/comments") + 2);
     expect(callsWith(r, "updateProjectV2ItemFieldValue")).toBe(callsWith(clean, "updateProjectV2ItemFieldValue") + 1);
     expect(r.stderr).toContain("network failure, retry in 0 s: command gh api -X…");
@@ -2078,11 +2125,11 @@ describe("Сбой сети gh повторяется, ошибка запрос
     expect(callsWith(r, "issues/42/comments")).toBe(1);
   });
 
-  it("сетевой сбой при чтении проекта организации не превращается в «не найден пользователь»", () => {
-    const r = fact({ match: "organization(login:$o)", times: -1, stderr: TIMEOUT });
+  it("сетевой сбой при поиске доски — ошибка, а не «доски нет»: факт без полей не пишется", () => {
+    const r = fact({ match: "projectsV2(first: 20)", times: -1, stderr: TIMEOUT });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("network failure, retries: 3");
-    expect(callsWith(r, "user(login:$o)")).toBe(0);
+    expect(r.comment).toBeNull();
   });
 
   it("ошибка записи одной задачи в свипе не обрывает свип — задача в итоге «not written»", () => {

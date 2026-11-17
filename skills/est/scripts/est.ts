@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { linkedProjects, LINKED_PROJECTS, mainProject } from "../../github/scripts/board.ts";
 import { BYPASSES } from "../../github/scripts/bypasses.ts";
 import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal } from "../../github/scripts/command.ts";
 import locale from "../../github/scripts/locale.ts";
@@ -159,11 +160,10 @@ const OPEN_PRS_TTL = 3600; // an hour: the list of open PRs (their branches are 
 const BASE_BRANCHES = new Set(["main", "master", "develop", "dev", "staging", "production", "release"]);
 
 // Repository registry — the personal file <state directory>/repos.json (not part of the skill's repo).
-// Format: {"owner/repo": {"paths": ["/abs/path/to/checkout", ...],
-//                         "project": {"owner": "<owner>", "number": <N>}}}
-// Without an entry the repo is determined from git remote origin of the current directory, the project — by its
-// link to the repository; paths are needed to find transcripts (~/.claude/projects).
-type Registry = Record<string, { paths?: string[]; project?: { owner: string; number: number | string } }>;
+// Format: {"owner/repo": {"paths": ["/abs/path/to/checkout", ...]}}
+// Without an entry the repo is determined from git remote origin of the current directory; paths are needed to find
+// transcripts (~/.claude/projects). The board isn't in the registry: it is the github skill's rule (`mainProject`, #880).
+type Registry = Record<string, { paths?: string[] }>;
 
 // Files not counted in the diff: lock files, snapshots, minified code, build output.
 const DIFF_EXCLUDE = new RegExp(
@@ -519,7 +519,6 @@ function issueRow(c: Any, itemId: string | null): Row {
 
 interface Meta {
   id: string;
-  owner: string;
   number: number;
   title: string;
   /** Fields by key (FIELD_*): id, name in the project, options. */
@@ -628,7 +627,6 @@ class Repo implements FactRepo {
   name: string;
   paths: string[];
   otherPaths: string[];
-  projectRef: { owner: string; number: number | string } | undefined;
   cacheDir: string;
   defaultBranch: string | null = null;
   optRefreshed = false;
@@ -652,55 +650,36 @@ class Repo implements FactRepo {
     // directories of other registry repositories: guest sessions are looked up there (a task started
     // from another repository's directory)
     this.otherPaths = uniqSortedStrs(Object.entries(registry).filter(([k]) => k !== full).flatMap(([, c]) => c.paths ?? [])).filter((x) => !this.paths.includes(x));
-    this.projectRef = cfg.project;
     this.cacheDir = path.join(CACHE_DIR, full.replace("/", "__"));
   }
 
   // --- project ----------------------------------------------------------
   /**
-   * The board (the repository's GitHub project): its id, field ids and Status options. Cached on disk (a day, with a
-   * registry check). No board — no linked project and no `project` in the registry — null: the actual is then the
+   * The board (the repository's GitHub project) by the flow's one rule — `mainProject` of the github skill (#880): its
+   * id, field ids and Status options. The choice is read every run — closing the project ends the board at once; the
+   * fields are cached on disk for a day per project. No open linked project — no board, null: the actual is then the
    * comment alone (#847); a network or GraphQL error stays an error, not "no board".
    */
   board(force = false): Meta | null {
     if (this.meta_ !== undefined && !force) return this.meta_;
-    const file = path.join(this.cacheDir, "project.json");
-    const cached = force ? null : loadJson<Meta | null>(file, null);
-    if (cached && cached.fields?.[FIELD_FACT]?.name) {
-      const fresh = nowTs() - (cached.fetched_at || 0) < PROJECT_META_TTL;
-      const same = !this.projectRef || (cached.owner === this.projectRef.owner && cached.number === Number(this.projectRef.number));
-      if (fresh && same) {
-        this.meta_ = cached;
-        return cached;
-      }
-    }
-    const ref = this.findProject();
-    if (!ref) {
+    const linked = `query($o:String!,$r:String!){ repository(owner:$o,name:$r){ ${LINKED_PROJECTS} } }`;
+    const main = mainProject({ name: this.name, linked: linkedProjects(ghGraphql(linked, { o: this.owner, r: this.name }).repository.projectsV2) });
+    if (!main) {
       this.meta_ = null;
       return null;
     }
-    const [owner, number] = ref;
-    const q = `
-        query($o:String!,$n:Int!){
-          organization(login:$o){ projectV2(number:$n){ ...F } }
-        }
-        fragment F on ProjectV2 { id title number
+    const file = path.join(this.cacheDir, "project.json");
+    const cached = force ? null : loadJson<Meta | null>(file, null);
+    if (cached && cached.id === main.id && cached.fields?.[FIELD_FACT]?.name && nowTs() - (cached.fetched_at || 0) < PROJECT_META_TTL) {
+      this.meta_ = cached;
+      return cached;
+    }
+    const q = `query($id:ID!){ node(id:$id){ ... on ProjectV2{ id title number
           fields(first:50){ nodes{ __typename
             ... on ProjectV2Field{ id name dataType }
-            ... on ProjectV2SingleSelectField{ id name dataType options{ id name } } } } }
-        `;
-    let pv: Any = null;
-    try {
-      pv = ghGraphql(q, { o: owner, n: number })?.organization?.projectV2 ?? null;
-    } catch (e) {
-      if (!(e instanceof EstError) || e instanceof NetworkError) throw e; // the network isn't "not an organization": otherwise a false "Could not resolve to a User"
-      pv = null;
-    }
-    if (!pv) {
-      const data = ghGraphql(q.replace("organization(login:$o)", "user(login:$o)"), { o: owner, n: number });
-      pv = data?.user?.projectV2 ?? null;
-    }
-    if (!pv) throw new EstError(`project ${owner} #${number} not found`);
+            ... on ProjectV2SingleSelectField{ id name dataType options{ id name } } } } } } }`;
+    const pv: Any = ghGraphql(q, { id: main.id })?.node ?? null;
+    if (!pv) throw new EstError(`project «${main.title}» (${main.url}) not found`);
     const fields: Meta["fields"] = {};
     for (const f of pv.fields.nodes) {
       const key = fieldKey(f.name);
@@ -711,8 +690,8 @@ class Repo implements FactRepo {
       }
     }
     const missing = [FIELD_FACT, FIELD_STATUS].filter((k) => !fields[k]).map((k) => fieldShown({ fields } as Meta, k));
-    if (missing.length) throw new EstError(`project ${owner} #${number} has no fields: ${missing.join(", ")}`);
-    const meta: Meta = { id: pv.id, owner, number, title: pv.title, fields, fetched_at: nowTs() };
+    if (missing.length) throw new EstError(`project «${main.title}» (${main.url}) has no fields: ${missing.join(", ")}`);
+    const meta: Meta = { id: pv.id, number: pv.number, title: pv.title, fields, fetched_at: nowTs() };
     saveJson(file, meta);
     this.meta_ = meta;
     return meta;
@@ -721,7 +700,7 @@ class Repo implements FactRepo {
   /** The board, which must be there: the fields are written only where it is. */
   projectMeta(force = false): Meta {
     const meta = this.board(force);
-    if (!meta) throw new EstError(`repository ${this.full} has no board: no linked project and no entry in ${REGISTRY_PATH}`);
+    if (!meta) throw new EstError(`repository ${this.full} has no board: no open project linked to it`);
     return meta;
   }
 
@@ -747,16 +726,6 @@ class Repo implements FactRepo {
   pins(): Map<string, string> {
     if (this.pins_ === null) this.pins_ = loadPins();
     return this.pins_;
-  }
-
-  /** The board's owner and number: from the registry, otherwise the project linked to the repository; neither — null. */
-  private findProject(): [string, number] | null {
-    if (this.projectRef) return [this.projectRef.owner, Number(this.projectRef.number)];
-    const q = `query($o:String!,$r:String!){ repository(owner:$o,name:$r){
-            projectsV2(first:5){ nodes{ number title owner{ ... on Organization{login} ... on User{login} } } } } }`;
-    const nodes = ghGraphql(q, { o: this.owner, r: this.name }).repository.projectsV2.nodes;
-    if (!nodes.length) return null;
-    return [nodes[0].owner.login, nodes[0].number];
   }
 
   /** All board items with fields and the issue's latest comments. */
