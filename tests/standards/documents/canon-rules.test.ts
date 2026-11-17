@@ -111,6 +111,8 @@ export const HOLDERS: Record<string, Holder> = {
   "The app's tools load at once": script("github task start", GITHUB, "ToolSearch select:"),
   "CI waits are background commands": hook("PreToolUse", BYPASSES, 'rule: "Bash(gh run watch *)"'),
   "A merge in auto mode is a separate call": script("github task finish", GITHUB, "separate gh pr merge <PR> --rebase"),
+  // каждый скрипт на gh держит строку — стандарт tests/standards/scripts/gh-sandbox
+  "gh fails in the sandbox": script("the flow's scripts on `gh`", "skills/github/scripts/command.ts", "export const sandboxLine"),
   "Another task is a background executor": script("github task queue", GITHUB, "task queue --assignment"),
   "A subagent that writes gets `isolation: worktree`": "judgment",
 };
