@@ -1,12 +1,20 @@
-# Parallel checkouts: the task's Compose stack, addresses through the proxy, shared `.git/config` — for "Subagents and worktrees"
+---
+paths:
+  - "**/*compose*.yml"
+  - "**/*compose*.yaml"
+  - "**/.env*"
+  - "**/playwright.config.*"
+---
 
-Reference for the "Subagents and worktrees" section of `AGENTS.md`: the full
-rule, what the project's compose file holds, what moves with the address,
-callbacks of external services, the runner config and the sandbox. The stack
-itself — its names, the e2e stack and its variables, profiles, taking it
-down — is the `task-env` skill; here are links to it, not a copy. Shared git
-config — the "Shared `.git/config`" section at the end; several agents of one
-session — the next section.
+# Parallel checkouts: the task's Compose stack, addresses through the proxy, shared `.git/config`
+
+A rule Claude Code loads with compose files, env files and the Playwright
+config: the full rule, what the project's compose file holds, what moves
+with the address, callbacks of external services, the runner config and the
+sandbox. The stack itself — its names, the e2e stack and its variables,
+profiles, taking it down — is the `task-env` skill; here are links to it,
+not a copy. Shared git config — the "Shared `.git/config`" section at the
+end; several agents of one session — the next section.
 
 ## Several agents in one session
 

@@ -26,7 +26,8 @@
  *
  * The layout is as with skills (`npx skills`), on the machine (`-g`, #557): the canon `~/.agents/elves/` (AGENTS.md,
  * claude/CLAUDE.md, docs/*.md) with Claude Code's rules `~/.claude/rules/elves*.md` — they load without the
- * external-imports dialog in every project of the machine — skills (`~/.agents/skills/<name>/`, Claude Code — symlinks
+ * external-imports dialog in every project of the machine, a reference with `paths:` when the agent works with a
+ * matching file (`pathRules`, #846) — skills (`~/.agents/skills/<name>/`, Claude Code — symlinks
  * in `~/.claude/skills`) and the hooks (SessionStart, PreToolUse). Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
  * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
@@ -110,7 +111,7 @@ const RUN = `bunx ${PACKAGE}`;
 const MANIFEST = ".agents/elves.json";
 /** The rules canon on the machine: a copy of AGENTS.md, claude/CLAUDE.md and docs/*.md. */
 const CANON = ".agents/elves";
-/** Claude Code's rules: symlinks to the canon's AGENTS.md and claude/CLAUDE.md. */
+/** Claude Code's rules: symlinks to the canon's AGENTS.md and claude/CLAUDE.md; references with `paths:` — `ruleOf`. */
 const RULES = { agents: ".claude/rules/elves.md", claude: ".claude/rules/elves-claude.md" };
 /** The personal configuration directory, from the home directory (tests/standards/scripts/config-dir). */
 const CONFIG = ".config/elves";
@@ -602,7 +603,7 @@ function linkText(target: string, dst: string, root: string) {
  * someone else's file or directory — a warning. A symlink that already points there stays untouched: an agent's
  * sandbox refuses writes to `.claude/skills`, and an update without a new skill mustn't fail on it.
  */
-function link(target: string, dst: string, root: string) {
+function link(target: string, dst: string, root: string, what?: string) {
   const st = lstat(dst);
   if (st && !st.isSymbolicLink() && !(st.isFile() && st.size === 0)) {
     return warn(`${path.relative(root, dst)} already exists and isn't a symlink — left as is`), false;
@@ -610,14 +611,14 @@ function link(target: string, dst: string, root: string) {
   const text = linkText(target, dst, root);
   const same = Boolean(st?.isSymbolicLink()) && readlinkSync(dst) === text;
   if (dry) {
-    if (!same) change(st ? "~" : "+", dst);
+    if (!same) change(st ? "~" : "+", dst, what ? { note: what } : undefined);
     return true;
   }
   if (same) return true;
   if (st) rmSync(dst);
   mkdirSync(path.dirname(dst), { recursive: true });
   symlinkSync(text, dst);
-  note(`${path.relative(root, dst)} → ${path.relative(root, target)}`);
+  note(`${path.relative(root, dst)} → ${path.relative(root, target)}${what ? ` (${what})` : ""}`);
   return true;
 }
 
@@ -960,10 +961,51 @@ function composeOutsideQueue(root: string) {
   else warn(`package.json — ${text}`);
 }
 
-/** Claude Code: rules from `.claude/rules` load by themselves, whatever the CLAUDE.md. */
-function claudeRules(root: string) {
+/**
+ * Claude Code: rules from `.claude/rules` load by themselves, whatever the CLAUDE.md — the canon at the start of every
+ * session, a reference with `paths:` (`pathRules`) when the agent works with a matching file. A previous version's link
+ * of a reference that is no longer a rule (its `paths:` gone, the reference removed) goes; someone else's rule stays.
+ */
+function claudeRules(src: string, root: string) {
   link(path.join(root, CANON, "AGENTS.md"), path.join(root, RULES.agents), root);
   link(path.join(root, CANON, "claude/CLAUDE.md"), path.join(root, RULES.claude), root);
+  const rules = pathRules(src);
+  for (const r of rules) link(path.join(root, CANON, "docs", r.file), path.join(root, ruleOf(r.file)), root, `loads with ${r.paths.join(", ")}`);
+  const dir = path.join(root, ".claude/rules");
+  const wanted = new Set(rules.map((r) => path.basename(ruleOf(r.file))));
+  for (const f of lstat(dir)?.isDirectory() ? readdirSync(dir) : []) {
+    const p = path.join(dir, f);
+    if (wanted.has(f) || !lstat(p)?.isSymbolicLink() || !readlinkSync(p).includes(`${CANON}/docs/`)) continue;
+    if (dry) change("-", p, { note: "the reference is no longer a rule" });
+    else rmSync(p), note(`${path.relative(root, p)} — removed: the reference is no longer a rule`);
+  }
+}
+
+/** A reference's rule in Claude Code: `.claude/rules/elves-<name>.md` — a symlink to the canon's `docs/<name>.md`. */
+const ruleOf = (file: string) => `.claude/rules/elves-${file}`;
+
+/**
+ * The references that are Claude Code's path-scoped rules (#846): `docs/*.md` with a `paths:` list in the frontmatter.
+ * Claude Code loads such a rule when the agent reads or edits a matching file — the reference reaches the agent by
+ * itself instead of «read it when needed»; one without `paths:` is a document for people (installation, other agents,
+ * the prompt cache) and isn't linked. Only the YAML list form (`  - "<glob>"`) the references use is read.
+ */
+export function pathRules(src: string): { file: string; paths: string[] }[] {
+  const dir = path.join(src, "docs");
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort()
+    .flatMap((file) => {
+      const paths = pathsOf(readFileSync(path.join(dir, file), "utf8"));
+      return paths.length ? [{ file, paths }] : [];
+    });
+}
+
+/** The globs of a rule's `paths:` frontmatter list; no frontmatter or no list — none. */
+export function pathsOf(md: string): string[] {
+  const fm = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(md)?.[1];
+  const list = fm && /^paths:\n((?:[ \t]+-[^\n]*(?:\n|$))+)/m.exec(fm)?.[1];
+  return list ? [...list.matchAll(/^[ \t]+-[ \t]+["']?([^"'\n]+?)["']?[ \t]*$/gm)].map((m) => m[1]!) : [];
 }
 
 /**
@@ -1686,7 +1728,7 @@ function installGlobal(src: string, linkMode: boolean) {
   oldAgentRules(home);
 
   if (claude) {
-    claudeRules(home);
+    claudeRules(src, home);
     claudeHook(home);
     // install.sh installed ~/.claude/CLAUDE.md as a symlink to claude/CLAUDE.md, and that one imported AGENTS.md
     const old = path.join(home, ".claude/CLAUDE.md");

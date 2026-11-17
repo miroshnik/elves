@@ -151,7 +151,7 @@ export function bunxServesPackages(sb: Sandbox, dir: string) {
 /**
  * Что Claude Code грузит в контекст на старте сессии в корне проекта dir (code.claude.com/docs, memory): CLAUDE.md,
  * .claude/CLAUDE.md и CLAUDE.local.md в dir и выше (до top), а без них — AGENTS.md в dir; правила
- * `.claude/rules/*.md` проекта и `~/.claude/rules/*.md` пользователя. Пути — настоящие, через симлинки: один файл
+ * `.claude/rules/*.md` проекта и `~/.claude/rules/*.md` пользователя без `paths:`. Пути — настоящие, через симлинки: один файл
  * дважды — канон в контексте дважды; симлинк в никуда не грузится.
  */
 export function loadedAtStart(home: string, dir: string, top: string): string[] {
@@ -169,9 +169,11 @@ export function loadedAtStart(home: string, dir: string, top: string): string[] 
     if (d === top || d === path.dirname(d)) break;
   }
   if (!memory.length) memory.push(...real(path.join(dir, "AGENTS.md")));
+  // правило с `paths:` во frontmatter грузится по требованию, с подходящим файлом, — не на старте
+  const onDemand = (p: string) => /^---\n(?:[^\n]*\n)*?paths:/.test(readFileSync(p, "utf8"));
   const rules = (root: string) => {
     const at = path.join(root, ".claude/rules");
-    return (lstatSync(at, { throwIfNoEntry: false }) ? readdirSync(at) : []).filter((f) => f.endsWith(".md")).flatMap((f) => real(path.join(at, f)));
+    return (lstatSync(at, { throwIfNoEntry: false }) ? readdirSync(at) : []).filter((f) => f.endsWith(".md")).flatMap((f) => real(path.join(at, f))).filter((p) => !onDemand(p));
   };
   return [...memory, ...rules(home), ...rules(dir)];
 }
