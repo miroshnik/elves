@@ -48,6 +48,8 @@ import { BYPASSES } from "./bypasses.ts";
 import type { Bypass } from "./bypasses.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
+import { entryOf, executorAlive, executorOf, queueStep, worktreeRemovable } from "./queue.ts";
+import type { BatchFacts, Entry, Step as QueueNext, TaskFacts } from "./queue.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -3120,6 +3122,9 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
  * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`); outside auto
  * (#667) — while executors are handed out or awaited — the merge's wait for the owner's «yes» too (`MERGE_ASK`).
+ * The rules are the model's (queue.ts, #843): the queue reads each task's facts, its entry — the state, the line and
+ * the role for the release — is `entryOf`'s, the `Next:` step — `queueStep`'s by the transitions table; the texts of
+ * the steps are here.
  */
 export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const want = o.type === undefined ? undefined : typeAliases()[o.type.toLowerCase()];
@@ -3161,7 +3166,6 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // — after it, only with a task to hand out (#787): nothing is merged into a new batch yet, the readiness reads the same
   const dispatched = dispatcherBatch(io, slug, recent, file);
   let batch = dispatched.batch;
-  const inBatch = batch === null ? null : batchPrOf(recent, batch);
   /** The task's PRs — linked and found among the recent ones by the task branch or «Closes #N»: their state and base. */
   const prsOf = (i: Issue) => [
     ...i.prs.map((p) => ({ number: p.number, state: p.state, merged: p.merged, base: p.base })),
@@ -3174,87 +3178,73 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   // the release its CI checked
   const release = batch === null ? undefined : releasePrOf(recent, batch);
   const releasing = release?.state === "OPEN" ? (release.number as number) : null;
+  const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
+  /** The batch as the model reads it (queue.ts): the branch, the default one, the open release and its red. */
+  const batchFacts = (): BatchFacts => ({ batch, base: recent.base, release: releasing === null ? null : { number: releasing, red: checks?.state === "red" } });
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
   const read = openOf(io, slug);
   const isOpen = (n: number) => (states.has(n) ? states.get(n) === "OPEN" : read(n));
-  const ready: Issue[] = [];
-  const running: string[] = [];
-  const waiting: string[] = [];
   const facts = workFacts(io, slug, true);
-  /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
-  const settled: number[] = [];
-  /**
-   * Of the tasks in work: the batch's live executors — the release waits for them (#696). Without a batch — all of them;
-   * with one — a task with an open PR into the batch, or handed out to an executor of the batch (a subagent, an app
-   * session) that is neither merged into it nor gone past it: a PR into another branch (the default one) or In progress
-   * without a hand-out (the dispatcher's own task, another session's) don't hold the release.
-   */
-  let holding = 0;
-  /** Tasks in work past the batch — named by the release's `Next:` (#696). */
-  const past: string[] = [];
+  const same = (b: Blocker) => b.repo.toLowerCase() === slug.toLowerCase();
+  // the kept batch's merges: a task merged into it is `=` till the release (question 1 of epic #645); a blocker merged
+  // into it doesn't hold its task — the executor branches from the batch (#648); outside it — another batch or not
+  // merged — holds, as without batches
+  const inBatch = batch === null ? null : batchPrOf(recent, batch);
+  /** The queue's tasks, by number, with their entries (queue.ts). */
+  const entries: { i: Issue; e: Entry }[] = [];
   for (const n of numbers.sort((a, b) => a - b)) {
     const i = loadIssue(io, slug, n);
     states.set(i.number, i.state);
     const closer = i.state === "OPEN" ? null : awaiting(i.number, i);
-    if (i.state !== "OPEN" && closer === null) continue;
-    const label = `#${i.number} ${q(i.title)}`;
-    if (isEpic(i, org)) {
-      waiting.push(`○ ${label} — an epic: its tasks — task queue --epic ${i.number}`);
-      continue;
-    }
-    if (want && typeAliases()[(i.type ?? "").toLowerCase()] !== want) continue;
-    if (o.priority?.length && !o.priority.includes(i.priority ?? DEFAULT_PRIORITY)) continue;
+    // a hand-out closed by the batch's release (its «Closes #N»): its tail is batch release's, the queue has no line
+    const released = i.state !== "OPEN" && closer === null && handed.some((h) => h.number === i.number) ? i.prs.find((p) => p.merged && isBatchBranch(p.head) && !isBatchBranch(p.base)) : undefined;
+    const epic = isEpic(i, org);
+    if (!epic && want && typeAliases()[(i.type ?? "").toLowerCase()] !== want) continue;
+    if (!epic && o.priority?.length && !o.priority.includes(i.priority ?? DEFAULT_PRIORITY)) continue;
+    const open = i.state === "OPEN";
     // no board (#847) — by the facts: the task branch on origin, a session pin; its open PR is a line of its own
-    const fact = ctx.board ? null : factStatus(i, undefined, facts);
-    const status = ctx.board ? (itemIn(ctx.board, i)?.status ?? null) : fact!.status;
-    // the task is in work: In progress, an open PR (the executor waits for its CI — #513: it was ○ and the dispatcher
-    // lost it from both lists), or handed out to an executor of this session that hasn't set In progress yet
-    const pr = openPr(i);
-    // merged into the batch branch (question 1 of epic #645): open and In progress till the release — not given out again
-    const merged = inBatch?.(i.number, i.prs);
-    const work = [
-      closer === null ? "" : `PR #${closer} merged and closed the issue — waits for the deploy and task close`,
-      closer === null && status === N.status.inProgress ? `${q(N.status.inProgress)}${fact ? ` by the facts: ${fact.why}` : ""}` : "",
-      pr === undefined ? "" : `open PR #${pr} https://github.com/${slug}/pull/${pr}`,
-      merged === undefined ? "" : `PR #${merged} merged into ${batch} — the task closes with the batch's release`,
-    ].filter(Boolean);
+    const fact = !open || epic || ctx.board ? null : factStatus(i, undefined, facts);
+    const status = !open || epic ? null : ctx.board ? (itemIn(ctx.board, i)?.status ?? null) : fact!.status;
+    const pr = open || closer !== null ? openPr(i) : undefined;
     const hand = handed.find((h) => h.number === i.number);
-    // an app executor session (#624): the app continues the dispatcher at the end of each of its turns
-    if (!work.length && hand?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
-    else if (!work.length && hand) work.push("handed out to an executor of this session");
-    // past the batch (#697): its PR goes into the default branch — the release doesn't wait for it
-    if (batch !== null && hand?.main && merged === undefined) work.push(`past the batch ${batch} (--main): its PR goes into ${recent.base} with the full CI — the release doesn't wait for it`);
-    if (work.length) {
-      running.push(`= ${label} — ${work.join(", ")}`);
-      // merged into the batch, no open PR of it: its executor is done, the task waits for the release
-      if (merged !== undefined && pr === undefined) settled.push(i.number);
-      else if (batch === null) holding++;
-      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && !hand.main && !pastBatch(i)) holding++;
-      else past.push(`#${i.number}`);
-      continue;
-    }
-    // a blocker merged into this batch's branch doesn't hold its task: the executor branches from the batch (#648); a
-    // blocker outside it — merged into another batch or not merged — holds, as without batches
-    const batched = (b: Blocker) => inBatch !== null && b.repo.toLowerCase() === slug.toLowerCase() && inBatch(b.number) !== undefined;
-    // a blocker closed by its PR's merge holds till its task close (#769): the deploy it waits for may not have happened
-    const unclosed = (b: Blocker) => b.state !== "OPEN" && b.repo.toLowerCase() === slug.toLowerCase() && awaiting(b.number) !== null;
-    const blockers = [
-      ...i.blockers.filter((b) => b.state === "OPEN" && !batched(b)).map((b) => blockerRef(slug, b)),
-      ...i.blockers.filter(unclosed).map((b) => `#${b.number} (merged, not closed by task close)`),
-    ];
-    const external = i.labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l));
-    if (status === N.status.done) waiting.push(`○ ${label} — ${STATUS} ${q(status)}, but the task is open`);
-    else if (blockers.length) waiting.push(`○ ${label} — blocked by ${blockers.join(", ")}`);
-    else if (external) waiting.push(`○ ${label} — ${externalBlocker(io, slug, i.number, external)}`);
-    else if (releasing !== null) waiting.push(`○ ${label} — ready, held: the release of ${batch} is open (PR #${releasing}) — no new executors till its merge`);
-    else ready.push(i);
+    const external = open && !epic ? i.labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l)) : undefined;
+    const f: TaskFacts = {
+      number: i.number,
+      open,
+      closedBy: closer !== null ? { pr: closer, release: false } : released ? { pr: released.number, release: true } : null,
+      epic,
+      done: status === N.status.done ? `${STATUS} ${q(status)}` : null,
+      inProgress: status === N.status.inProgress ? `${q(N.status.inProgress)}${fact ? ` by the facts: ${fact.why}` : ""}` : null,
+      openPr: pr === undefined ? null : { number: pr, url: `https://github.com/${slug}/pull/${pr}`, base: prBase(i, pr) ?? "" },
+      inBatch: inBatch?.(i.number, i.prs) ?? null,
+      handOut: hand ? { executor: hand.executor, main: hand.main } : null,
+      pastBatch: pastBatch(i),
+      // a blocker closed by its PR's merge holds till its task close (#769): the deploy it waits for may not have happened
+      blockers: i.blockers.map((b) => ({
+        ref: blockerRef(slug, b),
+        open: b.state === "OPEN",
+        inBatch: inBatch !== null && same(b) && inBatch(b.number) !== undefined,
+        unclosed: b.state !== "OPEN" && same(b) && awaiting(b.number) !== null,
+      })),
+      external: external ? () => externalBlocker(io, slug, i.number, external) : null,
+    };
+    entries.push({ i, e: entryOf(f, batchFacts()) });
   }
-  ready.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
+  const readyOf = () => entries.filter((x) => x.e.state === "ready").map((x) => x.i);
+  // a new batch only with a task to hand out (#787): nothing is merged into it yet — the entries read the same
   if (dispatched.start) {
-    if (ready.length) batch = dispatched.start();
+    if (readyOf().length) batch = dispatched.start();
     else io.out(`○ no new batch branch: nothing ready to hand out — a queue with a ready task starts it`);
   }
+  const ready = readyOf().sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
+  const line = ({ i, e }: (typeof entries)[number]) => `${e.mark} #${i.number} ${q(i.title)} — ${e.why}`;
+  const running = entries.filter((x) => x.e.mark === "=").map(line);
+  const waiting = entries.filter((x) => x.e.mark === "○").map(line);
+  /** Of the tasks in work: merged into the batch and nothing else going — they wait only for the release (#649). */
+  const settled = entries.filter((x) => x.e.role === "settled").map((x) => x.i.number);
+  /** Tasks in work past the batch — named by the release's `Next:` (#696). */
+  const past = entries.filter((x) => x.e.role === "past").map((x) => `#${x.i.number}`);
   if (file) {
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — markers aren't committed into it
@@ -3282,36 +3272,39 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const now = settled.length ? `; the owner's word to release now — ${releaseCommand}: what is merged into ${batch} goes, the live executors go on, no new ones till its merge` : "";
   // outside auto an executor's merge is the owner's «yes» (#667)
   const ask = locale.autoProject(io.cwd ?? process.cwd()) ? "" : `; ${MERGE_ASK}`;
-  // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
-  const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
-  if (release && batch && checks?.state === "red") {
-    for (const line of fixSteps(slug, batch, release, checks, redRelease(io, slug, batch, recent.base, release, recent, checks, false), false)) io.out(line);
-  } else if (releasing !== null) {
-    io.out(
+  const wait = () => [`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`];
+  // the dispatcher's step — the model's (queue.ts: the first step the tasks' states call for by the transitions table)
+  const next: Record<QueueNext, () => string[]> = {
+    // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
+    fix: () => fixSteps(slug, batch!, release!, checks!, redRelease(io, slug, batch!, recent.base, release!, recent, checks!, false), false),
+    releaseSteps: () => [
       `Next: the release of ${batch} is open — PR #${releasing} https://github.com/${slug}/pull/${releasing}: no new executors till its merge, ` +
         `the live executors' PRs into ${batch} wait for it (pr premerge refuses the merge); its steps — ${releaseCommand} prints them; ` +
         `after each executor's answer — task queue again; ${SESSION_ARCHIVE}.`,
-    );
-  } else if (ready.length) {
-    const executors = queueExecutors(io);
-    io.out(
-      `Next: each ready task above — a background subagent in its own worktree while fewer than ${executors.n} run (the machine's capacity: ${executors.from}; a number from the request replaces it); ` +
-        `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
-    );
-  } else if (holding || (!settled.length && running.length)) io.out(`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`);
-  else if (settled.length) {
-    io.out(
+    ],
+    handOut: () => {
+      const executors = queueExecutors(io);
+      return [
+        `Next: each ready task above — a background subagent in its own worktree while fewer than ${executors.n} run (the machine's capacity: ${executors.from}; a number from the request replaces it); ` +
+          `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
+      ];
+    },
+    wait,
+    release: () => [
       `Next: the batch ${batch} is complete — nothing ready, every task of the batch is merged into it: its release — ${releaseCommand}, ` +
         `once no executor of the batch is still at work${past.length ? `; past the batch — ${past.join(", ")}: they don't hold the release` : ""}; ${SESSION_ARCHIVE}.`,
-    );
-  } else {
-    // the group is done (#698): no new batch — tasks created meanwhile join it only by the owner's word
-    const done = group ? ` The group (${group}) has nothing left — no new batch: a task outside it joins only by the owner's word, task queue --tasks with it.` : "";
-    io.out(
-      `Queue is empty: nothing ready, nothing ${q(N.status.inProgress)}; ${SESSION_ARCHIVE}.${done} ` +
-        "Then the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.",
-    );
-  }
+    ],
+    waitPast: wait,
+    empty: () => {
+      // the group is done (#698): no new batch — tasks created meanwhile join it only by the owner's word
+      const done = group ? ` The group (${group}) has nothing left — no new batch: a task outside it joins only by the owner's word, task queue --tasks with it.` : "";
+      return [
+        `Queue is empty: nothing ready, nothing ${q(N.status.inProgress)}; ${SESSION_ARCHIVE}.${done} ` +
+          "Then the dispatcher's summary (merged, questions, the not ready ones above) and the last line; a session with its own task — after it.",
+      ];
+    },
+  };
+  for (const l of next[queueStep(entries.map((x) => x.e), batchFacts())]()) io.out(l);
   return 0;
 }
 
@@ -4003,16 +3996,20 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
     const t = taskBranch(branch);
     return t !== null && closed(t.issue);
   };
+  /** A lock held by a live process — its reason; none or stale — null. */
+  const held = (w: Worktree) => (w.locked !== null && lockHolds(w.locked) ? w.locked : null);
+  // a running agent (its lock) and a live hand-out's executor are passed silently; HEAD's move isn't read here: task
+  // close itself detaches the worktree, a finished executor's HEAD moves last (the restart's check reads it — aliveWhy)
   const candidates = all
     .filter((w) => AGENT_WORKTREE.test(w.path) && w.path !== here && !w.prunable && (w.branch === null || AGENT_BRANCH.test(w.branch) || closedTaskBranch(w.branch)))
-    .filter((w) => (w.locked === null || !lockHolds(w.locked)) && !kept(w.path))
+    .filter((w) => worktreeRemovable(executorOf({ lock: held(w), guest: null, moved: null }).state, kept(w.path)))
     .sort((a, b) => a.path.localeCompare(b.path));
   // the subagents of this session and of the machine's other sessions with hand-outs: their executors' worktrees are here too
   const agents = candidates.length ? subagentsOf(io, [io.env["CLAUDE_CODE_SESSION_ID"] ?? "", ...handOutFiles(io).map((h) => h.session)].filter(Boolean)) : new Map<string, Subagent>();
   for (const w of candidates) {
-    const guest = guestWhy(agents, agentIdOf(w.path)!);
-    if (guest) {
-      io.out(`○ worktree ${w.path} left: ${guest}`);
+    const executor = executorOf({ lock: null, guest: guestWhy(agents, agentIdOf(w.path)!), moved: null });
+    if (!worktreeRemovable(executor.state, false)) {
+      io.out(`○ worktree ${w.path} left: ${executor.why}`);
       continue;
     }
     const status = git(io, w.path, "status", "--porcelain");
@@ -4145,15 +4142,18 @@ function guestWhy(agents: Map<string, Subagent>, host: string): string | null {
  * moved less than `QUIET_MINUTES` ago; quiet — null.
  */
 function aliveWhy(io: Io, w: Worktree, agents: Map<string, Subagent>): string | null {
-  if (w.locked !== null && lockHolds(w.locked)) return `locked by a live process — ${w.locked || "no reason"}`;
+  const lock = w.locked !== null && lockHolds(w.locked) ? w.locked : null;
   const id = agentIdOf(w.path);
-  const guest = id === null ? null : guestWhy(agents, id);
-  if (guest) return guest;
-  // the worktree's own HEAD log: the time of its latest entry (`HEAD@{<unix time>}`)
-  const r = git(io, w.path, "reflog", "-1", "--date=unix", "--format=%gd");
-  const at = Number(/@\{(\d+)\}/.exec(r.stdout)?.[1]);
-  const minutes = Math.floor((Date.now() / 1000 - at) / 60);
-  return r.status === 0 && at > 0 && minutes < QUIET_MINUTES ? `HEAD moved ${Math.max(0, minutes)} min ago (a commit or a switch), quiet after ${QUIET_MINUTES}` : null;
+  const guest = lock !== null || id === null ? null : guestWhy(agents, id);
+  /** The worktree's own HEAD log: the time of its latest entry (`HEAD@{<unix time>}`) — read only when nothing else tells. */
+  const moved = () => {
+    const r = git(io, w.path, "reflog", "-1", "--date=unix", "--format=%gd");
+    const at = Number(/@\{(\d+)\}/.exec(r.stdout)?.[1]);
+    const minutes = Math.floor((Date.now() / 1000 - at) / 60);
+    return r.status === 0 && at > 0 && minutes < QUIET_MINUTES ? `HEAD moved ${Math.max(0, minutes)} min ago (a commit or a switch), quiet after ${QUIET_MINUTES}` : null;
+  };
+  const executor = executorOf({ lock, guest, moved: lock !== null || guest !== null ? null : moved() });
+  return executorAlive(executor.state) ? executor.why : null;
 }
 
 /** The sessions' hand-out files on the machine — `dispatchers/<session id>.tasks` in the configuration directory (`handedOutFile`). */
