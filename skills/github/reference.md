@@ -147,8 +147,8 @@ added to the project right on creation (`github task new`). Required:
   Backlog, "Item closed" and "Pull request merged" → Done, "Auto-close issue"
   (Done → the issue is closed), "Auto-add to project" (new open issues of
   the repository get into the project by themselves) and "Auto-add sub-issues
-  to project": the status gets set even if there is no one to set it (a cloud
-  session, another agent, closing from the GitHub UI). The agent sets the
+  to project": the status gets set even if there is no one to set it (another
+  agent, closing from the GitHub UI). The agent sets the
   status anyway; a task closed as not planned it removes from the project —
   otherwise the workflow puts it into Done. "Auto-archive items" (`is:issue
   is:closed updated:<@today-2w`) takes a task closed and untouched for two
@@ -327,7 +327,7 @@ session stops its own background tasks still running (a wait, a watcher over
 its output, a subagent): by this line everything needed has finished, and a
 live leftover blocks archiving (#437). How to archive — in the
 agent's file (`claude/CLAUDE.md`); an agent without such a tool (another
-agent, a cloud session) keeps the line. Archiving isn't deletion: the session can be
+agent) keeps the line. Archiving isn't deletion: the session can be
 restored.
 
 ## Project check and fix
@@ -633,11 +633,11 @@ decision in chat gets lost.
 An edit of the description in one call (#670), not `gh issue view --json
 body`, a file and `gh issue edit --body-file`: `--replace <old> <new>` — the
 text must occur exactly once; `--add "## <section>" "<item>"` — at the end of
-the section (it ends at a heading of its level or higher, or `---`: the cloud
-proxy's signature isn't in it), the section by its heading or its bare name
+the section (it ends at a heading of its level or higher, or `---`: a
+signature after it isn't in it), the section by its heading or its bare name
 (`Scenarios` — the heading `## Scenarios`); the canon's section the description
 lacks (questions, scenarios, any language) — created at the description's end,
-before the cloud proxy's signature; an item without a list marker gets the one of
+before a signature after `---`; an item without a list marker gets the one of
 the section's last top-level item — `- [ ]` after a checklist, the next
 number after a numbered list, its bullet, otherwise `- `, in the questions
 section `1.` (`task answer` finds a question by its number); `--check
@@ -646,8 +646,7 @@ Several edits — in order, each sees the previous one's result, one write.
 Refused before any change (code 2), none of the call's edits written: a text
 not found or found twice, another section missing (the error names the
 description's sections) or two of them, no or two unchecked items, an edit
-missing a value. Questions — `task answer`. A cloud session — over the
-repository's REST.
+missing a value. Questions — `task answer`.
 
 ### A call error — the corrected command
 
@@ -1012,15 +1011,6 @@ subagent metadata of this session and of the sessions with hand-outs
 removed only by the queue, not by the dispatcher's `git worktree remove` after
 a clean `git status` (#628): a live subagent without a worktree of its own
 leaves no trace in `git status`, and its directory goes from under it.
-A session started to dispatch works in the project folder, not a worktree
-(#588): the app starts a cloud session from the branch in the starting
-session's record (`get_session` → `branch`), not from git — a session from
-the app's worktree has its `claude/<slug>-<hash>` there, never pushed, and the
-clone fails with «The requested branch or commit was not found», a detached
-checkout too; a session in the project folder has none — `main`. In the app's
-worktree (`.claude/worktrees/<name>`, not `agent-*`) the queue prints a `!`
-line with the project folder and still goes, code 0: subagent executors
-branch from origin/main in their own worktrees.
 `--epic N` — the epic's open sub-issues, `--tasks N,M,…` — the dispatcher's
 group (#698), otherwise the repository's open tasks (the first 100 of the search);
 `--type`, `--priority` — only in an organization. It marks the session as a
@@ -1091,10 +1081,10 @@ is a Bash call of up to 9 minutes without commits.
 
 In Claude Code: an executor — `Agent` with `isolation: "worktree"` and
 `run_in_background: true`, the prompt — the indented line as is; at most the
-machine's executors in subagents and 5 cloud sessions at once, the owner's
-number replaces either (subagents share the machine: `Next:` names the
-executors of its capacity — `slot --capacity`, `machine.json` or the cores and
-memory, without the slot skill — 3; a cloud session has its own container); a task in work (`=`) isn't launched again.
+machine's executors at once, the owner's number replaces it (subagents share
+the machine: `Next:` names the executors of its capacity — `slot --capacity`,
+`machine.json` or the cores and memory, without the slot skill — 3); a task in
+work (`=`) isn't launched again.
 Before each launch — `get_usage` (#815): a window of `plan.windows` at 85% and
 more — any but the window of a model the executors don't run on (`Weekly ·
 <model>`; theirs — the dispatcher's own unless the launch names another) — no
@@ -1132,8 +1122,8 @@ session, not a subagent, so the subagent's lines don't apply: by the canon of it
 project and its mode, named `#N <title>`, CI and the deploy waited for with a
 background command, the canon's last line at the end; `Next:` — `start_session`
 with `cwd` the project folder and `use_worktree` true. The hand-out — without a
-worktree (`@session`): the task is `=` in the queue. Archiving, app and cloud executors alike
-(#621): an executor session whose task closed — the dispatcher archives it in
+worktree (`@session`): the task is `=` in the queue. Archiving (#621): an
+executor session whose task closed — the dispatcher archives it in
 an auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. Closed — `task close` passed:
 the PR merged, the deploy green, the actual written; the session is still in
@@ -1147,20 +1137,6 @@ the list, and the owner wouldn't read its question), a project outside auto
 mode — the owner closes those. The step — the last line of `task queue`, read
 after each answer; in Claude Code — `archive_session` with the session's id,
 refused — not retried (`claude/CLAUDE.md`).
-
-A cloud executor (claude.ai/code, #609) — `--assignment N --cloud`, called by
-the dispatcher itself: the brief,
-the cloud session's first prompt as is — whole, `task queue` refuses in
-the cloud; `#` only at its task (`docs/cloud-sessions.md`, "The
-brief"); outside auto it asks the owner for the merge in its session (#667:
-it can't message the dispatcher); after the merge — the cloud's close,
-without messaging the dispatcher or archiving its session. The hand-out — without a worktree
-(`@cloud`). A cloud session can't message a local one, so `Next:` gives the
-dispatcher the wait for the task's closing — `wait-ci.sh issue N` as a
-background command; PASS — `task close N`, then archiving the executor's
-session in an auto project (above); TIMEOUT — the task's questions and State
-comment, the wait again;
-after the app restarts the queue's `=` line names the wait.
 
 A batch project (epic #645) — `"batch": true` in `.agents/elves.json` of the
 dispatcher's checkout (`install` and `update` carry it over): the dispatcher's
@@ -1201,13 +1177,9 @@ the assignment names `task-env down <N>` after the merge, before the answer,
 dispatcher's `task queue` — of each task merged into the batch with no open PR
 (its executor is done), only `+` and `!` lines: a stack already down is said
 nothing of; `task close` at the release finds them gone — an `○` line. `task actualize` names the batch PR as what
-shipped and leaves the blocked-by links on the task till the release. A cloud
-executor (`--cloud`) isn't in the batch: its PR goes into the default branch
-with the full CI — the dispatcher learns of its end only by the task's
-closing, and a merge into the batch doesn't close it (#648); its brief and
-`Next:` say so. A task past the batch — the owner's word «past the batch»
-(#697): `--assignment N --main` (with `--session` too; `--cloud` is past it
-anyway) — the assignment of a project without batches: the branch from
+shipped and leaves the blocked-by links on the task till the release. A task
+past the batch — the owner's word «past the batch» (#697): `--assignment N
+--main` (with `--session` too) — the assignment of a project without batches: the branch from
 `origin/<base>`, the PR into it with the full CI, the deploy, the epic refresh
 and `task close`; the hand-out keeps `@main` — a restart keeps the way, `task
 finish` opens the PR into the default branch, the queue's `=` line says «past
@@ -1221,9 +1193,9 @@ merged into the batch without an open PR of it isn't a live executor. The
 condition is the batch's tasks, not all In progress (#696): a live executor
 of the batch is a task with an open PR into it, or one handed out to a
 subagent or an app session, not merged into the batch and without a PR into
-another branch; a task past the batch — its PR into the default branch, a
-cloud executor, In progress without a hand-out (the dispatcher's own task,
-another session's) — doesn't hold the release, `Next:` names it as past the
+another branch; a task past the batch — its PR into the default branch, In
+progress without a hand-out (the dispatcher's own task, another session's) —
+doesn't hold the release, `Next:` names it as past the
 batch. With
 live executors — the owner's word «release», the same command; `Next:` names
 it once something is merged. The release PR open — ready tasks are held (`○ …
@@ -1235,8 +1207,8 @@ it (the bisect is its). The assignment of a task in a red open release —
 the fix's (`--assignment`, `--session`): the release PR and its failed
 checks, a new task branch `fix/<N>-<slug>` from `origin/<batch>`, not the
 task's earlier branch (rebase-merged into the batch already, so no restart
-line), the commits and the PR body with `Refs #N`; `--cloud` — refused: a
-cloud executor isn't in the batch. Released — its release PR merged,
+line), the commits and the PR body with `Refs #N`. Released — its release PR
+merged,
 the branch maybe still on origin — the next batch starts only with a ready
 task to hand out (`○ no new batch branch` otherwise), like the first one: a
 dispatcher with nothing to hand out leaves no empty batch branch on origin, and
@@ -1503,8 +1475,7 @@ something remains — `Remaining: …`. In auto mode after
 has the tool (the command doesn't read the manifest — the condition is stated
 in words); after the other two lines — no. Information without a decision (an
 observation, a deadline, a warning) isn't a question: the line and archiving
-are the same. A cloud session — a refusal with an explanation
-(`docs/cloud-sessions.md`).
+are the same.
 
 ## Git, PRs and merging — full rules
 
