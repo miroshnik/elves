@@ -1841,7 +1841,7 @@ function pinnedTask(io: Io): { file: string; line: string; task: { slug: string;
  * session card waited for the owner's click, and its work fell out of this session's sight.
  */
 function queueQuestion(slug: string, number: number, epic: number | null): string {
-  return `the question to the owner «queue #${number}?» — yes: a background subagent in its own worktree, its prompt: ${executorPrompt(slug, number, epic)}`;
+  return `the question to the owner «queue #${number}?» — yes: ${EXECUTOR_AGENT}, its prompt: ${executorPrompt(slug, number, epic)}`;
 }
 
 /** The refusal of another task in a session with a pinned one: the pinned task, the queue question, the pin's file. */
@@ -2332,7 +2332,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
     // an epic's work goes to the dispatcher on the owner's "yes" (#546), not to a session card per subtask
     io.out(
       `Next: once its subtasks are created — the question to the owner «run the dispatcher on epic #${created.number}?»; ` +
-        `yes — bun --no-env-file ${import.meta.path} task queue --epic ${created.number} --repo ${slug} in this session, its executors — background subagents.`,
+        `yes — bun --no-env-file ${import.meta.path} task queue --epic ${created.number} --repo ${slug} in this session, its executors — ${EXECUTOR_AGENT}.`,
     );
     return 0;
   }
@@ -3092,6 +3092,13 @@ function holdsOf(io: Io, slug: string, number: number, blockers: Blocker[], labe
   return [held.length ? `blocked by ${held.join(", ")}` : "", label ? externalBlocker(io, slug, number, label) : ""].filter(Boolean);
 }
 
+/**
+ * How the dispatcher launches an executor in Claude Code (#860): the Elves plugin's agent `elves:executor` — its own
+ * worktree and the background are its definition (`agents/executor.md`: `isolation: worktree`, `background: true`), not
+ * parameters of each call.
+ */
+const EXECUTOR_AGENT = 'the plugin\'s agent elves:executor (Agent with subagent_type: "elves:executor" — its own worktree, in the background)';
+
 /** The executor's prompt: the task first (`est` links the subagent's work by it), the whole assignment — from the script. */
 function executorPrompt(slug: string, number: number, epic: number | null): string {
   return locale.fill(N.queue.prompt, {
@@ -3327,7 +3334,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     handOut: () => {
       const executors = queueExecutors(io);
       return [
-        `Next: each ready task above — a background subagent in its own worktree while fewer than ${executors.n} run (the machine's capacity: ${executors.from}; a number from the request replaces it); ` +
+        `Next: each ready task above — ${EXECUTOR_AGENT} while fewer than ${executors.n} run (the machine's capacity: ${executors.from}; a number from the request replaces it); ` +
           `the indented line is its whole prompt. After each executor's answer — task queue again: new tasks get in${ask}; ${SESSION_ARCHIVE}${now}.`,
       ];
     },
@@ -3717,7 +3724,7 @@ function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseCh
     guilty: () => {
       const g = r.guilty!;
       return [
-        `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new background subagent in its own worktree with it as the prompt. ` +
+        `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new one, ${EXECUTOR_AGENT}, with it as the prompt. ` +
           `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the checks before a commit, no CI; ${again}`,
         `  ${executorPrompt(slug, g.number, g.issue.parent?.number ?? null)}`,
       ];
