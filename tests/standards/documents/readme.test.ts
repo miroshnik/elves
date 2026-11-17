@@ -158,7 +158,7 @@ describe("README называет всё, что ставит флоу, и не 
       if (!p.mention.test(README)) throw new Error(`README не называет подкоманду ${p.key} — допиши её в строку команд скилла в README (tests/standards/documents/readme)`);
     },
     violator: { name: "подкоманда, которой README не называет", item: subcommand("github", ["task", "archive"]) },
-    includes: ["github task close", "est cloud-import"],
+    includes: ["github task close", "est period"],
   });
 
   it("относительные ссылки и якоря README ведут на существующие файлы и разделы", () => {
@@ -186,8 +186,8 @@ describe("README называет всё, что ставит флоу, и не 
     });
 
     it("подкоманды — слова справки после имени скрипта до первого аргумента, без повторов", () => {
-      const usage = "est — оценка\n\n  est fact <N> [--write]\n  est fact --sweep\n  est cloud-import <файл>...\n  chart [--repo o/r]\n";
-      expect(subcommandsOf("est", usage).map((p) => p.key)).toEqual(["est fact", "est cloud-import"]);
+      const usage = "est — оценка\n\n  est fact <N> [--write]\n  est fact --sweep\n  est period --since DATE\n  chart [--repo o/r]\n";
+      expect(subcommandsOf("est", usage).map((p) => p.key)).toEqual(["est fact", "est period"]);
       expect(subcommandsOf("chart", usage)).toEqual([]);
     });
 
