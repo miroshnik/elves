@@ -5,6 +5,7 @@
  * Subcommands:
  *   est fact     — actual (the agent's active hours) from Claude Code transcripts for an issue
  *   est period   — summary of all the repo's sessions over a period, not tied to tasks: the flow before and after
+ *   est usage    — the flow's use over a period: calls of its commands, --help, reference reads, bypasses, the unused
  *
  * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the comment with the
  * HTML marker <!-- fact {...} --> and, where the repository has a board, the project field "Actual, h"). Without --write
@@ -18,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { BYPASSES } from "../../github/scripts/bypasses.ts";
 import locale from "../../github/scripts/locale.ts";
 import type { Names, Plural } from "../../github/scripts/locale.ts";
 
@@ -3762,6 +3764,458 @@ function cmdPeriod(args: PeriodArgs): void {
 }
 
 // ----------------------------------------------------------------------------
+// The flow's use: what of its commands and references the agent calls (#845)
+// ----------------------------------------------------------------------------
+
+/**
+ * A use of the flow in a transcript: [time, agent, id, kind, what, detail]. agent — as on a record (Session.ev[5]); id
+ * — the tool call's id and the use's number in it: a resumed session copies the history, a use counts once. `call` and
+ * `help` (with --help or -h) — a flow script's call: the script and its command words; `read` — a reference read: its
+ * key (`github/reference.md`, `docs/testing.md`) and the file ("" — the Skill tool); `bypass` — a bypass of a flow
+ * command by the guard hook's list: its label and the repository the call names ("" — none, the session's own).
+ */
+export type Use = [ts: number, agent: number, id: string, kind: "call" | "help" | "read" | "bypass", what: string, detail: string];
+
+/** A session's uses of the flow — its top level and its subagents; spans — [agent, first, last] of their tool calls. */
+export interface UsageSession {
+  file: string;
+  cwds: string[];
+  spans: [number, number, number][];
+  uses: Use[];
+}
+
+/** A simple command's words: split by blanks outside quotes, the quotes removed. */
+function shellWords(seg: string): string[] {
+  const out: string[] = [];
+  let cur: string | null = null;
+  let quote = "";
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i]!;
+    if (quote) {
+      if (c === quote) quote = "";
+      else cur = (cur ?? "") + (c === "\\" && quote === '"' && i + 1 < seg.length ? seg[++i]! : c);
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      cur ??= "";
+    } else if (c === " " || c === "\t") {
+      if (cur !== null) out.push(cur);
+      cur = null;
+    } else cur = (cur ?? "") + (c === "\\" && i + 1 < seg.length ? seg[++i]! : c);
+  }
+  if (cur !== null) out.push(cur);
+  return out;
+}
+
+// a flow skill's script by its path (the machine's copy, a clone, a project's package) and the installer `elves`
+const FLOW_SCRIPT_RE = new RegExp(String.raw`(?:^|\/)skills\/(?:${FLOW_SKILLS.join("|")})\/scripts\/([\w.-]+)\.(?:ts|sh)$`);
+const INSTALLER_RE = /^(?:elves|@miroshnik\/elves(?:@[\w.-]+)?|github:miroshnik\/elves(?:#[\w./-]+)?)$|(?:^|\/)(?:bin\/elves\.ts|\.bin\/elves)$/;
+const SCRIPT_RUNNERS = new Set(["bun", "bunx", "node", "npx", "tsx", "bash", "sh", "zsh"]);
+const COMMAND_WORD = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * A flow script's call in a simple command: the script (`github`, `wait-ci`, the installer — `elves`), its command words
+ * up to the first argument (at most three) and whether it asks for --help; otherwise null.
+ */
+function flowCall(seg: string): { script: string; words: string; help: boolean } | null {
+  const w = shellWords(seg);
+  let i = 0;
+  if (SCRIPT_RUNNERS.has(path.basename(w[0] ?? ""))) for (i = 1; i < w.length && w[i]!.startsWith("-"); i++);
+  const at = w[i] ?? "";
+  const script = FLOW_SCRIPT_RE.exec(at)?.[1] ?? (INSTALLER_RE.test(at) ? "elves" : null);
+  if (!script) return null;
+  const rest = w.slice(i + 1);
+  const words: string[] = [];
+  for (const x of rest) {
+    if (words.length === 3 || !COMMAND_WORD.test(x)) break;
+    words.push(x);
+  }
+  return { script, words: words.join(" "), help: rest.includes("--help") || rest.includes("-h") };
+}
+
+/** The guard hook's rules (BYPASSES): command words and the label in the report — with the flag that makes a bypass. */
+const BYPASS_RULES = BYPASSES.map((b) => {
+  const words = (/^Bash\((.+?)(?: \*)?\)$/.exec(b.rule)?.[1] ?? "").split(" ").filter(Boolean);
+  return { b, words, label: [...words, ...(b.when ? [b.when[0]!] : [])].join(" ") };
+});
+
+/**
+ * A bypass of a flow command in a simple command — by the guard hook's list (`github hook guard`, one list for both):
+ * its label and the repository the call names by `--repo`, `-R` or an issue URL ("" — none); otherwise null.
+ */
+function bypassCall(seg: string): { rule: string; repo: string } | null {
+  const w = shellWords(seg);
+  for (const { b, words, label } of BYPASS_RULES) {
+    if (w.length < words.length || words.some((x, k) => (k ? w[k] : path.basename(w[k]!)) !== x)) continue;
+    let repo = "";
+    const flags: string[] = [];
+    const args = w.slice(words.length);
+    for (let k = 0; k < args.length; k++) {
+      const a = args[k]!;
+      const url = /^https?:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/(?:issues|pull)\/\d+/i.exec(a);
+      if (url) repo = url[1]!;
+      if (!a.startsWith("-") || a === "-") continue;
+      const long = a.startsWith("--");
+      const name = long ? a.split("=")[0]! : a.slice(0, 2);
+      if (name !== "--repo" && name !== "-R") {
+        flags.push(name);
+        continue;
+      }
+      // a value in the same word: `--repo=o/r`, `-Ro/r`, `-R=o/r`
+      const inline = long ? (a.includes("=") ? a.slice(a.indexOf("=") + 1) : undefined) : a.length > 2 ? a.slice(2).replace(/^=/, "") : undefined;
+      repo = (inline ?? args[++k] ?? "").replace(/^(?:https?:\/\/)?github\.com\//i, "").replace(/(?:\.git)?\/?$/, "");
+    }
+    if (b.when && !flags.some((f) => b.when!.includes(f))) continue;
+    if (b.only && flags.some((f) => !b.only!.includes(f))) continue;
+    return { rule: label, repo };
+  }
+  return null;
+}
+
+const SHELL_READERS = new Set(["cat", "head", "tail", "sed", "less", "more", "bat", "nl"]);
+const SKILL_REF_RE = new RegExp(String.raw`\/skills\/(${FLOW_SKILLS.join("|")})\/([^/]+\.md)$`);
+const elvesRoots = new Map<string, boolean>();
+
+/** A directory whose `docs/` are Elves': the machine's copy (`~/.agents/elves`), the package, a clone or its worktree. */
+function elvesRoot(dir: string): boolean {
+  if (dir.endsWith("/elves")) return true;
+  const root = dir.replace(/\/\.claude\/worktrees\/[^/]+$/, "");
+  if (!elvesRoots.has(root)) elvesRoots.set(root, existsSync(path.join(root, "skills", "est", "SKILL.md")));
+  return elvesRoots.get(root)!;
+}
+
+/** The flow's reference a file is: `<skill>/<file>.md` of a flow skill, `docs/<file>.md` of Elves; otherwise null. */
+function flowRef(file: string): string | null {
+  const skill = SKILL_REF_RE.exec(file);
+  if (skill) return `${skill[1]}/${skill[2]}`;
+  const doc = /^(.*)\/docs\/([^/]+\.md)$/.exec(file);
+  return doc && elvesRoot(doc[1]!) ? `docs/${doc[2]}` : null;
+}
+
+/** A shell word as a file: `~` and `$HOME` — the home directory, a relative one — from the record's directory. */
+const shellPath = (word: string, cwd: string) => path.resolve(cwd || "/", word.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/, os.homedir()));
+
+/** The flow's uses in one tool call: flow commands and bypasses in its shell command, reference reads. */
+function usesOf(name: string, input: Any, cwd: string): [Use[3], string, string][] {
+  const out: [Use[3], string, string][] = [];
+  if (name === "Bash" && typeof input.command === "string") {
+    for (const seg of commandSegments(input.command)) {
+      const call = flowCall(seg);
+      if (call) out.push([call.help ? "help" : "call", call.script, call.words]);
+      const bypass = bypassCall(seg);
+      if (bypass) out.push(["bypass", bypass.rule, bypass.repo]);
+      const w = shellWords(seg);
+      if (!SHELL_READERS.has(w[0] ?? "")) continue;
+      for (const a of w.slice(1)) {
+        const file = a.startsWith("-") || !a.endsWith(".md") ? null : shellPath(a, cwd);
+        const ref = file ? flowRef(file) : null;
+        if (ref) out.push(["read", ref, file!]);
+      }
+    }
+  } else if (name === "Read" && typeof input.file_path === "string") {
+    const ref = flowRef(input.file_path);
+    if (ref) out.push(["read", ref, input.file_path]);
+  } else if (name === "Skill" && FLOW_SKILLS.includes(String(input.skill))) out.push(["read", `${input.skill}/SKILL.md`, ""]);
+  return out;
+}
+
+/** One transcript's uses into the session's: only records with tool calls are parsed. */
+function scanUsageFile(file: string, agent: number, into: UsageSession): void {
+  let first = Infinity;
+  let last = -Infinity;
+  for (const raw of readFileSync(file, "utf8").split("\n")) {
+    if (!raw.includes('"tool_use"')) continue;
+    let r: Any;
+    try {
+      r = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const ts = r?.type === "assistant" && Array.isArray(r.message?.content) ? parseTs(r.timestamp) : null;
+    if (ts === null) continue;
+    const cwd = typeof r.cwd === "string" ? r.cwd : "";
+    if (cwd && !into.cwds.includes(cwd)) into.cwds.push(cwd);
+    for (const b of r.message.content) {
+      if (b?.type !== "tool_use") continue;
+      first = Math.min(first, ts);
+      last = Math.max(last, ts);
+      const uses = usesOf(String(b.name ?? ""), b.input && typeof b.input === "object" ? b.input : {}, cwd);
+      uses.forEach(([kind, what, detail], k) => into.uses.push([ts, agent, `${b.id ?? ts}:${k}`, kind, what, detail]));
+    }
+  }
+  if (first <= last) into.spans.push([agent, first, last]);
+}
+
+/** A session's uses of the flow: its top-level transcript and its subagents' (agent k — the k-th, as in parseSessionFile). */
+export function scanUsage(file: string): UsageSession {
+  const s: UsageSession = { file, cwds: [], spans: [], uses: [] };
+  scanUsageFile(file, 0, s);
+  for (const [k, sf] of subagentFiles(file).entries()) {
+    try {
+      scanUsageFile(sf, k + 1, s);
+    } catch {
+      continue;
+    }
+  }
+  return s;
+}
+
+/** The flow's commands and references: what the report counts and, without a call, names a candidate for removal. */
+export interface Universe {
+  /** A script's commands from its --help overview; [""] — a script without commands, only arguments. */
+  commands: Record<string, string[]>;
+  /** References: `<skill>/<file>.md` of the flow's skills, `docs/<file>.md` of Elves. */
+  refs: string[];
+}
+
+/** The skills' directory next to this script: a clone's, the package's or the machine's (`~/.agents/skills`). */
+const SKILLS_DIR = path.resolve(import.meta.dir, "../..");
+
+/** A script's commands in its --help overview: the words after its name up to the first argument (scripts#cli-help). */
+function overviewCommands(name: string, overview: string): string[] {
+  const re = new RegExp(String.raw`^ {2}(?:bun --no-env-file \S*\/)?${reEscape(name)}((?: [a-z][a-z0-9-]*)+)(?= |$)`, "gm");
+  return [...new Set([...overview.matchAll(re)].map((m) => m[1]!.trim()))];
+}
+
+const mdIn = (dir: string) => {
+  try {
+    return readdirSync(dir).filter((f) => f.endsWith(".md")).sort();
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The flow next to this script: each flow script's commands from its --help — offline and without writes (standard
+ * scripts#cli-help), so a new command is in the report without a change here; the installer's commands of a skill
+ * (`elves task-env up`) are the skill's. References — the md files of the flow's skills and of Elves `docs/`: a clone's
+ * and the package's next to `skills/`, the machine's in `~/.agents/elves/docs`.
+ */
+function flowUniverse(skillsDir = SKILLS_DIR): Universe {
+  const root = path.dirname(skillsDir);
+  const scripts: [string, string][] = [];
+  for (const skill of FLOW_SKILLS) {
+    const dir = path.join(skillsDir, skill, "scripts");
+    let names: string[] = [];
+    try {
+      names = readdirSync(dir).sort();
+    } catch {
+      continue;
+    }
+    for (const fn of names) {
+      const file = path.join(dir, fn);
+      try {
+        if (statSync(file).isFile() && readFileSync(file, "utf8").startsWith("#!")) scripts.push([fn.replace(/\.(?:ts|sh)$/, ""), file]);
+      } catch {
+        continue;
+      }
+    }
+  }
+  if (existsSync(path.join(root, "bin", "elves.ts"))) scripts.push(["elves", path.join(root, "bin", "elves.ts")]);
+  const names = new Set(scripts.map(([n]) => n));
+  const commands: Record<string, string[]> = {};
+  for (const [name, file] of scripts) {
+    const opts = { encoding: "utf8", timeout: 30_000 } as const;
+    const r = file.endsWith(".sh") ? spawnSync("bash", [file, "--help"], opts) : spawnSync(process.execPath, ["--no-env-file", file, "--help"], opts);
+    const cmds = overviewCommands(name, r.stdout ?? "").filter((c) => !(name === "elves" && names.has(c.split(" ")[0]!)));
+    commands[name] = cmds.length ? cmds : [""];
+  }
+  const docs = [path.join(root, "docs"), path.join(root, "elves", "docs")].find((d) => existsSync(d));
+  const refs = [...FLOW_SKILLS.flatMap((s) => mdIn(path.join(skillsDir, s)).map((f) => `${s}/${f}`)), ...(docs ? mdIn(docs).map((f) => `docs/${f}`) : [])];
+  return { commands, refs };
+}
+
+/** A command's calls: in all, of them in subagents and with --help. */
+export interface UsageRow {
+  calls: number;
+  sub: number;
+  help: number;
+}
+
+/** The flow's use over the period [since, until). */
+export interface Usage {
+  since: number;
+  until: number;
+  sessions: number; // sessions with tool calls in the period
+  agents: number; // of their subagents
+  calls: Record<string, UsageRow>; // by command: `github task show`, a script without commands — `slot`
+  unknown: string[]; // called commands a script's --help doesn't name
+  total: number; // calls of the flow's commands
+  help: number; // of them with --help
+  reads: Record<string, number>; // reads by reference
+  bypasses: Record<string, number>; // bypasses by the guard hook's rule
+  idle: string[]; // commands without a call — candidates for removal
+  unread: string[]; // references without a read — candidates too
+}
+
+/** A session for the report: its repository and the repository's directories (its working tree). */
+export interface UsageInput {
+  session: UsageSession;
+  repo: string | null;
+  paths: string[];
+}
+
+/** A call's command in the universe; a skill's command through the installer (`elves task-env up`) — the skill's. */
+function commandKey(script: string, words: string, u: Universe): { key: string; known: boolean } {
+  let s = script;
+  let ws = words ? words.split(" ") : [];
+  if (s === "elves" && ws[0] && u.commands[ws[0]]) [s, ws] = [ws[0], ws.slice(1)];
+  const cmds = u.commands[s];
+  if (!cmds) return { key: [s, ...ws].join(" "), known: true }; // a script the universe doesn't have: nothing to check against
+  const line = `${ws.join(" ")} `;
+  const hit = cmds.filter((c) => c && line.startsWith(`${c} `)).sort((a, b) => b.length - a.length)[0];
+  if (hit) return { key: `${s} ${hit}`, known: true };
+  // the script itself: one without commands (the words are its arguments) or its overview
+  if (cmds.includes("") || !ws.length) return { key: s, known: true };
+  // a group of commands (`github task --help`) — the words start some command
+  return { key: [s, ...ws].join(" "), known: cmds.some((c) => `${c} `.startsWith(line)) };
+}
+
+/**
+ * The flow's use over [since, until): calls of the flow's commands — sessions and their subagents, a resumed session's
+ * copied history once — of them --help, reference reads (a file of the session's own working tree — its repository's
+ * directories but `node_modules` — is its work, not a reference), bypasses (a call naming another repository isn't one),
+ * and the commands and references without a call.
+ */
+export function usageSummary(sessions: UsageInput[], u: Universe, since: number, until: number): Usage {
+  const res: Usage = { since, until, sessions: 0, agents: 0, calls: {}, unknown: [], total: 0, help: 0, reads: {}, bypasses: {}, idle: [], unread: [] };
+  const seen = new Set<string>();
+  const unknown = new Set<string>();
+  const own = (file: string, paths: string[]) => !!file && !file.includes("/node_modules/") && paths.some((p) => file === p || file.startsWith(p.replace(/\/+$/, "") + "/"));
+  const add = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
+  for (const { session: s, repo, paths } of sessions) {
+    const spans = s.spans.filter(([, a, z]) => a < until && z >= since);
+    if (spans.length) res.sessions++;
+    res.agents += spans.filter(([agent]) => agent > 0).length;
+    for (const [ts, agent, id, kind, what, detail] of s.uses) {
+      if (ts < since || ts >= until || seen.has(id)) continue;
+      seen.add(id);
+      if (kind === "call" || kind === "help") {
+        const { key, known } = commandKey(what, detail, u);
+        const row = (res.calls[key] ??= { calls: 0, sub: 0, help: 0 });
+        row.calls++;
+        res.total++;
+        if (agent > 0) row.sub++;
+        if (kind === "help") row.help++, res.help++;
+        if (!known) unknown.add(key);
+      } else if (kind === "read") {
+        if (!own(detail, paths)) add(res.reads, what);
+      } else if (!detail || detail.toLowerCase() === repo?.toLowerCase()) add(res.bypasses, what);
+    }
+  }
+  for (const [s, cmds] of Object.entries(u.commands)) for (const c of cmds) if (!res.calls[c ? `${s} ${c}` : s]) res.idle.push(c ? `${s} ${c}` : s);
+  res.idle.sort();
+  res.unread = u.refs.filter((r) => !res.reads[r]).sort();
+  res.unknown = [...unknown].sort();
+  return res;
+}
+
+/** A table: the first column left-aligned, the numbers right-aligned; no rows — «none». */
+function usageRows(head: string[], rows: string[][]): string[] {
+  const widths = head.map((_, i) => Math.max(...[head, ...rows].map((r) => r[i]!.length)));
+  const fmt = (r: string[]) => r.map((x, i) => (i ? pad(x, widths[i]!, true) : pad(x, widths[0]!))).join("  ").trimEnd();
+  return [fmt(head), ...(rows.length ? rows.map(fmt) : ["  none"])];
+}
+
+/** The mark of a called command the script's --help doesn't name: removed or mistyped. */
+const NOT_IN_HELP = " (not in --help)";
+const USAGE_NOTE =
+  "A command only a hook or CI calls (github hook guard, spec-publish) has no calls in transcripts. A candidate gets a removal task or a «keep, because …» line in its decision's md.";
+
+/** The report: the commands by calls, the --help share, reads, bypasses and the candidates for removal. */
+export function usageTable(u: Usage, title: string): string[] {
+  const day = (t: number) => fmtLocal(t).slice(0, 10);
+  const days = Math.round((u.until - u.since) / 86400);
+  const byCount = <T>(m: Record<string, T>, n: (v: T) => number) => Object.entries(m).sort((a, b) => n(b[1]) - n(a[1]) || a[0].localeCompare(b[0]));
+  const unknown = new Set(u.unknown);
+  const out = [`== ${title}: the flow's use over ${days} ${plural(days, "day", "days")} (${day(u.since)} … ${day(u.until)}) — ${u.sessions} ${plural(u.sessions, "session", "sessions")}, ${u.agents} ${plural(u.agents, "subagent", "subagents")} with tool calls`, ""];
+  const calls = byCount(u.calls, (r) => r.calls).map(([k, r]) => [`  ${k}${unknown.has(k) ? NOT_IN_HELP : ""}`, String(r.calls), String(r.sub), String(r.help)]);
+  out.push(...usageRows(["Calls of the flow's commands", "calls", "in subagents", "--help"], calls));
+  out.push(`--help: ${u.help} of ${u.total} ${plural(u.total, "call", "calls")} (${u.total ? Math.round((u.help / u.total) * 100) : 0} %)`, "");
+  out.push(...usageRows(["Reads of the flow's references — Read, a shell read, the Skill tool", "reads"], byCount(u.reads, (n) => n).map(([k, n]) => [`  ${k}`, String(n)])), "");
+  out.push(...usageRows(["Bypasses of the flow's commands — the guard hook's list", "calls"], byCount(u.bypasses, (n) => n).map(([k, n]) => [`  ${k}`, String(n)])), "");
+  out.push("Candidates for removal — nothing called or read them over the period:", `  commands: ${u.idle.join(", ") || "—"}`, `  references: ${u.unread.join(", ") || "—"}`, USAGE_NOTE);
+  return out;
+}
+
+/** The cache of transcripts' uses (by mtime); a change of the bypass list — a reparse. */
+const USAGE_CACHE_V = 1;
+
+/** The transcripts' uses: a transcript not changed since the period's start has no records in it and isn't read. */
+function loadUsage(files: string[], since: number): UsageSession[] {
+  const file = path.join(CACHE_DIR, "usage.json");
+  const sig = `${USAGE_CACHE_V}:${JSON.stringify(BYPASS_RULES.map((r) => [r.label, r.b.only ?? []]))}`;
+  const cache = loadJson<{ sig?: string; files?: Record<string, UsageSession & { mtime: number }> }>(file, {});
+  const files_ = cache.sig === sig ? { ...cache.files } : {};
+  let changed = cache.sig !== sig;
+  const out: UsageSession[] = [];
+  for (const f of files) {
+    let mtime: number;
+    try {
+      mtime = sessionMtime(f);
+    } catch {
+      continue;
+    }
+    if (mtime < since) continue;
+    let s = files_[f];
+    if (!s || !sameMtime(s.mtime, mtime)) {
+      try {
+        s = { ...scanUsage(f), mtime };
+      } catch (e) {
+        console.error(`skipped ${f}: ${(e as Error).message}`);
+        continue;
+      }
+      files_[f] = s;
+      changed = true;
+    }
+    out.push(s);
+  }
+  for (const f of Object.keys(files_)) if (!existsSync(f)) delete files_[f], (changed = true);
+  if (changed) saveJson(file, { sig, files: files_ });
+  return out;
+}
+
+interface UsageArgs {
+  repo?: string;
+  all: boolean;
+  since: string;
+}
+
+/**
+ * The flow's use in the repository's sessions — its directories and the sessions pinned to its tasks — or in all of the
+ * registry's. Only transcripts: the repository is taken from the registry, GitHub only for a former name of it.
+ */
+function cmdUsage(args: UsageArgs): void {
+  if (args.all && args.repo) throw new EstError("pass --repo or --all-repos, not both");
+  const registry = loadRegistry();
+  const since = parseWhen(args.since);
+  const until = nowTs();
+  const named = (full: string) => Object.keys(registry).find((k) => k.toLowerCase() === full.toLowerCase());
+  const pathsOf = (full: string) => registry[full]?.paths ?? [];
+  let repos: string[];
+  if (args.all) repos = Object.keys(registry).filter((k) => pathsOf(k).length);
+  else {
+    const given = resolveRepo(args.repo);
+    const full = named(given) ?? named(canonicalRepo(given)) ?? given;
+    if (!pathsOf(full).length) throw new EstError(`no local paths for ${full} in ${REGISTRY_PATH} — nowhere to look for transcripts`);
+    repos = [full];
+  }
+  const pins = loadPins();
+  const pinned = new Map<string, string>(); // a pinned session's transcript → its task's repository
+  const files = new Set<string>();
+  for (const full of repos) {
+    for (const f of transcriptFilesIn(pathsOf(full))) files.add(f);
+    for (const f of pinnedTranscripts(full, pins)) files.add(f), pinned.set(f, full);
+  }
+  const inputs: UsageInput[] = [];
+  for (const s of loadUsage([...files].sort(), since)) {
+    const repo = pinned.get(s.file) ?? repos.find((r) => s.cwds.some((c) => cwdMatches(c, pathsOf(r))));
+    if (repo) inputs.push({ session: s, repo, paths: pathsOf(repo) });
+  }
+  const title = args.all ? "all registry repositories" : repos[0]!;
+  for (const line of usageTable(usageSummary(inputs, flowUniverse(), since, until), title)) console.log(line);
+}
+
+// ----------------------------------------------------------------------------
 // CLI
 // ----------------------------------------------------------------------------
 
@@ -3795,11 +4249,21 @@ checks) and cache rewrites after a pause; two periods — side by side, «after 
 Examples:
   est period --since 2026-09-01
   est period --since 2026-08-01 --until 2026-09-01 --since 2026-09-01`,
+  usage: `est usage [--since 30d] [--repo o/r | --all-repos]
+
+The flow's use over the period from the sessions' transcripts, their subagents too: calls of the flow scripts'
+commands and of them --help, reads of the flow's references (SKILL.md, reference.md, docs/), bypasses of its commands
+by the guard hook's list; the commands and references without a call — candidates for removal. --all-repos — the
+sessions of every registry repository. Reads only transcripts: no network for a registry repository, nothing written.
+
+Examples:
+  est usage
+  est usage --since 30d --all-repos`,
 };
 
 /** `est --help`: what the script is and the synopsis of each command. */
 const OVERVIEW = [
-  "est — records the actual of tasks from local Claude Code transcripts and sums up a period's sessions.",
+  "est — records the actual of tasks from local Claude Code transcripts, sums up a period's sessions and reports the flow's use.",
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
   "",
@@ -3846,6 +4310,11 @@ export function main(argv: string[]): number {
       const gap = intArg(values.gap, "--gap")!;
       if (gap < 1) throw new EstError(`--gap must be ≥ 1 minute, got ${gap}`);
       cmdPeriod({ repo: values.repo, periods: parsePeriods(values.since ?? [], values.until ?? []), gap });
+      return 0;
+    }
+    if (cmd === "usage") {
+      const { values } = parseArgs({ args: rest, options: { repo: { type: "string" }, "all-repos": { type: "boolean", default: false }, since: { type: "string", default: "30d" } } });
+      cmdUsage({ repo: values.repo, all: values["all-repos"], since: values.since });
       return 0;
     }
     throw new EstError(`command «${cmd}» has help but no handler`);

@@ -6,7 +6,8 @@
  * reason — the model makes a second call (question 1 of #839: a rewritten command would give output it didn't expect).
  *
  * A call of another repository (`--repo`, `GH_REPO`, a URL, a `cd` into another checkout) isn't a bypass: the flow's
- * commands are for the session repository's tasks. Data only, no imports: the installer reads the rules from here.
+ * commands are for the session repository's tasks. Data only, no imports: the installer reads the rules from here, and
+ * `est usage` counts the bypasses in transcripts by them (#845).
  */
 export interface Bypass {
   /**

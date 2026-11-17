@@ -1650,7 +1650,7 @@ describe("Неверный вызов — справка или ошибка д�
     for (const args of [["estimate", "42", "--type", "feat", "--write"], ["backtest"], ["history"]]) {
       const r = withFakeGh(factWorld(), [...args, "--repo", "o/r"]);
       expect(r.code).toBe(1);
-      expect(r.stderr).toContain(`error: unknown command «${args[0]}»; expected fact, period (est --help)`);
+      expect(r.stderr).toContain(`error: unknown command «${args[0]}»; expected fact, period, usage (est --help)`);
       expect(r.calls).toEqual([]);
     }
   });
@@ -1661,7 +1661,7 @@ describe("Неверный вызов — справка или ошибка д�
     writeFileSync(file, JSON.stringify({ v: 1, session: "session_01Old", repo: "o/r", events: [] }));
     const r = withFakeGh(factWorld(), ["cloud-import", file]);
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain("error: unknown command «cloud-import»; expected fact, period (est --help)");
+    expect(r.stderr).toContain("error: unknown command «cloud-import»; expected fact, period, usage (est --help)");
     expect(r.calls).toEqual([]);
     expect(existsSync(path.join(dir, "elves", "cloud"))).toBe(false);
   });

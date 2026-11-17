@@ -103,9 +103,9 @@ The GitHub project and tasks, a command per step and one entry that names the ne
 
 ### [`est`](skills/est/SKILL.md) — the actual from transcripts
 
-The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code transcripts; a period's summary across all of a repository's sessions — the flow before and after a change.
+The actual of a task, set by `github task close` itself — active hours, tokens and the API equivalent in $ from Claude Code transcripts; a period's summary across all of a repository's sessions — the flow before and after a change; the flow's use — which commands and references the agent called, and which nothing did.
 
-`est fact` · `est period`
+`est fact` · `est period` · `est usage`
 
 ### [`spec`](skills/spec/SKILL.md) — specification from tests
 
