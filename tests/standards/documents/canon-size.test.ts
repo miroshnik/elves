@@ -76,14 +76,17 @@ const checkDescription = (d: Doc) => {
   if (n > DESCRIPTION_LIMIT) throw new Error(`${d.file}: описание ${n} символов при лимите ${DESCRIPTION_LIMIT} — подробности в тело SKILL.md (tests/standards/documents/canon-size)`);
 };
 
-/** Куда ядро отправляет читателя: скилл `name` (``the `name` skill`` или ``skill `name` ``) или справочник `docs/<name>.md`. */
+/**
+ * Куда ядро отправляет читателя: скилл `name` (``the `elves:name` skill`` — скилл плагина Elves, #860, ``the `name` skill`` или
+ * ``skill `name` ``) или справочник `docs/<name>.md`.
+ */
 interface Pointer {
   kind: "skill" | "doc";
   name: string;
 }
 export function pointers(md: string): Pointer[] {
   const out = new Map<string, Pointer>();
-  for (const m of md.matchAll(/`([a-z][\w-]*)`\s+skills?\b|\bskills?\s+`([a-z][\w-]*)`/g)) {
+  for (const m of md.matchAll(/`(?:elves:)?([a-z][\w-]*)`\s+skills?\b|\bskills?\s+`(?:elves:)?([a-z][\w-]*)`/g)) {
     const name = (m[1] ?? m[2])!;
     out.set(`skill:${name}`, { kind: "skill", name });
   }
@@ -173,11 +176,12 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
     expect(descriptionOf("# x\n")).toBeNull();
   });
 
-  it("указатель на скилл — `the `name` skill` или `skill `name``; команда скилла в бэктиках указателем не считается", () => {
-    const md = "The `github` skill creates tasks; skill `est` estimates; `github project fix` turns it off; `docs/testing.md`.";
+  it("указатель на скилл — `the `elves:name` skill`, `the `name` skill` или `skill `name``; команда скилла в бэктиках указателем не считается", () => {
+    const md = "The `github` skill creates tasks; skill `est` estimates; the `elves:spec` skill; `github project fix` turns it off; `docs/testing.md`.";
     expect(pointers(md)).toEqual([
       { kind: "skill", name: "github" },
       { kind: "skill", name: "est" },
+      { kind: "skill", name: "spec" },
       { kind: "doc", name: "testing.md" },
     ]);
   });

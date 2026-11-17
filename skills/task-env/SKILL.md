@@ -101,7 +101,7 @@ with the addresses of the e2e stack:
 (`docker compose -p <project>-<N>-e2e logs`).
 
 **down** — both stacks of the task with their volumes and the images they built (pulled ones stay); without a number —
-the branch's task; other tasks' stacks and the main checkout's aren't touched; `task close` of the `github` skill calls
+the branch's task; other tasks' stacks and the main checkout's aren't touched; `task close` of the `elves:github` skill calls
 it — reference.md, "Taking a task's stacks down". **prune** — the stacks of the project's closed tasks left on the
 machine go with their volumes and built images, without a question: a closed task's stack is nobody's; what is left —
 reference.md, "Stacks of closed tasks". **A stack that didn't come up** — code 1, each failed service with its state

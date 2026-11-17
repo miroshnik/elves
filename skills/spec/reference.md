@@ -776,8 +776,8 @@ the project's CI" below.
 ## Running — Bun
 
 - `bun script.ts`: TypeScript without a build and without a `package.json`
-  next to it — the skill lives in `~/.claude/skills` or `~/.agents/skills`,
-  where nothing can be built. There are no dependencies: a TypeScript parser
+  next to it — the skill lives in `~/.agents/skills` and the Elves plugin
+  (`~/.claude/skills/elves/skills`), where nothing can be built. There are no dependencies: a TypeScript parser
   is kept as a file in the skill — `scripts/vendor/` (the "spec-diff: static
   parsing, not two reports" section above).
 - Bun is the scripts' only runtime, a Node project included: its

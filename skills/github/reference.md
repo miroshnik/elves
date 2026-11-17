@@ -576,7 +576,7 @@ No estimate (#835) and no branch type: the type comes with the branch in
 `task start --branch`. In a session with a
 pinned task (`task status` below) — a second line «Next:»: the session runs
 `owner/repo#N`, `#M` isn't taken here — the question to the owner «queue #M?»,
-"yes" — a background subagent in its own worktree with the printed prompt (the
+"yes" — the plugin's agent `elves:executor` with the printed prompt (the
 executor's, as in `task queue`): the session launches it at once and goes on
 with its own task (#546; a session card waited for the owner's click). An
 epic — instead: once its subtasks are created,
@@ -1032,9 +1032,9 @@ to a second worktree.
 
 ### hook guard
 
-The Claude Code `PreToolUse` hook (#839) — `install -g` puts it into
-`~/.claude/settings.json`, one handler per row of `scripts/bypasses.ts` with its
-`if` rule. The input on stdin is the Bash call; a bypass of a flow command in it
+The Claude Code `PreToolUse` hook (#839) — the Elves plugin's
+`hooks/hooks.json`, one handler per row of `scripts/bypasses.ts` with its
+`if` rule (a test holds them equal). The input on stdin is the Bash call; a bypass of a flow command in it
 — `gh issue view <N>` of the session repository's task (→ `task show`),
 `gh issue edit <N> --body…` (→ `task edit`), `gh run watch`, `gh pr checks
 --watch` (→ `wait-ci.sh pr <N>` as a background command) — gets a deny
@@ -1177,8 +1177,9 @@ wait for the release.
 
 #### The dispatcher in Claude Code
 
-An executor — `Agent` with `isolation: "worktree"` and `run_in_background:
-true`, the prompt — the indented line as is; at most the machine's executors at
+An executor — the Elves plugin's agent: `Agent` with `subagent_type:
+"elves:executor"` (its own worktree and the background are its definition,
+`agents/executor.md`), the prompt — the indented line as is; at most the machine's executors at
 once, the owner's number replaces it (subagents share the machine: `Next:`
 names its capacity — `slot --capacity`, `machine.json` or the cores and memory,
 without the slot skill — 3); a task in work (`=`) isn't launched again;

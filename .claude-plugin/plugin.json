@@ -1,0 +1,8 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "elves",
+  "version": "0.0.0",
+  "description": "Elves — the development flow for Claude Code: the skills elves:<name>, the SessionStart hook (the flow check and the agent's Bash environment), the PreToolUse guard of the flow's commands and the dispatcher's executor agent elves:executor. Installed by bunx @miroshnik/elves install -g as ~/.claude/skills/elves.",
+  "homepage": "https://github.com/miroshnik/elves",
+  "repository": "https://github.com/miroshnik/elves"
+}

@@ -26,7 +26,7 @@ The Elves canon: each rule names the mechanism that holds it or stands in
   prompts, documents, commit and PR descriptions and test names in the
   language the SessionStart hook names; code, identifiers and terms stay in
   English, and the names scripts parse back come exactly from the locales of
-  the `github` skill.
+  the `elves:github` skill.
 
 ## What I do without asking and what needs a yes
 
@@ -41,7 +41,7 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 ## Task tracking
 
 - **Tasks live in GitHub Issues.** Not in local lists, TODO files or the
-  agent's task list: the `github` skill creates and edits them, and the
+  agent's task list: the `elves:github` skill creates and edits them, and the
   PreToolUse hook denies `gh issue view` and `gh issue edit --body` with the
   command to run instead. Without a repository I ask where tasks go.
 - **`github task next` is the entry.** It prints the task's state and the
@@ -91,7 +91,7 @@ The Elves canon: each rule names the mechanism that holds it or stands in
   held by checks — tests, lint rules, architecture checks — under
   `tests/capabilities`, `tests/architecture` and `tests/standards`: behavior
   without a check may change without agreement, code no decision claims is
-  dead. The full canon is the `spec` skill.
+  dead. The full canon is the `elves:spec` skill.
 - **The check comes first, red.** A code task gets its scenarios, the future
   test names, before code, and `github pr premerge` runs the tests a PR adds
   on the base code (`spec-red`): one that passes there checks nothing.
