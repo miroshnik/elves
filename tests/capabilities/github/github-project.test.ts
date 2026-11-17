@@ -152,13 +152,6 @@ describe("check показывает каждое расхождение с ка
     expect(ops(f)).toEqual([]);
     expect(r.out).toContain("○ no board connected");
   });
-
-  it("облачная сессия — объяснение и код 2, а не сбой gh на Projects v2", () => {
-    const r = run(fake(), ["project", "check", "--repo", REPO], { CLAUDE_CODE_REMOTE: "true" });
-    expect(r.code).toBe(2);
-    expect(r.err).toContain("cloud session");
-    expect(r.out).toBe("");
-  });
 });
 
 /**

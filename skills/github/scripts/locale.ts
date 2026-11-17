@@ -111,14 +111,13 @@ export interface Names {
     prompt: string;
     epic: string;
     /**
-     * The project's mode in the lead (`{mode}` of `lead`, `batchLead`, `fixLead`; `cloud` — `{cloudMode}`, #667): an auto
-     * project — like a session in auto mode; outside auto — the merge on the owner's «yes» (`modeAsk`, `merge`; a cloud
-     * executor asks in its session — `cloudModeAsk`): the dispatcher's request is the work's scope, not a «yes» to each merge.
+     * The project's mode in the lead (`{mode}` of `lead`, `batchLead`, `fixLead`, #667): an auto project — like a session
+     * in auto mode; outside auto — the merge on the owner's «yes» (`modeAsk`, `merge`): the dispatcher's request is the
+     * work's scope, not a «yes» to each merge.
      */
     modeAuto: string;
     modeAsk: string;
     merge: string;
-    cloudModeAsk: string;
     lead: string;
     resume: string;
     subagent: string;
@@ -160,15 +159,6 @@ export interface Names {
     sessionFixLead: string;
     /** The assignment refused: the task's previous executor or its subagent is alive (#565). */
     alive: string;
-    /** A cloud executor's brief (`--assignment N --cloud`, #609): whole, `#` only at its task — the epic without it. */
-    cloudEpic: string;
-    cloud: string;
-    /** A batch project's cloud executor (#648): its PR goes into the default branch, not into the batch — no `#` in it. */
-    cloudBatch: string;
-    cloudDoc: string;
-    cloudClose: string;
-    cloudDispatcher: string;
-    cloudQuestion: string;
     /**
      * An app executor session's prompt (`--assignment N --session`, #624): a session of another project, not a subagent —
      * by its canon and mode, named by the task, waits in the background, the canon's last line.

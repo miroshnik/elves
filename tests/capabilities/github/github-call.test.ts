@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { main } from "../../../skills/github/scripts/github.ts";
-import { CLOUD_SIGNATURE, epicInProgress, FakeGitHub } from "../../lib/fake-github.ts";
+import { epicInProgress, FakeGitHub, SIGNATURE } from "../../lib/fake-github.ts";
 import type { Recording } from "../../lib/fake-github.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 
@@ -139,9 +139,9 @@ describe("`task edit --add` — раздел по имени без «##», не
     // первый вопрос — «1.»: task answer ищет вопрос по номеру
     expect(bodyOf(f)).toBe("Экспорт счетов.\n\n## Что сделать\n\n- [ ] PDF\n\n## Сценарии\n\n- выгрузка в PDF\n\n## Вопросы\n\n1. Формат?\n");
     expect(r.out).toBe("+ #47: description — 2 edits: added to «## Сценарии» — a new section, added to «## Вопросы» — a new section");
-    // подпись облачного прокси остаётся последней
-    const cloud = edit(`Что сделать.\n\n${CLOUD_SIGNATURE}`, ["--add", "## Сценарии", "выгрузка в PDF"]);
-    expect(bodyOf(cloud.f)).toBe(`Что сделать.\n\n## Сценарии\n\n- выгрузка в PDF\n\n${CLOUD_SIGNATURE}`);
+    // подпись после `---` в конце описания остаётся последней
+    const signed = edit(`Что сделать.\n\n${SIGNATURE}`, ["--add", "## Сценарии", "выгрузка в PDF"]);
+    expect(bodyOf(signed.f)).toBe(`Что сделать.\n\n## Сценарии\n\n- выгрузка в PDF\n\n${SIGNATURE}`);
   });
 
   it("`task edit --add` в другой раздел, которого нет, отказывает и называет разделы описания", () => {
