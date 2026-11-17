@@ -185,6 +185,22 @@ describe("Отчёт использования флоу — что из ком�
     expect(cells(usageTable(u, "o/proj"), "  github/SKILL.md")).toEqual(["github/SKILL.md", "2"]);
   });
 
+  /**
+   * Скиллы Elves в Claude Code — скиллы плагина `elves:<имя>` (#860), а справки читаются по пути ссылки плагина
+   * `~/.claude/skills/elves`: вызов и чтение — те же, что прежде у скилла `<имя>` и `~/.agents/skills`.
+   */
+  it("`est usage` считает вызов скилла плагина elves:<имя> и чтение справки по ссылке плагина", () => {
+    const home = path.join(dir, "home");
+    const proj = path.join(dir, "proj");
+    const universe: Universe = { commands: {}, refs: ["github/SKILL.md", "spec/SKILL.md", "github/reference.md"] };
+    const s = session(path.join(dir, "p"), "77777777-0000-4000-8000-000000000860", [
+      turn(1, proj, skill("elves:github"), skill("elves:spec"), skill("spec"), skill("other:spec")),
+      turn(1, proj, read(`${home}/.claude/skills/elves/skills/github/reference.md`)),
+    ]);
+    const u = usageSummary([{ session: scanUsage(s), repo: "o/proj", paths: [proj] }], universe, NOW - 30 * DAY, NOW);
+    expect(u.reads).toEqual({ "github/SKILL.md": 1, "spec/SKILL.md": 2, "github/reference.md": 1 });
+  });
+
   /** Справка с `paths:` — правило Claude Code (#846): грузится с подходящим файлом, чтения в транскрипте нет. */
   it("`est usage` не называет кандидатом справку с paths: — она грузится правилом Claude Code, без чтения", () => {
     const docs = fileURLToPath(new URL("../../../docs", import.meta.url));
