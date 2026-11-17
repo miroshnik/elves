@@ -266,6 +266,40 @@ goes after the tool result or the prompt), so a CI wait of 9 minutes with the
 5-minute cache is a rewrite. The summary prints their number and the $ of their
 cache write — in total and per PR.
 
+## The flow's use
+
+`est usage [--since 30d] [--repo o/r | --all-repos]` — what of the flow the
+agent uses: the sessions of the repo's folders and those pinned to its tasks
+(`--all-repos` — of every registry repository), their subagents too, over the
+period up to now. A transcript not changed since the period's start isn't read;
+the rest are cached by mtime (`cache/usage.json`). No network for a registry
+repository, nothing written to GitHub.
+
+- **Calls** — a flow script run by its path (`skills/<skill>/scripts/…`, the
+  machine's copy, a clone, a project's package) or the installer (`bunx
+  @miroshnik/elves`, `elves`, `bin/elves.ts`), by its command: the words after
+  the script up to the first argument, matched to the commands its `--help`
+  overview names — so a new command is in the report by itself; a skill's
+  command through the installer (`elves task-env up`) is the skill's. A call
+  `--help` names no command for — a removed or a mistyped one — is marked «not
+  in --help». A call with `--help` or `-h` counts as a call and separately, with
+  the share of all calls. A resumed session copies the history: a call counts
+  once, by the tool call's id.
+- **Reads** — of a flow skill's md (`<skill>/<file>.md`) and of Elves `docs/`
+  (the machine's `~/.agents/elves/docs`, the package's, a clone's): the `Read`
+  tool, a shell read (`cat`, `head`, `tail`, `sed`, `less`), the `Skill` tool
+  (its `SKILL.md`). A file of the session's own repository (its folders, but
+  `node_modules`) is its work, not a reference: in an Elves clone the agent edits
+  `SKILL.md`; a project's own `docs/testing.md` isn't Elves'.
+- **Bypasses** — the calls the guard hook denies (`github hook guard`, the list
+  `skills/github/scripts/bypasses.ts`, the same one): a call naming another
+  repository (`--repo`, an issue URL) isn't one; a denied call is still an
+  attempt.
+- **Candidates for removal** — the commands of the scripts' `--help` and the
+  references without a call over the period. A command only a hook or CI calls
+  (`github hook guard`, `spec-publish`) is never in transcripts: a candidate
+  gets a removal task or a «keep, because …» line in its decision's md.
+
 ## Linking — details
 
 - The session name `#<number> <task title>` is read from the transcript and
