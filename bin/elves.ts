@@ -5,7 +5,7 @@
  * checks whether an install has fallen behind the latest Elves release, updates it and cuts a release.
  *
  *   bunx @miroshnik/elves install                      — into the project: the git root (or the current directory)
- *   bunx @miroshnik/elves install -g                   — machine-wide: the canon, skills and hook
+ *   bunx @miroshnik/elves install -g                   — machine-wide: the canon, skills and hooks
  *   elves install -g                                   — the same from the npm package (npm i -g @miroshnik/elves);
  *                                                        install -g puts the elves command on PATH (`installCommand`)
  *   bun <Elves clone>/bin/elves.ts install -g --link   — from a clone: symlinks to the clone, edits show at once
@@ -27,7 +27,7 @@
  * The layout is as with skills (`npx skills`), on the machine (`-g`, #557): the canon `~/.agents/elves/` (AGENTS.md,
  * claude/CLAUDE.md, docs/*.md) with Claude Code's rules `~/.claude/rules/elves*.md` — they load without the
  * external-imports dialog in every project of the machine — skills (`~/.agents/skills/<name>/`, Claude Code — symlinks
- * in `~/.claude/skills`) and the hook. Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
+ * in `~/.claude/skills`) and the hooks (SessionStart, PreToolUse). Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
  * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
  * (PACKAGE: the project's version of the harness and the skills' scripts for its tests and CI), the manifest, the
@@ -83,6 +83,7 @@ import path from "node:path";
 import { isatty } from "node:tty";
 import { fileURLToPath } from "node:url";
 
+import { BYPASSES } from "../skills/github/scripts/bypasses.ts";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
 import { PACKAGE_BUNX, PACKAGE_RUN, packageRun } from "../skills/spec/scripts/package-run.ts";
@@ -137,12 +138,26 @@ const BLOCK = [
 const CHECK_FALLBACK = 'echo "elves check unavailable (exit $?): work by the current flow and say so"';
 const HOOK_COMMAND = `bunx --silent github:${SOURCE} check --hook 2>&1 || ${CHECK_FALLBACK}`;
 const HOOK_MATCHER = "startup|resume|clear";
-const HOOK: SessionHook = { matcher: HOOK_MATCHER, hooks: [{ type: "command", command: HOOK_COMMAND, timeout: 60 }] };
+const HOOK: HookGroup = { matcher: HOOK_MATCHER, hooks: [{ type: "command", command: HOOK_COMMAND, timeout: 60 }] };
 
-/** A group of Claude Code's SessionStart hooks in a settings.json. */
-interface SessionHook {
+/**
+ * Claude Code's PreToolUse hook (#839): a bypass of a flow command — the github skill's list (`BYPASSES`) — is denied
+ * with the flow's command in the reason. One handler per bypass: Claude Code's `if` takes one permission rule and runs
+ * the handler only for a Bash call with a subcommand it matches, so other calls start no process. The command — the
+ * machine's github script by its path, not bunx: the hook answers in tens of milliseconds, without the network; its
+ * own error — and a timed-out hook — lets the call through.
+ */
+function guardHook(home: string): HookGroup {
+  const command = `bun --no-env-file ${shQuote(path.join(home, GUARD_SCRIPT))} hook guard`;
+  return { matcher: "Bash", hooks: BYPASSES.map((b) => ({ type: "command", if: b.rule, command, timeout: 10 })) };
+}
+/** The github skill's script on the machine, from the home directory: the guard's command runs it. */
+const GUARD_SCRIPT = ".agents/skills/github/scripts/github.ts";
+
+/** A group of Claude Code's hooks of one event in a settings.json. */
+interface HookGroup {
   matcher: string;
-  hooks: { type: "command"; command: string; timeout: number }[];
+  hooks: { type: "command"; if?: string; command: string; timeout: number }[];
 }
 
 /** Flow files in the clone: what `install` installs from it (a git pathspec). */
@@ -186,7 +201,8 @@ settings. --lang <code> — the project language the agent works in: dialog, tas
 terminal — the previous one. In an Elves clone writes only the manifest — auto and language, env and batch carried
 over as in a project.
 -g — onto the machine, for Claude Code: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md,
-the skills (~/.agents/skills, ~/.claude/skills), the SessionStart hook and the elves command in the terminal — in ~/.local/bin or
+the skills (~/.agents/skills, ~/.claude/skills), the SessionStart hook, the PreToolUse hook (a bypass of a flow command
+— gh issue view of a task, gh run watch — denied with the flow's command: github hook guard) and the elves command in the terminal — in ~/.local/bin or
 the first directory of PATH inside the home directory that can be written: with --link a symlink to the clone's
 bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
 (!), no such directory — no command, check -g names how to add one. Other agents' rule files a previous version wrote
@@ -948,10 +964,11 @@ function claudeRules(root: string) {
 }
 
 /**
- * A SessionStart hook in `<root>/.claude/settings.json`: the user's own settings and hooks stay in place, a hook of a
- * previous version (`ours`) is replaced, a repeated install doesn't duplicate it. A dry run names it with `what`.
+ * A group of hooks of an event in `<root>/.claude/settings.json`: the user's own settings and hooks stay in place, the
+ * handlers of a previous version (`ours`) are replaced, a repeated install doesn't duplicate them. A dry run names it
+ * with `what`.
  */
-function sessionHook(root: string, hook: SessionHook, ours: (h: { command?: unknown }) => boolean, what: string) {
+function settingsHook(root: string, event: string, hook: HookGroup, ours: (h: { command?: unknown }) => boolean, what: string) {
   const file = path.join(root, ".claude/settings.json");
   let settings: { hooks?: Record<string, { hooks?: { command?: unknown }[] }[]> } = {};
   if (existsSync(file)) {
@@ -961,26 +978,32 @@ function sessionHook(root: string, hook: SessionHook, ours: (h: { command?: unkn
       return void warn(`.claude/settings.json — not JSON: ${what} isn't installed, add it yourself: ${hook.hooks[0]!.command}`);
     }
   }
-  const groups = settings.hooks?.SessionStart ?? [];
+  const groups = settings.hooks?.[event] ?? [];
   const count = groups.flatMap((g) => g.hooks ?? []).filter(ours).length;
-  if (count === 1 && groups.some((g) => JSON.stringify(g) === JSON.stringify(hook))) return;
+  if (count === hook.hooks.length && groups.some((g) => JSON.stringify(g) === JSON.stringify(hook))) return;
   if (dry) return void change(existsSync(file) ? "~" : "+", file, { note: what });
   const rest = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ours(h)) })).filter((g) => g.hooks.length);
-  settings.hooks = { ...settings.hooks, SessionStart: [...rest, hook] };
+  settings.hooks = { ...settings.hooks, [event]: [...rest, hook] };
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   note(`.claude/settings.json — ${what}`);
 }
 
 /**
- * The SessionStart hook in `~/.claude/settings.json` (HOOK): a hook of a previous version (with npx too) is replaced. A dry run names what the hook gives: from a
- * terminal `check -g` can't see the agent's shell, a missing hook is how it names a missing Bash environment
- * (tests/capabilities/elves/agent-shell).
+ * The hooks in `~/.claude/settings.json`: SessionStart (HOOK) — a hook of a previous version (with npx too) is replaced;
+ * PreToolUse (`guardHook`) — one handler per bypass, a previous version's set replaced whole. A dry run names what each
+ * gives: from a terminal `check -g` can't see the agent's shell, a missing SessionStart hook is how it names a missing
+ * Bash environment (tests/capabilities/elves/agent-shell).
  */
 function claudeHook(home: string) {
   const ours = ({ command }: { command?: unknown }) => typeof command === "string" && command.includes(`${SOURCE} check --hook`);
-  sessionHook(home, HOOK, ours, "the SessionStart hook: the flow check and the agent's Bash environment");
+  settingsHook(home, "SessionStart", HOOK, ours, "the SessionStart hook: the flow check and the agent's Bash environment");
+  const guard = ({ command }: { command?: unknown }) => typeof command === "string" && /\/skills\/github\/scripts\/github\.ts'? hook guard$/.test(command);
+  settingsHook(home, "PreToolUse", guardHook(home), guard, GUARD_HOOK);
 }
+
+/** What the install and a dry run say about the PreToolUse hook (`guardHook`). */
+const GUARD_HOOK = "the PreToolUse hook: a bypass of a flow command (gh issue view of a task, gh run watch) denied with the flow's command";
 
 /** What the install and a dry run say about the cloud session's hook of a previous version (`oldCloudHook`). */
 const OLD_CLOUD_HOOK = "the cloud session's SessionStart hook of a previous version: the flow doesn't support cloud sessions";
