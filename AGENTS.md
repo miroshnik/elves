@@ -14,13 +14,13 @@ someone else's session.
 repositories, no colleagues or clients — in files, git history or issues;
 examples are made up. **A skill is `SKILL.md` + `scripts/`** in TypeScript
 under Bun (Agent Skills; README, "Repository layout"); repository specifics
-— local configuration. **Budgets** (standard `documents#canon-size`): this file ≤
-3,000 words, `SKILL.md` ≤ 2,500, a description ≤ 1,024 characters.
-Here — what always applies and where to go; reference — a skill's
-`reference.md` or `--help`, `docs/`. **A file at its budget** — a detail
-moves whole, by its topic, into that topic's md (an existing one, else
-`docs/<topic>.md`), here — a link to it; a fact is never deleted for the
-budget.
+— local configuration. **Budgets** — a ceiling, standard `documents#canon-size`.
+Here — what always applies and where to go; reference — `reference.md`,
+`--help`, `docs/`. **A file at its budget** — a detail
+moves whole into its topic's md (else a new `docs/<topic>.md`), here — a
+link to it. **Unused is deleted:** `est usage` monthly and before a new flow
+capability; a candidate — a removal task or «keep, because …» in its
+decision.
 
 ## First step of a session — an up-to-date flow
 
