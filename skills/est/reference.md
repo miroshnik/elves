@@ -7,14 +7,16 @@ summary and the linking details. What to run and when — `SKILL.md`; syntax and
 
 ## Repository registry
 
-The repository registry (which ones exist, where they live locally, the project
-number) is a personal file `~/.config/elves/repos.json` (or
+The repository registry (which ones exist and where they live locally) is a
+personal file `~/.config/elves/repos.json` (or
 `$ELVES_CONFIG_DIR/repos.json`), not part of the skill; the format is described at the top of `est.ts`. Without a
-registry entry the script determines the repo from `git remote origin`, and the
-project from its link to the repository. No linked project and no `project` in
-the entry — no board: the actual is the comment alone, without fields, and the
-already recorded actuals, an epic's sum and the sweep come from the
-repository's issues.
+registry entry the script determines the repo from `git remote origin`. The
+board isn't in the registry: it is the github skill's rule
+(`skills/github/scripts/board.ts`, #880) — the open project linked to the
+repository titled with its name, otherwise the first open linked one, read
+every run. No open linked project — no board: the actual is the comment
+alone, without fields, and the already recorded actuals, an epic's sum and the
+sweep come from the repository's issues.
 
 ## Comment language
 

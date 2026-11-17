@@ -44,6 +44,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import type { ParseArgsConfig } from "node:util";
 
+import { linkedProjects, LINKED_PROJECTS, mainProject, PROJECT_REF as REF, projectRef as ref } from "./board.ts";
+import type { ProjectRef } from "./board.ts";
 import { BYPASSES } from "./bypasses.ts";
 import type { Bypass } from "./bypasses.ts";
 import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal, shellArg } from "./command.ts";
@@ -233,13 +235,6 @@ function why(r: RunResult): string {
 
 const pause = (ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-export interface ProjectRef {
-  id: string;
-  number: number;
-  title: string;
-  url: string;
-  closed: boolean;
-}
 interface View {
   id: string;
   number: number;
@@ -394,7 +389,6 @@ export class GhError extends Error {}
 // GraphQL
 // ----------------------------------------------------------------------------
 
-const REF = "id number title url closed";
 /** Numbers of the label's open tasks in the "new decision" line; the rest as a count. */
 const OPEN_SHOWN = 10;
 /**
@@ -429,7 +423,7 @@ export const Q = {
         issueFields(first: 50) { nodes { __typename ... on IssueFieldSingleSelect { id name options { id name } } } }
       }
     }
-    projectsV2(first: 20) { nodes { ${REF} } }
+    ${LINKED_PROJECTS}
   }
 }`,
   RepoIssues: `query RepoIssues($owner: String!, $name: String!, $after: String) {
@@ -785,8 +779,6 @@ function pages<T>(fetch: (after: string | null) => { pageInfo: { hasNextPage: bo
   return out;
 }
 
-const ref = (p: Any): ProjectRef => ({ id: p.id, number: p.number, title: p.title, url: p.url, closed: !!p.closed });
-
 function loadRepo(io: Io, slug: string): State["repo"] {
   const [owner, name] = slug.split("/") as [string, string];
   const data = graphql(io, Q.RepoState, { owner, name });
@@ -804,12 +796,9 @@ function loadRepo(io: Io, slug: string): State["repo"] {
       issueTypes: (o.issueTypes?.nodes ?? []).filter(Boolean),
       issueFields: (o.issueFields?.nodes ?? []).filter((f: Any) => f && f.name).map((f: Any) => ({ id: f.id, name: f.name, options: f.options ?? [] })),
     },
-    linked: (r.projectsV2?.nodes ?? []).filter(Boolean).map(ref),
+    linked: linkedProjects(r.projectsV2),
   };
 }
-
-/** The repository's project: a linked one titled with the repository name, otherwise the first open linked one. */
-const mainProject = (repo: State["repo"]) => repo.linked.find((p) => p.title === repo.name && !p.closed) ?? repo.linked.find((p) => !p.closed) ?? null;
 
 export function loadState(io: Io, slug: string): State {
   const [owner, name] = slug.split("/") as [string, string];
