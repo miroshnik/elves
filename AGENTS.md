@@ -200,8 +200,10 @@ it.
   rebase and `--force-with-lease` — only on a textual conflict or my own
   changes. **Before merging — `github pr premerge`:** `main` moved after the
   PR's CI — fast checks on the merge with it; red — I fix the root cause;
-  `main` red by itself (code 3) — no merge and no fix in the PR: one bug
+  `main` red by itself — no merge and no fix in the PR: one bug
   for it, I wait for it to close.
+- **The next step — `github task next`**: the task's state and one step, a
+  ready command; every task command ends with the same `Next:`.
 - **The tail — `github task finish <N>`**, resumable: push, PR, labels, CI,
   `premerge`, the merge command, the deploy on the merge SHA, refresh, close;
   a batch's — its release's.

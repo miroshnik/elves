@@ -677,11 +677,12 @@ the task in work elsewhere (`! #N is in work elsewhere — …`: an open PR of i
 into a batch branch too, or a branch `*/N-*` locally or on origin that isn't
 the current one) — continue that work or wait for its merge. Then `task
 status N "In progress" --branch` (below: the pin, the epic, the rename) and
-the next lines: the session name `«#N <title>»`, `Branch:`, the number of
+the next lines: `Session name: «#N <title>»`, `Branch:`, the number of
 scenarios (none — an `○` line: a code task gets them before code) and, in
 Claude Code (`CLAUDECODE=1`), `ToolSearch select:…` with the app tools the
 flow calls in a task (session title, PR monitor, `TaskStop`, archive) — one
-load, not one per call. An epic, a closed task, a `--branch` not of this task
+load, not one per call; the last — `task next`'s `Next:` (the task's work,
+then `task finish`). An epic, a closed task, a `--branch` not of this task
 — code 2. `task status` stays for other status changes. `--resume` — an
 executor's restart (#709; the assignment's restart line names it): the task's
 branch and open PR are the previous executor's work to continue, not a stop;
@@ -692,6 +693,62 @@ the current branch isn't renamed, `Branch: continue …` names what to continue
 branch is cut beside the task's merged one, which `task start` would stop on.
 A separate call, no pipeline: `| tail` returns its own exit code and hides
 the stop (code 1) or the refusal (code 2).
+
+### task next
+
+The one entry of a task (#842): the agent chose among 17 commands by "when
+to call what" tables and remembered exit codes (`task finish` 0…5, `pr
+premerge` 0…3); the sequence now lives in the script. Read-only, by the
+facts, in this order — the first that holds is the step:
+
+1. An epic — the owner's question «run the dispatcher on epic #N?», then
+   `task queue --epic N`.
+2. Closed: not done (not planned, a duplicate) — `none`; its tail over (the
+   board's Done and the actual field, without a board — closed as completed
+   and est's actual comment) — `none`; an open PR of it or the checkout's task
+   branch with commits not in the base — `task finish` (it reopens the task);
+   closed by a merged PR — the steps after the merge below; closed without a
+   PR — `task actualize` and its subagent in the same turn when the epic
+   refresh is due, then `task close`.
+3. Open questions of the task or its epic — auto mode (`"auto": true` in the
+   current directory's manifest): `task answer N k "<answer>" --auto` by the
+   recommendation, one without a clear one — the owner's; outside auto — the
+   owner's answers, asked in one message.
+4. A merged PR and nothing pending (no open PR, no task branch here with
+   commits past it): into a batch branch — the dispatcher's release (its
+   release merged — the refresh and `task close`); otherwise the deploy not
+   awaited (`task finish`'s mark) — `task finish N` in the background; the
+   epic has other open tasks and no refresh report — `task finish N` (the
+   mechanics and the subagent's prompt), its prompt printed — wait for the
+   subagent; then `task close N`.
+5. An open PR — into the default branch: red checks — the fix (`gh pr checks`,
+   the checks before a commit, `git commit`, `task finish`); running or none
+   yet — `task finish N` in the background; green — `pr premerge <PR>`, and
+   once it passed on this head (its mark `premerges/` of `~/.config/elves`:
+   the head and the time; a new head or a base moved since — premerge again)
+   — the merge `gh pr merge <PR> --rebase` as a separate call, outside auto —
+   after the owner's «yes». Into a batch branch — no CI: premerge, then the
+   merge.
+6. No PR: the checkout isn't on the task's branch — its branch elsewhere
+   (local or on GitHub) — continue there; none — `task start N --branch
+   <type>/N-<slug>`. On it: uncommitted changes — the checks before a commit
+   and `git commit`; commits past `origin/<base>` (the batch's — as `task
+   finish` picks the base) — `task finish N` in the background; none — the
+   task's code and tests, then the same.
+
+Output — `#N «title»: <state>` and `Next: <step>`; a wait is named with whom
+it waits for (`Next: waits for the owner — …`, `waits for the dispatcher —
+…`), no steps — `Next: none — …`. Without `<N>` — the checkout's task branch,
+otherwise the session's pin (its repository is in it). Exit `0` — nothing for
+the caller (none, the dispatcher's release), `1` — a step, `2` — an error.
+
+Every task command ends with the same `Next:` — `task show`, `task answer`
+and `task edit` by the description as written, `task start`, `task status`,
+`task drop`, `task finish`, `task close`, `pr premerge`; their exit — done
+`0`, stopped on a step `1`, an error `2`: the step is told by the `Next:`
+text, not by the code. `task new`, `task queue`, `task resume`, `task
+actualize` and `batch release` name their own steps: they start outside a
+task's path.
 
 ### task finish
 
@@ -712,21 +769,24 @@ code 1 before the PR: `git rebase origin/<base>` drops them, otherwise the
 PR's title and decision labels would be theirs; the title — `--title`, otherwise the first commit of the
 branch type, a conventional commit; the body — `spec-diff` and `Closes #N`
 (an existing PR — the body updated); `pr labels`; `ci-wait pr` (none into a
-batch): FAIL, a conflict — code 1 with the step; `pr premerge` — its code 1
-or 3. Then the merge command, code 4: the merge stays a separate `gh pr merge
+batch): FAIL, a conflict — code 1 with the step; `pr premerge` — stopped
+(code 1 with its step: the fix, or the red base's bug). Then the merge
+command, code 1: the merge stays a separate `gh pr merge
 <PR> --rebase` — the owner's permission rule matches it. After the merge:
 into a batch — code 0, nothing more (the release does it); otherwise
-`ci-wait merged`, the refresh's mechanics and its prompt (code 4 — the
+`ci-wait merged`, the refresh's mechanics and its prompt (code 1 — the
 subagent), and `task close` once its report is on the epic (no epic or no
 other open tasks — right away). A task reopened after its merge (#813): an
 open PR of the task or the checkout's task branch with commits not in the
 base (`git cherry`; the merged PR's own branch — commits past its pushed
 head) is the tail, not the merged PR — the latest merged PR is the one
 awaited after the merge; closed with such work — reopened and «In progress»
-(not planned — code 1 with `gh issue reopen`). Code 5 — out of time: the same command
-again. A session runs it in the background — once before the merge and once
+(not planned — code 1 with `gh issue reopen`). Out of time — code 1 and the
+same command again. Every stop is code 1 (#842: before it — 1, 3, 4 and 5 by
+kind): the step is the automaton's `Next:` line, the one `task next` prints.
+A session runs it in the background — once before the merge and once
 after; a subagent — `--timeout 240` (540 with the hour cache,
-`docs/pr-checks.md`), again on code 5. The separate commands stay for manual
+`docs/pr-checks.md`), again while its `Next:` says so. The separate commands stay for manual
 work.
 
 ### task status
@@ -848,13 +908,17 @@ script and names the line, #442); the merge isn't stopped. GitHub doesn't store 
 checked, so "moved" is judged by time (REST): the earliest check suite of the
 PR head against the branch's last event (Activity API); an event within a
 minute before the check suite also counts as moved (the merge-ref is built
-earlier); no checks or the event wasn't read — it is checked. Codes: `0` —
-merge; `1` — don't merge: red `typecheck` (compiler errors), `test:spec`
+earlier); no checks or the event wasn't read — it is checked. Codes (#842 —
+done, a step, an error; the step is told by the last line, `Next:`, as `task
+next` prints it): `0` — merge: `Next:` — the merge command, and the mark
+`premerges/<owner>__<repo>__<PR>.json` of `~/.config/elves` (the head, the
+time) lets `task next` name the merge while the head is the same and the base
+hasn't moved; `1` — don't merge: red `typecheck` (compiler errors), `test:spec`
 (lines of failed tests) or a conflict (files) — fix the root cause in the PR:
 rebase onto `origin/<base>`, edit, `push --force-with-lease`, `ci-wait` again;
-`2` — couldn't check (not a checkout, PR not open, the PR head not on origin,
-dependency install failed) —
-don't merge either, investigate; `3` — **`main` is red, not this PR**.
+or **`main` is red, not this PR** — `Next:` names its bug's wait (below, "Red
+main"); `2` — couldn't check (not a checkout, PR not open, the PR head not on
+origin, dependency install failed) — don't merge either, investigate.
 
 A PR into a batch branch (#649) — first the batch's release PR (REST,
 `pulls?head=<owner>:<batch>`): open — code `1` and the wait for its close
@@ -885,15 +949,16 @@ batch carries the batch's commits from before the release's rebase — GitHub
 moves such PRs into the default branch itself when it deletes the merged
 release's head (a repository that deletes head branches on merge).
 
-### Red main — code 3
+### Red main
 
 The merge is red (#282) — the failed check is also run on bare
-`origin/<base>` in its own temporary worktree: red with the same — code `3`;
+`origin/<base>` in its own temporary worktree: red with the same — «`main` is
+red» (code `1`, `Next:` — its bug's wait; before #842 — a code of its own, `3`);
 the PR breaks beyond it (failed tests and compiler errors of the merge that
 aren't on `main`, ignoring run time and position in the file) — code `1` with
 them. A red check on the default branch's last commit — a check-run (the last
 run of each name: `failure`, `timed_out`, `startup_failure`; a cancelled one
-isn't red) or a host status (`failure`, `error`) — the same code `3` before
+isn't red) or a host status (`failure`, `error`) — the same «`main` is red» before
 checking the merge; checks not read — an `○` line, the check goes on. The
 base's checks are its own runs (#732): a check-run of another branch's run on
 the same SHA (its check suite's `head_branch` — a batch branch pushed at the
@@ -904,7 +969,7 @@ each, not counted; `wait-ci.sh merged` likewise waits only for the runs of
 the PR's base. The spec
 publish job (`spec-publish`, `<job> / spec-publish`) isn't a check of `main`:
 red, it is an `○` line and not counted (#443). With
-code `3` the session doesn't merge and doesn't fix it in its PR: one bug for
+«`main` is red» the session doesn't merge and doesn't fix it in its PR: one bug for
 everyone — an open issue titled «`<base>` is red…» (REST
 search) that names the failed check (or script) — the whole name: `test` isn't
 in "test:spec" (#338); open ones about another check — the line
@@ -927,7 +992,7 @@ names a task of the red push — `Refs #N` or `Closes #N` in the commits of the
 red commit's check suite (`before`..the commit; without `before` — the commit
 itself), or `Closes #N` of the PR merged by them (a batch's release) — is a
 fix as well: the line «this PR fixes red `<base>`: it closes #N, whose commit …
-made it red», the check goes on as usual. A PR of another task — code `3`, as
+made it red», the check goes on as usual. A PR of another task — «`main` is red», as
 before. A red GitHub Actions job names its first failed step next to the check
 in parentheses, in the reason and the bug title: a step without a test
 (install, network) has no decision label, the bug goes by the check and the
@@ -1522,8 +1587,8 @@ Waiting for checks, the full SHA and a merge that deploys —
   conflict: migration and decision numbering, shared lists.
   **Before merging — `github pr premerge <N>`** (after `ci-wait` PASS): if
   `main` moved after the PR's CI — `typecheck` and `test:spec` on the merge
-  with a fresh `main`; code `1` — don't merge, fix the root cause; code `3` —
-  `main` is red by itself: don't merge and don't fix it in my PR — the
+  with a fresh `main`; code `1` — don't merge: fix the root cause, or —
+  `main` is red by itself, its `Next:` says so — don't fix it in my PR: the
   «`main` is red…» bug, wait for it to close
   (`wait-ci.sh issue <N>`) and `premerge` again. A window remains: an
   incompatibility with a PR merged during the check itself shows up as red CI

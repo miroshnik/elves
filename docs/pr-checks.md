@@ -28,8 +28,9 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   CI — fast checks on the merge with a fresh `main` (`typecheck`,
   `test:spec` — the scripts CI runs; standards and architecture go there
   once, in a job of their own, not inside `test` and e2e — `ci.md` of the
-  `spec` skill); `main` is red by itself — exit code 3, I don't merge: one bug
-  for it, and I wait for it to close (the `github` skill). A PR with files
+  `spec` skill); `main` is red by itself — exit code 1 with its `Next:`, the
+  bug's wait, I don't merge: one bug for it, and I wait for it to close (the
+  `github` skill). A PR with files
   in `tests/` — first red on base, on every path to the merge (a batch's
   too): its added tests run on the base code and must fail there
   (`spec-red`, `skills/spec/reference.md`); a green one — exit code 1, the
@@ -69,7 +70,7 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   `subagentPromptCacheTtl: "1h"` a wait of up to 9 minutes isn't worth that
   rewrite — one `ci-wait` call; without it — wait calls of at most 4 minutes
   (`--timeout 240`, TIMEOUT — call it again; `task finish` — the same, its
-  code 5): the turn between two calls
+  `Next:` «out of time»): the turn between two calls
   reads the cache instead of rewriting it.
 - **Deploy — by the commit status, not by polling the site.** Whether the
   merge rolled out is told by the host's status on the merge SHA (`ci-wait
