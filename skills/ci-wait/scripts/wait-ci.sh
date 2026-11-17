@@ -67,6 +67,7 @@ for arg in "$@"; do
   case "$arg" in --help|-h) help "${1:-}"; exit 0 ;; esac
 done
 
+call=("$@")
 mode=${1:-}; target=${2:-}
 [ -n "$mode" ] && [ -n "$target" ] || usage
 shift 2
@@ -87,6 +88,15 @@ done
 ts() { date +%H:%M:%S; }
 finish() { echo "RESULT: $1"; exit "$2"; }
 rate_limited() { grep -qi 'rate limit' <<<"$1"; }
+# gh in the Claude Code sandbox fails on TLS (x509: OSStatus -26276), every poll the same (#868): ERROR at once with the
+# whole command to run outside it — a copy of skills/github/scripts/command.ts (tests/standards/scripts/gh-sandbox)
+sandbox_refusal() {
+  local re=$'(x509:[^\n]*|OSStatus[^\n]*)' self
+  [[ "$1" =~ $re ]] || return 1
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  printf "gh doesn't work in the Claude Code sandbox (%s) — run the whole command outside it, a separate call with dangerouslyDisableSandbox: bash%s" \
+    "${BASH_REMATCH[1]}" "$(printf ' %q' "$self" "${call[@]}")"
+}
 
 # checks <sha>: the commit's checks into $out — a JSON array {name, bucket}; bucket as in `gh pr checks`:
 # pending | pass | fail | cancel | skipping; paths of the workflows that produced a run at the SHA — into $ran. Code 1 — a gh
@@ -378,6 +388,8 @@ while :; do
     fi
   elif [ "$rc" -eq 2 ]; then
     finish "ERROR $out" 3
+  elif refusal=$(sandbox_refusal "$out"); then
+    finish "ERROR $refusal" 3
   elif rate_limited "$out"; then
     # a rate limit is not a call error: the checks go on by themselves, we wait for the quota. That wait doesn't count
     # toward --timeout — the quota resets within an hour, and a reset 40 min away under a 30 min timeout gave TIMEOUT

@@ -25,9 +25,9 @@ into `~/.claude/rules`.
   without `cd`, `|` or `;`, as `github task finish` prints it: otherwise the
   owner's `Bash(gh pr merge *)` rule doesn't match and the classifier
   rejects the merge.
-- **gh fails in the sandbox.** Inside the Bash sandbox `gh` fails on TLS
-  (`x509: OSStatus -26276`), so a skill script that calls `gh` or Docker runs
-  at once as a separate call with `dangerouslyDisableSandbox`.
+- **gh fails in the sandbox.** On TLS (`x509: OSStatus -26276`): the flow's
+  scripts on `gh` then print the whole command — I run it, or a script that
+  calls Docker, at once as a separate call with `dangerouslyDisableSandbox`.
 - **Another task is a background executor.** On "yes" to «queue #N?» it is
   `Agent` with `isolation: "worktree"`, `run_in_background: true` and the
   prompt `github task queue` printed, not a session card (`spawn_task`,

@@ -46,6 +46,7 @@ import type { ParseArgsConfig } from "node:util";
 
 import { BYPASSES } from "./bypasses.ts";
 import type { Bypass } from "./bypasses.ts";
+import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal, shellArg } from "./command.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
 import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, worktreeRemovable } from "./queue.ts";
@@ -754,13 +755,15 @@ function rest(io: Io, route: string, o: { method?: string; payload?: unknown } =
   return res;
 }
 
-/** The real `gh`: an exit code ≠ 0 is an exception with stderr. */
+/** The real `gh`: an exit code ≠ 0 is an exception with stderr; the sandbox's TLS — `SandboxRefusal` (#868). */
 export function realGh(args: string[], stdin?: string): string {
   const r = spawnSync("gh", args, { input: stdin, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.error) {
     if ((r.error as NodeJS.ErrnoException).code === "ENOENT") throw new GhError("gh command not found; the gh CLI must be installed");
     throw new GhError(`gh ${args.slice(0, 2).join(" ")}: ${r.error.message}`);
   }
+  const refusal = r.status === 0 ? null : sandboxRefusal(r.stderr ?? "");
+  if (refusal) throw refusal;
   // gh api graphql exits with 1 on GraphQL errors, but the JSON with errors is in stdout — let graphql() parse it
   if (r.status !== 0 && !r.stdout.trim().startsWith("{")) throw new GhError(`gh ${args.slice(0, 2).join(" ")}: ${(r.stderr || "").trim().slice(0, 500)}`);
   return r.stdout;
@@ -6851,15 +6854,8 @@ class CallError extends GhError {
   }
 }
 
-/** An argument for the shell: as is without the shell's special characters, otherwise quoted — single quotes first. */
-function shellArg(a: string): string {
-  if (/^[\w@%+=:,./-]+$/.test(a)) return a;
-  if (!a.includes("'")) return `'${a}'`;
-  return /["$`\\!]/.test(a) ? `'${a.replace(/'/g, `'\\''`)}'` : `"${a}"`;
-}
-
 /** The command ready for the shell: this script with the arguments (#841) — a hint is run as is, not assembled. */
-const ready = (args: (string | number)[]) => `bun --no-env-file ${import.meta.path} ${args.map((a) => shellArg(String(a))).join(" ")}`;
+const ready = (args: readonly (string | number)[]) => readyCommand(import.meta.path, args);
 
 /** The synopsis of a command — the first paragraph of its help; an unknown one — the overview. */
 const synopsisOf = (command: string) => (Object.hasOwn(HELP, command) ? HELP[command]!.split("\n\n")[0]! : OVERVIEW);
@@ -7766,6 +7762,8 @@ export function main(argv: string[], io: Io): number {
       io.err(`error: ${(e as Error).message}`);
       return 2;
     }
+    // gh in the sandbox (#868): one line with this very call to run outside it, not gh's TLS error
+    if (e instanceof SandboxRefusal) return io.err(sandboxLine(e, ready(argv))), 2;
     throw e;
   }
 }

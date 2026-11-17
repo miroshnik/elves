@@ -20,6 +20,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { BYPASSES } from "../../github/scripts/bypasses.ts";
+import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal } from "../../github/scripts/command.ts";
 import locale from "../../github/scripts/locale.ts";
 import type { Names, Plural } from "../../github/scripts/locale.ts";
 
@@ -333,6 +334,9 @@ function run(cmd: string[], stdin?: string, idempotent = true): string {
     }
     if (r.status === 0) return r.stdout;
     const err = (r.stderr || "").trim();
+    // gh in the sandbox fails on TLS (#868): not a network failure — a retry fails the same, the entry prints the command
+    const refusal = cmd[0] === "gh" ? sandboxRefusal(err) : null;
+    if (refusal) throw refusal;
     const failed = `${what} exited with code ${r.status}: ${err.slice(0, 500)}`;
     if (!pauses.length || !NETWORK_FAILURE.test(err)) throw new EstError(failed);
     if (!idempotent && !NOT_SENT.test(err)) throw new EstError(`${failed} — network failure, but the request may have reached GitHub: no retry, so as not to post it twice; check and retry`);
@@ -4338,6 +4342,8 @@ export function main(argv: string[]): number {
     }
     throw new EstError(`command «${cmd}» has help but no handler`);
   } catch (e) {
+    // gh in the sandbox (#868): one line with this very call to run outside it, not gh's TLS error
+    if (e instanceof SandboxRefusal) return console.error(sandboxLine(e, readyCommand(import.meta.path, argv))), 2;
     if (e instanceof EstError) die(e.message);
     if (e && typeof e === "object" && (e as Any).code === "ERR_PARSE_ARGS_UNKNOWN_OPTION") die((e as Error).message, 2);
     throw e;
