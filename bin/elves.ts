@@ -86,6 +86,7 @@ import { isatty } from "node:tty";
 import { fileURLToPath } from "node:url";
 
 import { BYPASSES } from "../skills/github/scripts/bypasses.ts";
+import { readyCommand, sandboxLine, sandboxRefusal } from "../skills/github/scripts/command.ts";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
 import { PACKAGE_BUNX, PACKAGE_RUN, packageRun } from "../skills/spec/scripts/package-run.ts";
@@ -2640,6 +2641,9 @@ function releaseCmd(preview: boolean) {
   try {
     execFileSync("gh", ["release", "create", tag, "--repo", SOURCE, "--target", head, "--title", tag, "--notes", notes], { stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
+    // gh in the sandbox (#868): one line with the command to run outside it, not gh's TLS error
+    const refusal = sandboxRefusal(String((e as { stderr?: string | Buffer }).stderr ?? ""));
+    if (refusal) return warn(sandboxLine(refusal, readyCommand(import.meta.path, ["release"]))), 2;
     return warn(`release: gh release create — ${reason(e)}`), 2;
   }
   note(`\nRelease ${tag}: ${RELEASES}/tag/${tag}`);

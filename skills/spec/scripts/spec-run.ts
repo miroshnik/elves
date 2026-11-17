@@ -20,12 +20,16 @@
  *   bun spec-run.ts --tree <hash> [--timeout 1800] [--interval 15]
  *   bun spec-run.ts --artifact <name>
  *
- * Codes: 0 — found or publishing skipped, 1 — the run didn't finish by the ceiling, 2 — a call error (arguments, gh).
- * Runs under Bun, no dependencies; needs `gh` with a token (in Actions — `GH_TOKEN`, `actions: read`).
+ * Codes: 0 — found or publishing skipped, 1 — the run didn't finish by the ceiling, 2 — a call error (arguments, gh; gh
+ * in the Claude Code sandbox — one line with the whole command to run outside it, #868).
+ * Runs under Bun, no dependencies but the github skill's command line; needs `gh` with a token (in Actions — `GH_TOKEN`,
+ * `actions: read`).
  */
 
 import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
+
+import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal } from "../../github/scripts/command.ts";
 
 const USAGE = "spec-run --tree <hash> [--timeout 1800] [--interval 15]\nspec-run --artifact <name>";
 /** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
@@ -72,6 +76,8 @@ function api<T>(endpoint: string): T {
     return JSON.parse(execFileSync("gh", ["api", endpoint], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as T;
   } catch (e) {
     const stderr = (e as { stderr?: string }).stderr?.trim();
+    const refusal = sandboxRefusal(stderr ?? "");
+    if (refusal) throw refusal;
     throw new Fail(`gh api ${endpoint}: ${stderr || (e as Error).message.split("\n")[0]}`, 2);
   }
 }
@@ -227,6 +233,8 @@ export async function main(argv: string[]): Promise<number> {
       await new Promise((resolve) => setTimeout(resolve, Math.min(interval * 1000, Math.max(0, deadline - Date.now()))));
     }
   } catch (e) {
+    // gh in the sandbox (#868): one line with this very call to run outside it, not gh's TLS error
+    if (e instanceof SandboxRefusal) return console.error(sandboxLine(e, readyCommand(import.meta.path, argv))), 2;
     console.error(`spec-run: ${(e as Error).message}`);
     return e instanceof Fail ? e.code : 2;
   }

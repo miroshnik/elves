@@ -17,7 +17,8 @@ error prints the corrected command whole. Editing an existing task (Priority, li
 milestones — `reference.md`, "Manual commands".
 
 **In Claude Code — at once a separate unsandboxed call**
-(`dangerouslyDisableSandbox`): `gh` fails on TLS in the sandbox, `task close`
+(`dangerouslyDisableSandbox`): `gh` fails on TLS in the sandbox — a call there
+prints one line with the whole command to run outside it; `task close`
 also calls Docker for the task's stacks — the sandbox denies its socket
 (`claude/CLAUDE.md`; `SKILL.md` of the task-env skill, "Checked on the machine").
 
