@@ -3918,7 +3918,11 @@ function usesOf(name: string, input: Any, cwd: string): [Use[3], string, string]
   } else if (name === "Read" && typeof input.file_path === "string") {
     const ref = flowRef(input.file_path);
     if (ref) out.push(["read", ref, input.file_path]);
-  } else if (name === "Skill" && FLOW_SKILLS.includes(String(input.skill))) out.push(["read", `${input.skill}/SKILL.md`, ""]);
+  } else if (name === "Skill") {
+    // the Elves plugin's skill is `elves:<name>` (#860), a skill link of a previous version — `<name>`
+    const skill = String(input.skill).replace(/^elves:/, "");
+    if (FLOW_SKILLS.includes(skill)) out.push(["read", `${skill}/SKILL.md`, ""]);
+  }
   return out;
 }
 
