@@ -19,6 +19,8 @@ setDefaultTimeout(SPAWN_TIMEOUT);
 const REC: Recording = epicInProgress(JSON.parse(readFileSync(new URL("../../lib/github-elves.json", import.meta.url), "utf8")));
 const REPO = "miroshnik/elves";
 const ORG = "acme/elves";
+/** Исполнитель диспетчера в Claude Code — агент плагина Elves (#860): свой worktree и фон — в его определении. */
+const EXECUTOR_AGENT = 'the plugin\'s agent elves:executor (Agent with subagent_type: "elves:executor" — its own worktree, in the background)';
 
 let pauses = 0;
 /** Вызов скрипта task-env (снятие стеков задачи в `task close`) — подпроцесс bun, как est. */
@@ -172,7 +174,7 @@ describe("task new заводит задачу со всем сразу", () => 
     expect(r.code).toBe(0);
     const last = r.out.split("\n").at(-1)!;
     expect(last).toStartWith(
-      "Next: the session runs miroshnik/elves#49; #562 isn't taken here — the question to the owner «queue #562?» — yes: a background subagent in its own worktree, " +
+      `Next: the session runs miroshnik/elves#49; #562 isn't taken here — the question to the owner «queue #562?» — yes: ${EXECUTOR_AGENT}, ` +
         "its prompt: Задача #562 в miroshnik/elves (эпик #45): ты исполнитель сессии-диспетчера. Задание целиком печатает `bun --no-env-file ",
     );
     expect(last).toContain("task queue --assignment 562 --repo miroshnik/elves`");
@@ -184,7 +186,7 @@ describe("task new заводит задачу со всем сразу", () => 
     const r = task(f, ["new", "--title", "Импорт · Импорт задач из CSV", "--type", "Эпик"]);
     expect(r.code).toBe(0);
     expect(r.out.split("\n").at(-1)).toMatch(
-      /^Next: once its subtasks are created — the question to the owner «run the dispatcher on epic #561\?»; yes — bun --no-env-file \S+github\.ts task queue --epic 561 --repo miroshnik\/elves in this session, its executors — background subagents\.$/,
+      /^Next: once its subtasks are created — the question to the owner «run the dispatcher on epic #561\?»; yes — bun --no-env-file \S+github\.ts task queue --epic 561 --repo miroshnik\/elves in this session, its executors — the plugin's agent elves:executor \(Agent with subagent_type: "elves:executor" — its own worktree, in the background\)\.$/,
     );
   });
 
@@ -745,7 +747,7 @@ describe("task status берёт в работу одну задачу на се
     expect(r.code).toBe(2);
     expect(r.err.split("\n")).toHaveLength(1);
     expect(r.err).toStartWith(
-      "error: the session runs miroshnik/elves#49; #42 isn't taken here — the question to the owner «queue #42?» — yes: a background subagent in its own worktree, " +
+      `error: the session runs miroshnik/elves#49; #42 isn't taken here — the question to the owner «queue #42?» — yes: ${EXECUTOR_AGENT}, ` +
         "its prompt: Задача #42 в miroshnik/elves: ты исполнитель сессии-диспетчера. Задание целиком печатает `bun --no-env-file ",
     );
     expect(r.err).toContain("task queue --assignment 42 --repo miroshnik/elves`");
@@ -3093,7 +3095,7 @@ describe("task queue раздаёт задачи эпика или фильтр�
     expect(lines[1]).toBe(`+ #${urgent} «GitHub · Срочная» (Urgent)`);
     expect(lines[2]).toStartWith(`  Задача #${urgent} в acme/elves (эпик #45): ты исполнитель сессии-диспетчера. Задание целиком печатает \`bun --no-env-file `);
     expect(lines[2]).toContain(`task queue --assignment ${urgent} --repo acme/elves\``);
-    expect(lines.at(-1)).toStartWith("Next: each ready task above — a background subagent in its own worktree while fewer than 3 run");
+    expect(lines.at(-1)).toStartWith(`Next: each ready task above — ${EXECUTOR_AGENT} while fewer than 3 run`);
   });
 
   it("task queue называет число исполнителей машины и откуда оно", () => {
@@ -3107,7 +3109,7 @@ describe("task queue раздаёт задачи эпика или фильтр�
     const r = task(f, ["queue", "--epic", "45"], REPO, { ...io, run, env: { ...io.env, ELVES_SLOT_SCRIPT: SLOT_SCRIPT } });
     expect(r.code).toBe(0);
     expect(r.out.split("\n").at(-1)).toStartWith(
-      "Next: each ready task above — a background subagent in its own worktree while fewer than 5 run (the machine's capacity: machine.json; a number from the request replaces it)",
+      `Next: each ready task above — ${EXECUTOR_AGENT} while fewer than 5 run (the machine's capacity: machine.json; a number from the request replaces it)`,
     );
   });
 
@@ -5207,6 +5209,30 @@ describe("Исполнитель диспетчера — субагент ил�
     expect(r.out).toBe("");
     // выдачи нет: очередь не ждёт исполнителя, которого не будет
     expect(existsSync(path.join(config, "dispatchers", `${SESSION}.tasks`))).toBe(false);
+  });
+
+  /**
+   * Исполнитель — агент плагина Elves `elves:executor` (#860): свой worktree и фон держит его определение
+   * (`agents/executor.md`), а не параметры, которые диспетчер повторял в каждом вызове `Agent`. Это форма вызова, не
+   * новая возможность диспетчера (#843): строка `Next:` очереди и вопрос «queue #N?» называют агента, справка и канон —
+   * тоже, без прежних параметров вызова.
+   */
+  it("Задание исполнителя называет агента плагина", () => {
+    const f = new FakeGitHub(REC);
+    f.status(47, "Бэклог");
+    // каталог с языком проекта, но не чекаут: очередь не трогает worktree репозитория, где идёт тест
+    const dir = scratch();
+    writeTree(dir, { ".agents/elves.json": '{ "language": "ru" }\n' });
+    const r = task(f, ["queue", "--epic", "45"], REPO, { ...inSession(scratch()), cwd: dir });
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n").at(-1)).toStartWith(`Next: each ready task above — ${EXECUTOR_AGENT} while fewer than`);
+    const agent = readFileSync(path.join(ROOT, "agents/executor.md"), "utf8");
+    const front = /^---\n([\s\S]*?)\n---\n/.exec(agent)![1]!;
+    expect(front.split("\n").filter((l) => /^(?:name|isolation|background):/.test(l))).toEqual(["name: executor", "isolation: worktree", "background: true"]);
+    for (const file of ["claude/CLAUDE.md", "skills/github/SKILL.md", "skills/github/reference.md"]) {
+      expect({ file, agent: flowText(file).includes("elves:executor") }).toEqual({ file, agent: true });
+      expect({ file, params: /`Agent` with `isolation: "worktree"`/.test(flowText(file)) }).toEqual({ file, params: false });
+    }
   });
 });
 
