@@ -31,9 +31,10 @@ describe("Флоу работает в проекте, устроенном ка
     const check = elves(sb, ["check"]);
     expect(check.stdout + check.stderr).not.toContain("❌");
     expect(check.code).toBe(0);
-    // `.gitignore` прячет CLAUDE.md, .claude/ и vendor/ — файлы флоу всё равно в коммите, копии флоу нет
-    expect(app.git("status", "--porcelain", "--ignored", "--", ".agents", ".claude", "AGENTS.md")).toBe("");
-    expect(app.git("ls-files", "--", ".agents", ".claude").split("\n")).toEqual([".agents/elves.json", ".agents/slot.sh"]);
+    // `.gitignore` прячет CLAUDE.md, .claude/ и vendor/ — файлы флоу всё равно в коммите, с ними правила ask проекта
+    // без auto (#840); копии флоу нет
+    expect(app.git("status", "--porcelain", "--ignored", "--", ".agents", ".claude", "AGENTS.md", ".worktreeinclude")).toBe("");
+    expect(app.git("ls-files", "--", ".agents", ".claude", ".worktreeinclude").split("\n")).toEqual([".agents/elves.json", ".agents/slot.sh", ".claude/settings.json", ".worktreeinclude"]);
     // PR установки трогает только файлы флоу: тестов и исключений проекта в нём нет
     const diff = app.run("spec:diff", "--base", "HEAD~1");
     expect(failed(diff)).toBeNull();
