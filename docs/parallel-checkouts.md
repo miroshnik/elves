@@ -16,8 +16,9 @@ session — the next section.
   owner; dependent groups run as a pipeline, not in parallel.
 - **Temp files shared with subagents get a unique prefix** (task, role):
   otherwise a subagent silently overwrites a file of the same name.
-- **A fresh worktree lacks untracked files** (dependencies, `.env*.local`):
-  the dependencies — installed, the files — copied from the main checkout.
+- **A fresh worktree lacks dependencies** — installed; the git-ignored
+  `.env*.local` Claude Code copies from the main checkout by `.worktreeinclude`
+  (`install` writes it).
 
 ## Rule
 
