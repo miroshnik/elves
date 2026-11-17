@@ -1,7 +1,12 @@
+---
+paths:
+  - "**/.github/workflows/**"
+---
+
 # CI: parallel tasks — the rule and workflow fragments
 
-A reference for the "CI: parallel tasks" section of `AGENTS.md`: here is the
-full rule and ready-made fragments to copy.
+A rule Claude Code loads with GitHub Actions workflows: the full rule and
+ready-made fragments to copy.
 
 ## Rule
 
@@ -34,7 +39,7 @@ for all of CI is not a solution: it slows down every task, and without
   evicted.
 - **The agent doesn't cancel or re-run others' runs** (`gh run cancel` and
   `gh run rerun` — only its own run on its own branch). Waiting for its own
-  checks and merging — the "Git, PRs and merging" section of `AGENTS.md`.
+  checks and merging — `AGENTS.md`, "Git, PRs and merging".
 
 ## Workflow fragments
 

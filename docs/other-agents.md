@@ -11,7 +11,8 @@ Elves is for Claude Code: the installer, the hook and the scripts are built and 
 
 ## What doesn't work without Claude Code
 
-- **Hooks.** The `SessionStart` hook — the flow check at the start, the wait of a resumed session's task, the agent's Bash setup (`bin/shims`) — is Claude Code's.
+- **Hooks.** The `SessionStart` hook — the flow check at the start, the wait of a resumed session's task, the agent's Bash setup (`bin/shims`) — and the `PreToolUse` hook that denies a bypass of a flow command are Claude Code's.
+- **References by file.** A reference with `paths:` in `~/.agents/elves/docs/` is a Claude Code rule that loads with matching files; another agent reads it itself — `testing.md` with tests, `ci-concurrency.md` with workflows, `parallel-checkouts.md` with compose files.
 - **The session pinned to its task.** `github task status` pins the task by Claude Code's session id; without it — `○ session not recognized …`: nothing stops a second task in the same session.
 - **The actual from transcripts.** `est` reads only Claude Code's transcripts: a task done by another agent closes without an actual.
 - **The dispatcher with subagents.** `github task queue` hands tasks to background subagents of Claude Code, each in its own worktree; with another agent, run each task in a session of its own.

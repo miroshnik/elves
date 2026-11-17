@@ -3965,6 +3965,25 @@ export interface Universe {
   commands: Record<string, string[]>;
   /** References: `<skill>/<file>.md` of the flow's skills, `docs/<file>.md` of Elves. */
   refs: string[];
+  /**
+   * The references that are Claude Code's path-scoped rules (`ruleRefs`): they load with their files, without a read in
+   * the transcript, so a month without reads doesn't make them candidates.
+   */
+  rules?: string[];
+}
+
+/**
+ * Elves' `docs/<file>.md` with a `paths:` list in the frontmatter — the ones `install -g` links into `~/.claude/rules`
+ * (`pathRules` in bin/elves.ts reads the same frontmatter; this is its mirror: est doesn't import the installer).
+ */
+export function ruleRefs(docs: string): string[] {
+  return mdIn(docs).filter((f) => {
+    try {
+      return /^---\n(?:[^\n]*\n)*?paths:\n[ \t]+-/.test(readFileSync(path.join(docs, f), "utf8"));
+    } catch {
+      return false;
+    }
+  }).map((f) => `docs/${f}`);
 }
 
 /** The skills' directory next to this script: a clone's, the package's or the machine's (`~/.agents/skills`). */
@@ -4021,7 +4040,7 @@ function flowUniverse(skillsDir = SKILLS_DIR): Universe {
   }
   const docs = [path.join(root, "docs"), path.join(root, "elves", "docs")].find((d) => existsSync(d));
   const refs = [...FLOW_SKILLS.flatMap((s) => mdIn(path.join(skillsDir, s)).map((f) => `${s}/${f}`)), ...(docs ? mdIn(docs).map((f) => `docs/${f}`) : [])];
-  return { commands, refs };
+  return { commands, refs, rules: docs ? ruleRefs(docs) : [] };
 }
 
 /** A command's calls: in all, of them in subagents and with --help. */
@@ -4104,7 +4123,7 @@ export function usageSummary(sessions: UsageInput[], u: Universe, since: number,
   }
   for (const [s, cmds] of Object.entries(u.commands)) for (const c of cmds) if (!res.calls[c ? `${s} ${c}` : s]) res.idle.push(c ? `${s} ${c}` : s);
   res.idle.sort();
-  res.unread = u.refs.filter((r) => !res.reads[r]).sort();
+  res.unread = u.refs.filter((r) => !res.reads[r] && !u.rules?.includes(r)).sort();
   res.unknown = [...unknown].sort();
   return res;
 }
@@ -4119,7 +4138,7 @@ function usageRows(head: string[], rows: string[][]): string[] {
 /** The mark of a called command the script's --help doesn't name: removed or mistyped. */
 const NOT_IN_HELP = " (not in --help)";
 const USAGE_NOTE =
-  "A command only a hook or CI calls (github hook guard, spec-publish) has no calls in transcripts. A candidate gets a removal task or a «keep, because …» line in its decision's md.";
+  "A command only a hook or CI calls (github hook guard, spec-publish) has no calls in transcripts; a reference with paths: loads as a Claude Code rule, without a read, and isn't listed. A candidate gets a removal task or a «keep, because …» line in its decision's md.";
 
 /** The report: the commands by calls, the --help share, reads, bypasses and the candidates for removal. */
 export function usageTable(u: Usage, title: string): string[] {

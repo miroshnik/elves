@@ -701,6 +701,42 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(existsSync(path.join(proj, ".agents"))).toBe(false);
   });
 
+  /**
+   * Справка, которую агент «читает по необходимости», за 1–16 ноября прочитана 12 раз на 69 сессий (#846): правило
+   * Claude Code с `paths:` грузится само, когда агент читает или правит подходящий файл.
+   */
+  it("Справка с `paths:` ставится в правила машины и называет файлы, при которых грузится", () => {
+    mkdirSync(path.join(home, ".claude"));
+    const r = install(["-g"]);
+    expect(r.code).toBe(0);
+    const rule = path.join(home, ".claude/rules/elves-testing.md");
+    expect(readlinkSync(rule)).toBe("../../.agents/elves/docs/testing.md");
+    expect(read(rule)).toStartWith('---\npaths:\n  - "**/*.test.*"\n');
+    expect(r.stdout).toContain(".claude/rules/elves-testing.md → .agents/elves/docs/testing.md (loads with **/*.test.*, **/*.spec.*");
+    expect(readlinkSync(path.join(home, ".claude/rules/elves-ci-concurrency.md"))).toBe("../../.agents/elves/docs/ci-concurrency.md");
+    // документ для человека — не правило: без paths: в правила машины не ставится
+    expect(gone(path.join(home, ".claude/rules/elves-installation.md"))).toBe(true);
+    // check -g называет недостающее правило справки отставанием, install -g ставит его снова
+    rmSync(rule);
+    const check = elves(sb, ["check", "-g"]);
+    expect(check.code).toBe(1);
+    expect(check.stdout).toContain(`+ ~/.claude/rules/elves-testing.md — loads with **/*.test.*`);
+    expect(install(["-g"]).code).toBe(0);
+    expect(isLink(rule)).toBe(true);
+  });
+
+  it("правило справки, которая больше не правило, обновление машины убирает; своё правило пользователя остаётся", () => {
+    mkdirSync(path.join(home, ".claude"));
+    install(["-g"]);
+    symlinkSync("../../.agents/elves/docs/judgment.md", path.join(home, ".claude/rules/elves-judgment.md"));
+    writeTree(home, { "rules/mine.md": "мои правила\n" });
+    symlinkSync(path.join(home, "rules/mine.md"), path.join(home, ".claude/rules/elves-mine.md"));
+    expect(elves(sb, ["check", "-g"]).stdout).toContain("- ~/.claude/rules/elves-judgment.md — the reference is no longer a rule");
+    expect(install(["-g"]).code).toBe(0);
+    expect(gone(path.join(home, ".claude/rules/elves-judgment.md"))).toBe(true);
+    expect(read(path.join(home, ".claude/rules/elves-mine.md"))).toBe("мои правила\n");
+  });
+
   it("старый симлинк install.sh ~/.claude/CLAUDE.md → claude/CLAUDE.md убирается — правила не грузятся дважды", () => {
     mkdirSync(path.join(home, ".claude"));
     symlinkSync(path.join(REPO, "claude/CLAUDE.md"), path.join(home, ".claude/CLAUDE.md"));

@@ -1,9 +1,21 @@
-# How to test: runs, environment, e2e, UI in a browser — for "Tests and code"
+---
+paths:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*.e2e.*"
+  - "**/tests/**"
+  - "**/e2e/**"
+  - "**/playwright.config.*"
+  - "**/vitest.config.*"
+  - "**/jest.config.*"
+---
 
-The rule — which test is needed and how it can fail — is `AGENTS.md`,
-"Specification — decisions" (in full — `skills/spec/canon.md`), and
-`AGENTS.md`, "Tests and code"; the task's Compose stack, its addresses and
-the runner config — `docs/parallel-checkouts.md`.
+# How to test: runs, environment, e2e, UI in a browser
+
+A rule Claude Code loads with test files and runner configs. Which test is
+needed and how it can fail is `AGENTS.md`, "Specification — decisions" (in
+full — `skills/spec/canon.md`); the task's Compose stack, its addresses and
+the runner config — `docs/parallel-checkouts.md`, loaded with compose files.
 Here — how to run tests, read the result, write e2e tests that don't flake,
 and check UI in the agent's browser. The rules hold for any stack, the
 examples are Playwright. Three things depend on the framework: which env files
@@ -96,7 +108,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   fixes — the command again, not each check by hand.
 
   The full run is CI's; `github pr premerge` stays as it is: `typecheck` and
-  `test:spec` on the merge with a fresh `main` (`docs/pr-checks.md`). In a
+  `test:spec` on the merge with a fresh `main` (`github task finish` runs it). In a
   batch — the dispatcher's tasks go into a batch branch and reach `main` by
   one release PR — the full run is the release's: a task's PR into the batch
   branch runs no CI, this set before the commit is its gate, the affected —
@@ -111,7 +123,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   `interrupted`; Vitest — the `Test Files` and `Tests` lines; `bun test` —
   `pass` and `fail`. A run is good when the summary is there, there are no
   failed, not-run or interrupted tests, and flakes are investigated
-  (`AGENTS.md`, "Tests and code": a flake is a defect). No summary — the run didn't finish,
+  (`AGENTS.md`, "Judgment": a flake is a defect). No summary — the run didn't finish,
   whatever the exit code. Filtering the output by `Error:` lies: the app
   server writes harmless errors (an expected 404, a cancelled request) to the
   same stream.
@@ -242,8 +254,8 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   of the login itself.
 - **A guard for a framework's dev warning** (React, Vue: hydration, list
   keys) — a unit test in dev mode (jsdom, happy-dom): the production build
-  strips the warnings, so in e2e against it the guard can't fail (`AGENTS.md`,
-  "Tests and code").
+  strips the warnings, so in e2e against it the guard can't fail — and a
+  guard must be able to fail.
 
 ## UI in the agent's browser
 
