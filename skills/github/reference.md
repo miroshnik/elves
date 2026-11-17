@@ -1042,133 +1042,143 @@ network — `git remote get-url` per directory. A new bypass — a row of
 
 ### task queue
 
-A dispatcher: "do all tasks of epic #M", "fix all
-High bugs", the owner's "yes" to «run the dispatcher on epic #M?» (`AGENTS.md`,
-"Session and branch — one task") — any session: one with its own task keeps it
-pinned, its task is `=` in the queue (#546). The script prints the queue — ready tasks (open, not an epic, not in
-work, no open blockers — another repository's named `owner/repo#N` —, no
-`external blocker` label — its line has the reason from the latest
-`External blocker: …` comment) by `Priority`, then number, each with an indented
-line — its executor's prompt, «Task #N …» in the project language (`est` links
-the subagent's work by it); then `=` lines — in work: In progress, an open PR
-(linked, or by the task branch and "Closes #N" among recent PRs) with its link,
-handed out to an executor of this session, a hand-out's task closed by its PR's
-merge («Closes #N») before `task close` — «waits for the deploy and task close»
-(#769: its work lives till `task close` leaves Status Done and the actual; a
-release PR's merge isn't one); `○` lines — not ready with the reason (such a
-task holds its dependents: `blocked by #N (merged, not closed by task close)`),
-and `Next:`. Before the queue, in the repository's checkout,
-it removes what finished executors left (#515): an agent's worktree
-(`.claude/worktrees/agent-*`) detached or on a `worktree-agent-*` branch, not
-locked by a live process (Claude Code locks a running agent's worktree; a lock
-whose pid is gone doesn't hold), clean and without commits outside
-`origin/<base>` by `git cherry`, or clean with its HEAD in a merged PR of its
-closed task — removed with its branch, a `+` line; uncommitted changes or
-unmerged commits — left, an `○` line with the reason; a `worktree-agent-*`
-branch without a worktree — the same by its commits (`git cherry`). "Merged by
-the PR" (#816): a batch's release rebases the batch onto a fresh
-`origin/<base>`, a task's commit reaches it rewritten twice and differs there by
-context — `git cherry` counts it unmerged, and the executors' worktrees piled
-up with each batch. For a clean worktree `git cherry` counts unmerged, the
-queue asks GitHub for the PRs of its HEAD (`commits/<sha>/pulls`): one counts
-when it is merged, its head is the HEAD or a descendant of it (a commit a
-force-push dropped from the PR doesn't count), its tasks are closed and its
-base is the default branch or a batch branch its merged release PR shipped; a
-commit on top of the PR's head, no such PR, or GitHub not read — `git cherry`
-decides, as before. The `+` line names the PR (`its HEAD is in PR #77 merged
-into batch/… (released by PR #80), #47 closed`). A
-session's worktree, an agent's on an open task's branch and an executor's whose
-handed-out task is open or awaits `task close` after its merge — untouched,
-no line (#533, #769); an agent's on a closed
-task's branch — as a detached one (#698: a batch executor ends on its task
-branch, the release closes the task): Claude Code unlocks the
-worktree when the agent ends its answer, a question too, and doesn't lock it
-again for an executor continued with `SendMessage` after a restart. An agent's
-worktree a subagent of it works in without a worktree of its own — left, an
-`○` line naming the subagent (#571: the executor closed its task and answered,
-its epic refresh still ran in its directory, and the queue removed it): such a
-subagent — `parentAgentId` without its own `worktreePath` in Claude Code's
-subagent metadata of this session and of the sessions with hand-outs
-(`dispatchers/*.tasks`), at any depth; at work — its transcript
-(`agent-<id>.jsonl`) written in the last 15 minutes. An executor's worktree is
-removed only by the queue, not by the dispatcher's `git worktree remove` after
-a clean `git status` (#628): a live subagent without a worktree of its own
-leaves no trace in `git status`, and its directory goes from under it.
-`--epic N` — the epic's open sub-issues, `--tasks N,M,…` — the dispatcher's
-group (#698), otherwise the repository's open tasks (the first 100 of the search);
-`--type`, `--priority` — only in an organization. It marks the session as a
-dispatcher — `dispatchers/<CLAUDE_CODE_SESSION_ID>` in the configuration
-directory with the queue command: the executors are subagents with the
-session's id, a pin would refuse the second and give `est` the whole session as
-one task. `--assignment N` —
-read-only on GitHub, the executor's first call; in any session (not one pinned
-to `N`: that task is its own) it records the task as handed out — a line
-`owner/repo#N <worktree>` (the checkout the assignment is called in) in
-`dispatchers/<id>.tasks`: a session with its own task, or none yet, launches an
-executor on the owner's "yes" too (#546), and unrecorded, the executor's In
-progress would be refused by the session's pin or would pin the session to its
-task. `task status` doesn't pin a handed-out task; `est` gives a subagent with
-«Task #N» in its assignment to task N, not to the session's pin. A hand-out is
-`=` in the queue for the whole session (an
-executor's answer leaves the task not ready either: merged closes it, a question
-waits for the owner, waits for subagents — the same executor answers again,
-failed isn't restarted; after the app restarts the executor
-is continued, "task resume"). The assignment: the task by the canon, in the
-project's mode (`"auto"` in `.agents/elves.json` of the checkout, #667) — an auto
-project like a session in auto mode; outside auto the executor merged on green
-checks too, and the owner learned of a merge he hadn't said «yes» to from the
-dispatcher afterwards: "do the epic" is the work's scope, not a «yes» to each
-merge — so commits, push into the task branch, PR, CI and `pr premerge` by
-itself, then the answer «question: merge PR #N?» with the premerge result, and
-on the owner's «yes» the dispatcher forwards — `pr premerge` again, the merge
-and the steps after it (the queue's `Next:` names this wait); a
-restart line only for an In progress task with a branch `*/N-*` in the
-checkout or on its origin (it names the branch; the branch checked out in
-another worktree — work there, in Claude Code `EnterWorktree` with its path,
-not in a new one), and what a subagent does
-otherwise — doesn't rename or archive the session and writes no last line,
-waits for CI and the deploy with regular calls
-(`wait-ci.sh … --timeout 540`: a background command doesn't wake a subagent, a
-Bash call lives 10 minutes), git in separate calls, writing subagents — as
-needed, without a limit (the limit of 3 is on executors), each in its own
-worktree with «Task #N» at the start of its prompt, their worktrees and
-branches removed by the executor after the merge, no answer while any of its
-subagents works (#565: an answer with live subagents reads as a failure — the
-executor of #545 answered failed, its subagents' answers woke it, and it merged
-the task while a second executor, launched on the owner's restart, worked on the
-same branch), the epic refresh — the subagent of `task actualize` without a
-worktree of its own and not in the background: its answer in the same turn,
-then `task close`, then the answer (#628: an executor of a task without
-commits answered «waits for subagents» while its refresh ran, and its
-worktree, without changes, was removed under the refresh subagent once it
-answered), a task without a PR — first the issue closed as completed with a
-result comment (`gh issue close N --reason completed --comment …`: `task
-close` needs it closed), found work — `task new`,
-named in the answer (whether to queue it is the owner's call); the answer — one
-line: merged, a question, waits for subagents (it can't wait — not a failure) or
-failed.
+The dispatcher: "do all tasks of epic #M", "fix all High bugs", the owner's
+"yes" to «run the dispatcher on epic #M?» (`AGENTS.md`, "Session and branch —
+one task") — any session; one with its own task keeps it pinned, and its task
+is `=` in the queue. The rules are a model in code, `scripts/queue.ts`: a
+task's state by its facts, the transitions between the states, the
+dispatcher's step; why each rule is so — the decision
+`tests/capabilities/github/github-queue` and its tests, one per transition.
 
-A restart is a new executor on a task handed out before or on a task branch:
-its `--assignment` refuses (code 1, no hand-out) while the previous executor or
-its subagent is alive — `!` lines with each live worktree, and the answer
-«waits for the previous executor». The previous executor's worktrees — its
-hand-outs of the task in any session's `dispatchers/*.tasks` and a worktree on
-the task branch, the caller's own aside; its subagents' (`agent-<id>`) — by
-`parentAgentId` of Claude Code's subagent metadata
-(`projects/<directory>/<session id>/subagents/agent-<id>.meta.json` in its
-configuration directory), at any depth. Alive — locked by a live process, a
-subagent without a worktree of its own at work in it (above), or HEAD moved (a commit, a switch) in
-the last 15 minutes: Claude Code doesn't lock the worktree of an agent continued
-after its answer, and the woken executor of #545 worked unlocked; the wait for CI
-is a Bash call of up to 9 minutes without commits.
+- `task queue` — the queue: `+` ready tasks, each with an indented line — its
+  executor's prompt, «Task #N …» in the project language (`est` links the
+  subagent's work by it); `=` in work, `○` not ready, with the reason; `Next:` —
+  the dispatcher's step. `--epic N` — the epic's open sub-issues; `--tasks
+  N,M,…` — the owner's group: every queue after an answer, and after the app
+  restarts (`task resume`), hands out only them, a new batch after a release —
+  only from those still open; a task created meanwhile (by an executor, by the
+  epic refresh) joins only by the owner's word — `task queue --tasks` with it;
+  otherwise the repository's open tasks (the first 100 of the search). `--type`,
+  `--priority` — only in an organization.
+- `task queue --assignment N` — the executor's first call, read-only on GitHub:
+  its whole assignment — by the canon, in the project's mode (`"auto"` in
+  `.agents/elves.json` of the checkout), into the batch or past it, a red
+  release's fix; the script prints it, this reference doesn't retell it.
+  `--session` — the prompt of an app executor session, called by the
+  dispatcher itself; `--main` — past the batch (below).
 
-In Claude Code: an executor — `Agent` with `isolation: "worktree"` and
-`run_in_background: true`, the prompt — the indented line as is; at most the
-machine's executors at once, the owner's number replaces it (subagents share
-the machine: `Next:` names the executors of its capacity — `slot --capacity`,
-`machine.json` or the cores and memory, without the slot skill — 3); a task in
-work (`=`) isn't launched again.
-Before each launch — `get_usage` (#815): a window of `plan.windows` at 85% and
+The queue marks the session as a dispatcher: `dispatchers/<CLAUDE_CODE_SESSION_ID>`
+in the configuration directory — the queue command, then a line `batch
+<owner/repo> <branch>` per batch (`task resume` reads only the command). The
+executors are subagents with the session's id: without the marker their `task
+status` would pin their tasks, and `est` would take the whole session as one
+task. The assignment records the hand-out — a line `owner/repo#N <worktree>`
+(the checkout it's called in; `@session` for an app session, `@main` past the
+batch) in `dispatchers/<id>.tasks` — in any session but one pinned to N: a
+session with its own task, or none yet, launches an executor on the owner's
+"yes" too. A hand-out lasts for the session. A restart while the previous
+executor or its subagent is alive — `!` lines with each live worktree, no
+hand-out, code 1: the answer «waits for the previous executor».
+
+#### A task's states
+
+| State | The queue reads it by | Line |
+|---|---|---|
+| `notReady` | an epic; Status Done while open; a blocker that holds — open and not merged into this batch (another repository's — `owner/repo#N`), or closed by its PR's merge before its `task close`; the `external blocker` label (the reason — the latest `External blocker: …` comment); ready while the batch's release is open — held | `○` with the reason |
+| `ready` | open, not an epic, not in work, nothing holds it | `+` with the prompt; by `Priority`, then the number |
+| `handedOut` | handed out to an executor of this session (a subagent, an app session), or In progress (the board, or by the facts: the task branch on origin, a session pin) without a PR | `=` |
+| `prOpen` | an open PR — linked, or by the task branch or `Closes #N` among the recent PRs | `=` with the PR's link |
+| `inBatch` | its PR merged into the batch branch, no open PR — GitHub links a PR to a task only by a merge into the default branch, so the queue finds it by the branch or `Closes #N` | `=` till the release |
+| `releaseOpen` | merged into the batch, the batch's release PR open | `=` |
+| `releaseRed` | the same, the release's checks red | `=` |
+| `released` | merged into the default branch, its tail not over: by its own PR — the executor's (the deploy, the epic refresh, `task close`), by the batch's release — the dispatcher's | `=` — of its own PR only |
+| `closed` | closed, `task close` passed (Status Done, the actual), or closed without a merge | none |
+
+A hand-out is `=` for the whole session: an executor's answer doesn't make its
+task ready again — merged closes it, a question waits for the owner, waits for
+subagents answers again, failed isn't restarted. A hand-out past the batch
+(`@main`) — `=` with «past the batch».
+
+#### Transitions
+
+| From | Event | To | By |
+|---|---|---|---|
+| `notReady` | `unblocked` | `ready` | GitHub |
+| `notReady` | `releaseMerged` | `ready` | dispatcher |
+| `ready` | `handOut` | `handedOut` | dispatcher |
+| `ready` | `blocked` | `notReady` | owner |
+| `ready` | `releaseOpened` | `notReady` | dispatcher |
+| `handedOut` | `prOpened` | `prOpen` | executor |
+| `handedOut` | `closedWithoutPr` | `closed` | executor |
+| `prOpen` | `mergedIntoBatch` | `inBatch` | executor |
+| `prOpen` | `mergedIntoBase` | `released` | executor |
+| `prOpen` | `fixMerged` | `releaseOpen` | executor |
+| `inBatch` | `releaseOpened` | `releaseOpen` | dispatcher |
+| `releaseOpen` | `checksRed` | `releaseRed` | GitHub |
+| `releaseOpen` | `releaseMerged` | `released` | dispatcher |
+| `releaseRed` | `fixOpened` | `prOpen` | executor |
+| `releaseRed` | `fixMerged` | `releaseOpen` | executor |
+| `released` | `taskClosed` | `closed` | executor |
+
+`released` → `closed` of a release — the dispatcher's `task close` of each task
+after the deploy and the epic refresh (`batch release` below); a task without a
+PR is closed as completed by its executor, then its refresh and `task close`.
+
+#### The executor
+
+| From | Event | To | The dispatcher's step |
+|---|---|---|---|
+| `working` | `answeredMerged` | `answered` | task queue again |
+| `working` | `answeredQuestion` | `answered` | the question to the owner; the answer — ✅ in the task and to the same executor with SendMessage |
+| `answered` | `continued` | `working` | the executor goes on in its context (SendMessage; after the app restarts — task resume) |
+| `working` | `answeredWaits` | `waitsForSubagents` | no restart: its subagents' answers wake it, it answers again |
+| `waitsForSubagents` | `woken` | `working` | wait for its answer |
+| `working` | `answeredFailed` | `failed` | a comment in the task with what stopped, no restart |
+
+The script reads an executor by its worktree: locked by a live process (Claude
+Code locks a running agent's worktree; a lock whose pid is gone doesn't hold)
+or HEAD moved in the last 15 minutes (a continued executor isn't locked again)
+— `working`; a subagent of it without a worktree of its own at work in it
+(Claude Code's subagent metadata of this session and of the sessions with
+hand-outs, at any depth; its transcript written in the last 15 minutes) —
+`waitsForSubagents`; otherwise — `answered`: failed only its answer tells.
+Alive — `working` or `waitsForSubagents`: a restart's assignment refuses, its
+worktree stays. The previous executor of a task — its hand-outs in any
+session's `dispatchers/*.tasks` and a worktree on the task branch; its
+subagents' — by `parentAgentId`, at any depth.
+
+#### `Next:` — the dispatcher's step
+
+The first of these the queue's tasks call for: a state's step is the `step` of
+its first transition with one in `queue.ts`; the open release is the batch's,
+whatever the group.
+
+| Step | When | The dispatcher |
+|---|---|---|
+| `fix` | the release PR is red | the guilty task's fix (`batch release` below): its executor with the printed prompt; not named by the labels — `batch release` names it |
+| `releaseSteps` | the release PR is open | its steps — `batch release` prints them; no new executors till its merge, the live executors' PRs wait for it |
+| `handOut` | a task is ready | each — a background executor while fewer than the machine's run |
+| `wait` | an executor of the batch at work (`handedOut`, `prOpen`, `released` of its own PR) | wait for the answers; outside auto each merge waits for the owner's «yes» |
+| `release` | nothing ready, every task of the batch merged into it | `batch release`; tasks past the batch don't hold it |
+| `waitPast` | only tasks past the batch in work | wait for their answers |
+| `empty` | nothing ready, nothing in work | the summary (merged, questions, the not ready ones, new tasks outside the queue) and the last line; a group's end — no new batch |
+
+Something merged into the batch while executors are at work — the owner's word
+«release» runs the same `batch release`: the live executors go on, their PRs
+wait for the release.
+
+#### The dispatcher in Claude Code
+
+An executor — `Agent` with `isolation: "worktree"` and `run_in_background:
+true`, the prompt — the indented line as is; at most the machine's executors at
+once, the owner's number replaces it (subagents share the machine: `Next:`
+names its capacity — `slot --capacity`, `machine.json` or the cores and memory,
+without the slot skill — 3); a task in work (`=`) isn't launched again;
+another project's task — an app session in its folder: `start_session` with
+`cwd` the project folder and `use_worktree` true, its prompt — the lines of
+`--assignment N --session` before `Next:` as is; it works as a session of its
+project, by its mode, and the end of each of its turns comes as the app's note.
+Before each launch — `get_usage`: a window of `plan.windows` at 85% and
 more — any but the window of a model the executors don't run on (`Weekly ·
 <model>`; theirs — the dispatcher's own unless the launch names another) — no
 new executors, the running ones finish, then `Remaining: N tasks, the limit:
@@ -1181,224 +1191,160 @@ gateway) — no plan limits: executors by the machine's capacity; `unavailable`
 — asked again if its note says that helps, otherwise no new executors, the
 running ones finish, `Remaining: N tasks, limits unavailable`. An
 answer arrives as the subagent's notification; after each — `task queue`
-again. A question — to the owner in text; the answer — ✅ in the task's
-questions section and to the same executor with `SendMessage` (its context is
-intact); a merge question outside auto — the owner's «yes» to the same
-executor, the merge is its. Waits for subagents — no restart: its subagents' answers wake it, and it
-answers again. Failed — a comment in the task with what stopped, no restart; the
-owner's restart — the refused assignment's «waits for the previous executor» —
-wait for the previous executor's answer, not a third executor; failed
-on an external blocker — it's recorded ("Dependencies" above), and the queue
-stops giving the task out until it's lifted. Queue
-empty and nothing running — the summary (merged, questions, not ready, new
-tasks outside the queue), the last line and, in auto mode, archiving; a session
-with its own task — after it. A running executor isn't stopped (`TaskStop`) to
-archive the session: its answer comes first.
+again, the answer handled by the executor's table above. A merge question
+outside auto — the owner's «yes» to the same executor, the merge is its. The
+owner's restart — the refused assignment's «waits for the previous executor»:
+wait for its answer, not a third executor. Failed on an external blocker — it's
+recorded ("Dependencies" above), the queue holds the task till it's lifted.
+After the app restarts — `task resume`. Queue empty and nothing running — the
+summary, the last line and, in auto mode, archiving; a session with its own
+task — after it. A running executor isn't stopped (`TaskStop`) to archive the
+session: its answer comes first.
 
-The app's sessions are executors too: another project's task — an app session
-in its folder (`start_session` with its own worktree), while a subagent works
-in a worktree of the dispatcher's repository. Such a session works as a session
-of its project, by its mode; the end of its turn comes as the app's note, like
-an answer, — `task queue` again. Its prompt — `--assignment N --session`,
-called by the dispatcher itself (#624): the lines before `Next:` as is — a
-session, not a subagent, so the subagent's lines don't apply: by the canon of its
-project and its mode, named `#N <title>`, CI and the deploy waited for with a
-background command, the canon's last line at the end; `Next:` — `start_session`
-with `cwd` the project folder and `use_worktree` true. The hand-out — without a
-worktree (`@session`): the task is `=` in the queue. Archiving (#621): an
-executor session whose task closed — the dispatcher archives it in
+Archiving: an executor session whose task closed — the dispatcher archives it in
 an auto project, not one still working in the background or awaiting the
 owner's answer; outside auto the owner closes it. Closed — `task close` passed:
-the PR merged, the deploy green, the actual written; the session is still in
-the list. Auto — `"auto": true` in `.agents/elves.json` of the session's
-project. In auto mode a session archives itself after the last line, but not
-always: it ended with a question whose answer went to the dispatcher, or its
-last turn was the wait for the deploy, and the line never reached archiving.
-Not archived: a session with live background work (the app refuses — "still
-has live work"), one awaiting the owner's answer (an archived session leaves
-the list, and the owner wouldn't read its question), a project outside auto
-mode — the owner closes those. The step — the last line of `task queue`, read
-after each answer; in Claude Code — `archive_session` with the session's id,
-refused — not retried (`claude/CLAUDE.md`).
+the PR merged, the deploy green, the actual written. Auto — `"auto": true` in
+`.agents/elves.json` of the session's project. An archived session leaves the
+list, and the owner wouldn't read its question; one with live background work —
+the app refuses ("still has live work"). The step is the queue's last line; in
+Claude Code — `archive_session` with the session's id, refused — not retried
+(`claude/CLAUDE.md`).
 
-A batch project (epic #645) — `"batch": true` in `.agents/elves.json` of the
-dispatcher's checkout (`install` and `update` carry it over): the dispatcher's
-tasks go into the default branch with one release — one full CI run and one
-deploy — instead of each its own, and a task PR into the batch runs no CI
-(`skills/spec/ci.md`, "Batches").
-The first `task queue` with a ready task creates the batch branch
-`batch/<YYYY-MM-DD>-<k>` (not `release/*`: git-flow projects have it) from a
-fresh `origin/<base>`, `k` — the first free number of the day, and pushes it
-without a local branch — a `+` line; nothing ready — no branch, an `○` line
-(#787). The next ones take the same — an `○` line: the marker keeps it as
-`batch <owner/repo> <branch>` after the queue command (`task resume` reads only
-the command). Gone from origin — released or deleted — a new one, with a ready
-task too. No session id, not a checkout of the repository, git
-failed — an `○`/`!` line, no batch: executors go into the default branch.
-GitHub links a PR to a task and closes it only by a merge into the default
-branch, so the script finds a batch PR itself, by the task branch or `Closes
-#N` among the recent PRs. A task merged into the batch branch is `=` with the
-PR till the release — open and In progress (question 1 of the epic); a blocker
-merged into it doesn't hold a task of the same batch, one outside it — merged
-into another batch or not merged — holds. The assignment (`--assignment`,
-`--session`) reads the batch from the marker — a subagent shares the session's
-id: the task branch from `origin/<batch>` in the area `exec` —
-`exec/<type>/<N>-<slug>`, a fix of a red release `exec/fix/<N>-<slug>`
-(#785): a preview host builds every pushed branch and comments on its PR, one
-notification per batch task, and decides by the branch's name, not the PR's
-base — Vercel: `"git": {"deploymentEnabled": {"exec/**": false}}` in
-`vercel.json` skips them, the release PR keeps its preview; past the batch
-(`--main`) and outside it — no area. Then the checks before a commit, the PR
-`--base <batch>`, `pr premerge` (it checks against the PR's base: by git, #676),
-the merge at once — no CI wait (the PR runs none: the slot is free at the
-merge, #676), no deploy wait, no epic refresh (the release's, one per epic)
-and no `task close` — it refuses a task merged only into a batch branch,
-before any change; a task without a PR isn't in the batch — its refresh and
-close are the executor's. The task's stacks don't wait for the release (#765):
-the assignment names `task-env down <N>` after the merge, before the answer,
-`task finish` of a PR merged into the batch takes them down too, and the
-dispatcher's `task queue` — of each task merged into the batch with no open PR
-(its executor is done), only `+` and `!` lines: a stack already down is said
-nothing of; `task close` at the release finds them gone — an `○` line. `task actualize` names the batch PR as what
-shipped and leaves the blocked-by links on the task till the release. A task
-past the batch — the owner's word «past the batch» (#697): `--assignment N
---main` (with `--session` too) — the assignment of a project without batches: the branch from
-`origin/<base>`, the PR into it with the full CI, the deploy, the epic refresh
-and `task close`; the hand-out keeps `@main` — a restart keeps the way, `task
-finish` opens the PR into the default branch, the queue's `=` line says «past
-the batch» and the release doesn't wait for it; a task of a red release
-refuses `--main` — its fix is the batch's. A session outside the dispatcher
-(one task, a hotfix) — into the default branch, as before.
+#### Executors' worktrees
 
-The batch's release (#649, "batch release" below): nothing ready and every
-task of the batch merged into it — `Next:` names `batch release`; a task
-merged into the batch without an open PR of it isn't a live executor. The
-condition is the batch's tasks, not all In progress (#696): a live executor
-of the batch is a task with an open PR into it, or one handed out to a
-subagent or an app session, not merged into the batch and without a PR into
-another branch; a task past the batch — its PR into the default branch, In
-progress without a hand-out (the dispatcher's own task, another session's) —
-doesn't hold the release, `Next:` names it as past the
-batch. With
-live executors — the owner's word «release», the same command; `Next:` names
-it once something is merged. The release PR open — ready tasks are held (`○ …
-ready, held`), no new executors till its merge: a merge into the batch now
-would change what the release's CI checked. Red (#650) — `Next:` names the
-guilty task by the labels and its fix, with its executor's prompt (one text
-with `batch release`, below); not named by the labels — `batch release` names
-it (the bisect is its). The assignment of a task in a red open release —
-the fix's (`--assignment`, `--session`): the release PR and its failed
-checks, a new task branch `fix/<N>-<slug>` from `origin/<batch>`, not the
-task's earlier branch (rebase-merged into the batch already, so no restart
-line), the commits and the PR body with `Refs #N`. Released — its release PR
-merged,
-the branch maybe still on origin — the next batch starts only with a ready
-task to hand out (`○ no new batch branch` otherwise), like the first one: a
-dispatcher with nothing to hand out leaves no empty batch branch on origin, and
-the marker drops the batch line. Nothing is merged into a new batch yet, so
-starting it after the readiness check changes no blocker's reading. A released
-batch branch still on origin without an open PR into it is
-deleted (`+`), with one — kept (`○`) till its executor moves the PR (`pr
-premerge`); a new batch's `k` skips the names of the recent PRs' branches too:
-a released name taken again would read as released at once.
+Before the queue, in the repository's checkout, the queue removes what finished
+executors left — an agent's worktree (`.claude/worktrees/agent-*`) detached, on
+a `worktree-agent-*` branch or on a closed task's branch, its executor not
+alive, its task not live (open, or closed by its PR's merge before `task
+close`), clean and merged: no commits outside `origin/<base>` by `git cherry`,
+or its HEAD in a merged PR of its closed task — into the default branch or a
+batch its merged release PR shipped (a release rewrites the task's commits past
+`git cherry`). Removed with its branch — a `+` line; uncommitted changes,
+unmerged commits or a subagent at work in it — left, an `○` line with the
+reason; a `worktree-agent-*` branch without a worktree — the same by its
+commits. A session's worktree is never touched. The dispatcher doesn't remove
+an executor's worktree itself (`git worktree remove` after a clean `git
+status`): a subagent without a worktree of its own leaves no trace in `git
+status`, and its directory would go from under it.
 
-The dispatcher's group (#698) — `--tasks N,M,…`, the owner's chosen tasks
-(the owner picked five and took nothing else, epic #645): the queue command in the marker keeps it,
-so every queue after an answer — and after the app restarts (`task resume`) —
-hands out only them; the release — once they are merged into the batch; after
-it a new batch only from the group's tasks still open, nothing left — no new
-batch, the last line says so. Tasks created meanwhile — by executors (found
-work), by the epic refresh — join only by the owner's word: `task queue
---tasks` with them. Taking nothing else is a group without new tasks; before
-it the dispatcher could stop only by not running the queue, and the
-executors' worktrees waited for a queue that never came (the pilot of epic
-#645).
+Claude Code's own cleanup doesn't replace this (its documentation, "Worktrees"
+and "Claude directory", checked 2026-11-17): a subagent's worktree goes at its
+end only without changes; one with commits waits for the periodic sweep, which
+removes it once older than `cleanupPeriodDays` (365 on the machine: `est fact`
+and `est period` read the transcripts it also removes) and keeps one with
+unpushed commits — an executor's subagent's commits, carried into the task
+branch, stay unpushed on its own branch. The queue removes by the task's facts
+— merged and closed — not by age.
+
+#### A batch project
+
+`"batch": true` in `.agents/elves.json` of the dispatcher's checkout (`install`
+and `update` carry it over): the dispatcher's tasks go into the default branch
+with one release — one full CI run and one deploy — instead of each its own,
+and a task PR into the batch runs no CI (`skills/spec/ci.md`, "Batches").
+
+- **The batch branch** `batch/<YYYY-MM-DD>-<k>` (not `release/*`: git-flow
+  projects have it): the first queue with a ready task creates it from a fresh
+  `origin/<base>` — `k`, the first free number of the day on origin, in the
+  marker and among the recent PRs' branches — and pushes it without a local
+  branch, a `+` line; nothing ready — no branch, an `○` line. The next queues
+  take the same (the marker). Released (its release PR merged) or gone from
+  origin — the next one starts with a ready task; a released batch branch
+  still on origin is deleted without an open PR into it (`+`), kept with one
+  (`○`) till its executor moves the PR (`pr premerge`). No session id, not a
+  checkout of the repository, git failed — no batch: the executors go into the
+  default branch.
+- **An executor of the batch** — the task branch `exec/<type>/<N>-<slug>` from
+  `origin/<batch>` (the area `exec`: a preview host that builds every pushed
+  branch decides by its name — Vercel: `"git": {"deploymentEnabled":
+  {"exec/**": false}}` in `vercel.json`), the PR `--base <batch>`, the merge
+  right after the checks before a commit and `pr premerge` (it checks against
+  the PR's base) — no CI, no deploy, no epic refresh and no `task close`: it
+  refuses a task merged only into a batch branch; `task actualize` names the
+  batch PR as what shipped. A task without a PR isn't in the batch — its
+  refresh and close are its executor's. The task's stacks don't wait for the
+  release: the assignment names `task-env down <N>` before the answer, `task
+  finish` of a PR merged into the batch and the queue take down those of tasks
+  merged into it; `task close` at the release finds them gone.
+- **Past the batch** — the owner's word «past the batch»: `--assignment N
+  --main` (with `--session` too) — the branch from `origin/<base>`, the PR into
+  it with the full CI, the deploy, the refresh and `task close`; the hand-out
+  keeps `@main` (a restart keeps the way, `task finish` opens the PR into the
+  default branch), the release doesn't wait for it; a task of a red release
+  refuses `--main` — its fix is the batch's. A session outside the dispatcher
+  (one task, a hotfix) — into the default branch.
 
 ### batch release
 
-The release of the dispatcher's batch (#649) — one full CI run and one deploy
-for the batch. From the dispatcher's checkout of the repository, outside the
-sandbox: `batch release` (the session's batch, from its marker) or `batch
-release batch/<YYYY-MM-DD>-<k>`. The tasks — every PR merged into the batch
+The release of the dispatcher's batch — one full CI run and one deploy for the
+batch. From the dispatcher's checkout of the repository, outside the sandbox:
+`batch release` (the session's batch, from its marker) or `batch release
+batch/<YYYY-MM-DD>-<k>`. The batch's tasks — every PR merged into the batch
 branch (a query by the base, not the recent PRs: a task missed is one the
-release doesn't close): the task branch's number and `Closes #N` of its body;
-nothing merged — a refusal. The batch branch is rebased onto a fresh
-`origin/<base>` in a temporary worktree (always removed) and pushed
-`--force-with-lease` against the SHA read: the release's CI checks what lands
-in `main` after the hotfixes that went past the batch; on it already — no
-rebase (`=`); a conflict — a `!` line with the files, the branch unchanged, no
-PR, code 1: rebase it by hand in the checkout, then `batch release` again (a
-red release — the guilty task fixes it in the batch, below). The committer —
-the machine's git identity, none (CI) — `elves`. The PR into the default
-branch: the title — a conventional commit by the heaviest task type (`feat`,
-`fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`) and
-«release of `<batch>` — #N, …» in the project language (`release` of the
-dictionary); the body — the lead with the tasks' PRs, the batch's `spec-diff`
-(the spec skill's script next to this one, `--base origin/<base> --head <the
+release doesn't close): the task branch's number and `Closes #N` of its body.
+
+| The release PR | `batch release` | `Next:` |
+|---|---|---|
+| none, nothing merged into the batch | refuses | — |
+| none | the decision labels of each task's PR into the batch by `pr labels`' rule — a label its task or epic lacks is set (`+`), a PR not read — `!` with `pr labels <PR>`; the batch rebased onto a fresh `origin/<base>` in a temporary worktree (always removed) and pushed `--force-with-lease` against the SHA read — on it already, `=`; a conflict — `!` with the files, the branch unchanged, no PR, code 1: rebase it by hand in the checkout, then again; the PR into the default branch; open PRs into the batch — `○`: not in the release, their executors go on, their `pr premerge` holds the merge till the release, then moves the PR | its steps |
+| open | `=`; its title and body rebuilt from the PRs merged into the batch now and its head (a red release's fix merged after it opened, its `Closes #M`) — the same, `=`, otherwise a PATCH and a `+` line naming the tasks added | its steps |
+| open, red | `!` with the checks and the guilty task (below) | its fix |
+| merged | the batch executors' worktrees and branches removed (the queue's rule) | the closing steps |
+
+The release PR: the title — a conventional commit by the heaviest task type
+(`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`) and
+«release of `<batch>` — #N, …» in the project language; the body — the lead
+with the tasks' PRs, the batch's `spec-diff` (`--base origin/<base> --head <the
 rebased batch>`; not installed or failed — a line, the body without it) and
 `Closes #N` of each task: the merge closes them, and `task close` finds the
-release PR linked. Before the PR — the decision labels (#733): each task's PR
-into the batch by `pr labels`' rule, a label its task or epic lacks is set —
-a `+` line; a PR not read — a `!` line with `pr labels <PR>`. Open PRs into the batch — the live executors' — `○` lines:
-not in the release, the executors go on (question 2 of epic #645), their `pr
-premerge` holds the merge till the release, then moves the PR. The release PR
-already open — `=`, its title and body rebuilt (#819) by the same rule from
-the PRs merged into the batch now and its fetched head: a red release's fix
-PR merged after the release PR opened, and `Closes #M` of its body (a task
-the fix did too) — otherwise the release's merge wouldn't close M; the body
-the same — an `=` line, otherwise a PATCH and a `+` line naming the tasks
-added; then its steps again, no second PR; merged — the closing steps, for
-the tasks of its `Closes` and of the PRs merged into the batch (a release
-merged without a rebuild still names them; `task close` closes them as
-released by it, below). `Next:` — the canon's path: `wait-ci.sh pr <R>`, `pr premerge <R>`,
-`gh pr merge <R> --rebase` — outside auto on the owner's «yes» (#667), as an
-executor's merge (FAIL — `batch release` again: a red release,
-below); after the merge — `batch release` again: the batch
-executors' worktrees go with their branches (#698: agents' worktrees on a
-closed task's branch, clean and merged — the queue's rule, above; a dispatcher
-that stops runs no queue), then the closing steps; a dispatcher that goes on runs
-`task queue` at once (the next batch from the merged default branch — a group's
-only from its tasks still open, the live executors' PRs go into it), one that
-stops doesn't (they go into the default branch); then `wait-ci.sh merged <R>` where the merge deploys and, in the same
-turn, the epic refresh — `task actualize` with all the batch's tasks (#676:
-one refresh per epic, not per merge into the batch; below), — after both
-`task close N` of each task of the batch — GitHub closed them by `Closes`,
-close writes the actual and Done and removes the branches (`task close`
-below). The release's CI and deploy waits and the refresh are the session's
-that ran it, not the batch tasks' (question 5 of the epic).
+release PR linked. The committer of the rebase — the machine's git identity,
+none (CI) — `elves`.
 
-A red release (#650; question 3 of the epic — fixed in the batch, not
-reverted): the full set runs first on the release, so its red names the
-guilty task, and the release PR stays open — the other tasks wait for it, no
-new executors (`task queue` holds them, `pr premerge` — their PRs). The
-release's checks — `checkStates` of its head (REST), as `task show` and
-`ci-wait` read them: `fail` or `cancel` — red, one running or none yet — the
-steps above. Red — a `!` line with the checks and the guilty task: the
-release's only task; otherwise the files the failed GitHub Actions jobs' logs
-name (a failure line of Bun, Vitest, Jest, Playwright or its file header
-above it, a compiler error) — their decisions by the rule of `pr labels`
-against the decision labels of the release's tasks (`Closes #N` of the
-release): one task holds them — it; several (a topic's label: a section has
-none, #689) — the one whose PR into the batch changed the failed test's
-section files, `tests/<root>/<topic>/<section>.*`; otherwise a bisect on the
-machine (question 1 of the task: in CI a push into the batch branch starts no run,
-and a run per step there is the full set). The bisect: the batch's commits
-over its merge-base with `origin/<base>` in blocks by `Refs #N` of the
-release's tasks (a commit without one — the block before it), a temporary
-worktree (always removed), dependencies by its lockfile, the check — the
-failed test files that exist at the commit by the project's `test` script, a
-compiler error — `typecheck`, neither named — the failed checks named like a
-script (the scripts go through `slot`); first the head (green on the machine —
-the red isn't reproduced, nobody is blamed) and the base (red — not the
-batch's), then ⌈log₂N⌉ runs — the first red block's task. Not named — a `!`
-line why, the dispatcher names it by the logs or asks the owner. `Next:` —
-the guilty task's executor (continued with `SendMessage`, none alive — a new
-one) with its prompt: its assignment is the fix's (`task queue`, above), its
-PR into the batch with `Refs #N` after the checks before a commit, no CI, `pr premerge` lets it
-through the open red release; after its merge — the full run again on the
-same release PR: `batch release` prints its steps, no second PR. A fix PR of
-a release task open into the batch — an `○` line and the wait for it, no
-bisect.
+Its steps: `wait-ci.sh pr <R>` as a background command; PASS — `pr premerge
+<R>`, code 0 — `gh pr merge <R> --rebase` (outside auto on the owner's «yes»);
+FAIL — `batch release` again: a red release. After the merge — `batch release`
+again, then a dispatcher that goes on runs `task queue` at once (the next batch
+from the merged default branch, a group's only from its tasks still open; the
+live executors' PRs go into it), one that stops doesn't (they go into the
+default branch). The closing steps: `wait-ci.sh merged <R>` where the merge
+deploys and, in the same turn, the epic refresh — `task actualize` with all the
+batch's tasks, one refresh per epic — after both `task close N` of each task:
+GitHub closed them by `Closes`, close writes the actual and Done and removes the
+branches. The release's waits and refresh are the dispatcher's, not the
+tasks'.
+
+A red release is fixed in the batch, not reverted: the full set runs first on
+the release, the release PR stays open, the other tasks wait — no new
+executors, their PRs held by `pr premerge`. Its checks — `checkStates` of its
+head (REST), as `task show` and `ci-wait` read them: `fail` or `cancel` — red,
+one running or none yet — its steps. The guilty task: the release's only task;
+otherwise the files the failed GitHub Actions jobs' logs name (a failure line
+of Bun, Vitest, Jest, Playwright or its file header above it, a compiler error)
+— their decisions by the rule of `pr labels` against the decision labels of the
+release's tasks: one task holds them — it; several (a topic's label: a section
+has none) — the one whose PR into the batch changed the failed test's section
+files, `tests/<root>/<topic>/<section>.*`; otherwise a bisect on the machine
+(in CI a push into the batch branch starts no run): the batch's commits over its
+merge-base with `origin/<base>` in blocks by `Refs #N` of the release's tasks
+(a commit without one — the block before it), a temporary worktree (always
+removed), dependencies by its lockfile, the check — the failed test files that
+exist at the commit by the project's `test` script, a compiler error —
+`typecheck`, neither named — the failed checks named like a script (the scripts
+go through `slot`); first the head (green on the machine — the red isn't
+reproduced, nobody is blamed) and the base (red — not the batch's), then
+⌈log₂N⌉ runs — the first red block's task. Not named — a `!` line why, the
+dispatcher names it by the logs or asks the owner. The queue names the guilty
+task by the labels only; the bisect is `batch release`'s.
+
+The fix: the guilty task's executor — continued with `SendMessage`, none alive
+— a new one, with the printed prompt; its assignment is the fix's: a new task
+branch `exec/fix/<N>-<slug>` from `origin/<batch>` (the task's earlier branch is
+rebase-merged already), the PR into the batch with `Refs #N` after the checks
+before a commit, no CI, `pr premerge` lets it through the red release. After
+its merge — the full run again on the same release PR: `batch release` prints
+its steps, no second PR. A fix PR open into the batch — an `○` line and the wait
+for it, no bisect.
 
 ### task drop
 
