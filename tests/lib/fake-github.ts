@@ -378,7 +378,7 @@ export class FakeGitHub {
    */
   private prShow(number: number): Any {
     const p = this.prs[number]!;
-    return { number, state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), isDraft: Boolean(p.draft), headRefName: p.head, baseRefName: p.base ?? "main", commits: { nodes: [{ commit: { statusCheckRollup: this.rollup(p.checks ?? {}) } }] } };
+    return { number, state: p.state ?? (p.merged ? "MERGED" : "OPEN"), merged: Boolean(p.merged), isDraft: Boolean(p.draft), headRefName: p.head, headRefOid: p.sha ?? `sha${number}`, baseRefName: p.base ?? "main", commits: { nodes: [{ commit: { statusCheckRollup: this.rollup(p.checks ?? {}) } }] } };
   }
   /**
    * Check-runs головы PR в REST вне облака, как их отдаёт GitHub Actions: id — `номер·100 + k` (id джобы — по нему
