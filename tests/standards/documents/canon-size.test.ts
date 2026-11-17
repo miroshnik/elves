@@ -56,11 +56,14 @@ const overBudget = (d: Doc, hint: string) => {
   const words = wordsOf(d.text);
   if (words > d.limit) throw new Error(`${d.file}: ${words} слов при бюджете ${d.limit} — ${hint} (tests/standards/documents/canon-size)`);
 };
-const checkCore = (d: Doc) => overBudget(d, "вынести подробность целой темой в её md (docs/<тема>.md, reference.md скилла) со ссылкой отсюда, факт не удалять");
-const checkSkill = (d: Doc) => overBudget(d, "справку — целой темой в reference.md скилла или в --help, в SKILL.md — когда и что звать; факт не удалять");
+const checkCore = (d: Doc) => overBudget(d, "вынести подробность целой темой в её md (docs/<тема>.md, reference.md скилла) со ссылкой отсюда; удалять — неиспользуемое по est usage");
+const checkSkill = (d: Doc) => overBudget(d, "справку — целой темой в reference.md скилла или в --help, в SKILL.md — когда и что звать; удалять — неиспользуемое по est usage");
 
-/** Правило канона на случай упора в бюджет: подробность уходит в md своей темы, в каноне — ссылка; факт не удаляется. */
-export const BUDGET_RULE = ["**A file at its budget**", "`docs/<topic>.md`", "a fact is never deleted for the"];
+/**
+ * Правило канона на случай упора в бюджет: подробность уходит в md своей темы, в каноне — ссылка; удаляется
+ * неиспользуемое — по отчёту `est usage` (#845), а бюджет — потолок.
+ */
+export const BUDGET_RULE = ["**A file at its budget**", "`docs/<topic>.md`", "**Unused is deleted:**", "`est usage`"];
 export const missingBudgetRule = (md: string): string[] => BUDGET_RULE.filter((part) => !md.includes(part));
 const checkDescription = (d: Doc) => {
   const desc = descriptionOf(d.text);
@@ -148,7 +151,7 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
     expect(descriptionOf("---\nname: x\ndescription: When — a run\n  is slow\n---\n")).toBe("When — a run is slow");
   });
 
-  it("канон, упёршийся в бюджет, выносит подробность в md её темы со ссылкой, а факт не удаляет — правило есть в AGENTS.md", () => {
+  it("канон, упёршийся в бюджет, выносит подробность в md её темы со ссылкой, а удаляет неиспользуемое по `est usage` — правило есть в AGENTS.md", () => {
     expect(missingBudgetRule(read("AGENTS.md"))).toEqual([]);
     expect(missingBudgetRule("Budgets: this file ≤ 3,000 words.")).toEqual(BUDGET_RULE);
   });
