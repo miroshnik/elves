@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
+import { BYPASSES } from "../../../skills/github/scripts/bypasses.ts";
 import locale from "../../../skills/github/scripts/locale.ts";
 import { bareClone, elves, elvesPackage, bunxPackage, bunxServesPackages, copyPackage, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
@@ -878,6 +879,22 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(hooks()).toHaveLength(1);
     expect(hooks()[0].command).toContain("github:miroshnik/elves check --hook");
     expect(hooks()[0].command).not.toMatch(/\p{Script=Cyrillic}/u);
+    expect(elves(sb, ["check", "-g"]).code).toBe(0);
+  });
+
+  /** Хук PreToolUse прошлой версии знал другой список обходов (#839): check -g сверяет группу целиком, update -g узнаёт свою по команде. */
+  it("хук PreToolUse прошлой версии — отстаёт; update -g ставит список обходов этой версии вместо него, а не рядом; после него check — актуально", () => {
+    elves(sb, ["install", "-g"]);
+    const file = path.join(sb.home, ".claude/settings.json");
+    const guards = () => JSON.parse(read(file)).hooks.PreToolUse.flatMap((g: { hooks: { if: string }[] }) => g.hooks);
+    const settings = JSON.parse(read(file));
+    settings.hooks.PreToolUse[0].hooks = settings.hooks.PreToolUse[0].hooks.slice(0, 1);
+    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+    const r = elves(sb, ["check", "-g"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("  ~ ~/.claude/settings.json — the PreToolUse hook: a bypass of a flow command");
+    expect(elves(sb, ["update", "-g"]).code).toBe(0);
+    expect(guards().map((h: { if: string }) => h.if)).toEqual(BYPASSES.map((b) => b.rule));
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 
