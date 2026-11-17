@@ -48,8 +48,8 @@ import { BYPASSES } from "./bypasses.ts";
 import type { Bypass } from "./bypasses.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
-import { entryOf, executorAlive, executorOf, queueStep, worktreeRemovable } from "./queue.ts";
-import type { BatchFacts, Entry, Step as QueueNext, TaskFacts } from "./queue.ts";
+import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, worktreeRemovable } from "./queue.ts";
+import type { BatchFacts, BlockerFacts, Entry, Step as QueueNext, TaskFacts } from "./queue.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -2418,7 +2418,8 @@ function projectChecked(io: Io, slug: string): boolean {
 
 /**
  * Taking a task in one call (#666) instead of ~11 flow turns: `project check` (once per session), the task as `task
- * show` prints it, then the stops before any change — open questions of the task or its epic (they are asked first,
+ * show` prints it, then the stops before any change — its blockers by the queue's rules (`holdsOf`, #869: an open
+ * blocked by, the external blocker label; one merged into this executor's batch doesn't hold), open questions of the task or its epic (they are asked first,
  * AGENTS.md, "Task tracking"), parallel work (an open PR of the task or its branch `*\/N-*` that isn't this checkout's
  * — continue it or wait for its merge); then `task status N "In progress" --branch` and what the agent needs next:
  * the session name, the branch, the scenarios and, in
@@ -2437,6 +2438,12 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   if (t.epic) throw new GhError(`#${number} is an epic — it isn't taken into work: the question to the owner «run the dispatcher on epic #${number}?», then task queue --epic ${number}`);
   if (t.state !== "OPEN") throw new GhError(`#${number} is closed — reopen it first (gh issue reopen ${number}), then task start`);
   for (const line of t.lines) io.out(line);
+  // a blocked task isn't taken (#869) — by the queue's rules: what task queue doesn't hand out, task start doesn't take
+  const holds = holdsOf(io, slug, number, t.blockers, t.labels);
+  if (holds.length) {
+    io.out(`! #${number} is blocked — ${holds.join("; ")} — the task isn't taken till they're lifted`);
+    return endWith(io, STEP.blocked(readyIn(slug), "", number), 1);
+  }
   const asked = [t.open.length ? `#${number}: ${t.open.join(", ")}` : "", t.epicOpen?.ks.length ? `epic #${t.epicOpen.number}: ${t.epicOpen.ks.join(", ")}` : ""].filter(Boolean);
   if (asked.length) {
     // the answer's command ready — of the task's first open question, otherwise of the epic's (#841); the step — the
@@ -2677,6 +2684,9 @@ interface ShownTask {
   open: number[];
   epicOpen: { number: number; ks: number[] } | null;
   prs: ShownPr[];
+  /** Its blockers (blocked by), closed ones and other repositories' included, and its labels — `task start`'s stop (#869). */
+  blockers: Blocker[];
+  labels: string[];
   /** The issue as `Q.IssueShow` read it — the automaton's facts (#842), not read twice. */
   issue: Any;
 }
@@ -2736,8 +2746,9 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
     const open = subs.filter((x) => x.state === "OPEN");
     out.push(`Subtasks: open ${open.length} of ${subs.length}`, ...open.map((x) => `- task #${x.number} ${q(x.title)}`));
   }
-  const blockers: Any[] = (i.blockedBy?.nodes ?? []).filter((x: Any) => x.state === "OPEN");
-  if (blockers.length) out.push(`Blocked by: ${blockers.map((x) => `${blockerRef(slug, { number: x.number, repo: x.repository?.nameWithOwner ?? slug })} ${q(x.title)}`).join(", ")}`);
+  const blockedBy: (Blocker & { title: string })[] = (i.blockedBy?.nodes ?? []).map((x: Any) => ({ number: x.number, state: x.state, repo: x.repository?.nameWithOwner ?? slug, title: x.title ?? "" }));
+  const blockers = blockedBy.filter((x) => x.state === "OPEN");
+  if (blockers.length) out.push(`Blocked by: ${blockers.map((x) => `${blockerRef(slug, x)} ${q(x.title)}`).join(", ")}`);
   // an epic has no PR of its own
   if (!epic) {
     prs = (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean).map((p: Any) => shownPr(p));
@@ -2771,7 +2782,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   out.push(...commentLines("Comments", comments));
   if (epicComments) out.push(...commentLines(`Epic #${i.parent.number} comments`, epicComments));
   if (lines.join("").trim()) out.push("", ...lines);
-  return { lines: out, title: i.title, state: i.state, epic, body: i.body ?? "", open, epicOpen, prs, issue: i };
+  return { lines: out, title: i.title, state: i.state, epic, body: i.body ?? "", open, epicOpen, prs, blockers: blockedBy, labels, issue: i };
 }
 
 /** The answer's text on one line: `task answer` and the refresh's file of edits (#669). */
@@ -3045,6 +3056,39 @@ function externalBlocker(io: Io, slug: string, number: number, label: string): s
   return `label ${q(label)}: ${clip(comment.slice(mark.length).split(/\r?\n/)[0]!.trim())}`;
 }
 
+/** The task's external blocker label (`labels.externalBlocker` of any dictionary language); none — undefined. */
+const externalLabelOf = (labels: string[]) => labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l));
+
+/**
+ * A blocker as the queue's model reads it (queue.ts, `holdingBlockers`) — `task queue`'s and `task start`'s (#869):
+ * merged into the batch — by `inBatch` (the batch's merged PRs; no batch — null); closed by its PR's merge, its task
+ * close not run — by `awaiting` (a hand-out of this session, #769). Another repository's blocker is neither.
+ */
+function blockerFacts(slug: string, inBatch: ((n: number) => number | undefined) | null, awaiting: (n: number) => number | null): (b: Blocker) => BlockerFacts {
+  const same = (b: Blocker) => b.repo.toLowerCase() === slug.toLowerCase();
+  return (b) => ({
+    ref: blockerRef(slug, b),
+    open: b.state === "OPEN",
+    inBatch: inBatch !== null && same(b) && inBatch(b.number) !== undefined,
+    unclosed: b.state !== "OPEN" && same(b) && awaiting(b.number) !== null,
+  });
+}
+
+/**
+ * What holds a task from being taken (#869) — the queue's rules, so `task start` doesn't take what `task queue` doesn't
+ * hand out: the blockers by `holdingBlockers` (one merged into the batch of this session's executor doesn't hold — its
+ * branch is cut from the batch; a hand-out past the batch, `--main`, branches from the default one — it holds) and the
+ * external blocker label with its reason. Nothing — none. The batch's PRs are read only for a blocker of this repository.
+ */
+function holdsOf(io: Io, slug: string, number: number, blockers: Blocker[], labels: string[]): string[] {
+  const batch = handedPastBatch(io, slug, number) ? null : batchOf(io, slug);
+  let recent: Recent | null = null;
+  const inBatch = batch === null ? null : (n: number) => batchPrOf((recent ??= recentPrs(io, slug)), batch)(n);
+  const held = holdingBlockers(blockers.map(blockerFacts(slug, inBatch, awaitingCloseOf(io, slug, handedOut(io, slug)))));
+  const label = externalLabelOf(labels);
+  return [held.length ? `blocked by ${held.join(", ")}` : "", label ? externalBlocker(io, slug, number, label) : ""].filter(Boolean);
+}
+
 /** The executor's prompt: the task first (`est` links the subagent's work by it), the whole assignment — from the script. */
 function executorPrompt(slug: string, number: number, epic: number | null): string {
   return locale.fill(N.queue.prompt, {
@@ -3186,11 +3230,12 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const read = openOf(io, slug);
   const isOpen = (n: number) => (states.has(n) ? states.get(n) === "OPEN" : read(n));
   const facts = workFacts(io, slug, true);
-  const same = (b: Blocker) => b.repo.toLowerCase() === slug.toLowerCase();
   // the kept batch's merges: a task merged into it is `=` till the release (question 1 of epic #645); a blocker merged
   // into it doesn't hold its task — the executor branches from the batch (#648); outside it — another batch or not
   // merged — holds, as without batches
   const inBatch = batch === null ? null : batchPrOf(recent, batch);
+  // a blocker closed by its PR's merge holds till its task close (#769): the deploy it waits for may not have happened
+  const blocker = blockerFacts(slug, inBatch, awaiting);
   /** The queue's tasks, by number, with their entries (queue.ts). */
   const entries: { i: Issue; e: Entry }[] = [];
   for (const n of numbers.sort((a, b) => a - b)) {
@@ -3208,7 +3253,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     const status = !open || epic ? null : ctx.board ? (itemIn(ctx.board, i)?.status ?? null) : fact!.status;
     const pr = open || closer !== null ? openPr(i) : undefined;
     const hand = handed.find((h) => h.number === i.number);
-    const external = open && !epic ? i.labels.find((l) => locale.every((n) => n.labels.externalBlocker).includes(l)) : undefined;
+    const external = open && !epic ? externalLabelOf(i.labels) : undefined;
     const f: TaskFacts = {
       number: i.number,
       open,
@@ -3220,13 +3265,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       inBatch: inBatch?.(i.number, i.prs) ?? null,
       handOut: hand ? { executor: hand.executor, main: hand.main } : null,
       pastBatch: pastBatch(i),
-      // a blocker closed by its PR's merge holds till its task close (#769): the deploy it waits for may not have happened
-      blockers: i.blockers.map((b) => ({
-        ref: blockerRef(slug, b),
-        open: b.state === "OPEN",
-        inBatch: inBatch !== null && same(b) && inBatch(b.number) !== undefined,
-        unclosed: b.state !== "OPEN" && same(b) && awaiting(b.number) !== null,
-      })),
+      blockers: i.blockers.map(blocker),
       external: external ? () => externalBlocker(io, slug, i.number, external) : null,
     };
     entries.push({ i, e: entryOf(f, batchFacts()) });
@@ -5404,6 +5443,11 @@ const STEP = {
       ? { state, next: `each open question answered by its recommendation — ${r("task", "answer", at.number, at.k, "<answer>", "--auto")}; one without a clear recommendation — the owner's`, who: "agent" }
       : { state, next: `the answers to the open questions — asked in one message, each with options and a recommendation; each answer — ${r("task", "answer", at.number, at.k, "<answer>")}`, who: "owner" },
   take: (r: Ready, state: string, number: number): NextStep => ({ state, next: r("task", "start", number, "--branch", `<type>/${number}-<slug>`), who: "agent" }),
+  blocked: (r: Ready, state: string, number: number): NextStep => ({
+    state,
+    next: `the blockers lifted: a blocker issue closed, the external blocker label removed; then ${r("task", "start", number, "--branch", `<type>/${number}-<slug>`)}`,
+    who: "owner",
+  }),
   elsewhere: (state: string, branches: string[]): NextStep => ({
     state,
     next: `continue on ${branches.join(", ")} — in its worktree (git worktree list), in none — git switch ${branches[0]}: the task isn't taken a second time`,
@@ -7015,7 +7059,9 @@ Examples:
 
 Taking a task into work in one call: project check (once per session — a marker in project-checks/<session id> of
 ~/.config/elves; ❌ — the report and code 1), the task as task show prints it, then the stops before any change, code 1:
-open questions of the task or its epic (ask the owner, then task start again), the task in work elsewhere (an open PR
+its blockers by task queue's rules (an open blocked by, another repository's too, the external blocker label with its
+reason; a blocker merged into the batch of this session's executor doesn't hold), open questions of the task or its
+epic (ask the owner, then task start again), the task in work elsewhere (an open PR
 of it — into a batch branch too — or a branch */<N>-* locally or on origin that isn't the current one). Then task
 status N «In progress» --branch (the pin, the epic, the branch rename) and the next lines: the session name «#N <title>», the branch, the scenarios of the description,
 in Claude Code (CLAUDECODE=1) one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}), and

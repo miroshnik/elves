@@ -59,7 +59,8 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 - **A big task is an epic with subtasks.** `github task new --epic` makes a
   subtask and `--blocked-by` a dependency — dependencies are GitHub links
   only, a blocker that isn't an issue is the `external blocker` label — and
-  `github task queue` hands out no blocked task.
+  `github task queue` hands out no blocked task, `github task start` doesn't
+  take one.
 - **The dispatcher runs the queue.** "Do all tasks of epic #M" or "fix all
   High bugs" makes any session a dispatcher: `github task queue` prints each
   executor's prompt and, after each answer, the next step.

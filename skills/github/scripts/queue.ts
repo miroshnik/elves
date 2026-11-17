@@ -126,6 +126,15 @@ export interface TaskFacts {
   external: (() => string) | null;
 }
 
+/**
+ * The blockers that hold a task, named — one rule for `task queue` and `task start` (#869): open and not merged into the
+ * batch the executor branches from; closed by its PR's merge before its `task close` — the deploy it waits for may not
+ * have happened (#769).
+ */
+export function holdingBlockers(blockers: BlockerFacts[]): string[] {
+  return [...blockers.filter((x) => x.open && !x.inBatch).map((x) => x.ref), ...blockers.filter((x) => !x.open && x.unclosed).map((x) => `${x.ref} (merged, not closed by task close)`)];
+}
+
 /** The dispatcher's batch as the queue reads it. */
 export interface BatchFacts {
   /** The batch branch; a project without batches — null. */
@@ -171,7 +180,7 @@ export function entryOf(f: TaskFacts, b: BatchFacts): Entry {
     const state: QueueState = closer !== null ? "released" : f.openPr !== null ? "prOpen" : f.inBatch !== null ? (b.release === null ? "inBatch" : b.release.red ? "releaseRed" : "releaseOpen") : "handedOut";
     return entry(state, "=", work.join(", "), roleOf(f, b));
   }
-  const blockers = [...f.blockers.filter((x) => x.open && !x.inBatch).map((x) => x.ref), ...f.blockers.filter((x) => !x.open && x.unclosed).map((x) => `${x.ref} (merged, not closed by task close)`)];
+  const blockers = holdingBlockers(f.blockers);
   if (f.done !== null) return entry("notReady", "○", `${f.done}, but the task is open`);
   if (blockers.length) return entry("notReady", "○", `blocked by ${blockers.join(", ")}`);
   if (f.external !== null) return entry("notReady", "○", f.external());

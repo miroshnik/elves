@@ -1063,6 +1063,94 @@ describe("task start берёт задачу одним вызовом", () => {
     expect(existsSync(pinFile(e.config))).toBe(false);
   });
 
+  /**
+   * #869: правило «задачу с открытым blocked by или меткой «внешний блокер» не берут» держала только очередь — готовой
+   * такую задачу она не выдаёт, а ручной `task start` брал её молча. Теперь он останавливается до изменений, как на
+   * открытых вопросах: строка с блокерами, код 1. Блокеры — по правилу очереди (`holdingBlockers` в queue.ts): закрытый не
+   * держит, блокер другого репозитория называется с репозиторием.
+   */
+  it("task start не берёт задачу с открытым blocked by и называет блокеры", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = BODY;
+    // #46 закрыта — не держит; номер блокера другого репозитория совпадает с задачей этого — строка называет репозиторий
+    f.blockedBy[49] = [47, 46, { repo: "acme/runtime", number: 42, state: "OPEN", title: "Падает при старте", id: "I_ext42" }];
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("! #49 is blocked — blocked by #47, acme/runtime#42 — the task isn't taken till they're lifted");
+    expect(r.out.split("\n").at(-1)).toBe(`Next: waits for the owner — the blockers lifted: a blocker issue closed, the external blocker label removed; then ${RUN}task start 49 --branch '<type>/49-<slug>' --repo miroshnik/elves`);
+    expect(f.mutations).toEqual([]);
+    expect(existsSync(pinFile(r.config))).toBe(false);
+
+    // без перегиба: блокеры закрыты — задача берётся
+    const free = new FakeGitHub(REC);
+    free.issue(49).body = BODY;
+    free.blockedBy[49] = [46, { repo: "acme/runtime", number: 42, state: "CLOSED", title: "Падает при старте", id: "I_ext42" }];
+    const t = start(free, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(t.code).toBe(0);
+    expect(t.out).not.toContain("is blocked");
+    expect(statusSet(free)).toEqual([[49, "В работе"]]);
+  });
+
+  it("task start не берёт задачу с меткой external blocker", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = BODY;
+    f.labelIssue(49, "внешний блокер");
+    f.comments[49] = [{ body: "Внешний блокер: ответ поставщика по лицензии\nподробности — в письме", url: "c1" }];
+    const r = start(f, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("! #49 is blocked — label «внешний блокер»: ответ поставщика по лицензии — the task isn't taken till they're lifted");
+    expect(f.mutations).toEqual([]);
+
+    // метка без комментария с причиной — стоп всё равно, строка просит причину
+    const silent = new FakeGitHub(REC);
+    silent.issue(49).body = BODY;
+    silent.labelIssue(49, "внешний блокер");
+    const s = start(silent, ["49", "--branch", "fix/49-invoice-export"]);
+    expect(s.code).toBe(1);
+    expect(s.out).toContain("! #49 is blocked — label «внешний блокер», no comment «Внешний блокер: <reason>» — the task isn't taken till they're lifted");
+
+    // без перегиба: метку сняли, комментарий с причиной остался — он сам задачу не держит
+    const lifted = new FakeGitHub(REC);
+    lifted.issue(49).body = BODY;
+    lifted.comments[49] = [{ body: "Внешний блокер: ответ поставщика по лицензии", url: "c1" }];
+    expect(start(lifted, ["49", "--branch", "fix/49-invoice-export"]).code).toBe(0);
+  });
+
+  /**
+   * Исполнитель пачки (#648) режет ветку задачи от ветки пачки: блокер, влитый в неё, уже в его коде — не стоп, как в
+   * очереди, что выдала задачу. Блокер, влитый в другую пачку, и выдача мимо пачки (`--main`: ветка от main) — стоп.
+   */
+  it("Исполнитель пачки берёт задачу, чей блокер влит в ветку пачки", () => {
+    const name = "batch/2026-11-16-1";
+    const executor = (merged: string, main = false) => {
+      const f = new FakeGitHub(REC);
+      f.issue(49).body = BODY;
+      f.blockedBy[49] = [47];
+      f.prs[300] = batchPr(47, "feat/47-export", merged);
+      const { work } = worktree();
+      const config = scratch();
+      writeTree(config, {
+        [`dispatchers/${SESSION}`]: `bun --no-env-file github.ts task queue --epic 45 --repo ${REPO}\nbatch ${REPO} ${name}\n`,
+        [`dispatchers/${SESSION}.tasks`]: `${REPO}#49 ${work}${main ? " @main" : ""}\n`,
+      });
+      return { f, r: start(f, ["49", "--branch", "fix/49-invoice-export"], { config, cwd: work }) };
+    };
+    const inside = executor(name);
+    expect(inside.r.err).toBe("");
+    expect(inside.r.code).toBe(0);
+    expect(inside.r.out).not.toContain("is blocked");
+    expect(statusSet(inside.f)).toEqual([[49, "В работе"]]);
+
+    const other = executor("batch/2026-10-01-1");
+    expect(other.r.code).toBe(1);
+    expect(other.r.out).toContain("! #49 is blocked — blocked by #47 — the task isn't taken till they're lifted");
+    expect(other.f.mutations).toEqual([]);
+
+    const past = executor(name, true);
+    expect(past.r.code).toBe(1);
+    expect(past.r.out).toContain("! #49 is blocked — blocked by #47 —");
+  });
+
   it("task start находит открытый PR или ветку задачи и не берёт её второй раз", () => {
     const pr = new FakeGitHub(REC);
     pr.issue(49).body = BODY;
