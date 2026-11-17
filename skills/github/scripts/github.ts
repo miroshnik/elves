@@ -27,6 +27,8 @@
  *   github pr labels    — decision labels for the task from "Closes #N" by the PR diff, for its epic — the union
  *   github pr premerge   — before the merge: the default branch moved after the PR's CI — typecheck and test:spec on
  *                          the merge with it
+ *   github hook guard    — Claude Code's PreToolUse hook: a bypass of a flow command (bypasses.ts) denied with the
+ *                          flow's command instead
  *
  * Runs on Bun (`bun github.ts …`), only `node:` APIs + the `gh` CLI. Check and fix are one function, `analyze`: each
  * discrepancy carries its own fix step, so `check` and `fix` don't diverge.
@@ -42,6 +44,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import type { ParseArgsConfig } from "node:util";
 
+import { BYPASSES } from "./bypasses.ts";
+import type { Bypass } from "./bypasses.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
 
@@ -199,6 +203,8 @@ export interface Io {
    * steps in it; the current directory by default.
    */
   cwd?: string;
+  /** The process's stdin whole — the hook's input of `hook guard`; in tests — the text. */
+  stdin?: () => string;
 }
 
 export interface RunResult {
@@ -6898,6 +6904,18 @@ mark on a test red there — code 1.
 
 Examples:
   github pr premerge 57`,
+  "hook guard": `github hook guard
+
+Claude Code's PreToolUse hook runs it — install -g puts it into ~/.claude/settings.json, one handler per bypass with its
+if rule: the Bash call from the hook's input on stdin, and a bypass of a flow command in it denied with the flow's
+command in the reason — the session repository's gh issue view <N> (task show), gh issue edit <N> --body… (task edit),
+gh run watch and gh pr checks --watch (wait-ci.sh pr <N> as a background command); the list — bypasses.ts next to this
+script: the rule, the replacement, the reason. Inside a compound command too; another repository (--repo, GH_REPO, a
+URL, a cd into another checkout) and a read the flow has no command for (--json, --web) pass, so does the hook's own
+error: code 0 always, no network — git remote get-url only.
+
+Examples:
+  github hook guard`,
 };
 
 /** `github --help`: what the script is and the synopsis of each command. */
@@ -6983,11 +7001,250 @@ function checkoutOfRepo(io: Io, origin: string, slug: string): boolean {
   return repo !== null && canonicalRepo(io, repo).toLowerCase() === slug.toLowerCase();
 }
 
+/** Shell words before a command that aren't the command: keywords and prefixes (`do gh issue view $n` of a loop). */
+const SHELL_LEAD = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "{", "time", "command", "exec", "nohup"]);
+/** gh flags of the bypassed commands that take a value: the word after one isn't the call's number (`-R o/r 42`). */
+const GH_VALUE_FLAGS = new Set(["-R", "--repo", "-q", "--jq", "--json", "-t", "--template", "--title", "-b", "--body", "-F", "--body-file", "-m", "--milestone", "-i", "--interval", "--add-assignee", "--remove-assignee", "--add-label", "--remove-label", "--add-project", "--remove-project"]);
+
+/**
+ * The simple commands of a shell line, each — its words without quotes: split at `;`, `&`, `|`, `(`, `)` and newlines;
+ * a command inside `$(…)` or backticks is one of its own, in double quotes too; a redirect with its target, a comment and
+ * a heredoc's body aren't words. Best-effort, like Claude Code's own `if` filter: the guard matches the same commands.
+ */
+function shellCommands(s: string): string[][] {
+  const cmds: string[][] = [];
+  const closing = (i: number) => {
+    let k = i + 1;
+    while (k < s.length && s[k] !== "`") k += s[k] === "\\" ? 2 : 1;
+    return k;
+  };
+  // from i to the end, or — nested — to its `)`: the index after it
+  const scan = (start: number, nested: boolean): number => {
+    let words: string[] = [];
+    let word: string | null = null;
+    let redirect = false;
+    let depth = 0;
+    const heredocs: { tag: string; tabs: boolean }[] = [];
+    const end = () => {
+      if (word !== null) {
+        if (redirect) redirect = false;
+        else words.push(word);
+      }
+      word = null;
+    };
+    const split = () => {
+      end();
+      if (words.length) cmds.push(words);
+      words = [];
+    };
+    for (let i = start; i < s.length; i++) {
+      const c = s[i]!;
+      if (c === "\\") {
+        if (s[i + 1] !== "\n") word = (word ?? "") + (s[i + 1] ?? "");
+        i++;
+      } else if (c === "'") {
+        const j = s.indexOf("'", i + 1);
+        word = (word ?? "") + s.slice(i + 1, j < 0 ? s.length : j);
+        i = j < 0 ? s.length : j;
+      } else if (c === '"') {
+        let j = i + 1;
+        let text = "";
+        while (j < s.length && s[j] !== '"') {
+          if (s[j] === "\\") {
+            text += s[j + 1] ?? "";
+            j += 2;
+          } else if (s[j] === "$" && s[j + 1] === "(" && s[j + 2] !== "(") {
+            j = scan(j + 2, true);
+            text += "$(…)";
+          } else if (s[j] === "`") {
+            const k = closing(j);
+            cmds.push(...shellCommands(s.slice(j + 1, k)));
+            j = k + 1;
+            text += "`…`";
+          } else text += s[j++];
+        }
+        word = (word ?? "") + text;
+        i = j;
+      } else if (c === "`") {
+        const k = closing(i);
+        cmds.push(...shellCommands(s.slice(i + 1, k)));
+        word = (word ?? "") + "`…`";
+        i = k;
+      } else if (c === "$" && s[i + 1] === "(" && s[i + 2] === "(") {
+        // arithmetic, not a command
+        const k = s.indexOf("))", i + 3);
+        word = (word ?? "") + s.slice(i, k < 0 ? s.length : k + 2);
+        i = k < 0 ? s.length : k + 1;
+      } else if (c === "$" && s[i + 1] === "(") {
+        i = scan(i + 2, true) - 1;
+        word = (word ?? "") + "$(…)";
+      } else if (c === "#" && word === null) {
+        const j = s.indexOf("\n", i);
+        i = (j < 0 ? s.length : j) - 1;
+      } else if (c === "<" && s[i + 1] === "<" && s[i + 2] !== "<") {
+        // a heredoc: its body — the lines after this one up to the tag — isn't commands
+        end();
+        i += 2;
+        const tabs = s[i] === "-";
+        if (tabs) i++;
+        while (s[i] === " " || s[i] === "\t") i++;
+        let tag = "";
+        for (; i < s.length && !/[\s;&|()<>]/.test(s[i]!); i++) if (s[i] !== "'" && s[i] !== '"' && s[i] !== "\\") tag += s[i];
+        heredocs.push({ tag, tabs });
+        i--;
+      } else if ((c === ">" || c === "<" || (c === "&" && s[i + 1] === ">")) && s[i + 1] !== "(") {
+        // a redirect: its fd before it and its target after it aren't words
+        if (word !== null && /^\d+$/.test(word)) word = null;
+        else end();
+        while (/[<>&|]/.test(s[i + 1] ?? "") && s[i + 2] !== "(") i++;
+        redirect = true;
+      } else if (c === "\n") {
+        split();
+        for (const h of heredocs) {
+          let at = i + 1;
+          for (;;) {
+            const eol = s.indexOf("\n", at);
+            const text = s.slice(at, eol < 0 ? s.length : eol);
+            at = eol < 0 ? s.length : eol + 1;
+            if ((h.tabs ? text.replace(/^\t+/, "") : text) === h.tag || eol < 0) break;
+          }
+          i = at - 1;
+        }
+        heredocs.length = 0;
+      } else if (c === "(") {
+        depth++;
+        split();
+      } else if (c === ")") {
+        split();
+        if (depth > 0) depth--;
+        else if (nested) return i + 1;
+      } else if (c === ";" || c === "&" || c === "|") split();
+      else if (c === " " || c === "\t") end();
+      else word = (word ?? "") + c;
+    }
+    split();
+    return s.length;
+  };
+  scan(0, false);
+  return cmds;
+}
+
+/** A bypass rule's command words: `Bash(gh issue view *)` — gh, issue, view. */
+const ruleWords = (rule: string) => (/^Bash\((.+?)(?: \*)?\)$/.exec(rule)?.[1] ?? "").split(" ").filter(Boolean);
+
+/** A gh call's repository (`--repo`, `GH_REPO`, the URL), its flags and its number: the issue, the PR, a `$n` of a loop. */
+function ghCall(args: string[], env: string | null): { repo: string | null; flags: string[]; number: string | null } {
+  let repo = env;
+  const flags: string[] = [];
+  const positionals: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--") {
+      positionals.push(...args.slice(i + 1));
+      break;
+    }
+    if (!a.startsWith("-") || a === "-") {
+      positionals.push(a);
+      continue;
+    }
+    const long = a.startsWith("--");
+    const name = long ? a.split("=")[0]! : a.slice(0, 2);
+    // a value in the same word: `--repo=o/r`, `-Ro/r`, `-R=o/r` (pflag takes all three)
+    const inline = long ? (a.includes("=") ? a.slice(a.indexOf("=") + 1) : undefined) : a.length > 2 ? a.slice(2).replace(/^=/, "") : undefined;
+    const value = GH_VALUE_FLAGS.has(name) ? (inline ?? args[++i]) : undefined;
+    if (name === "-R" || name === "--repo") repo = value ?? null;
+    else flags.push(name);
+  }
+  const first = positionals[0] ?? "";
+  const url = /^https?:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/(?:issues|pull)\/(\d+)/i.exec(first);
+  if (url) return { repo: url[1]!, flags, number: url[2]! };
+  return { repo: repo?.replace(/^(?:https?:\/\/)?github\.com\//i, "").replace(/(?:\.git)?\/?$/, "") ?? null, flags, number: /^(?:#?\d+|\$\{?\w+\}?)$/.test(first) ? first.replace(/^#/, "") : null };
+}
+
+/**
+ * The first bypass of a flow command in a Bash call (`BYPASSES`) — the deny's reason with the flow's command, otherwise
+ * null. Only the session repository's: the hook's `cwd` gives it by its origin, a call's `--repo`, `GH_REPO`, URL or a
+ * `cd` before it — the repository the call is about; no GitHub origin — no tasks of the flow, nothing is a bypass.
+ */
+function bypassIn(io: Io, line: string, cwd: string): string | null {
+  const origins = new Map<string, string | null>();
+  const repoAt = (dir: string) => {
+    if (!origins.has(dir)) {
+      const r = git(io, dir, "remote", "get-url", "origin");
+      origins.set(dir, r.status === 0 ? originRepo(r.stdout) : null);
+    }
+    return origins.get(dir)!;
+  };
+  const own = repoAt(cwd);
+  if (!own) return null;
+  let at: string | null = cwd;
+  for (const words of shellCommands(line)) {
+    let env: string | null = null;
+    let w = words;
+    while (w.length && (SHELL_LEAD.has(w[0]!) || /^[A-Za-z_]\w*=/.test(w[0]!))) {
+      if (w[0]!.startsWith("GH_REPO=")) env = w[0]!.slice("GH_REPO=".length);
+      w = w.slice(1);
+    }
+    if (w[0] === "cd") {
+      const to = w[1];
+      // `cd -`, an option or a variable — the directory is unknown: a call after it without --repo isn't a bypass
+      at = at === null || (to !== undefined && /^-|[$`]/.test(to)) ? null : path.resolve(at, (to ?? "~").replace(/^~(?=\/|$)/, io.env["HOME"] ?? os.homedir()));
+      continue;
+    }
+    for (const b of BYPASSES) {
+      const cmd = ruleWords(b.rule);
+      if (w.length < cmd.length || cmd.some((x, k) => (k === 0 ? path.basename(w[k]!) : w[k]) !== x)) continue;
+      const call = ghCall(w.slice(cmd.length), env);
+      const repo = call.repo ?? (at === null ? null : repoAt(at));
+      if (repo?.toLowerCase() !== own.toLowerCase()) continue;
+      const flag = b.when ? call.flags.find((f) => b.when!.includes(f)) : undefined;
+      if (b.when && !flag) continue;
+      if (b.only && call.flags.some((f) => !b.only!.includes(f))) continue;
+      return denyReason(b, [...cmd, call.number, flag].filter(Boolean).join(" "), call.number);
+    }
+  }
+  return null;
+}
+
+/** The deny's reason: the call, why the flow's command, and the command itself — ready to run. */
+function denyReason(b: Bypass, call: string, number: string | null): string {
+  const use = b.use
+    .replace("{github}", `bun --no-env-file ${shellArg(import.meta.path)}`)
+    .replace("{wait-ci}", shellArg(waitCi()))
+    .replace("{n}", number ?? "<N>");
+  return `Elves: \`${call}\` bypasses the flow's command — ${b.reason}. Run instead: ${use}`;
+}
+
+/**
+ * Claude Code's PreToolUse hook (#839): the Bash call from the hook's input on stdin; a bypass of a flow command in it
+ * (`bypassIn`) — a deny with the flow's command in the reason (`permissionDecision: "deny"`), Claude Code shows the
+ * model the reason and the model makes the second call. Code 0 always and nothing on stdout but the decision: the hook's
+ * own error — invalid input, git missing — lets the call through, the flow doesn't stop the work. No network: one
+ * `git remote get-url` per directory.
+ */
+function cmdHookGuard(io: Io): number {
+  try {
+    const input = JSON.parse(io.stdin?.() ?? "") as { tool_name?: unknown; tool_input?: { command?: unknown }; cwd?: unknown };
+    const command = input?.tool_input?.command;
+    if (input?.tool_name !== "Bash" || typeof command !== "string") return 0;
+    const reason = bypassIn(io, command, typeof input.cwd === "string" && input.cwd ? input.cwd : (io.cwd ?? process.cwd()));
+    if (reason) io.out(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
+  } catch {
+    // the hook's own error lets the call through: the flow doesn't stop the work
+  }
+  return 0;
+}
+
 export function main(argv: string[], io: Io): number {
   // a cloud session — one line and code 2 before anything else (#837): not the help, not half a command
   if (io.env["CLAUDE_CODE_REMOTE"] === "true") return io.err(CLOUD_REFUSAL), 2;
   const help = helpOf(argv);
   if (help) return io.out(help), 0;
+  // the PreToolUse hook (#839) — before the project's names: it writes none, and its own error lets the call through
+  if (argv[0] === "hook") {
+    if (argv.length === 2 && argv[1] === "guard") return cmdHookGuard(io);
+    return io.err(`unknown command «${argv.join(" ")}»; expected hook guard — it reads the hook's input on stdin (github hook guard --help)`), 2;
+  }
   N = locale.names(locale.projectLanguage(io.cwd ?? process.cwd()));
   contexts.clear();
   try {
@@ -7133,5 +7390,5 @@ export function main(argv: string[], io: Io): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = main(process.argv.slice(2), { gh: realGh, out: (l) => console.log(l), err: (l) => console.error(l), env: process.env });
+  process.exitCode = main(process.argv.slice(2), { gh: realGh, out: (l) => console.log(l), err: (l) => console.error(l), env: process.env, stdin: () => readFileSync(0, "utf8") });
 }

@@ -957,6 +957,24 @@ same prompt: a task In progress it continues in the worktree of its branch
 (the assignment's restart line), not in a new one — git won't give the branch
 to a second worktree.
 
+### hook guard
+
+The Claude Code `PreToolUse` hook (#839) — `install -g` puts it into
+`~/.claude/settings.json`, one handler per row of `scripts/bypasses.ts` with its
+`if` rule. The input on stdin is the Bash call; a bypass of a flow command in it
+— `gh issue view <N>` of the session repository's task (→ `task show`),
+`gh issue edit <N> --body…` (→ `task edit`), `gh run watch`, `gh pr checks
+--watch` (→ `wait-ci.sh pr <N>` as a background command) — gets a deny
+(`permissionDecision: "deny"`) whose reason ends with the command to run
+instead. A compound command is split as Claude Code's `if` splits it (`&&`, `|`,
+`;`, `$(…)`, backticks); a heredoc body, text in quotes and a comment aren't
+commands. Not a bypass: another repository — `--repo`, `GH_REPO`, an issue URL,
+a `cd` into another checkout, a directory without a GitHub origin — and a read
+the flow has no command for (`--json`, `--web`, `gh pr checks` without
+`--watch`). Code 0 always: the hook's own error lets the call through; no
+network — `git remote get-url` per directory. A new bypass — a row of
+`bypasses.ts` and its cases in `tests/capabilities/github/github-guard`.
+
 ### task queue
 
 A dispatcher: "do all tasks of epic #M", "fix all
