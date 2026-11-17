@@ -97,9 +97,9 @@ Installed onto the machine with the flow; the agent picks a skill up by itself f
 
 ### [`github`](skills/github/SKILL.md) — project and tasks by the canon
 
-The GitHub project and tasks, a command per step: a task with its fields, its questions and answers, its tail from branch to close — PR, CI, merge, deploy, epic refresh — and a dispatcher's queue of background executors.
+The GitHub project and tasks, a command per step: a task with its fields, its questions and answers, its tail from branch to close — PR, CI, merge, deploy, epic refresh — and a dispatcher's queue of background executors. A hand-made bypass of these commands (`gh issue view` of a task, `gh run watch`) Claude Code's `PreToolUse` hook denies, naming the command.
 
-`github project check` · `github project fix` · `github task new | show | answer | edit | start | status | drop | actualize | close | finish | resume | queue` · `github batch release` · `github pr labels | premerge`
+`github project check` · `github project fix` · `github task new | show | answer | edit | start | status | drop | actualize | close | finish | resume | queue` · `github batch release` · `github pr labels | premerge` · `github hook guard`
 
 ### [`est`](skills/est/SKILL.md) — the actual from transcripts
 
