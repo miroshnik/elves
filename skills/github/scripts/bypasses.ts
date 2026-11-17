@@ -1,8 +1,8 @@
 /**
  * Bypasses of the flow's commands — the one list the PreToolUse hook (`github hook guard`, #839) holds: a command the
  * flow does with its own, which the agent ran by hand. One row — the rule, the replacement, the reason; a new bypass is a
- * row here and its case in tests/capabilities/github/github-guard. `install -g` puts one hook handler per row into
- * `~/.claude/settings.json` (Claude Code's `if` takes one rule), the hook denies the call with the replacement in the
+ * row here, its handler in the Elves plugin's `hooks/hooks.json` (Claude Code's `if` takes one rule; a test holds them
+ * equal, #860) and its case in tests/capabilities/github/github-guard; the hook denies the call with the replacement in the
  * reason — the model makes a second call (question 1 of #839: a rewritten command would give output it didn't expect).
  *
  * A call of another repository (`--repo`, `GH_REPO`, a URL, a `cd` into another checkout) isn't a bypass: the flow's

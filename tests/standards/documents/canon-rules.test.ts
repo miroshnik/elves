@@ -76,7 +76,7 @@ const BYPASSES = "skills/github/scripts/bypasses.ts";
 export const HOLDERS: Record<string, Holder> = {
   "The canon lives in Elves": installer("elves install -g", "function installRules"),
   "References load by themselves": installer("elves install -g", "function pathRules"),
-  "The SessionStart hook checks the flow": hook("SessionStart", "bin/elves.ts", "const HOOK_COMMAND"),
+  "The SessionStart hook checks the flow": hook("SessionStart", "hooks/hooks.json", "check --hook"),
   "The project language": hook("SessionStart", "bin/elves.ts", "const modeLines"),
   "Commit, push and merge ask in a project without auto": { kind: "настройка", name: "permissions.ask", where: "bin/elves.ts", find: "const ASK_RULES" },
   "Tasks live in GitHub Issues": hook("PreToolUse", BYPASSES, 'rule: "Bash(gh issue view *)"'),
@@ -89,7 +89,7 @@ export const HOLDERS: Record<string, Holder> = {
   "A branch from a fresh base": { kind: "ruleset", name: "github project fix", where: GITHUB, find: 'RULESET = "elves"' },
   "Before a commit — `elves precommit`": script("elves precommit", "skills/spec/scripts/precommit.ts", "test:spec"),
   "The tail — `github task finish <N>`": script("github task finish", GITHUB, "task finish <N>"),
-  "Decisions with a deterministic check": { kind: "скилл", name: "`spec`", where: "skills/spec/canon.md", find: "No check — no decision" },
+  "Decisions with a deterministic check": { kind: "скилл", name: "`elves:spec`", where: "skills/spec/canon.md", find: "No check — no decision" },
   "The check comes first, red": script("spec-red", GITHUB, "const specRedScript"),
   "Heavy runs wait in the machine queue": installer("slot", "function packageScripts"),
   "A task's services run in its own stack": installer("elves check", "function composeCheck"),

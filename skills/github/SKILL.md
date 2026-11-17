@@ -20,7 +20,7 @@ milestones — `reference.md`, "Manual commands".
 (`dangerouslyDisableSandbox`): `gh` fails on TLS in the sandbox — a call there
 prints one line with the whole command to run outside it; `task close`
 also calls Docker for the task's stacks — the sandbox denies its socket
-(`claude/CLAUDE.md`; `SKILL.md` of the task-env skill, "Checked on the machine").
+(`claude/CLAUDE.md`; `SKILL.md` of the `elves:task-env` skill, "Checked on the machine").
 
 ## Project — check and fix
 
@@ -111,7 +111,7 @@ What the agent gets wrong without the details (all of them — `reference.md`,
 - **`pr premerge`** — from a repository checkout, a separate call. Not `0` —
   don't merge: its `Next:` names the fix in the PR or, when **`main` is red,
   not this PR**, the wait for its one bug — don't fix it in the PR: the
-  printed `wait-ci.sh issue <N>` (the `ci-wait` skill, as a background
+  printed `wait-ci.sh issue <N>` (the `elves:ci-wait` skill, as a background
   command), or the printed `task new --type Bug` command and «queue it?», then
   `premerge` again (`reference.md`, "Red main").
 - **`task actualize`** (`task finish` calls it) — the mechanics itself, then
@@ -138,8 +138,8 @@ dispatcher on epic #M?» (`AGENTS.md`, "Task tracking"): any session, its own
 task stays pinned; executors branch from a fresh base by their prompt, so the
 dispatcher's checkout doesn't matter. `task queue` prints ready
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
-`isolation: "worktree"` and `run_in_background: true`, the prompt — as
-is; at most the machine's executors at once, the owner's number replaces
+`subagent_type: "elves:executor"` (the plugin's agent: its own worktree, in
+the background), the prompt — as is; at most the machine's executors at once, the owner's number replaces
 it; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
@@ -165,7 +165,7 @@ line (a session with its own task — after it) and, in auto mode, archiving. Th
 
 Principles — `AGENTS.md`, "Git, PRs and merging"; the full rules —
 `reference.md`, "Git, PRs and merging — full rules". Waiting for checks, the
-full SHA and a merge that deploys — `reference.md` of the `ci-wait` skill.
+full SHA and a merge that deploys — `reference.md` of the `elves:ci-wait` skill.
 
 - **Merge — rebase only:** `gh pr merge <N> --rebase`; each commit of the
   branch lands in `main` — a conventional commit with `Refs #N`.

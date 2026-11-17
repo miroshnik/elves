@@ -1,6 +1,6 @@
 # Other agents — the canon and the skills without Claude Code
 
-Elves is for Claude Code: the installer, the hook and the scripts are built and tested there. Another agent can still work by the canon and run the skills' scripts — here is what to connect by hand and what stays out of reach.
+Elves is for Claude Code: the installer, the plugin with its hooks and the scripts are built and tested there. Another agent can still work by the canon and run the skills' scripts — here is what to connect by hand and what stays out of reach.
 
 ## What to connect
 
@@ -11,7 +11,7 @@ Elves is for Claude Code: the installer, the hook and the scripts are built and 
 
 ## What doesn't work without Claude Code
 
-- **Hooks.** The `SessionStart` hook — the flow check at the start, the wait of a resumed session's task, the agent's Bash setup (`bin/shims`) — and the `PreToolUse` hook that denies a bypass of a flow command are Claude Code's.
+- **The plugin.** Claude Code loads `~/.claude/skills/elves` as the Elves plugin: the `SessionStart` hook — the flow check at the start, the wait of a resumed session's task, the agent's Bash setup (`bin/shims`) — the `PreToolUse` hook that denies a bypass of a flow command and the dispatcher's executor agent are Claude Code's; the skills themselves are in `~/.agents/skills/<name>/` for any agent.
 - **References by file.** A reference with `paths:` in `~/.agents/elves/docs/` is a Claude Code rule that loads with matching files; another agent reads it itself — `testing.md` with tests, `ci-concurrency.md` with workflows, `parallel-checkouts.md` with compose files.
 - **The session pinned to its task.** `github task status` pins the task by Claude Code's session id; without it — `○ session not recognized …`: nothing stops a second task in the same session.
 - **The actual from transcripts.** `est` reads only Claude Code's transcripts: a task done by another agent closes without an actual.

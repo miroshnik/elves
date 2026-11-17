@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun --no-env-file \"${CLAUDE_PLUGIN_ROOT}/bin/elves.ts\" check --hook 2>&1 || echo \"elves check unavailable (exit $?): work by the current flow and say so\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh issue view *)",
+            "command": "bun --no-env-file \"${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github.ts\" hook guard",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh issue edit *)",
+            "command": "bun --no-env-file \"${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github.ts\" hook guard",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh run watch *)",
+            "command": "bun --no-env-file \"${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github.ts\" hook guard",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh pr checks *)",
+            "command": "bun --no-env-file \"${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github.ts\" hook guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -24,7 +24,7 @@ Elves is how Claude Code carries a task from issue to production, written down o
 
 - **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production; each held by a hook, a script or a setting, or in a short list of judgment.
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
-- **The installer** — puts the canon, the skills and the hook onto the machine; a project keeps only the package version in `devDependencies` — CI and colleagues get it from npm — and gets the flow through releases.
+- **The installer** — puts the canon and the Elves plugin — skills, hooks, the executor agent — onto the machine; a project keeps only the package version in `devDependencies` — CI and colleagues get it from npm — and gets the flow through releases.
 
 ## The idea
 
@@ -81,7 +81,7 @@ An agent writes code fast; everything around the code is what becomes slow and e
 You need `git` and [Bun](https://bun.sh) ≥ 1.2; the `github` and `est` skills also need [`gh`](https://cli.github.com) with the `project` scope, `task-env` — Docker with Compose. The flow runs in a local Claude Code session: in a cloud one (claude.ai/code) its scripts refuse.
 
 ```bash
-bunx @miroshnik/elves install -g   # onto the machine: the canon, the skills and the Claude Code hook
+bunx @miroshnik/elves install -g   # onto the machine: the canon and the Claude Code plugin
 bunx @miroshnik/elves install      # into a project, from its git root: the package version and the manifest, committed with it
 bunx @miroshnik/elves check -g     # is the flow behind the latest release: 0 — no, 1 — yes, 2 — can't check; changes nothing
 bunx @miroshnik/elves update -g    # bring it to the latest release
@@ -152,6 +152,9 @@ AGENTS.md          the canon of rules
 claude/CLAUDE.md   only what Claude Code has
 docs/              references: Claude Code's rules with paths:, documents for people
 skills/<name>/     SKILL.md + scripts/ — TypeScript under Bun, no dependencies
+.claude-plugin/    the Claude Code plugin's manifest: ~/.claude/skills/elves loads as elves@skills-dir
+hooks/hooks.json   the plugin's hooks: SessionStart — the flow check, PreToolUse — the guard of the flow's commands
+agents/            the plugin's agents: executor — the dispatcher's executor, elves:executor
 tests/             Elves' own spec: capabilities/ and standards/
 bin/elves.ts       the installer — TypeScript under Bun too: bunx runs it from node_modules by its shebang
 bin/shims/         commands the SessionStart hook adds to the end of the agent's Bash PATH: timeout

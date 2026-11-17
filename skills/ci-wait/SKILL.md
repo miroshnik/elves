@@ -73,7 +73,7 @@ What to do next:
 - **PASS** — before merging a PR, `github pr premerge <N>` (if `main` moved
   after CI — a check of the merge with a fresh one), exit code `0` — merge;
   after the merge — `github task close` (the epic refresh ran in parallel with
-  the wait — the `github` skill, `task actualize`) and the "done" report.
+  the wait — the `elves:github` skill, `task actualize`) and the "done" report.
 - **PASS only on the host's checks, without Actions** (the state lines named
   only preview and comment statuses) in a repository with CI in Actions —
   suspicious: `gh run list --commit <sha>` — was there a run and how did it
@@ -165,7 +165,7 @@ What to do next:
   awaited; a file that doesn't parse is awaited: a PR from a fork doesn't
   even get the "dummy".
 - The spec publish job (`spec-publish`, also `<job> / spec-publish` from a
-  reusable workflow — the `spec` skill, `ci.md`) isn't a check: it publishes
+  reusable workflow — the `elves:spec` skill, `ci.md`) isn't a check: it publishes
   the documentation, so it is neither awaited nor a FAIL — after a merge the
   deploy and `main`'s checks are awaited without it (#443). `--context
   spec-publish` waits for it like any check.

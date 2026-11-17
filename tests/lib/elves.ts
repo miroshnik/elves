@@ -76,7 +76,9 @@ export function elves(sb: Sandbox, args: string[], opts: { cwd?: string; bin?: s
  */
 export function elvesPackage(dir: string, edits: Record<string, string | null> = {}) {
   mkdirSync(path.join(dir, "docs"), { recursive: true });
-  for (const rel of ["package.json", "bin", "AGENTS.md", "claude", "skills"]) cpSync(path.join(REPO, rel), path.join(dir, rel), { recursive: true });
+  const files: string[] = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8")).files;
+  // dist/ — сборка pack на теге, в клоне её нет; docs/*.md — по маске
+  for (const rel of ["package.json", ...files.filter((f) => f !== "dist" && !f.includes("*"))]) cpSync(path.join(REPO, rel), path.join(dir, rel), { recursive: true });
   for (const f of readdirSync(path.join(REPO, "docs")).filter((n) => n.endsWith(".md"))) cpSync(path.join(REPO, "docs", f), path.join(dir, "docs", f));
   for (const [rel, content] of Object.entries(edits)) {
     if (content === null) rmSync(path.join(dir, rel), { recursive: true, force: true });
@@ -146,6 +148,61 @@ export function bunxServesPackages(sb: Sandbox, dir: string) {
     `exec "${process.execPath}" "${dir}/$bin/bin/elves.ts" "$@"`,
   ].join("\n");
   writeFileSync(path.join(sb.bin, "bunx"), script + "\n", { mode: 0o755 });
+}
+
+/**
+ * Ссылка плагина Elves машины `~/.claude/skills/elves`: Claude Code грузит её как `elves@skills-dir`, и её путь —
+ * `${CLAUDE_PLUGIN_ROOT}` хуков плагина.
+ */
+export const pluginRoot = (home: string) => path.join(home, ".claude/skills/elves");
+
+/** Обработчик хука плагина из его `hooks/hooks.json`. */
+export interface PluginHook {
+  type: string;
+  if?: string;
+  command: string;
+  timeout: number;
+}
+
+/** Обработчики события из `hooks/hooks.json` плагина Elves машины — по ссылке `~/.claude/skills/elves`. */
+export function pluginHooks(home: string, event: string): PluginHook[] {
+  const json = JSON.parse(readFileSync(path.join(pluginRoot(home), "hooks/hooks.json"), "utf8"));
+  return (json.hooks[event] as { hooks: PluginHook[] }[]).flatMap((g) => g.hooks);
+}
+
+/**
+ * Команда хука плагина — как её запускает Claude Code: через sh, в каталоге проекта песочницы, `CLAUDE_PLUGIN_ROOT` —
+ * путь ссылки плагина (sh раскрывает `${CLAUDE_PLUGIN_ROOT}` в команде), вход хука (JSON) — на stdin.
+ */
+export function runPluginHook(sb: Sandbox, command: string, opts: { cwd?: string; env?: Record<string, string>; input?: string } = {}): Run {
+  const env = { ...sb.env, CLAUDE_PLUGIN_ROOT: pluginRoot(sb.home), ...opts.env };
+  const r = spawnSync("sh", ["-c", command], { cwd: opts.cwd ?? sb.proj, env, encoding: "utf8", input: opts.input });
+  if (r.error) throw r.error;
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+/**
+ * Хуки, которые прошлая версия `install -g` писала в `~/.claude/settings.json` до плагина (#860): `SessionStart` —
+ * проверка флоу через bunx, `PreToolUse` — обработчик скрипта github машины на каждое правило списка обходов.
+ */
+export function previousHooks(home: string, rules: string[]) {
+  const guard = `bun --no-env-file '${path.join(home, ".agents/skills/github/scripts/github.ts")}' hook guard`;
+  return {
+    SessionStart: { matcher: "startup|resume|clear", hooks: [{ type: "command", command: 'bunx --silent github:miroshnik/elves check --hook 2>&1 || echo "elves check unavailable (exit $?): work by the current flow and say so"', timeout: 60 }] },
+    PreToolUse: { matcher: "Bash", hooks: rules.map((rule) => ({ type: "command", if: rule, command: guard, timeout: 10 })) },
+  };
+}
+
+/**
+ * Репозиторий с одним коммитом и тегом релиза tag в dir — для ELVES_REPO: пускатель находит в нём последний релиз и
+ * перезапускается по его SHA (bunx песочницы отдаёт свой пакет, SHA ему безразличен).
+ */
+export function releaseMirror(dir: string, tag: string) {
+  mkdirSync(dir, { recursive: true });
+  const repo = gitRepo(dir);
+  repo.commit({ "README.md": "зеркало релизов\n" });
+  repo.git("tag", tag);
+  return dir;
 }
 
 /**
