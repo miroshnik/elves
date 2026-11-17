@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readF
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
+import { BYPASSES } from "../../../skills/github/scripts/bypasses.ts";
 import { sources } from "../../../skills/spec/scripts/harness.ts";
 import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
 import { bareClone, BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
@@ -759,6 +760,46 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(ours).toHaveLength(1);
     expect(ours[0].matcher).toContain("startup");
     expect(ours[0].hooks[0].timeout).toBeGreaterThan(0);
+  });
+
+  /**
+   * Хук PreToolUse (#839, capability `github#github-guard`): обход команды флоу — `gh issue view` задачи, `gh run watch` —
+   * запрещён с командой флоу в причине. Обработчик на каждое правило списка обходов: `if` Claude Code берёт одно правило;
+   * команда — скрипт github машины по пути, без bunx и сети. Команду из settings.json запускаем, как Claude Code: через
+   * shell, вход хука — на stdin.
+   */
+  it("Установка на машину ставит хук, проверка машины называет отсутствующий", () => {
+    const mine = { matcher: "Edit", hooks: [{ type: "command", command: "echo мой хук" }] };
+    writeTree(home, { ".claude/settings.json": JSON.stringify({ hooks: { PreToolUse: [mine] } }) });
+    expect(install(["-g"]).code).toBe(0);
+    expect(install(["-g"]).code).toBe(0);
+    const file = path.join(home, ".claude/settings.json");
+    const groups = JSON.parse(read(file)).hooks.PreToolUse;
+    expect(groups[0]).toEqual(mine);
+    expect(groups).toHaveLength(2);
+    const guard = groups[1];
+    const script = path.join(home, ".agents/skills/github/scripts/github.ts");
+    expect(guard.matcher).toBe("Bash");
+    expect(guard.hooks.map((h: { if: string }) => h.if)).toEqual(BYPASSES.map((b) => b.rule));
+    for (const h of guard.hooks) expect(h).toEqual({ type: "command", if: h.if, command: `bun --no-env-file '${script}' hook guard`, timeout: 10 });
+
+    // команда хука из settings.json запрещает `gh issue view` задачи репозитория сессии и называет task show скрипта машины
+    execFileSync("git", ["remote", "add", "origin", "git@github.com:acme/shop.git"], { cwd: proj });
+    const stdin = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git status && gh issue view 7" }, cwd: proj });
+    const r = spawnSync("sh", ["-c", guard.hooks[0].command], { cwd: proj, env, input: stdin, encoding: "utf8" });
+    expect(r.status).toBe(0);
+    const decision = JSON.parse(r.stdout).hookSpecificOutput;
+    expect(decision).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "deny" });
+    expect(decision.permissionDecisionReason).toEndWith(`Run instead: bun --no-env-file ${realpathSync(script)} task show 7`);
+
+    // машина без хука — check -g называет его отставанием, install -g ставит снова
+    writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [mine], SessionStart: JSON.parse(read(file)).hooks.SessionStart } }));
+    const check = elves(sb, ["check", "-g"]);
+    expect(check.code).toBe(1);
+    expect(check.stdout).toContain("  ~ ~/.claude/settings.json — the PreToolUse hook: a bypass of a flow command (gh issue view of a task, gh run watch) denied with the flow's command\n");
+    expect(check.stdout).not.toContain("the SessionStart hook");
+    expect(install(["-g"]).code).toBe(0);
+    expect(elves(sb, ["check", "-g"]).stdout).not.toContain("PreToolUse");
   });
 
   /**
