@@ -5097,7 +5097,8 @@ function pushTaskBranch(io: Io, branch: string): string | null {
  * `--timeout`, prints the state and the next step, and a repeat goes on from where it stopped — the state is GitHub's and
  * git's, plus two marks (`FinishMarks`). Before the merge: the branch pushed, the PR (the title — a conventional commit:
  * `--title`, otherwise the branch type's first commit; the body — spec-diff and `Closes #N`; an existing PR — its body
- * updated), decision labels (`pr labels`), the CI wait (ci-wait), `pr premerge` — then the merge command: the
+ * updated), decision labels (`pr labels`), a PR opened in Claude Code — a stop with the `set_monitor` step (Auto-fix off,
+ * #866), the CI wait (ci-wait), `pr premerge` — then the merge command: the
  * merge stays a separate `gh pr merge <N> --rebase` call — the owner's permission rule in auto mode matches it
  * (claude/CLAUDE.md). After the merge (the task is open or already closed by «Closes #N» — the tail is over only by
  * `task close`'s Status Done and actual, #761): the deploy wait on the merge SHA, the epic refresh's mechanics and its subagent's
@@ -5185,6 +5186,11 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
   } catch (e) {
     if (!(e instanceof GhError)) throw e;
     io.out(`! pr labels ${pr}: ${e.message} — the PR goes on without them`);
+  }
+  // a PR opened in Claude Code (#866): Auto-fix off before anything waits on the PR — a repeat finds it open and goes on
+  if (!open && io.env["CLAUDECODE"] === "1") {
+    const then = isBatchBranch(base) ? `${again} — it runs pr premerge` : STEP.ciWait("", again).next;
+    return stop(`○ PR #${pr} is new: the Claude Code app binds it to its CI monitor with Auto-fix on`, STEP.monitor("", `https://github.com/${slug}/pull/${pr}`, then));
   }
   if (!isBatchBranch(base)) {
     if (left() < FINISH_MIN_WAIT) return outOfTime(`PR #${pr} is up, its CI isn't awaited yet`);
@@ -5457,6 +5463,17 @@ const STEP = {
   commit: (state: string, finish: string): NextStep => ({ state, next: `${PRECOMMIT}, git commit, then ${finish}`, who: "agent" }),
   finish: (state: string, finish: string): NextStep => ({ state, next: `${finish} in the background — it pushes the branch, opens the PR, waits for its CI and runs pr premerge`, who: "agent" }),
   ciWait: (state: string, finish: string): NextStep => ({ state, next: `${finish} in the background — it waits for the CI, then runs pr premerge`, who: "agent" }),
+  /**
+   * Auto-fix of a PR just opened in Claude Code off (#866, claude/CLAUDE.md "Auto-fix is off"): the app binds the new PR
+   * to its CI monitor with Auto-fix on, and its conflict event wants the base merged in — the rebase merge breaks.
+   * `then` — the same `task finish` with what it does next: into a batch — premerge, otherwise the CI wait.
+   */
+  monitor: (state: string, url: string, then: string): NextStep => ({
+    state,
+    // an executor subagent's PR isn't bound to its session: the app refuses it — nothing to turn off there
+    next: `set_monitor with auto_fix: false and the PR's url ${url} — Auto-fix's conflict event wants the base merged in; refused as not bound to this session — nothing to turn off; then ${then}`,
+    who: "agent",
+  }),
   ciRed: (state: string, pr: number, again: string): NextStep => ({ state, next: `the failed check's log (gh pr checks ${pr}), the root cause fixed, ${PRECOMMIT}, git commit, then ${again}`, who: "agent" }),
   premerge: (r: Ready, state: string, pr: number): NextStep => ({ state, next: `${r("pr", "premerge", pr)} — a separate call: the checks on the merge with the base`, who: "agent" }),
   merge: (state: string, pr: number, auto: boolean, then: string): NextStep => {
@@ -7092,7 +7109,9 @@ The tail of a task from its committed branch to its close, resumable: each call 
 branch pushed (a rebased one — --force-with-lease), the PR into the dispatcher's batch branch or the default branch
 (a released batch — the default branch; commits of the branch already in the base by their changes — a stop: git
 rebase drops them; the title — --title, otherwise the branch type's first commit; the body — spec-diff and Closes #N; an existing PR —
-its body updated), pr labels, the CI wait (ci-wait pr; none into a batch), pr premerge, then the merge command — a
+its body updated), pr labels, a PR opened in Claude Code (CLAUDECODE=1) — a stop with the set_monitor step (auto_fix:
+false and the PR's url: Auto-fix wants the base merged in on a conflict), the CI wait (ci-wait pr; none into a batch),
+pr premerge, then the merge command — a
 separate gh pr merge <PR> --rebase. After the merge: the deploy wait on the merge SHA (ci-wait merged), the epic
 refresh's mechanics and its subagent's prompt (once), task close once the report is on the epic; merged into a batch —
 nothing, the release does it. Marks between calls — finishes/ of ~/.config/elves. Exit: 0 finished, 1 stopped on a
