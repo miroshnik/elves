@@ -1,6 +1,6 @@
 ---
 name: ci-wait
-description: Waiting for all checks of a PR or commit (CI in GitHub Actions, the host's deploy, an external check) with a script that shows progress and has the outcomes PASS / FAIL / TIMEOUT / ERROR. When — after a push, before merging a PR; after a merge, before reporting "done", if the merge triggers a deploy (`merged <N>` — the script takes the merge SHA itself); whenever you need to wait for CI or a deploy, instead of `sleep` in a loop and manual polling; `issue <N>` — for the closing of the bug on a red main (`github pr premerge`, exit code 3).
+description: Waiting for all checks of a PR or commit (CI in GitHub Actions, the host's deploy, an external check) with a script that shows progress and has the outcomes PASS / FAIL / TIMEOUT / ERROR. When — after a push, before merging a PR; after a merge, before reporting "done", if the merge triggers a deploy (`merged <N>` — the script takes the merge SHA itself); whenever you need to wait for CI or a deploy, instead of `sleep` in a loop and manual polling; `issue <N>` — for the closing of the bug on a red main (`github pr premerge` — main red by itself, its `Next` line names the wait).
 allowed-tools: Bash(bash *skills/ci-wait/scripts/wait-ci.sh *) Bash(gh pr checks *) Bash(gh pr view *) Bash(git rev-parse *)
 ---
 
@@ -37,7 +37,7 @@ bash <skill dir>/scripts/wait-ci.sh issue <N> [--interval 60] [--timeout 7200]
 | Merged, and the merge triggers a deploy or CI on `main` | `merged <N>` as a background command in the same turn as `github task actualize` — waits for all checks of the PR's merge commit: GitHub Actions check-runs and the statuses of the host and external services; takes the SHA from the PR itself, an unmerged PR — ERROR |
 | A commit's checks by SHA (my own commit without a PR) | `status <sha>` — the same as `merged`, by the full SHA |
 | One check of a commit is needed (the deploy among others) | `merged <N> --context <name>` or `status <sha> --context <name>` |
-| `github pr premerge` — exit code 3, `main` is red | `issue <N>` as a background command — waits for the bug on the red `main` to close: PASS when it is closed (with the reason: `completed`, `not_planned`); no such issue — ERROR; then `premerge` again |
+| `github pr premerge` — `main` is red (its `Next:` names the bug's wait) | `issue <N>` as a background command — waits for the bug on the red `main` to close: PASS when it is closed (with the reason: `completed`, `not_planned`); no such issue — ERROR; then `premerge` again |
 
 Don't fetch the SHA of your own merge — `merged <N>` takes it from the PR
 itself: separate `gh pr view` turns for it were the main source of extra turns

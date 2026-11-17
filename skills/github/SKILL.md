@@ -1,6 +1,6 @@
 ---
 name: github
-description: "GitHub project and tasks by the AGENTS.md canon in one command — `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields); `task start`, `task show`, `task answer` and `task edit`; `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
+description: "GitHub project and tasks by the AGENTS.md canon in one command — `task next` (the entry: the state and one next step); `project check` and `project fix` (the project, the default-branch rule, rebase-only merge); `task new` (a task with all its fields); `task start`, `task show`, `task answer` and `task edit`; `task status`, `task drop`; `task finish` (the tail: PR to close), `task actualize` and `task close` after a merge; `task queue` and `batch release` for a dispatcher session; `pr labels`, `pr premerge` (a red PR or a red base). When — once per session before task work; creating a task or subtask; a PR opened, green or merged; taking, reading, finishing, reopening or cancelling a task; an answer to a task's question; 'do all tasks of epic #M', 'fix all High bugs'; asked whether the project is set up, why a task isn't in Done or on the board, why GitHub won't merge a PR — even if 'project' and 'task' weren't said."
 allowed-tools: Bash(bun *skills/github/scripts/github.ts *) Bash(git remote get-url *)
 ---
 
@@ -53,45 +53,43 @@ user; the agent doesn't enter a password; after the steps — `check` again;
 scope. The eleven items checked, who does what, the UI steps and the API's
 gaps — `reference.md`, "Project check and fix".
 
-## Tasks and PRs
+## Tasks and PRs — one entry: `task next`
 
 ```bash
-bun --no-env-file <skill dir>/scripts/github.ts task new --title "…" [--body-file F | --body "…"] [--type Task|Bug|Epic] \
-    [--epic N] [--milestone "…"] [--blocked-by N,N] [--priority Urgent|High|Medium|Low] \
-    [--labels <decision>,<kind>:<new decision>,<label>] [--repo owner/repo]
-    # --type Task|Bug, --priority — an organization's; a personal account: a ○ line
-bun --no-env-file <skill dir>/scripts/github.ts task show <N>
-bun --no-env-file <skill dir>/scripts/github.ts task answer <N> <k> "<answer>" [--auto]
-bun --no-env-file <skill dir>/scripts/github.ts task edit <N> [--replace "<old>" "<new>"] [--add "## <section>" "<item>"] [--check "<item text>"] …
-bun --no-env-file <skill dir>/scripts/github.ts task start <N> --branch <type>/<N>-<slug>
-bun --no-env-file <skill dir>/scripts/github.ts task status <N> "In progress" [--branch <type>/<N>-<slug>]   # Backlog | In progress | Done
-bun --no-env-file <skill dir>/scripts/github.ts task drop <N> [--duplicate-of M]
-bun --no-env-file <skill dir>/scripts/github.ts task actualize <N>
-bun --no-env-file <skill dir>/scripts/github.ts task close <N> [--no-git]
-bun --no-env-file <skill dir>/scripts/github.ts task finish <N> [--timeout 240] [--title "<type>(<scope>): …"]
-bun --no-env-file <skill dir>/scripts/github.ts task resume
-bun --no-env-file <skill dir>/scripts/github.ts task queue [--epic N | --tasks N,M] [--type Task|Bug] [--priority Urgent,High]
-bun --no-env-file <skill dir>/scripts/github.ts task queue --assignment <N> [--main]
-bun --no-env-file <skill dir>/scripts/github.ts batch release
-bun --no-env-file <skill dir>/scripts/github.ts pr labels <PR>
-bun --no-env-file <skill dir>/scripts/github.ts pr premerge <PR>
+bun --no-env-file <skill dir>/scripts/github.ts task next [<N>]
 ```
 
-| Moment | Action |
-|---|---|
-| New task, an epic's subtask, an epic | first — whether one already exists (`gh issue list --search`); `task new` |
-| Took into work · reopened | `task start N --branch <type>/N-<slug>` — a separate call, no pipeline: `project check` once per session, `task show`'s output (`?` — check), code 1 on open questions or parallel work (restart: `--resume`); then In progress, the branch renamed, the session name, the scenarios and, in Claude Code, a `ToolSearch` line — run it |
-| An answer to a question (chat, a comment, the code; in auto mode — the recommendation) | `task answer N k "<answer>"` (auto — `--auto`), before the code it changes |
-| Editing the description | `task edit N`, not `--body-file` |
-| Branch committed — the tail | `task finish N` in the background (a subagent — `--timeout 240`, code 5 — again): push, PR, labels, CI, `premerge`; code 4 — `gh pr merge <PR> --rebase` as a separate call, then `task finish N` in the background: the deploy, the refresh prompt (code 4 — its subagent in the background; after its answer — `task finish N`), `task close`; other codes — its `Next:` |
-| PR merged by hand | `task actualize N` with `wait-ci.sh merged <PR>` in the background, the subagent, then `task close N` |
-| Task closed without a PR | `task actualize N`, the subagent; then `task close N` |
-| Session resumed after the app restarted | the `SessionStart` hook runs `task resume` itself — its line is in the context: run the named command, a background wait died with the process |
-| "Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's "yes" | the session is a dispatcher, its own task stays: `task queue --epic M` (or `--tasks`, `--type`, `--priority`); below, "Dispatcher" |
-| Another task: work outside the task, a red-main bug | `task new`, then the question to the owner «queue #N?»; "yes" — its executor at once, the same as a dispatcher's (`task new` and `task status` in a session with a task print its prompt) |
-| Won't do, duplicate, replaced by others | `task drop N [--duplicate-of M]` |
-| PR ready (and after new commits) | `pr labels <PR>` — decision labels for the task and the epic |
-| PR's CI green (`ci-wait` PASS), before `gh pr merge` | `pr premerge <PR>` — a separate call; its codes — below |
+**Call `task next` and do what it prints** (#842): by the facts — the task,
+its questions and its epic's, the checkout's task branch, the PR and its
+checks, `pr premerge` on its head, the batch, the deploy, the epic refresh,
+the close — the state in one line and exactly one next step, a ready command
+(run it as a separate call, no pipeline). A step that waits for the owner (an
+answer, a «yes» to the merge outside auto) or the dispatcher (a batch's
+release) is named so; a closed task — `none`. Without `<N>` — the checkout's
+task branch, otherwise the session's pinned task. Every task command ends
+with the same `Next:` line — after any of them do its `Next:`, not a step
+from memory. Exit codes of every command: `0` — done, `1` — a step (its
+`Next:` says which), `2` — an error (a call error prints the corrected
+command). The commands themselves — `github --help`, `<command> --help`;
+what each checks, sets and prints — `reference.md`, "Task and PR commands".
+
+What starts outside a task's path, so `task next` doesn't name it:
+
+- **A new task, an epic's subtask, an epic** — first whether one already
+  exists (`gh issue list --search`), then `task new --title "…" [--epic N]
+  [--body-file F] …`; in a session with a task — the question to the owner
+  «queue #N?», "yes" — its executor at once (`task new` prints its prompt).
+- **"Do all tasks of epic #M", "fix all High bugs", a new epic — the owner's
+  "yes"** — the session is a dispatcher: `task queue --epic M` (below,
+  "Dispatcher").
+- **Won't do, duplicate, replaced by others** — `task drop N
+  [--duplicate-of M]`.
+- **The session resumed after the app restarted** — the `SessionStart` hook
+  runs `task resume`: run the command its line names, a background wait died
+  with the process.
+- **An answer from chat or a comment** — `task answer N k "<answer>"` (auto —
+  `--auto`) before the code it changes; a description edit — `task edit N`,
+  not `--body-file`.
 
 What the agent gets wrong without the details (all of them — `reference.md`,
 "Task and PR commands"):
@@ -109,14 +107,12 @@ What the agent gets wrong without the details (all of them — `reference.md`,
   its file. `--branch` (In progress, not an epic) renames the branch with its
   `.git/config` section, not a bare `git branch -m`; a lock still held — a
   `!` line with the command that finishes it, code 1.
-- **`pr premerge`** — from a repository checkout. Codes: `0` — merge; `1` —
-  don't merge: fix the root cause in the PR (rebase onto `origin/<base>`, edit,
-  `push --force-with-lease`, `ci-wait` again); `2` — couldn't check: don't
-  merge either, investigate; `3` — **`main` is red, not this PR**: don't merge
-  and don't fix it in the PR — one bug for everyone: the printed wait
-  `wait-ci.sh issue <N>` (the `ci-wait` skill, as a background command), or
-  the printed `task new --type Bug` command and «queue it?», then `premerge` again
-  (`reference.md`, "Red main").
+- **`pr premerge`** — from a repository checkout, a separate call. Not `0` —
+  don't merge: its `Next:` names the fix in the PR or, when **`main` is red,
+  not this PR**, the wait for its one bug — don't fix it in the PR: the
+  printed `wait-ci.sh issue <N>` (the `ci-wait` skill, as a background
+  command), or the printed `task new --type Bug` command and «queue it?», then
+  `premerge` again (`reference.md`, "Red main").
 - **`task actualize`** (`task finish` calls it) — the mechanics itself, then
   the subagent's prompt: its two lines, as is; the subagent prints its
   assignment itself (`--assignment`, outside the sandbox). `○ refresh not
