@@ -37,6 +37,8 @@ every project, whatever its `CLAUDE.md`.
   passes a glob without matches and `====` as is, `timeout` works without
   coreutils; the «agent Bash: not set up» line — it didn't, follow the line.
   The «prompt cache TTL» line — the owner's step (`docs/prompt-cache.md`).
+  A `PreToolUse` hook too: a bypass of a flow command is denied (`github hook
+  guard`), the reason names the command to run instead.
 - `set_session_title` renames the session; in auto mode `archive_session`
   with `self` archives it, ending the conversation: the last action, after
   the "can be closed" line. Before it — `TaskStop` for each own
