@@ -1,5 +1,0 @@
-{
-  "item": "Transcripts are the actuals",
-  "issue": 865,
-  "reason": "cleanupPeriodDays на машине владельца пока не проверяет ничто: механизм — check -g с командой владельца"
-}

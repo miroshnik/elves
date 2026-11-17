@@ -1855,3 +1855,93 @@ describe("TTL кэша Claude Code: check -g, install -g и update -g реком
     expect(elves(sb, ["check", "-g"]).stdout).toContain(TTL);
   });
 });
+
+/**
+ * Хранение транскриптов Claude Code (#865): факт задачи `est` берёт из транскриптов сессий в `~/.claude/projects/`, а
+ * Claude Code удаляет те, что старше `cleanupPeriodDays`, — по умолчанию 30 дней. Правило канона «Transcripts are the
+ * actuals» держит `check -g`: ключ меньше 365 или без него — строка с готовой командой владельца, `~/.claude/settings.json`
+ * правит только она.
+ */
+describe("Хранение транскриптов Claude Code: check -g, install -g и update -g называют cleanupPeriodDays меньше 365, settings.json правит владелец", () => {
+  const CLEANUP = "transcript cleanup: ";
+  const CLEANUP_TAIL = "The transcript cleanup line is the owner's machine setting — name its command to the user, don't run it yourself.";
+  const settings = () => path.join(sb.home, ".claude/settings.json");
+  const setDays = (days: unknown) => writeFileSync(settings(), JSON.stringify({ ...JSON.parse(read(settings())), cleanupPeriodDays: days }));
+  // команда из строки о транскриптах
+  const command = (out: string) => {
+    const m = /: (bun --no-env-file -e '[^'\n]*')/.exec(out.split("\n").find((l) => l.includes(CLEANUP)) ?? "");
+    expect(m).not.toBeNull();
+    return m![1]!;
+  };
+  // команду запускает владелец — через shell, из каталога проекта, с HOME песочницы
+  const run = (cmd: string) => spawnSync("sh", ["-c", cmd], { cwd: sb.proj, env: sb.env, encoding: "utf8" });
+  beforeEach(() => {
+    mkdirSync(path.join(sb.home, ".claude"));
+  });
+
+  // без ключа и меньше 365 — строка с командой, хук — та же строка и хвост: команду называют владельцу; 365 и
+  // больше — строки нет; код check 0
+  it("check -g называет cleanupPeriodDays меньше 365 строкой с командой владельца", () => {
+    elves(sb, ["install", "-g"]);
+    const before = snapshot(sb.home);
+    const r = elves(sb, ["check", "-g"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`\n  ${CLEANUP}cleanupPeriodDays isn't set in ~/.claude/settings.json (Claude Code's default — 30 days) — `);
+    expect(command(r.stdout)).toContain('keys=["cleanupPeriodDays"]');
+    expect(snapshot(sb.home)).toEqual(before);
+    const hook = elves(sb, ["check", "--hook"]);
+    expect(hook.code).toBe(0);
+    expect(command(hook.stdout)).toBe(command(r.stdout));
+    expect(hook.stdout).toContain(CLEANUP_TAIL);
+    // меньше 365 — та же строка со значением; не целое число дней — тоже
+    for (const days of [30, 364, "365", 365.5]) {
+      setDays(days);
+      const out = elves(sb, ["check", "-g"]);
+      expect(out.code).toBe(0);
+      expect(out.stdout).toContain(`  ${CLEANUP}cleanupPeriodDays in ~/.claude/settings.json is ${JSON.stringify(days)}, under 365 — `);
+      expect(command(out.stdout)).toBe(command(r.stdout));
+    }
+    for (const days of [365, 3650]) {
+      setDays(days);
+      const out = elves(sb, ["check", "-g"]);
+      expect(out.code).toBe(0);
+      expect(out.stdout).toContain("on the machine: up to date");
+      expect(out.stdout).not.toContain(CLEANUP);
+      const quiet = elves(sb, ["check", "--hook"]).stdout;
+      expect(quiet).not.toContain(CLEANUP);
+      expect(quiet).not.toContain(CLEANUP_TAIL);
+    }
+  });
+
+  it("команда ставит 365, сохраняет копию settings.json и не трогает другие ключи; повтор ничего не меняет", () => {
+    elves(sb, ["install", "-g"]);
+    const s = { ...JSON.parse(read(settings())), cleanupPeriodDays: 30, model: "opus" };
+    const original = JSON.stringify(s, null, 4) + "\n";
+    writeFileSync(settings(), original);
+    const cmd = command(elves(sb, ["check", "-g"]).stdout);
+    const r = run(cmd);
+    expect(r.status).toBe(0);
+    expect(read(`${settings()}.bak`)).toBe(original);
+    expect(JSON.parse(read(settings()))).toEqual({ ...s, cleanupPeriodDays: 365 });
+    expect(elves(sb, ["check", "-g"]).stdout).not.toContain(CLEANUP);
+    const before = snapshot(sb.home);
+    const again = run(cmd);
+    expect(again.status).toBe(0);
+    expect(again.stdout).toContain('cleanupPeriodDays already set: {"cleanupPeriodDays":365}');
+    expect(snapshot(sb.home)).toEqual(before);
+  });
+
+  it("install -g и update -g печатают ту же строку и не меняют settings.json", () => {
+    const first = elves(sb, ["install", "-g"]);
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain(`\n${CLEANUP}cleanupPeriodDays isn't set in ~/.claude/settings.json`);
+    const before = read(settings());
+    for (const cmd of [["install", "-g"], ["update", "-g"]]) {
+      const r = elves(sb, cmd);
+      expect(r.code).toBe(0);
+      expect(command(r.stdout)).toBe(command(first.stdout));
+      expect(read(settings())).toBe(before);
+      expect(existsSync(`${settings()}.bak`)).toBe(false);
+    }
+  });
+});

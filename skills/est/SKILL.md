@@ -165,7 +165,8 @@ from its actual (details — reference.md, "Linking — details"):
   `gh project item-list` the keys of fields with Cyrillic names are mangled —
   don't rely on them.
 - Claude Code transcripts live in `~/.claude/projects/<path-with-dashes>*/` and
-  are cleaned up per `cleanupPeriodDays` (`settings.json` must have 365). The
+  are cleaned up per `cleanupPeriodDays` (`settings.json` must have 365;
+  `elves check -g` names a smaller one with the owner's command). The
   actual comment and the field are already the archive of the result; transcripts
   are needed only for recomputing.
 - Sessions with < 3 prompts and no PR or commits (automatic routines) the script

@@ -10,8 +10,8 @@ into `~/.claude/rules`.
   my own background tasks, and a dispatcher archives an executor session with
   its id; a refused archive is left to the owner.
 - **Transcripts are the actuals.** `est` reads them in `~/.claude/projects/`,
-  so `~/.claude/settings.json` needs `"cleanupPeriodDays": 365`, or the
-  history is cleaned before the task closes.
+  and Claude Code deletes them after `cleanupPeriodDays`: `elves check -g`
+  names one under 365 with the owner's command — I pass it on, not run it.
 - **Auto-fix is off.** Its conflict event wants the base merged in, which
   breaks the rebase merge: `github task finish` stops right after opening
   the PR with the step — `set_monitor` with `auto_fix: false` and the PR's
