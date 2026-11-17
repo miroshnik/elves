@@ -814,18 +814,21 @@ function pluginLink(src: string, home: string, linkMode: boolean) {
 
 /**
  * The skill links a previous version put into `~/.claude/skills` — `<name>` → `~/.agents/skills/<name>` for an Elves
- * skill (`names`: the previous manifest's and this release's) or one that leads nowhere — go: the plugin gives the
- * skill as `elves:<name>`, with the link Claude Code would have both. Someone else's link or directory stays, and so
- * does a link of a skill that isn't Elves' (`npx skills` links its skills the same way).
+ * skill (the previous manifest's `before` or this release's `skills`) or one that leads nowhere — go: the plugin gives
+ * this release's skill as `elves:<name>`, with the link Claude Code would have both; a skill this release doesn't have
+ * the plugin doesn't give either — its reason is that of its `.agents/skills/<name>` (`installSkills`). The agent
+ * retells these lines to the user as what changed. Someone else's link or directory stays, and so does a link of a
+ * skill that isn't Elves' (`npx skills` links its skills the same way).
  */
-function oldSkillLinks(home: string, names: string[]) {
+function oldSkillLinks(home: string, before: string[], skills: string[]) {
   const dir = path.join(home, ".claude/skills");
   for (const name of lstat(dir)?.isDirectory() ? readdirSync(dir) : []) {
     const dst = path.join(dir, name);
     const to = path.join(home, ".agents/skills", name);
-    if (!lstat(dst)?.isSymbolicLink() || path.resolve(dir, readlinkSync(dst)) !== to || !(names.includes(name) || !existsSync(to))) continue;
-    if (dry) change("-", dst, { note: `a skill link of a previous version: the Elves plugin gives elves:${name}` });
-    else rmSync(dst), note(`.claude/skills/${name} — removed: the Elves plugin gives elves:${name}`);
+    if (!lstat(dst)?.isSymbolicLink() || path.resolve(dir, readlinkSync(dst)) !== to || !(before.includes(name) || skills.includes(name) || !existsSync(to))) continue;
+    const reason = skills.includes(name) ? `the Elves plugin gives elves:${name}` : "Elves no longer has it";
+    if (dry) change("-", dst, { note: `a skill link of a previous version: ${reason}` });
+    else rmSync(dst), note(`.claude/skills/${name} — removed: ${reason}`);
   }
 }
 
@@ -1790,7 +1793,7 @@ function installGlobal(src: string, linkMode: boolean) {
   if (claude) {
     claudeRules(src, home);
     pluginLink(src, home, linkMode);
-    oldSkillLinks(home, [...new Set([...before, ...skills])]);
+    oldSkillLinks(home, before, skills);
     oldHooks(home);
     // install.sh installed ~/.claude/CLAUDE.md as a symlink to claude/CLAUDE.md, and that one imported AGENTS.md
     const old = path.join(home, ".claude/CLAUDE.md");
