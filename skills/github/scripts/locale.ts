@@ -212,7 +212,6 @@ export interface Names {
       commitUnit: string;
       taken: string;
       overlap: string;
-      cloudMissing: string;
       tokens: string;
       tokensSplit: string;
       cost: string;
@@ -223,10 +222,7 @@ export interface Names {
       /** The actual's split by waits, minutes (est, #518): {ci}, {merged}, {checks}, {slot} — `waitsSlot` or empty, {rest}. */
       waits: string;
       waitsSlot: string;
-      and: string;
-      cloudAgent: string;
     };
-    cloud: { actual: string; body: string; tokens: string; cost: string; fields: string; unavailable: string; session: string };
   };
   /** The description of the flow update commit that `update` suggests: "Elves flow <tag>"; nothing parses it back. */
   updateCommit: string;

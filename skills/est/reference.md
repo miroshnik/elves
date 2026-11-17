@@ -1,8 +1,8 @@
 # est — reference
 
 The mechanics behind `SKILL.md`: the repository registry, how the actual finds
-sessions and counts hours, tokens and cost, writing and reruns, the cloud session
-import, the period summary and the linking details. What to run and when — `SKILL.md`; syntax and flags —
+sessions and counts hours, tokens and cost, writing and reruns, the period
+summary and the linking details. What to run and when — `SKILL.md`; syntax and flags —
 `est --help` and `est <command> --help`.
 
 ## Repository registry
@@ -34,7 +34,7 @@ pinned to another task doesn't go to this one, whatever features it has — but
 a subagent whose assignment names a task («Task #N») does: an executor the
 session queued on the owner's "yes" (#546), its records go to task N, not to
 the pin. Sessions
-without pinning (before it, cloud, an epic's session, the file deleted) —
+without pinning (before it, an epic's session, the file deleted) —
 by features: the PR's commit hashes in tool outputs, `pr-link` records of its
 repository, a branch with the task number, `#N` in the session's name and first
 prompt or in a subagent's assignment. Then it computes active hours — including
@@ -209,46 +209,6 @@ The number is the **issue** number, not a PR's: given a PR number the script
 warns and computes the actual for the PR itself. A shared commit/PR that closed
 several tasks is split among them equally (the script's output says «unsplit:
 N h»; the comment — «shared commit … (share 1/k)»).
-
-## Cloud session import
-
-When the cloud part wasn't counted (old tasks, or the cloud couldn't link the
-transcript to the task), a local session imports the session's events; an
-export of the same session takes precedence over the part. The import is done
-through a browser where the user is signed in to claude.ai (Claude in Chrome):
-in a claude.ai tab, run the snippet below — it takes the session's metadata and
-all its events and saves `<session>.json` to downloads (the download — with the
-user's permission: file name, source, size); then `est cloud-import` and
-`est fact <N> --write` (`SKILL.md`, "Cloud session").
-
-```js
-// in a claude.ai tab; save=false — summary only, no download
-async function cloudExport(session, save) {
-  const h = { "anthropic-version": "2023-06-01" };
-  const get = async (u) => { const r = await fetch(u, { headers: h }); if (!r.ok) throw new Error(`${u}: ${r.status}`); return r.json(); };
-  const meta = await get(`/v1/code/sessions/${session}`);
-  const m = meta.response_shape ?? meta;
-  const events = [];
-  for (let cur = null, i = 0; i < 1000; i++) {
-    const j = await get(`/v1/code/sessions/${session}/events` + (cur ? `?cursor=${encodeURIComponent(cur)}` : ""));
-    events.push(...j.data);
-    if (!j.next_cursor || !j.data.length) break;
-    cur = j.next_cursor;
-  }
-  const repo = String(m.config?.sources?.[0]?.url ?? "").replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
-  const out = { v: 1, session, repo, title: m.title ?? "", events };
-  const json = JSON.stringify(out);
-  if (save) Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([json], { type: "application/json" })), download: `${session}.json` }).click();
-  return { repo, title: out.title, events: events.length, bytes: json.length };
-}
-await cloudExport("session_…", true)
-```
-
-A cloud session is counted by the same rules as a local one: the name "#N …"
-links, the branch comes from commit events (before the first commit — neutral),
-the human is the client's prompts, tokens — once per response, subagents — by
-their own streams. The export is personal (prompts, tool outputs) — only in the
-state folder, not in the repository.
 
 ## Period summary
 

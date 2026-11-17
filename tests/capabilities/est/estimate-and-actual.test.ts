@@ -1,15 +1,15 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import {
   branchHasIssue, branchIssueNumber, branchType, computeFact, EstError, extractKeptLines, factCommentBody,
-  cloudPartsIn, cloudSessionsIn, fmtH, guestTranscripts, hashMatches, inRepo, loadPins, sidKey, mergeIntervals, packPr, parseCloudFile, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
+  fmtH, guestTranscripts, hashMatches, inRepo, loadPins, sidKey, mergeIntervals, parseMarker, parseSessionFile, parseSince, pinnedTranscripts, plural, resolveLinks,
   factsWithModel, parsePeriods, periodSummary, periodTable, priceFor, PRICES, selectPeriodSessions, selectSessions, sweepOverlapWarning, usageCost, waitKind,
 } from "../../../skills/est/scripts/est.ts";
-import type { CloudPart, FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
+import type { FactRepo, Period, PR, Row, Session } from "../../../skills/est/scripts/est.ts";
 import locale from "../../../skills/github/scripts/locale.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { gitRepo, tmpDir } from "../../lib/spec.ts";
@@ -125,6 +125,16 @@ describe("Факт — активные часы работы над задач�
     const res = computeFact(stubRepo([s], []), 42, [], [], 30);
     expect(res.h).toBe(0.25); // 10 + 5 минут, без двух часов паузы
     expect(res.wall).toBe(2.1);
+  });
+
+  // из нескольких номеров первого промпта не видно, чья это работа (#594)
+  it("первый промпт с несколькими `#N` — сессия по промпту не связана ни с одной задачей", () => {
+    const session = (refs: number[]): Session => ({
+      sid: "m", cwd: "/repo", n_human: 1, ev: [[ts("10:00"), "claude/export-x", 1, "", -1], [ts("10:06"), "claude/export-x", 0, "", -1], [ts("10:12"), "claude/export-x", 0, "", -1]],
+      prlinks: [], commits: [], first_refs: refs, first_urls: [], usage: [], models: [], title: "", title_refs: [], title_urls: [], n_subagents: 0, source: "claude", routine: false,
+    });
+    expect(computeFact(stubRepo([session([42])], []), 42, [], []).h).toBe(0.2);
+    for (const n of [40, 41, 42, 43]) expect(computeFact(stubRepo([session([40, 41, 42, 43])], []), n, [], []).h).toBeNull();
   });
 });
 
@@ -670,8 +680,8 @@ describe("Свип ищет двойной счёт внутри сессии, �
 /**
  * `github task status` «В работе» закрепляет задачу за сессией: файл `<каталог конфигурации>/sessions/<id сессии>` со
  * строкой `owner/repo#N`. Это прямой факт «сессия вела эту задачу» — сильнее признаков в транскрипте (хешей, веток,
- * `#N` в названии и первом промпте), на которых привязка ошибалась. Сессия без закрепления (до него, облако, сессия
- * эпика) привязывается признаками, как раньше.
+ * `#N` в названии и первом промпте), на которых привязка ошибалась. Сессия без закрепления (до него, сессия эпика)
+ * привязывается признаками, как раньше.
  */
 describe("Закреплённая сессия целиком — задаче из закрепления, признаки — запасной путь для сессий без него", () => {
   const SID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
@@ -1236,14 +1246,17 @@ describe("Транскрипт Claude Code даёт привязки к зада
 
 /**
  * Codex убран (#836): за всё время на машине четыре его сессии, после 15 октября — ни одной, а est держал их разбор,
- * индекс каталогов и раздел справки. Источники факта — транскрипты Claude Code и облачных сессий; Codex вернётся по
- * запросу.
+ * индекс каталогов и раздел справки. Облачные сессии Claude Code убраны так же (#837): за всё время два импорта их
+ * событий, а est держал импорт, комментарий «Факт (облако)», части факта в маркере и трейлер `Claude-Session`.
+ * Источник факта — транскрипты локальных сессий Claude Code; Codex и облако вернутся по запросу.
  */
-describe("Факт — из транскриптов Claude Code: сессий Codex est не читает", () => {
+describe("Факт — из локальных транскриптов Claude Code: сессий Codex и облачных est не читает", () => {
+  // минуты от суток назад — время сессии #42 в factWorld
+  const ago = (min: number) => new Date(Date.now() - 86_400_000 + min * 60_000).toISOString();
+
   it("`est fact` не ищет сессии Codex", () => {
     const world = factWorld();
     // сессия Codex в каталоге репозитория с тремя промптами о #42 — прежде её привязал бы номер в первом промпте
-    const ago = (min: number) => new Date(Date.now() - 86_400_000 + min * 60_000).toISOString();
     const rollout = path.join(dir, ".codex", "sessions", "2026", "11", "15", "rollout-1.jsonl");
     mkdirSync(path.dirname(rollout), { recursive: true });
     writeFileSync(rollout, jsonl([
@@ -1258,274 +1271,30 @@ describe("Факт — из транскриптов Claude Code: сессий C
     expect(r.stdout).not.toMatch(/codex|gpt-/i);
     expect(existsSync(path.join(dir, "elves", "cache", "codex-index.json"))).toBe(false);
   });
-});
 
-/**
- * Облачная сессия Claude Code (claude.ai/code): её транскрипт — события сессии, выгруженные из claude.ai браузером
- * (`est cloud-import`). Это ещё один источник факта: те же записи, ветки, промпты, токены и хеши, что у локальной, только
- * ветка приходит событием `vcs_state_changed`, а человек — это `source: client`. Коммит PR с трейлером
- * `Claude-Session`, чья сессия не импортирована, — покрытие partial со ссылкой на сессию: часть работы не видна.
- */
-describe("Облачная сессия считается по событиям, выгруженным из claude.ai", () => {
-  const SESSION = "session_01CloudTest";
-  const at = (hhmm: string) => `2026-09-01T${hhmm}:00.000Z`;
-  let seq = 0;
-  const event = (hhmm: string, event_type: string, payload: object, source = "worker") => ({ created_at: at(hhmm), event_id: `e${++seq}`, event_type, payload, sequence_num: String(seq), source });
-  const usage = { input_tokens: 2, output_tokens: 100, cache_creation_input_tokens: 500, cache_read_input_tokens: 10000, cache_creation: { ephemeral_1h_input_tokens: 500, ephemeral_5m_input_tokens: 0 } };
-  const assistant = (hhmm: string, id: string, parent: string | null = null) =>
-    event(hhmm, "assistant", { type: "assistant", message: { id, model: "claude-opus-5-5", role: "assistant", content: [{ type: "text", text: "…" }], usage }, parent_tool_use_id: parent, timestamp: at(hhmm) });
-  const prompt = (hhmm: string, text: string, parent: string | null = null) => event(hhmm, "user", { type: "user", message: { role: "user", content: text }, parent_tool_use_id: parent }, parent ? "worker" : "client");
-  const toolResult = (hhmm: string, text: string, parent: string | null = null) =>
-    event(hhmm, "user", { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: text }] }, parent_tool_use_id: parent, timestamp: at(hhmm) });
-  const vcs = (hhmm: string, branch: string) => event(hhmm, "system", { type: "system", subtype: "vcs_state_changed", kind: "commit", branch, cwd: "/home/user/r" });
-  const OID = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0";
-  const events = () => [
-    event("10:00", "system", { type: "system", subtype: "init", cwd: "/home/user/r" }),
-    prompt("10:00", "сделай #42"),
-    // вставка от облака (текст скилла) — не человек, хоть и сообщение user верхнего уровня
-    event("10:01", "user", { type: "user", message: { role: "user", content: [{ type: "text", text: "Base directory for this skill: … #7" }] }, parent_tool_use_id: null }),
-    assistant("10:02", "msg_01AAAAAAAAAAAA"), assistant("10:02", "msg_01AAAAAAAAAAAA"), // тот же ответ дважды
-    toolResult("10:04", "[fix/42-export a1b2c3d] fix: экспорт"), vcs("10:04", "fix/42-export"),
-    assistant("10:06", "msg_01BBBBBBBBBBBB"),
-    prompt("10:07", "проверь #42 экспорт", "toolu_sub"), assistant("10:08", "msg_01CCCCCCCCCCCC", "toolu_sub"),
-    // переход на другую ветку облако событием не сообщает — его видно в выводе git
-    toolResult("10:09", "Switched to a new branch 'feat/43-report'"), assistant("10:10", "msg_01DDDDDDDDDDDD"),
-  ];
-  // выгрузка — как её сохраняет браузер: события новые сверху, как отдаёт API
-  const exportFile = (evs: object[]) => {
-    const f = path.join(dir, `${SESSION}.json`);
-    writeFileSync(f, JSON.stringify({ v: 1, session: SESSION, repo: "o/r", title: "Экспорт", branch: "fix/42-export", events: [...evs].reverse() }));
-    return f;
-  };
-  const cloudPr = (): PR => ({ ...pr77(), commits: [{ oid: OID, at: ts("10:04") }], cloud: [SESSION] });
-
-  it("события → сессия: человек — клиент, ветка — из vcs_state_changed и вывода git (до них нейтральная), токены раз на ответ, хеши из выводов, субагент — в таймлайне", () => {
-    const s = parseCloudFile(exportFile(events()));
-    expect(s).toMatchObject({ sid: SESSION, source: "cloud", cwd: "/home/user/r", n_human: 1, first_refs: [42], commits: [[ts("10:04"), "a1b2c3d"]] });
-    expect(s.usage.map((u) => [u[0], u[5]])).toEqual([["AAAAAAAAAAAA", 500], ["BBBBBBBBBBBB", 500], ["DDDDDDDDDDDD", 500], ["CCCCCCCCCCCC", 500]]);
-    expect(s.ev.map((e) => [e[0], e[1]])).toEqual([
-      [ts("10:00"), ""], [ts("10:01"), ""], [ts("10:02"), ""], [ts("10:02"), ""], [ts("10:04"), ""], [ts("10:06"), "fix/42-export"], [ts("10:07"), "fix/42-export"], [ts("10:08"), "fix/42-export"],
-      [ts("10:09"), "fix/42-export"], [ts("10:10"), "feat/43-report"],
-    ]);
-    expect(s.ev.filter((e) => e[3]).map((e) => e[3])).toEqual(["42", "42"]); // задание субагента называет задачу
-  });
-
-  it("задание субагенту с номером задачи и номером эпика привязывает его записи к задаче", () => {
-    const evs = events();
-    // порядок событий — по sequence_num: задание субагента подменяется на месте, не новым событием
-    evs[8] = { ...evs[8]!, payload: { ...evs[8]!.payload, message: { role: "user", content: "Задача #42 (эпик #40): проверь экспорт" } } };
-    const s = parseCloudFile(exportFile(evs));
-    expect(s.ev.filter((e) => e[3]).map((e) => e[3])).toEqual(["42", "42"]);
-  });
-
-  it("облачная сессия считается в факт наравне с локальной — покрытие full, агент назван", () => {
-    const s = parseCloudFile(exportFile(events()));
-    const res = computeFact(stubRepo([s], [cloudPr()]), 42, [{ ...cloudPr(), why: "closed the issue" }], []);
-    expect(res.h).toBe(0.15); // 10:00–10:09: задача названа в первом промпте; с 10:10 — чужая ветка
-    expect(res.cov).toBe("full");
-    expect(res.cloud_missing).toEqual([]);
-    expect(factCommentBody(res, [], 0)).toContain("активных в облачной сессии Claude Code");
-  });
-
-  it("коммит PR с трейлером Claude-Session, чья сессия не импортирована, — покрытие partial и ссылка на сессию", () => {
-    const local = parseCloudFile(exportFile(events()));
-    local.sid = "local-session"; // та же работа, но как будто локальная — а облачной части нет
-    local.source = "claude";
-    const res = computeFact(stubRepo([local], [cloudPr()]), 42, [{ ...cloudPr(), why: "closed the issue" }], []);
-    expect(res.cov).toBe("partial");
-    expect(res.cloud_missing).toEqual([SESSION]);
-    expect(factCommentBody(res, [], 0)).toContain(`Облачная сессия https://claude.ai/code/${SESSION} не импортирована — est cloud-import.`);
-  });
-
-  // ключ сессии в маркере «Факт» (iv) — 8 знаков; у облачных сессий общий префикс session_ их бы склеил
-  it("ключ облачной сессии в маркере — после префикса session_, локальной — как был", () => {
-    expect(sidKey("session_01EyZM6zcMGdi6EB671Vgzy9")).toBe("01EyZM6z");
-    expect(sidKey("session_01HXRv6nrTK3GBKj38JJ9MLZ")).toBe("01HXRv6n");
-    expect(sidKey("5832ef9f-1111-2222-3333-444444444444")).toBe("5832ef9f");
-  });
-
-  it("трейлер Claude-Session читается из тела коммита PR", () => {
-    expect(cloudSessionsIn("fix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Abc\n")).toEqual(["session_01Abc"]);
-    expect(cloudSessionsIn("fix: без трейлера")).toEqual([]);
-    const pr = packPr({ number: 7, commits: { totalCount: 2, nodes: [
-      { commit: { oid: "a".repeat(40), authoredDate: at("10:00"), messageBody: "Claude-Session: https://claude.ai/code/session_01Abc" } },
-      { commit: { oid: "b".repeat(40), authoredDate: at("10:05"), messageBody: "" } },
-    ] } });
-    expect(pr.cloud).toEqual(["session_01Abc"]);
-  });
-
-  /**
-   * Облачная сессия считает свою часть сама — по своему транскрипту в контейнере — и отдаёт её в комментарии «Факт
-   * (облако)» маркером `cloud`. Поля проекта из облака не поставить: их ставит локальный `est fact --write` / `--sweep`,
-   * складывая облачную часть с локальной. Выгрузка той же сессии, если импортирована, важнее части.
-   */
-  describe("облачная часть в маркере факта", () => {
-    const part: CloudPart = {
-      session: SESSION, h: 0.2, iv: [[ts("10:00"), ts("10:12")]], prompts: 1,
-      tok: { in: 1, out: 1000, cw: 0, cr: 100000, total: 101001 }, models: { "claude-opus-5-5": { mtok: 0.1, usd: 0.08 } },
-    };
-    const fact = (sessions: Session[], parts: CloudPart[]) => computeFact(stubRepo(sessions, [cloudPr()]), 42, [{ ...cloudPr(), why: "closed the issue" }], [], 30, parts);
-
-    it("облачная часть считается, как сессия: время, токены, стоимость, покрытие full по трейлеру; в маркере — сохраняется", () => {
-      const res = fact([], [part]);
-      expect(res).toMatchObject({ h: 0.2, cov: "full", sessions: 1, prompts: 1, cloud_missing: [], usd: 0.08 });
-      expect(res.tok.total).toBe(101001);
-      expect(parseMarker(factCommentBody(res, [], 0), "fact").cloud).toEqual([part]);
-    });
-
-    it("с локальной работой той же поры — сумма без двойного счёта пересечения", () => {
-      const local = parseCloudFile(exportFile(events()));
-      local.sid = "local-session";
-      local.source = "claude";
-      expect(fact([local], [part]).h).toBe(0.2); // 10:00–10:09 локально и 10:00–10:12 в облаке — это 10:00–10:12
-    });
-
-    it("выгрузка той же сессии импортирована — часть из маркера второй раз не считается", () => {
-      const res = fact([parseCloudFile(exportFile(events()))], [part]);
-      expect(res.h).toBe(0.15);
-      expect(res.sessions).toBe(1);
-    });
-
-    it("облачная часть несёт ходы, хвост и контекст; локальный расчёт складывает ходы и хвост с местными, преамбулу берёт у самой ранней, контекст в конце — у самой поздней", () => {
-      const withSteps: CloudPart = { ...part, iv: [[ts("09:50"), ts("10:12")]], steps: 5, steps_agents: 2, tail: 1, preamble: 90_000, ctx_end: 300_000 };
-      const local = parseCloudFile(exportFile(events()));
-      local.sid = "local-session";
-      local.source = "claude";
-      const res = fact([local], [withSteps]);
-      expect(res).toMatchObject({ steps: 8, steps_agents: 3, tail: 1, preamble: 90_000, ctx_end: 300_000 });
-    });
-
-    it("части собираются из всех комментариев с маркером факта; по сессии — последняя", () => {
-      const body = (p: CloudPart) => `Факт (облако): …\n<!-- fact ${JSON.stringify({ v: 1, h: p.h, src: "cloud", cloud: [p] })} -->`;
-      const later = { ...part, h: 0.3 };
-      const other = { ...part, session: "session_01Other" };
-      expect(cloudPartsIn([body(part), "просто комментарий", body(other), body(later)])).toEqual([later, other]);
-    });
-  });
-
-  it("est cloud-import кладёт выгрузку в личный каталог по репозиторию; не выгрузка — ошибка", () => {
-    const env = { ...process.env, HOME: dir, ELVES_CONFIG_DIR: path.join(dir, "elves"), CLAUDE_CODE_REMOTE: "" };
-    const r = spawnSync("bun", [EST, "cloud-import", exportFile(events())], { encoding: "utf8", env });
-    expect(r.status).toBe(0);
-    const stored = path.join(dir, "elves", "cloud", "o", "r", `${SESSION}.json`);
-    expect(JSON.parse(readFileSync(stored, "utf8")).session).toBe(SESSION);
-    expect(r.stdout).toContain(`${SESSION} (o/r, «Экспорт»): 12 events, 1 prompt, 10:00–10:10 UTC → ${stored}`);
-    writeFileSync(path.join(dir, "bad.json"), JSON.stringify({ data: [] }));
-    const bad = spawnSync("bun", [EST, "cloud-import", path.join(dir, "bad.json")], { encoding: "utf8", env });
-    expect(bad.status).toBe(1);
-    expect(bad.stderr).toContain("not a cloud session export");
-  });
-});
-
-/**
- * В облачной сессии Claude Code (claude.ai/code) GitHub доступен только через REST своего репозитория: GraphQL и
- * проекты закрыты. Факт своей сессии est считает по транскрипту в контейнере и печатает готовый комментарий —
- * агент записывает его инструментом GitHub, поля проекта ставит ближайшая локальная сессия.
- */
-describe("В облачной сессии est считает свою часть факта, остальное — ошибка с объяснением", () => {
-  const cloud = (...args: string[]) =>
-    spawnSync("bun", [EST, ...args], { encoding: "utf8", env: { ...process.env, HOME: dir, ELVES_CONFIG_DIR: path.join(dir, "elves"), CLAUDE_CODE_REMOTE: "true", CLAUDE_CODE_REMOTE_SESSION_ID: "cse_01Test" } });
-
-  it("est fact печатает комментарий «Факт недоступен (облако)» со ссылкой на сессию и маркером факта — в GitHub не ходит", () => {
-    const r = cloud("fact", "42");
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Факт недоступен (облако): ");
-    expect(r.stdout).toContain("Сессия: https://claude.ai/code/session_01Test.");
-    expect(parseMarker(r.stdout, "fact")).toMatchObject({ h: null, cov: "none", src: "cloud", session: "session_01Test" });
-  });
-
-  /**
-   * Транскрипт облачной сессии с первым промптом `prompt` в каталоге репозитория `repo` с манифестом `language`; вывод
-   * `est fact <number>`. `clone.origin` — каталог становится клоном с этим `origin`, `clone.prLink` — сессия в 10:06
-   * открыла PR этого репозитория (`owner/repo`), как облако пишет его в транскрипт.
-   */
-  function cloudFact(language: string, prompt = "#42 сделай экспорт", number = 42, clone: { origin?: string; prLink?: string } = {}) {
-    const cwd = path.join(dir, "repo");
-    mkdirSync(path.join(cwd, ".agents"), { recursive: true });
-    writeFileSync(path.join(cwd, ".agents/elves.json"), JSON.stringify({ language }));
-    if (clone.origin) gitRepo(cwd).git("remote", "add", "origin", clone.origin);
-    const proj = path.join(dir, ".claude", "projects", realpathSync(cwd).replace(/[^A-Za-z0-9]/g, "-"));
-    mkdirSync(proj, { recursive: true });
-    const usage = { input_tokens: 1, output_tokens: 1000, cache_read_input_tokens: 100000, cache_creation_input_tokens: 0 };
-    const rec = (hhmm: string, extra: object) => ({ timestamp: `2026-09-01T${hhmm}:00Z`, cwd, gitBranch: "claude/export-x", ...extra });
-    const pr = clone.prLink;
-    writeFileSync(path.join(proj, "11111111-2222-3333-4444-555555555555.jsonl"), jsonl([
-      rec("10:00", { type: "user", origin: { kind: "human" }, message: { role: "user", content: prompt } }),
-      ...(pr ? [{ type: "pr-link", timestamp: "2026-09-01T10:06:00Z", prNumber: 77, prRepository: pr, prUrl: `https://github.com/${pr}/pull/77` }] : []),
-      rec("10:06", { type: "assistant", message: { id: "msg_01", model: "claude-opus-5-5", content: [{ type: "text", text: "…" }], usage } }),
-      rec("10:12", { type: "assistant", message: { id: "msg_02", model: "claude-opus-5-5", content: [{ type: "text", text: "…" }], usage } }),
-    ]));
-    return spawnSync("bun", [EST, "fact", String(number)], { cwd, encoding: "utf8", env: { ...process.env, HOME: dir, ELVES_CONFIG_DIR: path.join(dir, "elves"), CLAUDE_CODE_REMOTE: "true", CLAUDE_CODE_REMOTE_SESSION_ID: "cse_01Test" } });
-  }
-
-  /**
-   * Первый промпт облачной сессии, которую запустила другая сессия (диспетчер): harness ставит её фон перед заданием, и
-   * est ищет `#N` во всём промпте. Ветку облако назначает само (`claude/<slug>`), так что задачу называет только промпт.
-   */
-  const brief = (background: string, task: string) => `Background (from the session that started this one):\n${background}\n\nTask:\n${task}`;
-
-  it("первый промпт облачной сессии с `#` только у её задачи, а эпик и соседние задачи без `#` — est fact в облаке связывает транскрипт с задачей", () => {
-    const prompt = brief("Диспетчер эпика 40 запустил облачные сессии задач 41, 42 и 43; задача 44 ждёт мержа 42.", "Задача #42 «Экспорт счетов» — https://github.com/o/r/issues/42: сделай её целиком.");
-    const r = cloudFact("ru", prompt);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Факт (облако): 0.2 ч активных в облачной сессии Claude Code, 1 промпт.");
-  });
-
-  it("первый промпт с несколькими `#N` — сессия по промпту не связана ни с одной задачей", () => {
-    const prompt = brief("Диспетчер эпика #40 запустил облачные сессии задач #41, #42 и #43.", "Задача #42 «Экспорт счетов»: сделай её целиком.");
-    for (const n of [40, 41, 42, 43]) {
-      const r = cloudFact("ru", prompt, n);
-      expect(r.status).toBe(0);
-      expect(r.stdout).toContain("Факт недоступен (облако): ");
-    }
-  });
-
-  /**
-   * Облако не видит PR (GraphQL закрыт): PR своего репозитория, который сессия открыла, — не признак ни её задачи, ни
-   * чужой, задачу называет первый промпт (#617). Свой репозиторий — `owner/repo` из `origin` клона, как локально.
-   */
-  it("est fact в облачной сессии, открывшей PR своего репозитория, связывает транскрипт с задачей по единственному #N первого промпта", () => {
-    const r = cloudFact("ru", "#42 сделай экспорт", 42, { origin: "https://github.com/o/r", prLink: "o/r" });
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Факт (облако): 0.2 ч активных в облачной сессии Claude Code, 1 промпт.");
-    // время после PR — ожидание CI, мерж, факт — тоже задачи: PR не обрывает отрезок промпта
-    expect(parseMarker(r.stdout, "fact").cloud).toMatchObject([{ iv: [[ts("10:00"), ts("10:12")]] }]);
-  });
-
-  it("PR другого репозитория в облачной сессии по-прежнему снимает связь отрезка по первому промпту", () => {
-    // без origin свой репозиторий не узнать — любой PR с репозиторием как чужой, как до #617
-    for (const clone of [{ origin: "git@github.com:o/r.git", prLink: "x/other" }, { prLink: "o/r" }]) {
-      cleanup();
-      ({ dir, cleanup } = tmpDir());
-      const r = cloudFact("ru", "#42 сделай экспорт", 42, clone);
-      expect(r.status).toBe(0);
-      expect(r.stdout).toContain("Факт недоступен (облако): ");
-    }
-  });
-
-  it("est fact в облаке считает часть сессии по её транскрипту в контейнере: «Факт (облако)» с цифрами и маркером части", () => {
-    const r = cloudFact("ru");
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Факт (облако): 0.2 ч активных в облачной сессии Claude Code, 1 промпт.");
-    expect(r.stdout).toContain("Сессия: https://claude.ai/code/session_01Test. Поля проекта поставит локальная сессия: est fact 42 --write.");
-    const m = parseMarker(r.stdout, "fact");
-    expect(m).toMatchObject({ h: 0.2, src: "cloud", session: "session_01Test" });
-    expect(m.cloud).toMatchObject([{ session: "session_01Test", h: 0.2, iv: [[ts("10:00"), ts("10:12")]], prompts: 1, tok: { total: 202002 } }]);
-  });
-
-  it("в проекте на en комментарий облачной сессии — «Actual (cloud): …» по-английски, маркер тот же", () => {
-    const r = cloudFact("en");
-    expect(r.stdout).toContain("Actual (cloud): 0.2 h active in a Claude Code cloud session, 1 prompt. Tokens: 0.2 M, at API rates ≈ $0.08.");
-    expect(r.stdout).toContain("Session: https://claude.ai/code/session_01Test. The local session sets the project fields: est fact 42 --write.");
-    expect(parseMarker(r.stdout, "fact")).toMatchObject({ h: 0.2, src: "cloud", session: "session_01Test" });
-  });
-
-  it("свип и сводка периода в облаке — ошибка с объяснением, а не сбой gh", () => {
-    for (const args of [["fact", "--sweep"], ["period", "--since", "7d"]]) {
-      const r = cloud(...args);
-      expect(r.status).toBe(1);
-      expect(r.stderr).toContain("Claude Code cloud session");
-    }
+  it("`est fact` не читает облачные части и трейлер `Claude-Session`", () => {
+    // прежний комментарий «Факт (облако)» задачи: в маркере — часть облачной сессии на пять часов
+    const sec = (min: number) => Date.parse(ago(min)) / 1000;
+    const part = { session: "session_01Part", h: 5, iv: [[sec(-400), sec(-100)]], prompts: 3, tok: { in: 1, out: 1000, cw: 0, cr: 100000, total: 101001 }, models: { "claude-opus-5-5": { mtok: 0.1, usd: 0.08 } } };
+    const old = `Факт (облако): 5 ч активных в облачной сессии Claude Code, 3 промпта.\n<!-- fact ${JSON.stringify({ v: 1, h: 5, manual: 0, cov: "cloud", src: "cloud", session: "session_01Part", cloud: [part] })} -->`;
+    // коммит PR задачи сделан в другой облачной сессии — прежде трейлер без её выгрузки давал покрытие partial
+    const commit = { oid: "a".repeat(40), authoredDate: ago(-35), messageBody: "fix: экспорт\n\nClaude-Session: https://claude.ai/code/session_01Trailer" };
+    const world = factWorld({ comments: [{ databaseId: 7, body: old }] }, { prs: [{ number: 77, head: "feat/42-export", body: "Closes #42", mergedAt: ago(-20), commits: [commit] }] });
+    const r = withFakeGh(world, ["fact", "42", "--repo", "o/r", "--write"]);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(" h active in Claude Code; 1 sess., 3 prompts,");
+    expect(r.stdout).toContain("coverage full");
+    expect(r.stdout).not.toMatch(/cloud|claude\.ai\/code/i);
+    // прежний комментарий перезаписан фактом одной локальной сессии
+    const body = r.calls.filter((c) => c.args.includes("PATCH")).map((c) => JSON.parse(c.stdin).body as string)[0]!;
+    expect(body).toStartWith("Факт: ");
+    expect(body).not.toMatch(/облачн|облако|claude\.ai\/code/);
+    const m = parseMarker(body, "fact");
+    expect(m).toMatchObject({ sessions: 1, prompts: 3, cov: "full", prs: [77] });
+    expect(m.h).toBeLessThan(1);
+    expect(Object.keys(m)).not.toContain("cloud");
+    expect(Object.keys(m)).not.toContain("cloud_missing");
   });
 });
 
@@ -1726,13 +1495,15 @@ if (args[1] === "graphql") {
   // все issue репозитория с комментариями — строки задач без доски
   else if (query.includes("issues(first:")) print({ data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: repo.issues.map(issueOf) } } } });
   else if (query.includes("pullRequests(first:")) {
-    const pr = (p) => ({ number: p.number, title: "PR " + p.number, state: "MERGED", headRefName: "b" + p.number, baseRefName: "main", body: "", mergedAt: p.mergedAt,
-      updatedAt: p.mergedAt, additions: 0, deletions: 0, changedFiles: 0, mergeCommit: null, closingIssuesReferences: { nodes: [] }, commits: { totalCount: 0, nodes: [] }, files: { nodes: [] } });
+    // commits — коммиты PR как их отдаёт GraphQL: { oid, authoredDate, messageBody }
+    const pr = (p) => ({ number: p.number, title: "PR " + p.number, state: "MERGED", headRefName: p.head ?? "b" + p.number, baseRefName: "main", body: p.body ?? "", mergedAt: p.mergedAt,
+      updatedAt: p.mergedAt, additions: 0, deletions: 0, changedFiles: 0, mergeCommit: null, closingIssuesReferences: { nodes: [] },
+      commits: { totalCount: (p.commits ?? []).length, nodes: (p.commits ?? []).map((commit) => ({ commit })) }, files: { nodes: [] } });
     print({ data: { repository: { defaultBranchRef: { name: "main" }, pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: (repo.prs ?? []).map(pr) } } } });
   } else if (query.includes("issue(number:$n)")) {
     const i = repo.issues.find((x) => x.number === v.n);
     print({ data: { repository: { issue: { ...issueOf(i), url: "", closedByPullRequestsReferences: { nodes: [] }, timelineItems: { nodes: [] }, closedEvents: { nodes: [] },
-      projectItems: { nodes: repo.project ? [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: fieldValues(i) }] : [] }, comments: { nodes: [] } } } } });
+      projectItems: { nodes: repo.project ? [{ id: "PI_" + i.number, project: { id: "P" + repo.project }, fieldValues: fieldValues(i) }] : [] }, comments: { nodes: i.comments ?? [] } } } } });
   } else { console.error("fake gh: " + query.slice(0, 80)); process.exit(1); }
 } else if (args[0] === "api" && args[1] === "-X") {
   const [, owner, name] = /^repos\\/([^/]+)\\/([^/]+)/.exec(args[3]);
@@ -1879,9 +1650,20 @@ describe("Неверный вызов — справка или ошибка д�
     for (const args of [["estimate", "42", "--type", "feat", "--write"], ["backtest"], ["history"]]) {
       const r = withFakeGh(factWorld(), [...args, "--repo", "o/r"]);
       expect(r.code).toBe(1);
-      expect(r.stderr).toContain(`error: unknown command «${args[0]}»; expected fact, period, cloud-import`);
+      expect(r.stderr).toContain(`error: unknown command «${args[0]}»; expected fact, period (est --help)`);
       expect(r.calls).toEqual([]);
     }
+  });
+
+  /** Облачных сессий нет (#837): импорт их событий — неизвестная команда, как опечатка; каталога `cloud/` est не пишет. */
+  it("`est` не знает команды `cloud-import`", () => {
+    const file = path.join(dir, "session_01Old.json");
+    writeFileSync(file, JSON.stringify({ v: 1, session: "session_01Old", repo: "o/r", events: [] }));
+    const r = withFakeGh(factWorld(), ["cloud-import", file]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("error: unknown command «cloud-import»; expected fact, period (est --help)");
+    expect(r.calls).toEqual([]);
+    expect(existsSync(path.join(dir, "elves", "cloud"))).toBe(false);
   });
 });
 

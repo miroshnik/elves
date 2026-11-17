@@ -1,5 +1,5 @@
 Ссылка на раздел документа флоу по названию — `AGENTS.md, «First step of a session»` в выводе установщика,
-`SKILL.md, «Cloud session»` в предупреждении `est`, `` `AGENTS.md`, "Task tracking" `` в справочнике — ведёт на
+`SKILL.md, «Docker and the sandbox»` в подсказке `task-env`, `` `AGENTS.md`, "Task tracking" `` в справочнике — ведёт на
 существующий заголовок.
 
 Якорь-ссылку `[…](AGENTS.md#…)` в README сверяет стандарт `documents#readme`, указатели ядра на скиллы и `docs/` — `canon-size`;
@@ -20,7 +20,7 @@
   кавычках: в `«…»` документы цитируют вывод скриптов и разделы сгенерированной спеки, а не свои заголовки.
 
 Файл: `SKILL.md`, `reference.md` и прочие файлы скилла без его имени — файл того же скилла, что и ссылка
-(`SKILL.md, «Cloud session»` в `est.ts` — `skills/est/SKILL.md`); с именем — `SKILL.md est`,
+(`SKILL.md, «Docker and the sandbox»` в `task-env.ts` — `skills/task-env/SKILL.md`); с именем — `SKILL.md est`,
 `reference.md of the github skill`; `README` — `README.md`, `CLAUDE.md` — `claude/CLAUDE.md`.
 
 Инвариант — в файле есть раздел, который называется так: заголовок `#…` или жирное начало пункта списка
