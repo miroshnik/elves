@@ -1,0 +1,5 @@
+{
+  "item": "Auto-fix is off",
+  "issue": 866,
+  "reason": "Auto-fix нового PR выключает агент по строке канона: механизм — шаг set_monitor в выводе task finish"
+}

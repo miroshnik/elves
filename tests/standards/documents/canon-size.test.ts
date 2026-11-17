@@ -14,12 +14,15 @@ interface Doc {
   text: string;
   limit: number;
 }
-const CORE_LIMITS: Record<string, number> = { "AGENTS.md": 3000, "claude/CLAUDE.md": 700 };
+/** Файлы ядра канона: оба грузятся в каждую сессию, поэтому бюджет у них общий. */
+const CORE_FILES = ["AGENTS.md", "claude/CLAUDE.md"];
+/** Половина прежних 3 000 + 700 слов (#846): правило с механизмом — строка, суждение — короткий список (canon-rules). */
+const CORE_LIMIT = 1850;
 const SKILL_LIMIT = 2500;
 /** Лимит Agent Skills на описание скилла: длиннее — список скиллов его обрезает. */
 const DESCRIPTION_LIMIT = 1024;
 
-const CORE: Doc[] = Object.entries(CORE_LIMITS).map(([file, limit]) => ({ file, text: read(file), limit }));
+const CORE: Doc[] = [{ file: CORE_FILES.join(" + "), text: CORE_FILES.map(read).join("\n"), limit: CORE_LIMIT }];
 const SKILLS: Doc[] = readdirSync(path.join(ROOT, "skills"))
   .map((name) => `skills/${name}/SKILL.md`)
   .filter((file) => existsSync(path.join(ROOT, file)))
@@ -60,10 +63,10 @@ const checkCore = (d: Doc) => overBudget(d, "вынести подробност
 const checkSkill = (d: Doc) => overBudget(d, "справку — целой темой в reference.md скилла или в --help, в SKILL.md — когда и что звать; удалять — неиспользуемое по est usage");
 
 /**
- * Правило канона на случай упора в бюджет: подробность уходит в md своей темы, в каноне — ссылка; удаляется
- * неиспользуемое — по отчёту `est usage` (#845), а бюджет — потолок.
+ * Правило репозитория Elves на случай упора в бюджет: удаляется неиспользуемое — по отчёту `est usage` (#845), а бюджет —
+ * потолок. Оно в `.claude/CLAUDE.md` клона, а не в каноне: канон грузится в каждый проект, а правят флоу только в Elves.
  */
-export const BUDGET_RULE = ["**A file at its budget**", "`docs/<topic>.md`", "**Unused is deleted:**", "`est usage`"];
+export const BUDGET_RULE = ["`documents#canon-size`", "**Unused is deleted.**", "`est usage`"];
 export const missingBudgetRule = (md: string): string[] => BUDGET_RULE.filter((part) => !md.includes(part));
 const checkDescription = (d: Doc) => {
   const desc = descriptionOf(d.text);
@@ -90,14 +93,16 @@ export function pointers(md: string): Pointer[] {
 const pointerPath = (p: Pointer) => (p.kind === "skill" ? `skills/${p.name}/SKILL.md` : `docs/${p.name}`);
 
 const filler = (words: number) => "слово ".repeat(words);
-const canon = (words: number): Doc => ({ file: "AGENTS.md", text: filler(words), limit: CORE_LIMITS["AGENTS.md"]! });
+const canon = (words: number): Doc => ({ file: "AGENTS.md + claude/CLAUDE.md", text: filler(words), limit: CORE_LIMIT });
 const skill = (words: number): Doc => ({ file: "skills/x/SKILL.md", text: filler(words), limit: SKILL_LIMIT });
 const described = (description: string): Doc => ({ file: "skills/x/SKILL.md", text: `---\nname: x\ndescription: ${description}\n---\n`, limit: SKILL_LIMIT });
 
 describe("Ядро канона и SKILL.md умещаются в бюджет слов, описание скилла — в лимит Agent Skills", () => {
-  it("канон длиннее 3 000 слов не проходит стандарт", () => {
-    expect(() => checkCore(canon(3001))).toThrow("3001 слов при бюджете 3000");
-    expect(() => checkCore(canon(3000))).not.toThrow();
+  it("Канон и файл Claude Code вместе не длиннее половины прежнего бюджета", () => {
+    expect(CORE_LIMIT).toBe((3000 + 700) / 2);
+    expect(() => checkCore(canon(1851))).toThrow("1851 слов при бюджете 1850");
+    expect(() => checkCore(canon(1850))).not.toThrow();
+    expect(wordsOf(CORE[0]!.text)).toBeLessThanOrEqual(CORE_LIMIT);
   });
 
   it("SKILL.md длиннее 2 500 слов не проходит стандарт", () => {
@@ -111,13 +116,13 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
   });
 
   invariant(it, {
-    registry: "файлы ядра канона с бюджетом в словах",
+    registry: "ядро канона с бюджетом в словах",
     items: CORE,
     key: (d) => d.file,
-    name: (d) => `${d.file} не длиннее ${d.limit} слов`,
+    name: (d) => `${d.file} вместе не длиннее ${d.limit} слов`,
     check: checkCore,
-    violator: { name: "канон длиннее 3 000 слов", item: canon(3001) },
-    includes: ["AGENTS.md", "claude/CLAUDE.md"],
+    violator: { name: "канон длиннее 1 850 слов", item: canon(1851) },
+    includes: ["AGENTS.md + claude/CLAUDE.md"],
   });
 
   invariant(it, {
@@ -151,8 +156,8 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
     expect(descriptionOf("---\nname: x\ndescription: When — a run\n  is slow\n---\n")).toBe("When — a run is slow");
   });
 
-  it("канон, упёршийся в бюджет, выносит подробность в md её темы со ссылкой, а удаляет неиспользуемое по `est usage` — правило есть в AGENTS.md", () => {
-    expect(missingBudgetRule(read("AGENTS.md"))).toEqual([]);
+  it("бюджет — потолок, неиспользуемое удаляется по `est usage` — правило есть в .claude/CLAUDE.md клона Elves", () => {
+    expect(missingBudgetRule(read(".claude/CLAUDE.md"))).toEqual([]);
     expect(missingBudgetRule("Budgets: this file ≤ 3,000 words.")).toEqual(BUDGET_RULE);
   });
 
@@ -180,13 +185,13 @@ describe("Ядро канона и SKILL.md умещаются в бюджет �
   invariant(it, {
     registry: "скиллы и справочники docs/, на которые ядро отправляет читателя",
     rule: "существуют",
-    items: pointers(read("AGENTS.md")),
+    items: pointers(CORE_FILES.map(read).join("\n")),
     key: (p) => pointerPath(p),
     name: (p) => `${pointerPath(p)} есть в репозитории`,
     check: (p) => {
       if (!existsSync(path.join(ROOT, pointerPath(p)))) throw new Error(`ядро ссылается на ${pointerPath(p)}, а его нет — вынесенное потерялось (tests/standards/documents/canon-size)`);
     },
     violator: { name: "ссылка ядра на удалённый скилл", item: { kind: "skill" as const, name: "billing" } },
-    includes: ["skills/est/SKILL.md", "skills/github/SKILL.md", "skills/spec/SKILL.md", "docs/ci-concurrency.md", "docs/parallel-checkouts.md"],
+    includes: ["skills/github/SKILL.md", "skills/spec/SKILL.md"],
   });
 });

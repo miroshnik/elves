@@ -5132,17 +5132,18 @@ const flowFiles = () =>
  * Другую задачу сессия отдавала карточкой новой сессии: её запускал владелец кликом, и сессия о ней больше не знала
  * (#546). Канон, скиллы и их скрипты — источник всего, что агент читает и что печатают команды, — её больше не
  * предлагают: только вопрос владельцу, ставить ли задачу в очередь (на новый эпик — запускать ли диспетчера), а «да» —
- * исполнитель, фоновый субагент этой же сессии.
+ * исполнитель, фоновый субагент этой же сессии. Вопрос печатает скрипт — отказ `task start` и строка `task new` в сессии
+ * с задачей, — канон называет его механизм (#846).
  */
 describe("Другая задача — вопрос о постановке в очередь, а не карточка новой сессии", () => {
   it("канон, скиллы и вывод скриптов не предлагают чип — только вопрос о постановке в очередь", () => {
     const files = flowFiles();
     expect(files.length).toBeGreaterThan(40);
     expect(files.filter((f) => /\bchips?\b|чип/i.test(flowText(f)))).toEqual([]);
-    const canon = flowText("AGENTS.md");
-    expect(canon).toContain("Another task — Backlog and the question «queue #263?»");
-    expect(canon).toContain("A new epic — the question «run the dispatcher on epic #M?»");
-    expect(canon).toContain("work outside the task — a Backlog task and the question «queue it?»");
+    expect(flowText("AGENTS.md")).toContain("`github task start` pins the task to the session and refuses another one with the question «queue #N?»");
+    const script = flowText("skills/github/scripts/github.ts");
+    expect(script).toContain("the question to the owner «queue #${number}?»");
+    expect(script).toContain("the question to the owner «run the dispatcher on epic #${number}?»");
   });
 });
 
@@ -5150,11 +5151,11 @@ describe("Другая задача — вопрос о постановке в 
  * Предел исполнителей держит машину (#611): они делят её процессор, память, порты и очередь `slot`. Сколько их —
  * мощность машины (#779: `machine.json`, иначе по ядрам и памяти; `task queue` называет число), а не зашитое «три»;
  * облачных исполнителей с их пределом нет (#837). Число из запроса владельца заменяет предел. Фраза одна во всех местах,
- * где диспетчер её читает: в каноне, в скилле `github` и его справочнике.
+ * где диспетчер её читает: в скилле `github` и его справочнике; канон называет `github task queue` (#846).
  */
 describe("Предел исполнителей диспетчера — мощность машины", () => {
   const LIMIT = "at most the machine's executors at once, the owner's number replaces it";
-  const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md"];
+  const PLACES = ["skills/github/SKILL.md", "skills/github/reference.md"];
 
   it("канон и справочник github называют предел исполнителей диспетчера — мощность машины", () => {
     expect(PLACES.filter((f) => !flowText(f).includes(LIMIT))).toEqual([]);
@@ -5218,11 +5219,12 @@ describe("Диспетчер · лимит перед запуском испо�
  * после которого строка не дошла до архивации. Завершённые сессии копились в списке, пока владелец не закрывал их руками.
  * Владелец решил: диспетчер архивирует их сам, если проект сессии в режиме auto. Сессию с живой фоновой работой — нет
  * (архивация ей отказала бы), с вопросом владельцу без ответа — тоже нет: архивная уходит из списка, и вопрос в её
- * последнем ответе владелец не прочтёт. Правило — одной фразой во всех местах, где его читает диспетчер: в каноне, в
- * скилле `github` и его справочнике; шаг называет `Next:` очереди — её диспетчер читает после каждого ответа исполнителя.
+ * последнем ответе владелец не прочтёт. Правило — одной фразой во всех местах, где его читает диспетчер: в скилле
+ * `github` и его справочнике; шаг называет `Next:` очереди — её диспетчер читает после каждого ответа исполнителя, а канон
+ * называет `github task queue` (#846).
  */
 describe("Диспетчер архивирует свои завершённые сессии-исполнители в режиме auto", () => {
-  const PLACES = ["AGENTS.md", "skills/github/SKILL.md", "skills/github/reference.md"];
+  const PLACES = ["skills/github/SKILL.md", "skills/github/reference.md"];
   const ARCHIVE = "an executor session whose task closed — the dispatcher archives it in an auto project";
   const BUSY = "not one still working in the background or awaiting the owner's answer";
   const OWNER = "outside auto the owner closes it";
@@ -5277,9 +5279,8 @@ describe("Диспетчер архивирует свои завершённы�
 
   it("claude/CLAUDE.md: сессию-исполнителя диспетчер архивирует archive_session по её id, отказ не повторяет", () => {
     expect(flowText("claude/CLAUDE.md")).toContain(
-      "in auto mode `archive_session` with `self` archives it, ending the conversation: the last action, after the \"can be closed\" line. " +
-        "Before it — `TaskStop` for each own background task still running: a live one gives \"still has live work\". " +
-        "A dispatcher archives an executor session with its id. Refused — don't retry: the owner archives from the sidebar.",
+      "in auto mode `archive_session` with `self` is the last action after the \"can be closed\" line, once `TaskStop` stopped my own " +
+        "background tasks, and a dispatcher archives an executor session with its id; a refused archive is left to the owner.",
     );
   });
 });

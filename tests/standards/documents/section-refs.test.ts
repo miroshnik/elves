@@ -155,11 +155,11 @@ describe("Ссылка на раздел документа флоу по наз
     violator: { name: "ссылка на переименованный раздел AGENTS.md", item: { file: "bin/elves.ts", line: 1, target: "AGENTS.md", name: "First step of the session" } },
     includes: [
       "bin/elves.ts → AGENTS.md, «First step of a session»",
-      "claude/CLAUDE.md → AGENTS.md, «First step of a session»",
       "skills/task-env/scripts/task-env.ts → skills/task-env/SKILL.md, «Docker and the sandbox»",
       "skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics»",
-      "skills/github/reference.md → AGENTS.md, «Actual — the `est` skill»",
-      "docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks»",
+      "skills/github/reference.md → AGENTS.md, «Task tracking»",
+      "docs/ci-concurrency.md → AGENTS.md, «Git, PRs and merging»",
+      "skills/ci-wait/reference.md → claude/CLAUDE.md, «Auto-fix is off»",
       "skills/spec/SKILL.md → skills/spec/SKILL.md, «Checks»",
     ],
   });
@@ -232,8 +232,8 @@ describe("Ссылка на раздел документа флоу по наз
 
     it("раздел — и жирное начало пункта списка; ссылка на скилл по имени ведёт в его SKILL.md", () => {
       expect(headings("# Canon\n\n- **A decision is the unit of the spec.** One anatomy\n- plain item\n")).toEqual(["Canon", "A decision is the unit of the spec."]);
-      expect(refsIn({ file: "docs/pr-checks.md", text: 'Rebase — the `github` skill,\nsection "Git, PRs and merging — mechanics".' })).toEqual([
-        { file: "docs/pr-checks.md", line: 1, target: "skills/github/SKILL.md", name: "Git, PRs and merging — mechanics" },
+      expect(refsIn({ file: "skills/ci-wait/reference.md", text: 'Rebase — the `github` skill,\nsection "Git, PRs and merging — mechanics".' })).toEqual([
+        { file: "skills/ci-wait/reference.md", line: 1, target: "skills/github/SKILL.md", name: "Git, PRs and merging — mechanics" },
       ]);
     });
   });

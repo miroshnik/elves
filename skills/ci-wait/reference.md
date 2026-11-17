@@ -1,19 +1,13 @@
-# Waiting for PR checks and merging — for "Git, PRs and merging"
+# ci-wait — the waiting and merging rules in full, Auto-fix, polling mechanics
 
-The principle is in `AGENTS.md` ("Git, PRs and merging": merge only with all
-checks green); the `ci-wait` skill does the waiting with a script. Here are the
-waiting and merging rules in full, the app's Auto-fix, then the polling
-mechanics. Rebase, the check before a push and cleaning up the merged branch —
-the `github` skill, section "Git, PRs and merging — mechanics".
+`github task finish` follows these rules and calls the script
+(`skills/github/reference.md`, "task finish"); here they are in full, for
+manual work and for changing the script. Rebase, the check before a push and
+cleaning up the merged branch — the `github` skill, section "Git, PRs and
+merging — mechanics".
 
 ## Rules
 
-- **The tail of a task — `github task finish <N>`:** the push, the PR,
-  labels, the CI wait, `pr premerge`, then the merge command; after the merge
-  — the deploy wait on the merge SHA, the epic refresh and `task close`. Each
-  call does what is ready within its `--timeout` and names the next step, a
-  repeat goes on (`skills/github/reference.md`, "task finish"); the rules
-  below are what it follows, and what manual work follows.
 - **The full SHA:** I don't dig up the SHA of my merge — `wait-ci.sh merged
   <N>` takes it from the PR itself (`git rev-parse origin/main` returns
   someone else's, later commit during parallel merges); of my commit — `git
@@ -48,22 +42,11 @@ the `github` skill, section "Git, PRs and merging — mechanics".
   production smoke test is a check in the project's CI, not a manual agent
   step. Failed — logs and a fix at once: it blocks the report and closing the
   task.
-- **A dispatcher's batch** (`"batch": true` in `.agents/elves.json`, epic
-  #645): a task's PR goes into the batch branch and runs no CI
-  (`skills/spec/ci.md`, "Batches") — its gate is the checks before a commit
-  (`docs/testing.md`) and `github pr premerge` (the fast checks on the
-  merge, if the batch moved on): no `ci-wait`, merged at once, no deploy
-  wait, no epic refresh; the batch reaches `main` by one release PR
-  (`github batch release`) — the full set, the preview and the deploy, by
-  the rules above, once for the batch; then the epic refresh, one per epic
-  of its tasks, and `github task close` of each task. While the
-  release PR is open, a PR into the batch isn't merged: `github pr premerge`
-  holds it, then moves it into the next batch or `main`. A red release isn't
-  reverted: `github batch release` names the guilty task (the labels of the
-  failed tests' decisions, otherwise a bisect by the task boundaries on the
-  machine), its executor fixes it by a PR into the batch, then the full set
-  runs again on the same release PR (`skills/github/reference.md`, "batch
-  release").
+- **A dispatcher's batch** — a task's PR into the batch branch runs no CI,
+  no `ci-wait`: its gate is the checks before a commit and `github pr
+  premerge`; the batch's release PR waits by the rules above, once for the
+  batch (`skills/spec/ci.md`, "Batches"; `skills/github/reference.md`,
+  "batch release").
 - **A wait in a subagent** (an executor waiting for CI): a subagent's cache
   lives 5 minutes unless the owner chose the hour (`docs/prompt-cache.md`),
   and the turn after a longer wait writes its whole context again. With
@@ -82,6 +65,7 @@ the `github` skill, section "Git, PRs and merging — mechanics".
 
 ## Auto-fix — off
 
+`claude/CLAUDE.md`, "Auto-fix is off" — the rule; its mechanism — #866.
 Auto-fix of the Claude Code app's CI monitor wakes the session with a
 `<ci-monitor-event>` on failed checks, a conflict and review comments, and on
 a conflict tells it to merge the base branch in, never rebase or force-push.

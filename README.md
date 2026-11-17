@@ -22,7 +22,7 @@ For Claude Code · another agent — [a short guide](docs/other-agents.md)
 
 Elves is how Claude Code carries a task from issue to production, written down once for all projects:
 
-- **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production.
+- **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production; each held by a hook, a script or a setting, or in a short list of judgment.
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
 - **The installer** — puts the canon, the skills and the hook onto the machine; a project keeps only the package version in `devDependencies` — CI and colleagues get it from npm — and gets the flow through releases.
 
@@ -52,13 +52,13 @@ An agent writes code fast; everything around the code is what becomes slow and e
 
 | Without the flow | With Elves | Canon |
 |---|---|---|
-| Knowledge lives in the chat and the agent's memory; the next session starts from scratch | Agreed — in the issue: the goal, `## Questions` with answers, `## Scenarios` — future test names; every fact has one home; before a pause — a State comment | [Task tracking](AGENTS.md#task-tracking) · [Project knowledge and handoff](AGENTS.md#project-knowledge-and-handoff) |
-| Rules-as-text go stale silently; a green test may catch nothing | Every decision is held by a deterministic check; a test failed — its root cause is fixed, not a retry added | [Specification — decisions](AGENTS.md#specification--decisions) · [Tests and code](AGENTS.md#tests-and-code) |
-| Work isn't linked to a task | Session = task = branch = PR (`#42 …`, `feat/42-slug`, `Closes #42`); a second task — to Backlog and, on a "yes", to a background executor | [Session and branch](AGENTS.md#session-and-branch--one-task) |
-| The flow's cost is a guess | A measured actual of every task: active hours, tokens and $ from the agent's transcripts | [Actual](AGENTS.md#actual--the-est-skill) |
+| Knowledge lives in the chat and the agent's memory; the next session starts from scratch | Agreed — in the issue: the goal, `## Questions` with answers, `## Scenarios` — future test names; every fact has one home; before a pause — a State comment | [Task tracking](AGENTS.md#task-tracking) · [Judgment](AGENTS.md#judgment) |
+| Rules-as-text go stale silently; a green test may catch nothing | Every decision is held by a deterministic check, and every rule of the canon by a hook, a script or a setting, or it is judgment; a test failed — its root cause is fixed, not a retry added | [Specification — decisions](AGENTS.md#specification--decisions) · [Judgment](AGENTS.md#judgment) |
+| Work isn't linked to a task | Session = task = branch = PR (`#42 …`, `feat/42-slug`, `Closes #42`); a second task — to Backlog and, on a "yes", to a background executor | [Task tracking](AGENTS.md#task-tracking) |
+| The flow's cost is a guess | A measured actual of every task: active hours, tokens and $ from the agent's transcripts | [Task tracking](AGENTS.md#task-tracking) |
 | The agent merges on its own — or asks about everything | Reversible — on its own, irreversible — on an explicit "yes"; `auto` runs a task by itself, up to merging its own PR on green checks | [What I do without asking](AGENTS.md#what-i-do-without-asking-and-what-needs-a-yes) |
 | PRs wait in a merge queue | Each PR merges on its own green checks; `main` moved after its CI — fast checks on the merge first; after a deploy — its statuses | [Git, PRs and merging](AGENTS.md#git-prs-and-merging) |
-| Each project has its own process, and the agent improvises its routine | One canon for all projects, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session--an-up-to-date-flow) |
+| Each project has its own process, and the agent improvises its routine | One canon for all projects, a script for everything deterministic; a project pins the version, a session first checks the flow is up to date | [This file and skills](AGENTS.md#this-file-and-skills) · [First step of a session](AGENTS.md#first-step-of-a-session) |
 
 ## Elves and OpenSpec
 
@@ -133,15 +133,15 @@ A task's own Docker Compose stack `<project>-<N>` with addresses `http://<servic
 
 ### References
 
-Mechanics the canon refers to; the agent reads them as needed.
+A reference for the agent is a Claude Code rule with `paths:`: `install -g` links it into `~/.claude/rules`, and it loads by itself when the agent reads or edits a matching file.
+
+- [`docs/testing.md`](docs/testing.md) — with tests and runner configs: what runs before a commit and what in CI, a run's result by the runner's summary, e2e without flakes, UI state by the DOM.
+- [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — with workflows: CI for parallel tasks, parallel branches, a non-cancellable `main`, a deploy queue.
+- [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — with compose and env files: parallel worktrees, shared ports, databases and `.git/config`.
+
+For people:
 
 - [`docs/installation.md`](docs/installation.md) — what goes into a project and onto the machine, the session hook and the sandbox, the mode and the language, releases, the package in a project, working from a clone.
-- [`docs/pr-checks.md`](docs/pr-checks.md) — waiting for PR, commit and deploy checks; the app's Auto-fix is off: a conflict is a rebase.
-- [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — CI for parallel tasks: parallel branches, a non-cancellable `main`, a deploy queue.
-- [`docs/testing.md`](docs/testing.md) — what runs before a commit and what in CI, a run's result by the runner's summary, e2e without flakes, UI state by the DOM.
-- [`docs/judgment.md`](docs/judgment.md) — judgment and edits: a mistake disguised as an outcome, a label is a claim, editing exactly what was named.
-- [`docs/production.md`](docs/production.md) — production: migrations, the right database, "didn't help" goes to production facts.
-- [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — parallel worktrees: shared files, ports, databases and `.git/config`.
 - [`docs/prompt-cache.md`](docs/prompt-cache.md) — Claude Code's prompt cache TTL: 5 minutes or the hour, and when the hour pays off.
 - [`docs/other-agents.md`](docs/other-agents.md) — another agent instead of Claude Code: what to connect by hand and what doesn't work.
 
@@ -150,7 +150,7 @@ Mechanics the canon refers to; the agent reads them as needed.
 ```
 AGENTS.md          the canon of rules
 claude/CLAUDE.md   only what Claude Code has
-docs/              references the canon links to
+docs/              references: Claude Code's rules with paths:, documents for people
 skills/<name>/     SKILL.md + scripts/ — TypeScript under Bun, no dependencies
 tests/             Elves' own spec: capabilities/ and standards/
 bin/elves.ts       the installer — TypeScript under Bun too: bunx runs it from node_modules by its shebang

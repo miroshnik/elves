@@ -133,9 +133,9 @@ What the agent gets wrong without the details (all of them — `reference.md`,
 ### Dispatcher
 
 "Do all tasks of epic #M", "fix all High bugs", a "yes" to «run the
-dispatcher on epic #M?» (`AGENTS.md`, "Session and branch — one task"): any
-session, its own task stays pinned; one started for it — in the project
-folder, not a worktree: executors start from `main`. `task queue` prints ready
+dispatcher on epic #M?» (`AGENTS.md`, "Task tracking"): any session, its own
+task stays pinned; executors branch from a fresh base by their prompt, so the
+dispatcher's checkout doesn't matter. `task queue` prints ready
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
 `isolation: "worktree"` and `run_in_background: true`, the prompt — as
 is; at most the machine's executors at once, the owner's number replaces
@@ -164,7 +164,7 @@ line (a session with its own task — after it) and, in auto mode, archiving. Th
 
 Principles — `AGENTS.md`, "Git, PRs and merging"; the full rules —
 `reference.md`, "Git, PRs and merging — full rules". Waiting for checks, the
-full SHA and a merge that deploys — `docs/pr-checks.md`.
+full SHA and a merge that deploys — `reference.md` of the `ci-wait` skill.
 
 - **Merge — rebase only:** `gh pr merge <N> --rebase`; each commit of the
   branch lands in `main` — a conventional commit with `Refs #N`.
