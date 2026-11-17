@@ -60,9 +60,6 @@ every project, whatever its `CLAUDE.md`.
   uncommitted work in its worktree — `git status` there before resuming;
   after a base change — dependencies from the lockfile, else typecheck runs
   on old packages.
-- In a cloud session (claude.ai/code) the cloud assigns the branch — rename
-  it or push elsewhere only with the user's permission
-  (`docs/cloud-sessions.md`).
 - Another task isn't a session card (`spawn_task`, `start_session`): the
   question «queue #M?», on "yes" its executor — `Agent` with `isolation:
   "worktree"`, `run_in_background: true` and the prompt `github` printed.

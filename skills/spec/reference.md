@@ -807,8 +807,7 @@ the project's CI" below.
   did in #32), and documentation built by the skill from a fresh Elves
   wouldn't match CI on another version. `@miroshnik/elves` in the project's
   `devDependencies` pins it: `bun install` brings the same package to the
-  agent, CI, a colleague and a cloud session (npm works there, `github:` is
-  403); an update raises the version — a few lines in the current task's
+  agent, CI and a colleague; an update raises the version — a few lines in the current task's
   branch. The same package is the flow of the project — there is no separate
   path for CI.
 - Node doesn't strip types in `node_modules`
