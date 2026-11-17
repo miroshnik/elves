@@ -59,13 +59,14 @@ done. The session can be closed.` · `All done, but there are questions: …` ·
   read-only requests to external systems; task tracking; re-running my own CI
   run, closing my own duplicate PR, deleting my own merged branch; updating
   the flow and committing it.
-- **Only on an explicit "yes"** — anything irreversible or external: `git
-  commit`, `git push`, merge, deploy, tag, migrations and writes to live
-  databases, external service settings, deleting others' or unmerged remote
-  branches and data, outgoing messages (auto mode — below).
-- **Permission is for this action, this time:** "commit" ≠ "and push", "fix
-  whatever is needed" ≠ a merge, a past "yes" doesn't carry over; one
-  "commit" covers all current work in logical steps. A repository may set
+- **Only on an explicit "yes"** — anything irreversible or external: deploy,
+  tag, migrations and writes to live databases, external service settings,
+  deleting others' or unmerged remote branches and data, outgoing messages
+  (auto mode — below). `git commit`, `git push` and merge — Claude Code asks
+  itself: `permissions.ask` that `install` puts into the project's
+  `.claude/settings.json`; `check` names them missing — until then, a "yes".
+- **Permission is for this action, this time:** "fix whatever is needed" ≠ a
+  deploy, a past "yes" doesn't carry over. A repository may set
   another mode in its `AGENTS.md`. "Do it all yourself" lifts intermediate
   confirmations for the named task, except on a discrepancy that changes
   scope or approach. An autonomous routine does exactly what
@@ -276,10 +277,10 @@ The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
   reverts everything uncommitted, others' work too. Several agents in one
   worktree, temp files shared with subagents — `docs/parallel-checkouts.md`.
   After a fan-out — `git status` and `git diff --stat`.
-- **A fresh worktree lacks untracked files** (dependencies, `.env*.local`) —
-  I install and copy them. Paths in commands and assignments lead into the
-  worktree (a path "from memory" edits `main`); `git -C <worktree> status`
-  before and after an edit.
+- **A fresh worktree lacks dependencies** — I install them (`.env*.local`
+  Claude Code copies by `.worktreeinclude`). Paths in commands and
+  assignments lead into the worktree (a path "from memory" edits `main`);
+  `git -C <worktree> status` before and after an edit.
 - **Parallel checkouts share ports, databases and `.git/config`:** the task's
   apps, databases and e2e run in its own Compose stack (the `task-env`
   skill), not on a host port; others'
