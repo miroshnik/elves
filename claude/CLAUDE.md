@@ -1,7 +1,8 @@
 # Claude Code
 
 What only Claude Code has; `elves install -g` links it with `AGENTS.md`
-into `~/.claude/rules`.
+into `~/.claude/rules`, and its plugin (skills `elves:<name>`, hooks) as
+`~/.claude/skills/elves`.
 
 - **The app's tools load at once.** `github task start` prints one
   `ToolSearch` line for the tools the flow calls: `set_session_title` names
@@ -29,10 +30,9 @@ into `~/.claude/rules`.
   scripts on `gh` then print the whole command — I run it, or a script that
   calls Docker, at once as a separate call with `dangerouslyDisableSandbox`.
 - **Another task is a background executor.** On "yes" to «queue #N?» it is
-  `Agent` with `isolation: "worktree"`, `run_in_background: true` and the
-  prompt `github task queue` printed, not a session card (`spawn_task`,
-  `start_session`); the executor isn't stopped, and my last line comes after
-  its answer.
+  the `elves:executor` agent with the prompt `github task queue` printed, not
+  a session card (`spawn_task`, `start_session`); the executor isn't stopped,
+  and my last line comes after its answer.
 
 ## Judgment
 

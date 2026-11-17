@@ -47,8 +47,8 @@ Running: `bun --no-env-file <skill dir>/scripts/spec-doc.ts …` — TypeScript
 without a build and without dependencies. Syntax, flags and exit codes — each
 script's `--help`; what a script does in detail and why — `reference.md` next
 to this file. The skill directory is the one holding this file
-(`${CLAUDE_SKILL_DIR}` in Claude Code, `~/.claude/skills/spec`,
-`~/.agents/skills/spec` or an Elves clone). The repository root is `git
+(`${CLAUDE_SKILL_DIR}` in Claude Code, `~/.agents/skills/spec`, the plugin's
+`~/.claude/skills/elves/skills/spec` or an Elves clone). The repository root is `git
 toplevel` (or `--root DIR`); the tree is `tests/` at the root. In a repository wired up per the "Wiring into a
 repository" section — its `spec:doc` and `spec:diff`, not the scripts from the
 skill directory: the project's package version is pinned for CI.

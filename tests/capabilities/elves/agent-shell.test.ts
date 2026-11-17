@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
@@ -160,10 +160,11 @@ describe("Окружение Bash агента не настроено — об 
     expect(r.stdout).toContain(`  ${NOT_SET_UP} — can't write CLAUDE_ENV_FILE`);
   });
 
-  it("машина без хука SessionStart — check -g называет, что без него нет и окружения Bash агента", () => {
-    writeFileSync(path.join(sb.home, ".claude/settings.json"), "{}\n");
+  /** Хук `SessionStart` — плагина Elves (#860): машина без его ссылки — без хука, а значит, и без окружения. */
+  it("машина без плагина Elves — check -g называет, что без него нет хука SessionStart и окружения Bash агента", () => {
+    rmSync(path.join(sb.home, ".claude/skills/elves"));
     const r = elves(sb, ["check", "-g"]);
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain("  ~ ~/.claude/settings.json — the SessionStart hook: the flow check and the agent's Bash environment\n");
+    expect(r.stdout).toContain("  + ~/.claude/skills/elves — the Elves plugin: the skills elves:<name>, the SessionStart hook (the flow check and the agent's Bash environment)");
   });
 });

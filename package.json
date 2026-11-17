@@ -43,7 +43,10 @@
     "AGENTS.md",
     "claude",
     "docs/*.md",
-    "skills"
+    "skills",
+    ".claude-plugin",
+    "hooks",
+    "agents"
   ],
   "publishConfig": {
     "access": "public",

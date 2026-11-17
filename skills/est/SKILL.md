@@ -16,7 +16,7 @@ mechanics — `reference.md` next to this file; syntax and flags — `est --help
 and `est <command> --help`.
 
 **Unit:** «Actual, h» (in the project language —
-`locales/<language>.json` of the `github` skill) = the agent's active
+`locales/<language>.json` of the `elves:github` skill) = the agent's active
 hours on the task: all of its time except waits for the user's input (a
 prompt, a command, a permission approved in the dialog, a dispatcher's
 answer to its executor), however long; a wait for CI or checks counts whole,
@@ -37,8 +37,8 @@ hand. The fields are where the repository has a board; without one the actual
 is the comment alone.
 
 Run: `bun --no-env-file <skill folder>/scripts/est.ts <subcommand> …` (Bun, no
-dependencies) — the skill folder is the one holding this file (`~/.claude/skills/est`,
-`~/.agents/skills/est` or an Elves clone; in Claude Code —
+dependencies) — the skill folder is the one holding this file (`~/.agents/skills/est`,
+the plugin's `~/.claude/skills/elves/skills/est` or an Elves clone; in Claude Code —
 `${CLAUDE_SKILL_DIR}`); below abbreviated to `est`. `--repo
 owner/repo` can be omitted when you work in the repository's folder (the
 registry — reference.md, "Repository registry"). Without `--write` everything is
@@ -64,7 +64,7 @@ them itself and says how many subtasks have no actual).
 ## Actual at closing
 
 After the PR is merged and deployed (or the issue is closed without a PR) —
-`github task close <N>` (the `github` skill: actual, status, epic, milestone,
+`github task close <N>` (the `elves:github` skill: actual, status, epic, milestone,
 branch in one call); the actual in it is computed by:
 
 ```bash

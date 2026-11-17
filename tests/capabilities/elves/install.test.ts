@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, setDe
 import { BYPASSES } from "../../../skills/github/scripts/bypasses.ts";
 import { sources } from "../../../skills/spec/scripts/harness.ts";
 import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
-import { bareClone, BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, REPO, sandbox, snapshot, type ElvesPackage, type Sandbox } from "../../lib/elves.ts";
+import { bareClone, BIN, elves, elvesPackage, bunxPackage, bunxServesPackages, loadedAtStart, npmPackage, pluginHooks, previousHooks, REPO, runPluginHook, sandbox, snapshot, type ElvesPackage, type PluginHook, type Sandbox } from "../../lib/elves.ts";
 import { npmRegistry, type Registry } from "../../lib/registry.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 import { SPAWN_TIMEOUT, unprivilegedOwns } from "../../lib/spawn.ts";
@@ -237,7 +237,7 @@ describe("Отказ в записи посреди установки — по�
     lock();
     const r = install(["-g"]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("~/.claude/skills/ci-wait");
+    expect(r.stderr).toContain("~/.claude/skills/elves");
     expect(r.stderr).toContain("bunx @miroshnik/elves install -g");
     expect(r.stderr).not.toMatch(/\n\s+at /);
   });
@@ -249,17 +249,18 @@ describe("Отказ в записи посреди установки — по�
     const r = install(["-g"]);
     expect(r.code).toBe(0);
     expect(r.stderr).not.toContain("isn't an Elves skill");
-    for (const s of SKILLS) expect(readlinkSync(path.join(skillsDir(), s))).toBe(`../../.agents/skills/${s}`);
+    expect(readlinkSync(path.join(skillsDir(), "elves"))).toBe("../../.agents/elves");
+    for (const s of SKILLS) expect(readlinkSync(path.join(home, ".agents/skills", s))).toBe(`../elves/skills/${s}`);
     expect(JSON.parse(read(path.join(home, ".agents/elves.json"))).skills).toEqual(SKILLS);
   });
 
   it("update -g: нет права писать в ~/.claude/skills — код 2, та же строка с командой update -g", () => {
     install(["-g"]);
-    rmSync(path.join(skillsDir(), "spec"));
+    rmSync(path.join(skillsDir(), "elves"));
     chmodSync(skillsDir(), 0o555);
     const r = update();
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("~/.claude/skills/spec");
+    expect(r.stderr).toContain("~/.claude/skills/elves");
     expect(r.stderr).toContain("bunx @miroshnik/elves update -g");
   });
 
@@ -693,9 +694,11 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(isLink(path.join(home, ".agents/elves"))).toBe(false);
     expect(readlinkSync(path.join(home, ".claude/rules/elves.md"))).toBe("../../.agents/elves/AGENTS.md");
     expect(readlinkSync(path.join(home, ".claude/rules/elves-claude.md"))).toBe("../../.agents/elves/claude/CLAUDE.md");
-    expect(isLink(path.join(home, ".agents/skills/spec"))).toBe(false);
-    expect(readlinkSync(path.join(home, ".claude/skills/spec"))).toBe("../../.agents/skills/spec");
-    expect(read(path.join(home, ".claude/settings.json"))).toContain("check --hook");
+    // скиллы — в копии, ~/.agents/skills — ссылки на них; Claude Code берёт их из плагина
+    expect(read(path.join(home, ".agents/elves/skills/spec/SKILL.md"))).toBe(read(path.join(REPO, "skills/spec/SKILL.md")));
+    expect(readlinkSync(path.join(home, ".agents/skills/spec"))).toBe("../elves/skills/spec");
+    expect(readlinkSync(path.join(home, ".claude/skills/elves"))).toBe("../../.agents/elves");
+    expect(readdirSync(path.join(home, ".claude/skills"))).toEqual(["elves"]);
     // агентов, которых на машине нет, установка не заводит
     for (const p of [".codex", ".gemini", ".copilot", ".config/opencode", ".config/amp"]) expect(gone(path.join(home, p))).toBe(true);
     expect(existsSync(path.join(proj, ".agents"))).toBe(false);
@@ -759,7 +762,8 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(realpathSync(path.join(home, ".claude/rules/elves.md"))).toBe(realpathSync(path.join(clone.dir, "AGENTS.md")));
     expect(realpathSync(path.join(home, ".claude/rules/elves-claude.md"))).toBe(realpathSync(path.join(clone.dir, "claude/CLAUDE.md")));
     expect(realpathSync(path.join(home, ".agents/skills/spec"))).toBe(realpathSync(path.join(clone.dir, "skills/spec")));
-    expect(realpathSync(path.join(home, ".claude/skills/spec"))).toBe(realpathSync(path.join(clone.dir, "skills/spec")));
+    expect(realpathSync(path.join(home, ".claude/skills/elves"))).toBe(realpathSync(clone.dir));
+    expect(readdirSync(path.join(home, ".claude/skills"))).toEqual(["elves"]);
     expect(realpathSync(JSON.parse(read(path.join(home, ".agents/elves.json"))).clone)).toBe(realpathSync(clone.dir));
     writeFileSync(path.join(clone.dir, "AGENTS.md"), "правка в клоне\n");
     expect(read(path.join(home, ".claude/rules/elves.md"))).toBe("правка в клоне\n");
@@ -786,83 +790,94 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
     expect(new Set(loaded).size).toBe(loaded.length);
   });
 
-  /** Хук проверяет флоу в начале каждой сессии Claude Code; что он делает — capability `elves#update`. */
-  it("с Claude Code — хук SessionStart в ~/.claude/settings.json запускает check --hook; свои настройки и хуки на месте, повторная установка хук не дублирует", () => {
+  /**
+   * Плагин Elves (#860): каталог с `.claude-plugin/plugin.json` в `~/.claude/skills/<имя>/` — и симлинк тоже — Claude
+   * Code грузит как `elves@skills-dir` на месте, без маркетплейса и копии в свой кеш. Одна ссылка вместо ссылки на каждый
+   * скилл: скиллы `elves:<имя>`, хуки — из `hooks/hooks.json` плагина, а не из `~/.claude/settings.json`, где их надо
+   * было сливать с хуками пользователя и сверять; агент исполнителя — тоже его.
+   */
+  it("Установка на машину ставит одну ссылку плагина и не пишет хуки в настройки Claude Code", () => {
     const mine = { hooks: [{ type: "command", command: "echo мой хук" }] };
-    writeTree(home, { ".claude/settings.json": JSON.stringify({ model: "opus", hooks: { SessionStart: [mine], Stop: [mine] } }) });
-    install(["-g"]);
-    install(["-g"]);
-    const s = JSON.parse(read(path.join(home, ".claude/settings.json")));
-    expect(s.model).toBe("opus");
-    expect(s.hooks.Stop).toEqual([mine]);
-    expect(s.hooks.SessionStart[0]).toEqual(mine);
-    const ours = s.hooks.SessionStart.filter((g: { hooks: { command: string }[] }) => g.hooks.some((h) => h.command.includes("elves check --hook")));
-    expect(ours).toHaveLength(1);
-    expect(ours[0].matcher).toContain("startup");
-    expect(ours[0].hooks[0].timeout).toBeGreaterThan(0);
+    const settings = JSON.stringify({ model: "opus", hooks: { SessionStart: [mine], Stop: [mine] } });
+    writeTree(home, { ".claude/settings.json": settings });
+    expect(install(["-g"]).code).toBe(0);
+    expect(install(["-g"]).code).toBe(0);
+    expect(read(path.join(home, ".claude/settings.json"))).toBe(settings);
+    expect(readdirSync(path.join(home, ".claude/skills"))).toEqual(["elves"]);
+    const plugin = path.join(home, ".claude/skills/elves");
+    expect(readlinkSync(plugin)).toBe("../../.agents/elves");
+    expect(JSON.parse(read(path.join(plugin, ".claude-plugin/plugin.json"))).name).toBe("elves");
+    for (const rel of ["hooks/hooks.json", "agents/executor.md", "bin/elves.ts", "bin/shims/timeout", ...SKILLS.map((s) => `skills/${s}/SKILL.md`)]) {
+      expect({ rel, same: read(path.join(plugin, rel)) === read(path.join(REPO, rel)) }).toEqual({ rel, same: true });
+    }
+    // машина без своих настроек Claude Code их и не получает
+    rmSync(path.join(home, ".claude/settings.json"));
+    expect(install(["-g"]).code).toBe(0);
+    expect(gone(path.join(home, ".claude/settings.json"))).toBe(true);
   });
 
   /**
-   * Хук PreToolUse (#839, capability `github#github-guard`): обход команды флоу — `gh issue view` задачи, `gh run watch` —
-   * запрещён с командой флоу в причине. Обработчик на каждое правило списка обходов: `if` Claude Code берёт одно правило;
-   * команда — скрипт github машины по пути, без bunx и сети. Команду из settings.json запускаем, как Claude Code: через
-   * shell, вход хука — на stdin.
+   * Хуки плагина — `hooks/hooks.json` (#860): `SessionStart` — `check --hook` установленного Elves по
+   * `${CLAUDE_PLUGIN_ROOT}`, с запасным echo, если bun не запустился; `PreToolUse` (#839, capability
+   * `github#github-guard`) — обработчик на каждое правило списка обходов с его `if`: Claude Code берёт в `if` одно
+   * правило, и вызов без подходящей подкоманды процесса не стоит. Команду guard запускаем, как Claude Code: через shell,
+   * `CLAUDE_PLUGIN_ROOT` — путь ссылки плагина, вход хука — на stdin.
    */
-  it("Установка на машину ставит хук, проверка машины называет отсутствующий", () => {
-    const mine = { matcher: "Edit", hooks: [{ type: "command", command: "echo мой хук" }] };
-    writeTree(home, { ".claude/settings.json": JSON.stringify({ hooks: { PreToolUse: [mine] } }) });
-    expect(install(["-g"]).code).toBe(0);
-    expect(install(["-g"]).code).toBe(0);
-    const file = path.join(home, ".claude/settings.json");
-    const groups = JSON.parse(read(file)).hooks.PreToolUse;
-    expect(groups[0]).toEqual(mine);
-    expect(groups).toHaveLength(2);
-    const guard = groups[1];
-    const script = path.join(home, ".agents/skills/github/scripts/github.ts");
+  it("Хуки плагина перечисляют те же обходы, что список флоу", () => {
+    const json = JSON.parse(read(path.join(REPO, "hooks/hooks.json"))).hooks;
+    expect(Object.keys(json)).toEqual(["SessionStart", "PreToolUse"]);
+    const [start] = json.SessionStart;
+    expect(start.matcher).toBe("startup|resume|clear");
+    expect(start.hooks).toEqual([
+      { type: "command", command: 'bun --no-env-file "${CLAUDE_PLUGIN_ROOT}/bin/elves.ts" check --hook 2>&1 || echo "elves check unavailable (exit $?): work by the current flow and say so"', timeout: 60 },
+    ]);
+    expect(json.PreToolUse).toHaveLength(1);
+    const [guard] = json.PreToolUse;
     expect(guard.matcher).toBe("Bash");
-    expect(guard.hooks.map((h: { if: string }) => h.if)).toEqual(BYPASSES.map((b) => b.rule));
-    for (const h of guard.hooks) expect(h).toEqual({ type: "command", if: h.if, command: `bun --no-env-file '${script}' hook guard`, timeout: 10 });
+    expect(guard.hooks.map((h: PluginHook) => h.if)).toEqual(BYPASSES.map((b) => b.rule));
+    for (const h of guard.hooks) expect(h).toEqual({ type: "command", if: h.if, command: 'bun --no-env-file "${CLAUDE_PLUGIN_ROOT}/skills/github/scripts/github.ts" hook guard', timeout: 10 });
 
-    // команда хука из settings.json запрещает `gh issue view` задачи репозитория сессии и называет task show скрипта машины
+    // команда хука плагина машины запрещает `gh issue view` задачи репозитория сессии и называет task show скрипта машины
+    mkdirSync(path.join(home, ".claude"));
+    expect(install(["-g"]).code).toBe(0);
     execFileSync("git", ["remote", "add", "origin", "git@github.com:acme/shop.git"], { cwd: proj });
-    const stdin = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git status && gh issue view 7" }, cwd: proj });
-    const r = spawnSync("sh", ["-c", guard.hooks[0].command], { cwd: proj, env, input: stdin, encoding: "utf8" });
-    expect(r.status).toBe(0);
+    const input = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git status && gh issue view 7" }, cwd: proj });
+    const r = runPluginHook(sb, pluginHooks(home, "PreToolUse")[0]!.command, { input });
+    expect(r.code).toBe(0);
     const decision = JSON.parse(r.stdout).hookSpecificOutput;
     expect(decision).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "deny" });
-    expect(decision.permissionDecisionReason).toEndWith(`Run instead: bun --no-env-file ${realpathSync(script)} task show 7`);
-
-    // машина без хука — check -g называет его отставанием, install -g ставит снова
-    writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [mine], SessionStart: JSON.parse(read(file)).hooks.SessionStart } }));
-    const check = elves(sb, ["check", "-g"]);
-    expect(check.code).toBe(1);
-    expect(check.stdout).toContain("  ~ ~/.claude/settings.json — the PreToolUse hook: a bypass of a flow command (gh issue view of a task, gh run watch) denied with the flow's command\n");
-    expect(check.stdout).not.toContain("the SessionStart hook");
-    expect(install(["-g"]).code).toBe(0);
-    expect(elves(sb, ["check", "-g"]).stdout).not.toContain("PreToolUse");
+    expect(decision.permissionDecisionReason).toEndWith(`Run instead: bun --no-env-file ${realpathSync(path.join(home, ".agents/skills/github/scripts/github.ts"))} task show 7`);
   });
 
   /**
-   * Вывод хука с кодом 0 Claude Code кладёт в контекст сессии: `--silent` — первая установка пакета bunx печатает свой
-   * прогресс в stderr, а хук сводит stderr в вывод.
+   * Плагин не загружен — нет ссылки или `plugin.json` за ней — нет и хуков, и скиллов `elves:<имя>`; ссылки скиллов и
+   * хуки прошлой версии, оставшиеся рядом с плагином, сработали бы дважды. `check -g` называет и то и другое
+   * отставанием, а `update -g` доводит (capability `elves#update`).
    */
-  it("команда хука — bunx --silent github:miroshnik/elves check --hook, вывод с ошибками и запасной echo при сбое bunx", () => {
+  it("Проверка машины называет незагруженный плагин и оставшиеся прежние хуки", () => {
     mkdirSync(path.join(home, ".claude"));
-    install(["-g"]);
-    const hooks = JSON.parse(read(path.join(home, ".claude/settings.json"))).hooks.SessionStart.flatMap((g: { hooks: { command: string }[] }) => g.hooks);
-    expect(hooks[0].command).toMatch(/^bunx --silent github:miroshnik\/elves check --hook 2>&1 \|\| echo "elves check unavailable/);
-  });
-
-  /** Хук прошлой версии — с запасным текстом по-русски: установка узнаёт свой хук по команде `check --hook`. */
-  it("хук прошлой версии с запасным текстом по-русски install -g заменяет, а не ставит второй", () => {
-    const command = 'npx -y --loglevel=error github:miroshnik/elves check --hook 2>&1 || echo "elves check недоступен (код $?): работай по текущему флоу и скажи об этом"';
-    const old = { matcher: "startup|resume|clear", hooks: [{ type: "command", command, timeout: 60 }] };
-    writeTree(home, { ".claude/settings.json": JSON.stringify({ hooks: { SessionStart: [old] } }) });
     expect(install(["-g"]).code).toBe(0);
-    const hooks = JSON.parse(read(path.join(home, ".claude/settings.json"))).hooks.SessionStart.flatMap((g: { hooks: { command: string }[] }) => g.hooks);
-    expect(hooks).toHaveLength(1);
-    expect(hooks[0].command).toContain("github:miroshnik/elves check --hook");
-    expect(hooks[0].command).not.toMatch(/\p{Script=Cyrillic}/u);
+    const old = previousHooks(home, BYPASSES.map((b) => b.rule));
+    writeTree(home, { ".claude/settings.json": JSON.stringify({ hooks: { SessionStart: [old.SessionStart], PreToolUse: [old.PreToolUse] } }) });
+    symlinkSync("../../.agents/skills/spec", path.join(home, ".claude/skills/spec"));
+    rmSync(path.join(home, ".claude/skills/elves"));
+    const before = snapshot(home);
+    const r = elves(sb, ["check", "-g"]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("  + ~/.claude/skills/elves — the Elves plugin: the skills elves:<name>, the SessionStart hook (the flow check and the agent's Bash environment), the PreToolUse guard and the executor agent\n");
+    expect(r.stdout).toContain("  - ~/.claude/skills/spec — a skill link of a previous version: the Elves plugin gives elves:spec\n");
+    expect(r.stdout).toContain("  ~ ~/.claude/settings.json — the SessionStart and PreToolUse hooks of a previous version: the Elves plugin runs them from its hooks/hooks.json, otherwise they run twice\n");
+    expect(r.stdout).toContain("Update: bunx @miroshnik/elves update -g");
+    expect(snapshot(home)).toEqual(before);
+    // ссылка на месте, а манифеста плагина за ней нет — Claude Code его не грузит
+    expect(install(["-g"]).code).toBe(0);
+    rmSync(path.join(home, ".agents/elves/.claude-plugin/plugin.json"));
+    const unloaded = elves(sb, ["check", "-g"]);
+    expect(unloaded.code).toBe(1);
+    expect(unloaded.stdout).toContain(`  ~ ~/.claude/skills/elves — the Elves plugin isn't loaded: no .claude-plugin/plugin.json in ${path.join(home, ".agents/elves")}\n`);
+    expect(unloaded.stdout).toContain("  + ~/.agents/elves/.claude-plugin/plugin.json\n");
+    expect(install(["-g"]).code).toBe(0);
+    expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 
   it("без Claude Code на машине — хука нет, ~/.claude не создаётся", () => {
@@ -885,7 +900,7 @@ describe("На машину (-g) — канон, скиллы и хук: тон�
  * скилл, которого в Elves больше нет; скрипты флоу его не зовут и не упоминают.
  */
 describe("Скилла dashboard во флоу нет: установка его не ставит, обновление машины убирает", () => {
-  const dashboard = () => [path.join(home, ".agents/skills/dashboard"), path.join(home, ".claude/skills/dashboard")];
+  const dashboard = () => [path.join(home, ".agents/skills/dashboard"), path.join(home, ".agents/elves/skills/dashboard"), path.join(home, ".claude/skills/dashboard")];
 
   it("Установка на машину не ставит скилл `dashboard`", () => {
     mkdirSync(path.join(home, ".claude"));
@@ -901,7 +916,9 @@ describe("Скилла dashboard во флоу нет: установка его
       "skills/dashboard/scripts/dashboard.ts": "export {};\n",
     });
     expect(elves(sb, ["install", "-g"], { bin: prev.bin }).code).toBe(0);
-    expect(readlinkSync(path.join(home, ".claude/skills/dashboard"))).toBe("../../.agents/skills/dashboard");
+    // ссылка Claude Code прошлой версии — до плагина каждый скилл ставился своей ссылкой
+    symlinkSync("../../.agents/skills/dashboard", path.join(home, ".claude/skills/dashboard"));
+    expect(readlinkSync(path.join(home, ".agents/skills/dashboard"))).toBe("../elves/skills/dashboard");
     expect(elves(sb, ["update", "-g"]).code).toBe(0);
     expect(dashboard().filter((p) => !gone(p))).toEqual([]);
     const check = elves(sb, ["check", "-g"]);

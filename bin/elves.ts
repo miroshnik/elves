@@ -5,7 +5,7 @@
  * checks whether an install has fallen behind the latest Elves release, updates it and cuts a release.
  *
  *   bunx @miroshnik/elves install                      — into the project: the git root (or the current directory)
- *   bunx @miroshnik/elves install -g                   — machine-wide: the canon, skills and hooks
+ *   bunx @miroshnik/elves install -g                   — machine-wide: the canon and the Elves plugin
  *   elves install -g                                   — the same from the npm package (npm i -g @miroshnik/elves);
  *                                                        install -g puts the elves command on PATH (`installCommand`)
  *   bun <Elves clone>/bin/elves.ts install -g --link   — from a clone: symlinks to the clone, edits show at once
@@ -24,11 +24,14 @@
  * package.json script, bunx), and `elves slot '<command>'` doesn't pass their keys on to the command; not `#!/usr/bin/env
  * -S bun --no-env-file` — `env -S` isn't everywhere (busybox) (tests/standards/scripts/no-env-file, #592).
  *
- * The layout is as with skills (`npx skills`), on the machine (`-g`, #557): the canon `~/.agents/elves/` (AGENTS.md,
- * claude/CLAUDE.md, docs/*.md) with Claude Code's rules `~/.claude/rules/elves*.md` — they load without the
- * external-imports dialog in every project of the machine, a reference with `paths:` when the agent works with a
- * matching file (`pathRules`, #846) — skills (`~/.agents/skills/<name>/`, Claude Code — symlinks
- * in `~/.claude/skills`) and the hooks (SessionStart, PreToolUse). Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
+ * On the machine (`-g`, #557) the installed Elves is `~/.agents/elves/` — a copy of the release or, with `--link`, a
+ * symlink to the clone: the canon (AGENTS.md, claude/CLAUDE.md, docs/*.md) with Claude Code's rules
+ * `~/.claude/rules/elves*.md` — they load without the external-imports dialog in every project of the machine, a
+ * reference with `paths:` when the agent works with a matching file (`pathRules`, #846) — and the Elves plugin (#860):
+ * one link `~/.claude/skills/elves` to it, which Claude Code loads as `elves@skills-dir` — the skills `elves:<name>`,
+ * the hooks of `hooks/hooks.json` (SessionStart, PreToolUse) and the executor agent; `~/.agents/skills/<name>` — links
+ * into its skills, the path of the Agent Skills standard (as `npx skills`) the owner's rules and printed commands name.
+ * Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
  * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
  * (PACKAGE: the project's version of the harness and the skills' scripts for its tests and CI), the manifest, the
@@ -85,7 +88,6 @@ import path from "node:path";
 import { isatty } from "node:tty";
 import { fileURLToPath } from "node:url";
 
-import { BYPASSES } from "../skills/github/scripts/bypasses.ts";
 import { readyCommand, sandboxLine, sandboxRefusal } from "../skills/github/scripts/command.ts";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
@@ -131,42 +133,39 @@ const BLOCK = [
 ].join("\n");
 
 /**
- * Claude Code's SessionStart hook: at the start of a session — `check --hook` (machine and project) and the agent's Bash
- * environment (`writeAgentShell`). Claude Code adds the output of a hook with code 0 to the context, with any other
- * code — doesn't, so the code is always 0: both `check --hook` and the fallback `echo` if bunx didn't start.
- * `--silent` — the first install of the package prints bunx's progress to stderr, and the hook's output goes into the
- * context. The timeout keeps the network from holding up the start; an error doesn't block the session — the "First
- * step of a session" rule in AGENTS.md is the safety net.
+ * The Elves plugin (#860): Claude Code loads a directory with `.claude-plugin/plugin.json` in `~/.claude/skills/<name>/`
+ * — a symlink too — as the skills-directory plugin `elves@skills-dir`, in place: no marketplace, no copy in its cache,
+ * no trust prompt, and the path stays the same from release to release (a marketplace plugin's `${CLAUDE_PLUGIN_ROOT}`
+ * changes with each version and would break the owner's rules and printed commands, #849). It gives the skills
+ * `elves:<name>` of `skills/`, the hooks of `hooks/hooks.json` — SessionStart: `check --hook` and the agent's Bash
+ * environment; PreToolUse: the guard, one handler per bypass of `BYPASSES` with its `if` — the executor agent
+ * `elves:executor` of `agents/` and `bin/` at the end of the Bash tool's PATH. One link to the installed Elves: the
+ * machine's copy `~/.agents/elves` (CANON), with `--link` the clone.
  */
-const CHECK_FALLBACK = 'echo "elves check unavailable (exit $?): work by the current flow and say so"';
-const HOOK_COMMAND = `bunx --silent github:${SOURCE} check --hook 2>&1 || ${CHECK_FALLBACK}`;
-const HOOK_MATCHER = "startup|resume|clear";
-const HOOK: HookGroup = { matcher: HOOK_MATCHER, hooks: [{ type: "command", command: HOOK_COMMAND, timeout: 60 }] };
+const PLUGIN_LINK = ".claude/skills/elves";
+/** The plugin's manifest: without it Claude Code doesn't load the directory as a plugin. */
+const PLUGIN_MANIFEST = ".claude-plugin/plugin.json";
+/** The plugin's directories besides `skills/`: the machine's copy holds them, `bin/` — for the hooks' commands. */
+const PLUGIN_DIRS = [".claude-plugin", "hooks", "agents", "bin"];
+/** What the install and a dry run say about the plugin's link. */
+const PLUGIN_NOTE = "the Elves plugin: the skills elves:<name>, the SessionStart hook (the flow check and the agent's Bash environment), the PreToolUse guard and the executor agent";
 
 /**
- * Claude Code's PreToolUse hook (#839): a bypass of a flow command — the github skill's list (`BYPASSES`) — is denied
- * with the flow's command in the reason. One handler per bypass: Claude Code's `if` takes one permission rule and runs
- * the handler only for a Bash call with a subcommand it matches, so other calls start no process. The command — the
- * machine's github script by its path, not bunx: the hook answers in tens of milliseconds, without the network; its
- * own error — and a timed-out hook — lets the call through.
+ * The hooks a previous version put into `~/.claude/settings.json` — the plugin runs them now, from its
+ * `hooks/hooks.json`: both in place — each runs twice. Known by the command: SessionStart — the flow check through
+ * bunx or npx (`github:miroshnik/elves check --hook`), PreToolUse — the machine's github script with `hook guard`.
  */
-function guardHook(home: string): HookGroup {
-  const command = `bun --no-env-file ${shQuote(path.join(home, GUARD_SCRIPT))} hook guard`;
-  return { matcher: "Bash", hooks: BYPASSES.map((b) => ({ type: "command", if: b.rule, command, timeout: 10 })) };
-}
-/** The github skill's script on the machine, from the home directory: the guard's command runs it. */
-const GUARD_SCRIPT = ".agents/skills/github/scripts/github.ts";
+const OLD_HOOKS: Record<string, (command: string) => boolean> = {
+  SessionStart: (c) => c.includes(`${SOURCE} check --hook`),
+  PreToolUse: (c) => /\/skills\/github\/scripts\/github\.ts'? hook guard$/.test(c),
+};
+/** What the install and a dry run say about the hooks of a previous version (`oldHooks`). */
+const OLD_HOOKS_NOTE = "the SessionStart and PreToolUse hooks of a previous version: the Elves plugin runs them from its hooks/hooks.json, otherwise they run twice";
 
-/** A group of Claude Code's hooks of one event in a settings.json. */
-interface HookGroup {
-  matcher: string;
-  hooks: { type: "command"; if?: string; command: string; timeout: number }[];
-}
-
-/** Flow files in the clone: what `install` installs from it (a git pathspec). */
-const FLOW = ["AGENTS.md", "claude/CLAUDE.md", ":(glob)docs/*.md", "skills"];
-/** What makes a release necessary: the flow and the installer — projects get its code from the release too. */
-const RELEASED = [...FLOW, "bin"];
+/** Flow files in the clone: what `install` installs from it (a git pathspec) — the canon, the skills and the plugin. */
+const FLOW = ["AGENTS.md", "claude/CLAUDE.md", ":(glob)docs/*.md", "skills", ...PLUGIN_DIRS];
+/** What makes a release necessary: the flow, the installer with it (`bin`) — projects get its code from the release too. */
+const RELEASED = FLOW;
 /** Release tag: vYYYY.MM.DD, a same-day patch — vYYYY.MM.DD.N. */
 const RELEASE_TAG = /^v(\d{4})\.(\d{2})\.(\d{2})(?:\.([1-9]\d*))?$/;
 /** Elves releases on GitHub: a release's page is `${RELEASES}/tag/<tag>`. */
@@ -205,17 +204,21 @@ settings. --lang <code> — the project language the agent works in: dialog, tas
 .agents/elves.json, a BCP 47 code: ru, en, pt-BR); in a terminal — a question, en by default, without the flag and a
 terminal — the previous one. In an Elves clone writes only the manifest — auto and language, env and batch carried
 over as in a project.
--g — onto the machine, for Claude Code: the canon in ~/.agents/elves with Claude Code's rules ~/.claude/rules/elves*.md,
-the skills (~/.agents/skills, ~/.claude/skills), the SessionStart hook, the PreToolUse hook (a bypass of a flow command
-— gh issue view of a task, gh run watch — denied with the flow's command: github hook guard) and the elves command in the terminal — in ~/.local/bin or
+-g — onto the machine, for Claude Code: Elves in ~/.agents/elves — the canon with Claude Code's rules
+~/.claude/rules/elves*.md and the Elves plugin: one link ~/.claude/skills/elves, which Claude Code loads as
+elves@skills-dir — the skills elves:<name>, the hooks of its hooks/hooks.json (SessionStart — the flow check and the
+agent's Bash environment; PreToolUse — a bypass of a flow command, gh issue view of a task or gh run watch, denied with
+the flow's command) and the executor agent elves:executor; ~/.agents/skills/<name> — links into its skills. The skill
+links ~/.claude/skills/<name> and the hooks in ~/.claude/settings.json a previous version put go, others' stay. And
+the elves command in the terminal — in ~/.local/bin or
 the first directory of PATH inside the home directory that can be written: with --link a symlink to the clone's
 bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
 (!), no such directory — no command, check -g names how to add one. Other agents' rule files a previous version wrote
 (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md and others) go — only its own symlinks into the canon; another agent —
 docs/other-agents.md. From the npm package (npm i -g / bun add -g ${PACKAGE}) — the release of its version, without
-the network. --link — from an Elves clone: symlinks to the clone instead of copies, edits show up immediately. With
-Claude Code's prompt cache TTL not chosen or cleanupPeriodDays under 365 — the lines check -g prints, with the owner's
-command (docs/prompt-cache.md): install doesn't change ~/.claude/settings.json.
+the network. --link — from an Elves clone: ~/.agents/elves and the plugin link lead into the clone instead of a copy,
+edits show up immediately. With Claude Code's prompt cache TTL not chosen or cleanupPeriodDays under 365 — the lines
+check -g prints, with the owner's command (docs/prompt-cache.md): install sets nothing in ~/.claude/settings.json.
 
 Examples:
   elves install --auto --lang en
@@ -235,17 +238,20 @@ docker compose; the task-env skill), names a test that runs standards and archit
 ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
 to tasks (the exit code stays the same); for the machine the elves command missing or of another release is falling
 behind, someone else's elves in its place or one earlier on PATH — !, no directory for it — ! with the command that
-adds ~/.local/bin to PATH; a project behind — update in this session's task (the package version in package.json and
-the lockfile). For the machine names the task-env proxy of *.localhost addresses — running or not running, with the
+adds ~/.local/bin to PATH; the Elves plugin not loaded (no ~/.claude/skills/elves or no .claude-plugin/plugin.json in
+it) and the skill links or hooks of a previous version left (each hook would run twice) — behind too; a project behind
+— update in this session's task (the package version in package.json and the lockfile). For the machine names the task-env proxy of *.localhost addresses — running or not running, with the
 command (with Docker on the machine; the exit code stays the same), run from the agent's Bash in Claude Code — a session
 without the agent's Bash environment, for a --link clone run from an Elves clone — flow commits not in a release yet;
 Claude Code 2.1.242+ (or no claude on PATH) with promptCacheTtl or subagentPromptCacheTtl not chosen by a setting or
 its variable — a prompt cache TTL line with the owner's command that sets the hour (docs/prompt-cache.md); with
 cleanupPeriodDays in ~/.claude/settings.json missing or under 365 days — a transcript cleanup line with the owner's
 command that sets 365: est reads a task's actual from the transcripts (the exit code stays the same).
---hook — the machine and the project at once for the Claude Code SessionStart hook: the exit code is always 0 (else
-Claude Code drops its output), errors go to the output and don't block the session, the hook's timeout is 60 s; writes the agent's Bash environment to $CLAUDE_ENV_FILE — zsh without errors on a glob without matches
-and on =word, timeout from bin/shims.
+--hook — the machine and the project at once for the SessionStart hook of the Elves plugin: the exit code is always 0
+(else Claude Code drops its output), errors go to the output and don't block the session, the hook's timeout is 60 s;
+by the latest release, from the machine's copy and a --link clone too (a project follows releases, not main); writes
+the agent's Bash environment to $CLAUDE_ENV_FILE — zsh without errors on a glob without matches and on =word, timeout
+from bin/shims.
 
 Examples:
   elves check
@@ -253,7 +259,7 @@ Examples:
   update: `elves update [-g]
 
 Brings it up to date: a --link clone — git pull --ff-only, the machine's copy — install of the latest release: the
-canon, the skills, the hook and the elves shim of that release; a project — install of the latest release: ${PACKAGE} in package.json and the
+canon, the plugin and the elves shim of that release, the skill links and hooks of a previous version removed; a project — install of the latest release: ${PACKAGE} in package.json and the
 lockfile, a few lines in the branch of the current task; from the npm package — by restarting from the latest release's package. The
 project's mode and language are kept; ${PACKAGE} in package.json without the manifest — a refusal (2): the language is unknown,
 the manifest comes from the main checkout or install --lang. In a project install and update un-ignore flow files from
@@ -276,8 +282,8 @@ Examples:
   pack: `elves pack <tag>
 
 From an Elves checkout, in CI on a release tag: the npm package ${PACKAGE} of that release — the version
-from the tag into package.json (vYYYY.MM.DD.N → YYYY.MMDD.N: semver without leading zeros, versions sort as tags), the
-release commit into its gitHead and the modules a project imports (exports of package.json: the harness, the
+from the tag into package.json and the plugin's .claude-plugin/plugin.json (vYYYY.MM.DD.N → YYYY.MMDD.N: semver without
+leading zeros, versions sort as tags), the release commit into its gitHead and the modules a project imports (exports of package.json: the harness, the
 architecture model, the ESLint fragment, github) built for Node into dist/; then npm publish by trusted publishing (OIDC,
 no token). Not a release tag — code 2, nothing changes.
 
@@ -535,6 +541,9 @@ function mainHead(remote: string) {
   return lsRemote([remote, "HEAD"]).split("\t")[0]?.trim() || null;
 }
 
+/** The mark of a process the launcher restarted (`toRelease`). */
+const LAUNCHED = "ELVES_LAUNCHED";
+
 /** Where releases and their history come from: ELVES_REPO (a mirror, tests) or GitHub. */
 const repoUrl = () => process.env.ELVES_REPO || `https://github.com/${SOURCE}.git`;
 
@@ -548,13 +557,21 @@ const repoUrl = () => process.env.ELVES_REPO || `https://github.com/${SOURCE}.gi
  * The npm package is a release itself (`npmRelease`): from it `install` installs its own version — no launcher and no
  * network (`github:` would install from GitHub, not npm); `check` and `update` compare with and bring to the latest
  * release — `toLatestNpm`.
+ * The plugin's SessionStart hook runs `check --hook` of the installed Elves (`${CLAUDE_PLUGIN_ROOT}/bin/elves.ts`, #860),
+ * and both installs are launchers for it: the machine's copy `~/.agents/elves` knows no release of its own — without a
+ * release or a main to restart from it refuses, a copy compared with itself is always up to date; a `--link` clone
+ * restarts too — a project follows releases, and the clone's main would compare its package with no version at all.
+ * LAUNCHED marks the restarted process: a clone bunx serves (tests) doesn't restart again.
  * @returns the restarted process's code; null — work here
  */
 function toRelease(argv: string[]): number | null {
-  if (existsSync(path.join(SRC, ".git"))) return null;
-  const own = npmRelease(SRC);
-  if (own) return (release = own), argv[0] === "install" ? null : toLatestNpm(own, argv);
-  if (sourceSha(SRC)) return (release = process.env.ELVES_RELEASE || null), null;
+  const clone = existsSync(path.join(SRC, ".git"));
+  if (clone && (argv[0] !== "check" || !argv.includes("--hook") || process.env[LAUNCHED])) return null;
+  if (!clone) {
+    const own = npmRelease(SRC);
+    if (own) return (release = own), argv[0] === "install" ? null : toLatestNpm(own, argv);
+    if (sourceSha(SRC)) return (release = process.env.ELVES_RELEASE || null), null;
+  }
   let to: { tag?: string; sha: string } | undefined;
   try {
     const head = (sha: string | null) => (sha ? { sha } : undefined);
@@ -562,8 +579,9 @@ function toRelease(argv: string[]): number | null {
   } catch (e) {
     throw new Error(`can't find out the latest Elves release — ${reason(e)}`);
   }
+  if (!to && !clone && samePath(SRC, path.join(os.homedir(), CANON))) throw new Error("no Elves release and no main to run from — the machine's copy only launches one");
   if (!to) return null;
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...process.env, [LAUNCHED]: "1" };
   delete env.ELVES_RELEASE;
   if (to.tag) env.ELVES_RELEASE = to.tag;
   const r = spawnSync("bunx", ["--silent", `github:${SOURCE}#${to.sha}`, ...argv], { stdio: "inherit", env });
@@ -678,19 +696,35 @@ function sourceSkills(src: string) {
     .sort();
 }
 
-/** The rules canon: `.agents/elves/` — a copy of AGENTS.md, claude/CLAUDE.md and docs/*.md or a symlink to the clone. */
+/**
+ * What the machine's copy holds: the canon — AGENTS.md, claude/CLAUDE.md, docs/*.md — and the plugin — its manifest,
+ * hooks, agents, `bin/` for the hooks' commands and every skill. Path in the copy → the source file.
+ */
+function copyFiles(src: string): Map<string, string> {
+  const docs = readdirSync(path.join(src, "docs")).filter((f) => f.endsWith(".md") && statSync(path.join(src, "docs", f)).isFile());
+  const files = new Map(["AGENTS.md", "claude/CLAUDE.md", ...docs.map((f) => `docs/${f}`)].map((rel) => [rel, path.join(src, rel)]));
+  const dirs = [...PLUGIN_DIRS, ...sourceSkills(src).map((name) => `skills/${name}`)].filter((dir) => lstat(path.join(src, dir))?.isDirectory());
+  for (const dir of dirs) for (const [rel, file] of walk(path.join(src, dir))) files.set(path.join(dir, rel), file);
+  return files;
+}
+
+/**
+ * Elves on the machine: `~/.agents/elves/` — a copy of the release (`copyFiles`: the canon and the plugin) or, with
+ * `--link`, a symlink to the clone. A copy installing itself (its `bin/elves.ts`) leaves its files as they are.
+ */
 function installRules(src: string, root: string, linkMode: boolean) {
   const canon = path.join(root, CANON);
   if (linkMode) return placeDir(src, canon, root, true);
-  const docs = readdirSync(path.join(src, "docs")).filter((f) => f.endsWith(".md") && statSync(path.join(src, "docs", f)).isFile());
-  const files = ["AGENTS.md", "claude/CLAUDE.md", ...docs.map((f) => `docs/${f}`)];
-  if (dry) return diffTree(new Map(files.map((rel) => [rel, path.join(src, rel)])), canon);
+  if (samePath(src, canon)) return;
+  const files = copyFiles(src);
+  if (dry) return diffTree(files, canon);
   remove(canon);
-  for (const rel of files) {
+  for (const [rel, file] of files) {
     mkdirSync(path.dirname(path.join(canon, rel)), { recursive: true });
-    cpSync(path.join(src, rel), path.join(canon, rel));
+    cpSync(file, path.join(canon, rel));
   }
-  note(`${path.relative(root, canon)}/ ← AGENTS.md, claude/CLAUDE.md, docs/ (${docs.length})`);
+  const docs = [...files.keys()].filter((rel) => rel.startsWith("docs/")).length;
+  note(`${path.relative(root, canon)}/ ← AGENTS.md, claude/CLAUDE.md, docs/ (${docs}), the plugin: skills/ (${sourceSkills(src).length}), hooks/, agents/, bin/`);
 }
 
 /** The install's `.agents/elves.json`. */
@@ -715,19 +749,22 @@ function readManifest(root: string): Manifest {
 }
 
 /**
- * Skills: `.agents/skills/<name>` — a copy (or a symlink to the clone), Claude Code — a symlink from `.claude/skills`.
- * Someone else's directory with the same name is left alone; skills from a previous install that Elves no longer
- * has are removed. `.agents/elves.json` holds the source SHA, the release tag and the installed skills; a dry run doesn't
- * compare the SHA and the tag: the install is up to date if what it installs matches (a release that changes
- * only the installer doesn't touch projects). The one caller is the machine install (`installGlobal`): the manifest
- * holds only the install fields — source, sha, tag, clone, skills; the project's fields (auto, language, env, batch)
- * live in the project's manifest (`manifestText`) and aren't carried here.
+ * Skills: `.agents/skills/<name>` — a symlink into the installed Elves' skills (`.agents/elves/skills/<name>` of the
+ * copy, with `--link` the clone's): the path of the Agent Skills standard, which the owner's rules (the sandbox's
+ * `excludedCommands`, `permissions`) and printed commands name; Claude Code takes the skills from the plugin
+ * (`pluginLink`). A copy of a previous version there is replaced by the link. Someone else's directory with the same
+ * name is left alone; skills from a previous install that Elves no longer has are removed. `.agents/elves.json` holds
+ * the source SHA, the release tag and the installed skills; a dry run doesn't compare the SHA and the tag: the install
+ * is up to date if what it installs matches (a release that changes only the installer doesn't touch projects). The
+ * one caller is the machine install (`installGlobal`): the manifest holds only the install fields — source, sha, tag,
+ * clone, skills; the project's fields (auto, language, env, batch) live in the project's manifest (`manifestText`) and
+ * aren't carried here.
  * The order survives a run cut off midway (an agent's sandbox refuses writes to `.claude/skills`): skills Elves no
- * longer has go while the old manifest still lists them, and the new manifest is written before the copies — a repeat
+ * longer has go while the old manifest still lists them, and the new manifest is written before the links — a repeat
  * run takes them for the flow's and finishes the install instead of leaving them as someone else's.
  * @returns installed skills
  */
-function installSkills(src: string, root: string, linkMode: boolean, claude: boolean) {
+function installSkills(src: string, root: string, linkMode: boolean) {
   const manifestPath = path.join(root, MANIFEST);
   const before = readManifest(root).skills ?? [];
   const names = sourceSkills(src);
@@ -745,7 +782,6 @@ function installSkills(src: string, root: string, linkMode: boolean, claude: boo
       continue;
     }
     remove(dst);
-    if (lstat(path.join(root, ".claude/skills", name))?.isSymbolicLink()) rmSync(path.join(root, ".claude/skills", name));
     note(`${path.relative(root, dst)} — removed: Elves no longer has it`);
   }
   const clone = linkMode ? path.resolve(src) : undefined; // a --link machine: check and update find the clone by it
@@ -758,10 +794,39 @@ function installSkills(src: string, root: string, linkMode: boolean, claude: boo
     mkdirSync(path.dirname(manifestPath), { recursive: true });
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   }
-  for (const name of installed) placeDir(path.join(src, "skills", name), path.join(root, ".agents/skills", name), root, linkMode);
-  if (!linkMode) note(`.agents/skills/ ← ${installed.join(", ")}`);
-  if (claude) for (const name of installed) link(path.join(root, ".agents/skills", name), path.join(root, ".claude/skills", name), root);
+  const skills = path.join(linkMode ? src : path.join(root, CANON), "skills");
+  for (const name of installed) placeDir(path.join(skills, name), path.join(root, ".agents/skills", name), root, true);
   return installed;
+}
+
+/**
+ * The Elves plugin (PLUGIN_LINK): one link `~/.claude/skills/elves` to the installed Elves — the copy, with `--link` the
+ * clone. In place, but the target without the plugin's manifest — Claude Code doesn't load it: a dry run names that.
+ */
+function pluginLink(src: string, home: string, linkMode: boolean) {
+  const target = linkMode ? src : path.join(home, CANON);
+  const dst = path.join(home, PLUGIN_LINK);
+  if (!link(target, dst, home, PLUGIN_NOTE) || !lstat(dst) || existsSync(path.join(dst, PLUGIN_MANIFEST))) return;
+  const text = `the Elves plugin isn't loaded: no ${PLUGIN_MANIFEST} in ${target}`;
+  if (dry) change("~", dst, { note: text });
+  else warn(`${PLUGIN_LINK} — ${text}`);
+}
+
+/**
+ * The skill links a previous version put into `~/.claude/skills` — `<name>` → `~/.agents/skills/<name>` for an Elves
+ * skill (`names`: the previous manifest's and this release's) or one that leads nowhere — go: the plugin gives the
+ * skill as `elves:<name>`, with the link Claude Code would have both. Someone else's link or directory stays, and so
+ * does a link of a skill that isn't Elves' (`npx skills` links its skills the same way).
+ */
+function oldSkillLinks(home: string, names: string[]) {
+  const dir = path.join(home, ".claude/skills");
+  for (const name of lstat(dir)?.isDirectory() ? readdirSync(dir) : []) {
+    const dst = path.join(dir, name);
+    const to = path.join(home, ".agents/skills", name);
+    if (!lstat(dst)?.isSymbolicLink() || path.resolve(dir, readlinkSync(dst)) !== to || !(names.includes(name) || !existsSync(to))) continue;
+    if (dry) change("-", dst, { note: `a skill link of a previous version: the Elves plugin gives elves:${name}` });
+    else rmSync(dst), note(`.claude/skills/${name} — removed: the Elves plugin gives elves:${name}`);
+  }
 }
 
 /**
@@ -1010,47 +1075,47 @@ export function pathsOf(md: string): string[] {
   return list ? [...list.matchAll(/^[ \t]+-[ \t]+["']?([^"'\n]+?)["']?[ \t]*$/gm)].map((m) => m[1]!) : [];
 }
 
-/**
- * A group of hooks of an event in `<root>/.claude/settings.json`: the user's own settings and hooks stay in place, the
- * handlers of a previous version (`ours`) are replaced, a repeated install doesn't duplicate them. A dry run names it
- * with `what`.
- */
-function settingsHook(root: string, event: string, hook: HookGroup, ours: (h: { command?: unknown }) => boolean, what: string) {
-  const file = path.join(root, ".claude/settings.json");
-  let settings: { hooks?: Record<string, { hooks?: { command?: unknown }[] }[]> } = {};
-  if (existsSync(file)) {
-    try {
-      settings = JSON.parse(readFileSync(file, "utf8"));
-    } catch {
-      return void warn(`.claude/settings.json — not JSON: ${what} isn't installed, add it yourself: ${hook.hooks[0]!.command}`);
-    }
+/** A settings.json as an object: no file, not JSON or not an object — null. */
+function readSettings(file: string): Record<string, unknown> | null {
+  try {
+    return asObject(JSON.parse(readFileSync(file, "utf8"))) ?? null;
+  } catch {
+    return null;
   }
-  const groups = settings.hooks?.[event] ?? [];
-  const count = groups.flatMap((g) => g.hooks ?? []).filter(ours).length;
-  if (count === hook.hooks.length && groups.some((g) => JSON.stringify(g) === JSON.stringify(hook))) return;
-  if (dry) return void change(existsSync(file) ? "~" : "+", file, { note: what });
-  const rest = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ours(h)) })).filter((g) => g.hooks.length);
-  settings.hooks = { ...settings.hooks, [event]: [...rest, hook] };
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-  note(`.claude/settings.json — ${what}`);
 }
 
 /**
- * The hooks in `~/.claude/settings.json`: SessionStart (HOOK) — a hook of a previous version (with npx too) is replaced;
- * PreToolUse (`guardHook`) — one handler per bypass, a previous version's set replaced whole. A dry run names what each
- * gives: from a terminal `check -g` can't see the agent's shell, a missing SessionStart hook is how it names a missing
- * Bash environment (tests/capabilities/elves/agent-shell).
+ * Claude Code settings without the hook handlers `ours` knows by their command, by event: the user's own settings and
+ * hooks stay as they were; a group, an event or `hooks` left empty goes. None of ours — null.
  */
-function claudeHook(home: string) {
-  const ours = ({ command }: { command?: unknown }) => typeof command === "string" && command.includes(`${SOURCE} check --hook`);
-  settingsHook(home, "SessionStart", HOOK, ours, "the SessionStart hook: the flow check and the agent's Bash environment");
-  const guard = ({ command }: { command?: unknown }) => typeof command === "string" && /\/skills\/github\/scripts\/github\.ts'? hook guard$/.test(command);
-  settingsHook(home, "PreToolUse", guardHook(home), guard, GUARD_HOOK);
+function withoutHooks(settings: Record<string, unknown>, ours: Record<string, (command: string) => boolean>): Record<string, unknown> | null {
+  type Groups = { hooks?: { command?: unknown }[] }[];
+  const hooks = asObject(settings.hooks) as Record<string, Groups | undefined> | undefined;
+  if (!hooks) return null;
+  const mine = (event: string) => (h: { command?: unknown }) => typeof h.command === "string" && ours[event]!(h.command);
+  const events = Object.keys(ours).filter((e) => Array.isArray(hooks[e]) && hooks[e].some((g) => (g.hooks ?? []).some(mine(e))));
+  if (!events.length) return null;
+  const out: Record<string, Groups | undefined> = { ...hooks };
+  for (const e of events) {
+    const rest = hooks[e]!.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !mine(e)(h)) })).filter((g) => g.hooks.length);
+    out[e] = rest.length ? rest : undefined;
+  }
+  return { ...settings, hooks: Object.values(out).some(Boolean) ? out : undefined };
 }
 
-/** What the install and a dry run say about the PreToolUse hook (`guardHook`). */
-const GUARD_HOOK = "the PreToolUse hook: a bypass of a flow command (gh issue view of a task, gh run watch) denied with the flow's command";
+/**
+ * The hooks of a previous version in `~/.claude/settings.json` (OLD_HOOKS) go: the plugin runs them. The user's own
+ * settings and hooks stay; no file, not JSON or none of ours — nothing to do, the install writes nothing there.
+ */
+function oldHooks(home: string) {
+  const file = path.join(home, ".claude/settings.json");
+  const settings = readSettings(file);
+  const out = settings && withoutHooks(settings, OLD_HOOKS);
+  if (!out) return;
+  if (dry) return void change("~", file, { note: OLD_HOOKS_NOTE });
+  writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
+  note(`.claude/settings.json — removed ${OLD_HOOKS_NOTE}`);
+}
 
 /** What the install and a dry run say about the cloud session's hook of a previous version (`oldCloudHook`). */
 const OLD_CLOUD_HOOK = "the cloud session's SessionStart hook of a previous version: the flow doesn't support cloud sessions";
@@ -1058,25 +1123,15 @@ const OLD_CLOUD_HOOK = "the cloud session's SessionStart hook of a previous vers
 /**
  * The cloud session's SessionStart hook a previous version put into a project's and an Elves clone's
  * `.claude/settings.json` (#610) goes: the flow doesn't support cloud sessions (#837). Known as before — by the cloud
- * guard and the flow check in its command. The user's own settings and hooks stay; a `SessionStart` or `hooks` left
- * empty goes, a file left `{}` is removed, and an empty `.claude/` with it; the change goes into the commit with the
- * flow. No file, not JSON or no such hook — nothing to do.
+ * guard and the flow check in its command. The user's own settings and hooks stay (`withoutHooks`); a file left `{}`
+ * is removed, and an empty `.claude/` with it; the change goes into the commit with the flow. No file, not JSON or no
+ * such hook — nothing to do.
  */
 function oldCloudHook(root: string) {
   const file = path.join(root, PROJECT_SETTINGS);
-  type Hooks = Record<string, { hooks?: { command?: unknown }[] }[] | undefined>;
-  let settings: { hooks?: Hooks } & Record<string, unknown>;
-  try {
-    settings = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return;
-  }
-  const ours = ({ command }: { command?: unknown }) => typeof command === "string" && command.includes("CLAUDE_CODE_REMOTE") && command.includes("check --hook");
-  const groups = settings?.hooks?.SessionStart;
-  if (!Array.isArray(groups) || !groups.some((g) => (g.hooks ?? []).some(ours))) return;
-  const rest = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ours(h)) })).filter((g) => g.hooks.length);
-  const hooks: Hooks = { ...settings.hooks, SessionStart: rest.length ? rest : undefined };
-  const out = { ...settings, hooks: Object.values(hooks).some(Boolean) ? hooks : undefined };
+  const settings = readSettings(file);
+  const out = settings && withoutHooks(settings, { SessionStart: (c) => c.includes("CLAUDE_CODE_REMOTE") && c.includes("check --hook") });
+  if (!out) return;
   if (dry) return void change(isEmpty(out) ? "-" : "~", file, { note: OLD_CLOUD_HOOK });
   putSettings(file, out);
   touch(PROJECT_SETTINGS);
@@ -1716,22 +1771,27 @@ function installCommand(src: string, home: string, linkMode: boolean) {
 }
 
 /**
- * The machine (#557): the canon `~/.agents/elves/` — a copy or, with `--link`, a symlink to the clone — with Claude
- * Code's rules `~/.claude/rules/elves*.md` (the same `installRules` and `claudeRules` as in a project), skills, the `elves`
- * command in the terminal (`installCommand`) and the hook; other agents' rule files of a previous version go
- * (`oldAgentRules`). Claude Code is on the machine — `~/.claude` or `claude` on PATH.
+ * The machine (#557): Elves in `~/.agents/elves/` — a copy or, with `--link`, a symlink to the clone — with Claude
+ * Code's rules `~/.claude/rules/elves*.md` (`installRules`, `claudeRules`), the skills' links, the plugin's link
+ * (`pluginLink`) and the `elves` command in the terminal (`installCommand`); what a previous version put go — other
+ * agents' rule files (`oldAgentRules`), the skill links of `~/.claude/skills` (`oldSkillLinks`) and the hooks of
+ * `~/.claude/settings.json` (`oldHooks`). The plugin's link comes before them: the sandbox refuses it — the previous
+ * links and hooks still work. Claude Code is on the machine — `~/.claude` or `claude` on PATH.
  */
 function installGlobal(src: string, linkMode: boolean) {
   const home = os.homedir();
   const has = (dir: string, cmd = "") => existsSync(path.join(home, dir)) || (cmd !== "" && onPath(cmd));
   const claude = has(".claude", "claude");
+  const before = readManifest(home).skills ?? [];
   installRules(src, home, linkMode);
-  installSkills(src, home, linkMode, claude);
+  const skills = installSkills(src, home, linkMode);
   oldAgentRules(home);
 
   if (claude) {
     claudeRules(src, home);
-    claudeHook(home);
+    pluginLink(src, home, linkMode);
+    oldSkillLinks(home, [...new Set([...before, ...skills])]);
+    oldHooks(home);
     // install.sh installed ~/.claude/CLAUDE.md as a symlink to claude/CLAUDE.md, and that one imported AGENTS.md
     const old = path.join(home, ".claude/CLAUDE.md");
     if (lstat(old)?.isSymbolicLink() && readlinkSync(old).endsWith(path.join("claude", "CLAUDE.md"))) {
@@ -1758,7 +1818,7 @@ function installGlobal(src: string, linkMode: boolean) {
       note(`${CONFIG} → ${priv}`);
     }
   }
-  // the last step: an agent's sandbox may refuse a directory of PATH — the canon, the skills and the hook are in place
+  // the last step: an agent's sandbox may refuse a directory of PATH — the canon and the plugin are in place
   installCommand(src, home, linkMode);
 }
 
@@ -2109,8 +2169,8 @@ function check(global: boolean): Result {
 
 /**
  * A machine with `--link`: the clone against `origin/main` after `git fetch` — flow files the clone doesn't have yet
- * (the canon of the machine is the clone's: rules, references, skills), and missing links (a new skill, the rules, the
- * hook). Commits without flow files aren't falling behind.
+ * (the canon of the machine is the clone's: rules, references, skills, the plugin), and missing links (a new skill, the rules, the
+ * plugin link). Commits without flow files aren't falling behind.
  */
 function checkLink(home: string, clone: string): Result {
   const where = `on the machine (clone ${clone})`;
@@ -2453,7 +2513,7 @@ function hook(failed?: unknown) {
   const resume = resumeLines();
   if (!shown.length && !resume.length) return 0;
   const tail = [];
-  // the machine's update touches only ~/.agents and the hook — the session does it; a project's — a few lines in the
+  // the machine's update touches only ~/.agents and the plugin's link — the session does it; a project's — a few lines in the
   // branch of the session's task
   if (machine?.behind) tail.push("The machine is behind — update -g, tell the user what changed (update lists it), re-read what was updated.");
   if (project?.behind) tail.push("The project's flow is behind — update in the session's task: it bumps the package version in package.json and the lockfile; tell the user what changed, commit it with the task.");
@@ -2752,7 +2812,10 @@ function pack(tag: string | undefined): number {
   const baked = [...walk(dist).entries()].filter(([, file]) => readFileSync(file, "utf8").includes(SRC)).map(([rel]) => `dist/${rel}`);
   if (baked.length) return warn(`pack: ${baked.join(", ")} — the build machine's path ${SRC} is baked in: the package would lead into nowhere`), 2;
   writeFileSync(file, JSON.stringify({ ...pkg, version, gitHead: git(SRC, "rev-parse", "HEAD") }, null, 2) + "\n");
-  note(`${PACKAGE}@${version} — release ${tag}: dist/ ← ${entries.map((e) => e.src).join(", ")}; next: npm publish`);
+  // the plugin is the release too: its version in Claude Code (`/plugin`) — the release's, the machine's copy takes it
+  const plugin = path.join(SRC, PLUGIN_MANIFEST);
+  writeFileSync(plugin, JSON.stringify({ ...JSON.parse(readFileSync(plugin, "utf8")), version }, null, 2) + "\n");
+  note(`${PACKAGE}@${version} — release ${tag}: dist/ ← ${entries.map((e) => e.src).join(", ")}, ${PLUGIN_MANIFEST} version; next: npm publish`);
   return 0;
 }
 
