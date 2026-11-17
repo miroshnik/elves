@@ -40,7 +40,8 @@ afterAll(outsideGit);
 function task(f: FakeGitHub, args: string[], repo = REPO, io: Partial<Io> = {}) {
   const out: string[] = [];
   const err: string[] = [];
-  const code = main(["task", ...args, "--repo", repo], { gh: f.gh, out: (l) => out.push(l), err: (l) => err.push(l), sleep: () => void pauses++, run: silentEst, ...io, env: { ELVES_EST: OUTSIDE_EST, ...io.env } });
+  // каталог конфигурации — временный, если тест не дал свой: метки finish и premerge (#842) и пины — не из ~/.config/elves
+  const code = main(["task", ...args, "--repo", repo], { gh: f.gh, out: (l) => out.push(l), err: (l) => err.push(l), sleep: () => void pauses++, run: silentEst, ...io, env: { ELVES_EST: OUTSIDE_EST, ELVES_CONFIG_DIR: scratch(), ...io.env } });
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
 const byOp = (f: FakeGitHub, op: string) => f.mutations.filter((m) => m.op === op).map((m) => m.input);
@@ -1047,7 +1048,8 @@ describe("task start берёт задачу одним вызовом", () => {
     const r = start(own, ["49", "--branch", "fix/49-invoice-export"]);
     expect(r.code).toBe(1);
     expect(r.out).toContain(`Questions: open 2; answered 1 — ${answerCmd(49, 2)}`);
-    expect(r.out).toContain("! open questions — #49: 2: ask the owner all of them in one message");
+    expect(r.out).toContain("! open questions — #49: 2: the answers first, then task start 49 again — the task isn't taken");
+    expect(r.out.split("\n").at(-1)).toStartWith("Next: waits for the owner — the answers to the open questions — asked in one message, each with options and a recommendation");
     expect(own.mutations).toEqual([]);
 
     const epic = new FakeGitHub(REC);
@@ -1119,11 +1121,13 @@ describe("task start берёт задачу одним вызовом", () => {
     const r = start(f, ["49", "--branch", "fix/49-invoice-export"], { env: { CLAUDECODE: "1" } });
     expect(r.code).toBe(0);
     const lines = r.out.split("\n");
-    expect(lines.slice(-4)).toEqual([
-      `Next: the session name — «#49 ${f.issue(49).title}»`,
+    // последняя строка — шаг автомата (#842): ветка задачи без коммитов — работа задачи, затем task finish
+    expect(lines.slice(-5)).toEqual([
+      `Session name: «#49 ${f.issue(49).title}»`,
       "Branch: fix/49-invoice-export",
       "Scenarios: 2 in «## Сценарии» — the future it names",
       "ToolSearch select:mcp__ccd_session_mgmt__set_session_title,mcp__ccd_pr__set_monitor,TaskStop,mcp__ccd_session_mgmt__archive_session",
+      `Next: the task's code and tests — the scenarios are their it names; the checks before a commit (elves precommit), git commit; then ${RUN}task finish 49 --repo miroshnik/elves`,
     ]);
     expect(r.est).toEqual([]);
 
@@ -1141,12 +1145,18 @@ describe("task start берёт задачу одним вызовом", () => {
     );
     const own = new FakeGitHub(REC);
     own.issue(49).body = `${BODY}\n1. ✅ Формат? **Ответ:** PDF.\n2. Кодировка?\n`;
-    expect(start(own, ["49", "--branch", "fix/49-invoice-export"]).out).toContain(`(auto mode — by the recommendation: ${RUN}task answer 49 2 '<answer>' --auto --repo miroshnik/elves), then task start 49 again`);
+    // ответ — по режиму проекта (#842): в auto — сам агент по рекомендации, вне auto — ждёт владельца
+    const auto = worktree().work;
+    writeTree(auto, { ".agents/elves.json": '{ "language": "ru", "auto": true }\n' });
+    expect(start(own, ["49", "--branch", "fix/49-invoice-export"], { cwd: auto }).out.split("\n").at(-1)).toBe(
+      `Next: each open question answered by its recommendation — ${RUN}task answer 49 2 '<answer>' --auto --repo miroshnik/elves; one without a clear recommendation — the owner's`,
+    );
+    expect(start(own, ["49", "--branch", "fix/49-invoice-export"]).out).toContain(`each answer — ${RUN}task answer 49 2 '<answer>' --repo miroshnik/elves`);
     // у задачи вопросов нет — команда вопроса эпика
     const epic = new FakeGitHub(REC);
     epic.issue(47).body = BODY;
     epic.issue(45).body = "Цель эпика.\n\n## Вопросы\n\n1. Сроки?\n";
-    expect(start(epic, ["47", "--branch", "feat/47-invoice-export"]).out).toContain(`${RUN}task answer 45 1 '<answer>' --auto --repo miroshnik/elves)`);
+    expect(start(epic, ["47", "--branch", "feat/47-invoice-export"], { cwd: auto }).out).toContain(`${RUN}task answer 45 1 '<answer>' --auto --repo miroshnik/elves;`);
   });
 
   it("task start видит сценарии раздела «## Сценарии», пункты которого — имена в ёлочках", () => {
@@ -1219,9 +1229,12 @@ describe("task drop закрывает без выполнения и убира
     expect(r.out).toContain("+ #49 closed: duplicate of #42");
   });
 
+  // последняя строка — шаг автомата (#842): у снятой задачи шагов нет; подсказки об оценке эпика нет
   it("подзадача эпика — без подсказки пересчитать оценку эпика: оценки нет", () => {
     const f = new FakeGitHub(REC);
-    expect(task(f, ["drop", "47"]).out).not.toContain("Next:");
+    const out = task(f, ["drop", "47"]).out;
+    expect(out).not.toContain("estimate");
+    expect(out.split("\n").at(-1)).toBe("Next: none — the task has no steps left");
   });
 
   it("уже закрыта без выполнения, но в проекте — только убирает из проекта", () => {
@@ -1294,7 +1307,8 @@ describe("task show печатает задачу одним выводом", ()
     f.numbers[47] = { "Оценка, ч": 0.5 };
     f.blockedBy[47] = [49, 46];
     f.prs[80] = { files: [], closes: [47], head: "feat/47-task", base: "main", model: null, checks: { tests: "SUCCESS", "spec-publish": "SKIPPED", e2e: "IN_PROGRESS", lint: "FAILURE" } };
-    const r = task(f, ["show", "47"]);
+    // вне чекаута и без auto: последняя строка — шаг автомата (#842), ответы владельца
+    const r = task(f, ["show", "47"], REPO, { cwd: elsewhere() });
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(r.out.split("\n")).toEqual([
@@ -1311,6 +1325,7 @@ describe("task show печатает задачу одним выводом", ()
       "Epic #45 comments: none",
       "",
       ...BODY.trimEnd().split("\n"),
+      `Next: waits for the owner — the answers to the open questions — asked in one message, each with options and a recommendation; each answer — ${RUN}task answer 47 2 '<answer>' --repo miroshnik/elves`,
     ]);
     expect(f.mutations).toHaveLength(before);
   });
@@ -1324,7 +1339,7 @@ describe("task show печатает задачу одним выводом", ()
     f.issue(47).body = "Что сделать.\n";
     f.comments[47] = [{ body: "Кодировку берём из файла.\r\n\r\nПример — во вложении.", url: "c1", author: "anna", createdAt: "2026-10-19T08:05:41Z" }];
     f.comments[45] = [{ body: "Сроки — к релизу.", url: "c2" }];
-    const lines = task(f, ["show", "47"]).out.split("\n");
+    const lines = task(f, ["show", "47"], REPO, { cwd: elsewhere() }).out.split("\n");
     expect(lines.slice(lines.indexOf("Questions: none"))).toEqual([
       "Questions: none",
       "Comments: 1",
@@ -1337,6 +1352,7 @@ describe("task show печатает задачу одним выводом", ()
       "  Сроки — к релизу.",
       "",
       "Что сделать.",
+      `Next: ${RUN}task start 47 --branch '<type>/47-<slug>' --repo miroshnik/elves`,
     ]);
   });
 
@@ -1492,11 +1508,16 @@ describe("task answer ставит ответ у вопроса задачи", (
   it("`task answer` ставит ✅ и ответ у вопроса, нумерация не меняется", () => {
     const f = new FakeGitHub(REC);
     f.issue(47).body = BODY;
-    const r = task(f, ["answer", "47", "2", "UTF-8."]);
+    const r = task(f, ["answer", "47", "2", "UTF-8."], REPO, { cwd: elsewhere() });
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(bodyOf(f)).toBe(BODY.replace("2. Кодировка?", "2. ✅ Кодировка? **Ответ:** UTF-8."));
-    expect(r.out.split("\n")).toEqual(["+ #47: question 2 — ✅ and the answer in the description", "○ #47: open questions left: 3"]);
+    // последняя строка — шаг автомата (#842) по записанному описанию: следующий открытый вопрос
+    expect(r.out.split("\n")).toEqual([
+      "+ #47: question 2 — ✅ and the answer in the description",
+      "○ #47: open questions left: 3",
+      `Next: waits for the owner — the answers to the open questions — asked in one message, each with options and a recommendation; each answer — ${RUN}task answer 47 3 '<answer>' --repo miroshnik/elves`,
+    ]);
     expect(byOp(f, "RemoveLabels")).toEqual([]);
   });
 
@@ -1510,11 +1531,12 @@ describe("task answer ставит ответ у вопроса задачи", (
   it("ответ на последний открытый вопрос снимает метку вопросов", () => {
     const f = new FakeGitHub(REC);
     f.issue(42).body = "## Вопросы\n\n1. ✅ Формат? **Ответ:** CSV.\n2. Кодировка?\n";
-    const r = task(f, ["answer", "42", "2", "UTF-8."]);
+    const r = task(f, ["answer", "42", "2", "UTF-8."], REPO, { cwd: elsewhere() });
     expect(r.code).toBe(0);
     expect(byOp(f, "RemoveLabels")).toEqual([{ labelableId: f.issue(42).id, labelIds: ["LA_вопросы"] }]);
     expect(f.issue(42).labels.nodes).toEqual([]);
-    expect(r.out.split("\n").at(-1)).toBe("+ #42: label «вопросы» removed — no open questions left");
+    // вопросов не осталось — следующий шаг: взять задачу
+    expect(r.out.split("\n").slice(-2)).toEqual(["+ #42: label «вопросы» removed — no open questions left", `Next: ${RUN}task start 42 --branch '<type>/42-<slug>' --repo miroshnik/elves`]);
   });
 
   // подпись после `---` в конце описания (#603) — не строка последнего вопроса: ответ встаёт в вопрос, подпись остаётся последней
@@ -1522,11 +1544,11 @@ describe("task answer ставит ответ у вопроса задачи", (
     const f = new FakeGitHub(REC);
     const body = `Что сделать.\n\n## Вопросы\n\n1. Кодировка?\n2. Разделитель?\n\n${SIGNATURE}`;
     f.issue(47).body = body;
-    const r = task(f, ["answer", "47", "2", "запятая", "--auto"]);
+    const r = task(f, ["answer", "47", "2", "запятая", "--auto"], REPO, { cwd: elsewhere() });
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(bodyOf(f)).toBe(body.replace("2. Разделитель?", "2. ✅ авто Разделитель? **Ответ:** запятая"));
-    expect(r.out.split("\n")).toEqual(["+ #47: question 2 — ✅ and the answer in the description", "○ #47: open questions left: 1"]);
+    expect(r.out.split("\n").slice(0, 2)).toEqual(["+ #47: question 2 — ✅ and the answer in the description", "○ #47: open questions left: 1"]);
   });
 
   it("`task answer --auto` помечает ответ «✅ авто»", () => {
@@ -1563,7 +1585,7 @@ describe("task edit правит описание задачи одним выз
   const edit = (args: string[], body = BODY) => {
     const f = new FakeGitHub(REC);
     f.issue(47).body = body;
-    return { f, r: task(f, ["edit", "47", ...args]) };
+    return { f, r: task(f, ["edit", "47", ...args], REPO, { cwd: elsewhere() }) };
   };
 
   it("task edit заменяет текст, который встречается в описании один раз", () => {
@@ -1572,7 +1594,8 @@ describe("task edit правит описание задачи одним выз
     expect(r.code).toBe(0);
     expect(bodyOf(f)).toBe(BODY.replace("Экспорт счетов.", "Экспорт счетов клиенту."));
     expect(byOp(f, "UpdateIssue")).toHaveLength(1);
-    expect(r.out.split("\n")).toEqual(["+ #47: description — 1 edit: replaced «Экспорт счетов.»"]);
+    // последняя строка — шаг автомата (#842) по записанному описанию
+    expect(r.out.split("\n")).toEqual(["+ #47: description — 1 edit: replaced «Экспорт счетов.»", `Next: ${RUN}task start 47 --branch '<type>/47-<slug>' --repo miroshnik/elves`]);
   });
 
   describe("task edit отказывает, если текст не найден или встречается дважды, и ничего не меняет", () => {
@@ -1599,7 +1622,7 @@ describe("task edit правит описание задачи одним выз
     expect(bodyOf(f)).toBe(
       BODY.replace("- [ ] PDF-выгрузка\n- [ ] CSV-выгрузка\n", "- [x] PDF-выгрузка\n- [ ] CSV-выгрузка\n- [ ] XML-выгрузка\n").replace("1. выгрузка в PDF\n", "1. выгрузка в PDF\n2. выгрузка в CSV\n"),
     );
-    expect(r.out.split("\n")).toEqual(["+ #47: description — 3 edits: added to «## Что сделать», added to «## Сценарии», checked «PDF»"]);
+    expect(r.out.split("\n")[0]).toBe("+ #47: description — 3 edits: added to «## Что сделать», added to «## Сценарии», checked «PDF»");
   });
 
   it("task edit --add в пустой раздел вопросов нумерует вопрос с 1", () => {
@@ -2043,7 +2066,7 @@ describe("task close закрывает задачу одной командой
     expect(r.out).toContain(FACT);
     expect(r.out).toContain("+ #49: Status «Готово»");
     // у задачи нет эпика — актуализировать нечего, следующий шаг — конец сессии
-    expect(r.out.split("\n").at(-1)).toStartWith("Next: the last line of the answer is one of three");
+    expect(r.out.split("\n").at(-1)).toStartWith("Next: none — the task's steps are over; the last line of the answer is one of three");
   });
 
   /** Итог актуализации эпика #45 после задачи — комментарий субагента к эпику. */
@@ -2079,7 +2102,7 @@ describe("task close закрывает задачу одной командой
     const r = task(f, ["close", "46", "--no-git"], REPO, { run: est([]) });
     expect(r.code).toBe(0);
     expect(statusSet(f)).toEqual([[46, "Готово"]]);
-    expect(r.out.split("\n").at(-1)).toStartWith("Next: the last line of the answer is one of three");
+    expect(r.out.split("\n").at(-1)).toStartWith("Next: none — the task's steps are over; the last line of the answer is one of three");
   });
 
   /**
@@ -2092,7 +2115,7 @@ describe("task close закрывает задачу одной командой
     mergedPr(f, 47);
     const last = task(f, ["close", "47", "--no-git"], REPO, { run: est([]) }).out.split("\n").at(-1)!;
     expect(last).toContain(
-      "Next: the last line of the answer is one of three: «Всё сделано. Сессию можно закрывать.»; " +
+      "Next: none — the task's steps are over; the last line of the answer is one of three: «Всё сделано. Сессию можно закрывать.»; " +
         "the owner has something to decide — «Всё сделано, но есть вопросы: …» with the questions themselves, without «Всё сделано. Сессию можно закрывать.»; " +
         "something remains — «Осталось: …».",
     );
@@ -3842,11 +3865,15 @@ function release(f: FakeGitHub, work: string, config: string, calls: string[][] 
   const code = main(["batch", "release", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => err.push(l), run, cwd: work, env });
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
-/** pr premerge исполнителя — в той же сессии: маркер диспетчера называет его пачку. */
+/**
+ * pr premerge исполнителя — в той же сессии: маркер диспетчера называет его пачку. `next` — последняя строка, шаг автомата
+ * (#842); `out` — вывод до неё, вердикт.
+ */
 function premergeIn(f: FakeGitHub, work: string, config: string, pr: number) {
   const out: string[] = [];
   const code = main(["pr", "premerge", String(pr), "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run: noEst, cwd: work, env: inSession(config).env! });
-  return { code, out: out.join("\n") };
+  const next = out.at(-1)?.startsWith("Next: ") ? out.pop()! : null;
+  return { code, out: out.join("\n"), next };
 }
 const posted = (f: FakeGitHub) => f.rest.filter((r) => r.method === "POST" && r.route === `repos/${REPO}/pulls`).map((r) => r.payload);
 const pull = (n: number) => `#${n} https://github.com/${REPO}/pull/${n}`;
@@ -5468,24 +5495,24 @@ describe("task finish доводит задачу от ветки до закр�
     const { work } = onBranch();
     const r = finish(f, ["49"], { cwd: work });
     expect(r.err).toBe("");
-    expect(r.code).toBe(4);
+    expect(r.code).toBe(1);
     expect(created(f)).toEqual([{ title: "feat(github): экспорт счёта в PDF", head: "feat/49-invoice-export", base: "main", body: `${SPEC}\n\nCloses #49\n` }]);
     expect(git(work, "ls-remote", "--heads", "origin", "feat/49-invoice-export")).toStartWith(git(work, "rev-parse", "HEAD"));
     expect(r.out).toContain("PR #1 → #49: no decisions in the diff");
     expect(r.waits).toHaveLength(1);
     expect(r.waits[0]!.slice(0, 4)).toEqual(["pr", "1", "--repo", REPO]);
     expect(r.out).toContain("✅ merge: main hasn't moved since the CI of PR #1");
-    expect(r.last).toStartWith("Next: the owner's «yes» (the project is without auto) — then gh pr merge 1 --rebase — a separate call");
+    expect(r.last).toStartWith("Next: waits for the owner — the «yes» to the merge of PR #1 (the project is without auto), then gh pr merge 1 --rebase — a separate call");
   });
 
   it("повторный task finish продолжает с шага, на котором остановился", () => {
     const f = new FakeGitHub(REC);
     const { work } = onBranch();
     const first = finish(f, ["49"], { cwd: work, ci: [2] });
-    expect(first.code).toBe(5);
+    expect(first.code).toBe(1);
     expect(first.out).toContain("○ out of time (--timeout 3600) — the CI of PR #1 is still running (RESULT: TIMEOUT 3/5 done)");
     const again = finish(f, ["49"], { cwd: work });
-    expect(again.code).toBe(4);
+    expect(again.code).toBe(1);
     expect(created(f)).toHaveLength(1);
     expect(again.out).toContain("= branch feat/49-invoice-export is on origin");
     expect(again.out).toContain("= PR #1 into main: the body is current");
@@ -5504,7 +5531,7 @@ describe("task finish доводит задачу от ветки до закр�
     const r = finish(f, ["49"], { cwd: work, ci: [1] });
     expect(r.code).toBe(1);
     expect(r.out).toContain("❌ the CI of PR #1 is red — RESULT: FAIL tests");
-    expect(r.last).toContain("the root cause fixed, the checks before a commit, git commit, then ");
+    expect(r.last).toContain("the root cause fixed, the checks before a commit (elves precommit), git commit, then ");
     expect(r.out).not.toContain("gh pr merge");
     const conflict = finish(f, ["49"], { cwd: work, ci: [3] });
     expect(conflict.code).toBe(1);
@@ -5517,7 +5544,7 @@ describe("task finish доводит задачу от ветки до закр�
     f.issue(42).title = "main красный: чек tests";
     const { work } = onBranch();
     const r = finish(f, ["49"], { cwd: work });
-    expect(r.code).toBe(3);
+    expect(r.code).toBe(1);
     expect(r.out).toContain("bug on red main — #42 «main красный: чек tests»");
     expect(r.out).toContain("⛔ PR #1 isn't merged: main is red by itself");
     expect(r.out).not.toContain("gh pr merge");
@@ -5539,7 +5566,7 @@ describe("task finish доводит задачу от ветки до закр�
     const { work } = worktree();
     const config = scratch();
     const r = finish(f, ["47"], { cwd: work, config });
-    expect(r.code).toBe(4);
+    expect(r.code).toBe(1);
     expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "77"]]);
     expect(r.out).toContain("✅ the checks and the deploy of the merge of PR #77 passed");
     expect(r.out).toContain("The epic refresh's subagent — the two lines below are its whole prompt, pass them as is:");
@@ -5547,7 +5574,7 @@ describe("task finish доводит задачу от ветки до закр�
     expect(byOp(f, "CloseIssue")).toEqual([]);
     // повтор до итога: деплой не ждёт снова, второго промпта нет
     const again = finish(f, ["47"], { cwd: work, config });
-    expect(again.code).toBe(4);
+    expect(again.code).toBe(1);
     expect(again.waits).toEqual([]);
     expect(again.out).not.toContain("The epic refresh's subagent");
     expect(again.out).toContain("○ the epic refresh hasn't reported — no comment «Актуализация после #47, итог: …» on epic #45");
@@ -5557,14 +5584,14 @@ describe("task finish доводит задачу от ветки до закр�
     const f = mergedInEpic();
     const { work } = worktree();
     const config = scratch();
-    expect(finish(f, ["47"], { cwd: work, config }).code).toBe(4);
+    expect(finish(f, ["47"], { cwd: work, config }).code).toBe(1);
     reported(f, 47);
     const r = finish(f, ["47"], { cwd: work, config });
     expect(r.code).toBe(0);
     expect(byOp(f, "CloseIssue")).toEqual([{ issueId: f.issue(47).id, stateReason: "COMPLETED" }]);
     expect(statusSet(f)).toEqual([[47, "Готово"]]);
     expect(r.est.map((a) => a.slice(2, 4))).toEqual([["fact", "47"]]);
-    expect(r.last).toStartWith("Next: the last line of the answer is one of three");
+    expect(r.last).toStartWith("Next: none — the task's steps are over; the last line of the answer is one of three");
     expect(existsSync(path.join(config, "finishes", "miroshnik__elves__47.json"))).toBe(false);
   });
 
@@ -5578,7 +5605,7 @@ describe("task finish доводит задачу от ветки до закр�
     const { work } = worktree();
     const config = scratch();
     const r = finish(f, ["47"], { cwd: work, config });
-    expect(r.code).toBe(4);
+    expect(r.code).toBe(1);
     expect(r.out).toContain("○ #47 is closed by the merge of PR #77, the tail isn't over (no «Готово» with the actual) — going on");
     expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["merged", "77"]]);
     expect(r.out).toContain("The epic refresh's subagent — the two lines below are its whole prompt, pass them as is:");
@@ -5598,7 +5625,7 @@ describe("task finish доводит задачу от ветки до закр�
     f.numbers[47] = { "Оценка, ч": 0.5, "Факт, ч": 0.4 };
     const r = finish(f, ["47"], { cwd: worktree().work });
     expect(r.code).toBe(0);
-    expect(r.out).toBe("= #47 is closed — nothing to finish");
+    expect(r.out).toBe("= #47 is closed — nothing to finish\nNext: none — the task has no steps left");
     expect(r.waits).toEqual([]);
     expect(f.mutations).toEqual([]);
   });
@@ -5609,7 +5636,7 @@ describe("task finish доводит задачу от ветки до закр�
       f.closed(49, reason);
       const r = finish(f, ["49"], { cwd: worktree().work });
       expect(r.code).toBe(0);
-      expect(r.out).toBe("= #49 is closed — nothing to finish");
+      expect(r.out).toBe("= #49 is closed — nothing to finish\nNext: none — the task has no steps left");
       expect(r.waits).toEqual([]);
       expect(f.mutations).toEqual([]);
     }
@@ -5617,7 +5644,7 @@ describe("task finish доводит задачу от ветки до закр�
     const dropped = mergedInEpic();
     dropped.closed(47, "NOT_PLANNED");
     const r = finish(dropped, ["47"], { cwd: worktree().work });
-    expect(r.out).toBe("= #47 is closed — nothing to finish");
+    expect(r.out).toBe("= #47 is closed — nothing to finish\nNext: none — the task has no steps left");
     expect(r.waits).toEqual([]);
   });
 
@@ -5625,14 +5652,14 @@ describe("task finish доводит задачу от ветки до закр�
     const f = new FakeGitHub(REC);
     const { work } = onBranch();
     const short = finish(f, ["49", "--timeout", "240"], { cwd: work, ci: [2] });
-    expect(short.code).toBe(5);
+    expect(short.code).toBe(1);
     // ожидание CI — не дольше остатка вызова
     const waited = Number(short.waits[0]![short.waits[0]!.indexOf("--timeout") + 1]);
     expect(waited).toBeLessThanOrEqual(240);
     expect(waited).toBeGreaterThan(200);
     expect(short.last).toMatch(/^Next: bun --no-env-file \S+github\.ts task finish 49 --timeout 240 — it goes on from here$/);
     const none = finish(f, ["49", "--timeout", "0"], { cwd: work });
-    expect(none.code).toBe(5);
+    expect(none.code).toBe(1);
     expect(none.waits).toEqual([]);
     expect(none.out).toContain("○ out of time (--timeout 0) — PR #1 is up, its CI isn't awaited yet");
   });
@@ -5775,7 +5802,7 @@ describe("task finish доводит задачу от ветки до закр�
   it("task finish на переоткрытой задаче с невлитой веткой отправляет эту ветку и открывает её PR, а не ведёт влитый раньше PR", () => {
     const { f, work } = reopened({ closed: false });
     const r = finish(f, ["49"], { cwd: work });
-    expect(r.code).toBe(4);
+    expect(r.code).toBe(1);
     expect(created(f)).toEqual([{ title: "fix(github): переделка экспорта", head: REDO, base: "main", body: `${SPEC}\n\nCloses #49\n` }]);
     expect(git(work, "ls-remote", "--heads", "origin", REDO)).toStartWith(git(work, "rev-parse", "HEAD"));
     expect(r.waits.map((w) => w.slice(0, 2))).toEqual([["pr", "78"]]);
@@ -5784,10 +5811,10 @@ describe("task finish доводит задачу от ветки до закр�
 
   it("task finish не закрывает задачу, пока её открытый PR не влит", () => {
     const { f, work } = reopened({ closed: false });
-    expect(finish(f, ["49"], { cwd: work, ci: [2] }).code).toBe(5);
+    expect(finish(f, ["49"], { cwd: work, ci: [2] }).code).toBe(1);
     // PR #78 открыт, его CI идёт — повтор ведёт его, влитый #77 не трогает
     const again = finish(f, ["49"], { cwd: work });
-    expect(again.code).toBe(4);
+    expect(again.code).toBe(1);
     expect(again.out).toContain("= PR #78 into main: the body is current");
     expect(again.waits.map((w) => w.slice(0, 2))).toEqual([["pr", "78"]]);
     expect(byOp(f, "CloseIssue")).toEqual([]);
@@ -5795,7 +5822,7 @@ describe("task finish доводит задачу от ветки до закр�
     // задачу с открытым PR закрыли раньше — finish её переоткрывает и ведёт PR
     f.closed(49);
     const closed = finish(f, ["49"], { cwd: work });
-    expect(closed.code).toBe(4);
+    expect(closed.code).toBe(1);
     expect(closed.out).toContain("+ #49 reopened, Status «В работе»: its PR #78 is open — the task's merged PR isn't its finish");
     expect(byOp(f, "CloseIssue")).toEqual([]);
   });
@@ -5807,7 +5834,7 @@ describe("task finish доводит задачу от ветки до закр�
     expect(r.out).toContain(`+ #49 reopened, Status «В работе»: branch ${REDO} has commits that aren't in origin/main — the task's merged PR isn't its finish`);
     expect(byOp(f, "ReopenIssue")).toEqual([{ issueId: f.issue(49).id }]);
     expect(statusSet(f)).toEqual([[49, "В работе"]]);
-    expect(r.code).toBe(4);
+    expect(r.code).toBe(1);
     expect(created(f).map((p) => p.head)).toEqual([REDO]);
     // отменённая задача не переоткрывается сама — отказ с командой
     const dropped = reopened({ closed: false });
@@ -5820,7 +5847,7 @@ describe("task finish доводит задачу от ветки до закр�
 
   it("после мержа второго PR task finish ждёт выкатку его мержа и убирает его ветку", () => {
     const { f, work } = reopened({ closed: true });
-    expect(finish(f, ["49"], { cwd: work }).code).toBe(4);
+    expect(finish(f, ["49"], { cwd: work }).code).toBe(1);
     rebaseMerged(f, work, 78);
     const r = finish(f, ["49"], { cwd: work });
     expect(r.out).not.toContain("nothing to finish");
@@ -5923,5 +5950,195 @@ describe("Доска GitHub Projects — по желанию проекта: с�
     expect(dropped).not.toContain("«Готово»");
     f.closed(42);
     expect(task(f, ["show", "42"]).out.split("\n")[1]).toContain("closed · no board — «Готово» by the facts: closed as completed");
+  });
+});
+
+/**
+ * Один вход (#842): чтобы провести задачу, агент выбирал из 17 команд по таблицам «когда что звать» и помнил коды выхода
+ * — у `task finish` 0…5, у `pr premerge` 0…3. `task next` по фактам — задача, вопросы, ветка, PR и его чеки, premerge,
+ * пачка, деплой, актуализация, закрытие — печатает состояние одной строкой и ровно один шаг готовой командой; шаг
+ * владельца или диспетчера так и назван. Остальные команды задачи кончаются тем же шагом, коды — «сделано / шаг /
+ * ошибка».
+ */
+describe("task next — состояние задачи одной строкой и ровно один следующий шаг", () => {
+  /** Каталог проекта в режиме auto, не чекаут: шаги, которые вне auto ждут владельца, делает агент. */
+  function autoDir(): string {
+    const dir = scratch();
+    writeTree(dir, { ".agents/elves.json": '{ "language": "ru", "auto": true }\n' });
+    return dir;
+  }
+  function next(f: FakeGitHub, args: string[], o: { cwd?: string; config?: string } = {}) {
+    const run = githubOrigin((cmd: string, a: string[], cwd?: string) => (cmd === "bun" ? { status: 0, stdout: "", stderr: "" } : realRun(cmd, a, cwd)));
+    const r = task(f, ["next", ...args], REPO, { run, cwd: o.cwd ?? elsewhere(), env: { ELVES_CONFIG_DIR: o.config ?? scratch() } });
+    const lines = r.out.split("\n");
+    return { ...r, lines, state: lines[0]!, step: lines.at(-1)! };
+  }
+  /** Метка пройденного premerge на голове PR — как её оставляет `pr premerge` с кодом 0. */
+  const premerged = (config: string, pr: number, head = `sha${pr}`) => writeTree(config, { [`premerges/miroshnik__elves__${pr}.json`]: `${JSON.stringify({ head, at: new Date().toISOString() })}\n` });
+  /** Метки `task finish`: деплой мержа прошёл, промпт актуализации напечатан. */
+  const finished = (config: string, number: number, marks: Record<string, unknown>) => writeTree(config, { [`finishes/miroshnik__elves__${number}.json`]: `${JSON.stringify(marks)}\n` });
+
+  it("`task next` для задачи с открытыми вопросами называет вопросы и команду ответа", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = "Что сделать.\n\n## Вопросы\n\n1. ✅ Формат? **Ответ:** PDF.\n2. Кодировка?\n3. Разделитель?\n";
+    const r = next(f, ["49"], { cwd: autoDir() });
+    expect(r.err).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.lines).toEqual([
+      `#49 «${f.issue(49).title}»: open questions — #49: 2, 3`,
+      `Next: each open question answered by its recommendation — ${RUN}task answer 49 2 '<answer>' --auto --repo miroshnik/elves; one without a clear recommendation — the owner's`,
+    ]);
+    // вопрос эпика — тоже вопрос задачи
+    const epic = new FakeGitHub(REC);
+    epic.issue(47).body = "Что сделать.\n";
+    epic.issue(45).body = "## Вопросы\n\n1. Сроки?\n";
+    expect(next(epic, ["47"], { cwd: autoDir() }).state).toEndWith(": open questions — epic #45: 1");
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("`task next` для шага, который ждёт владельца, называет, чего он ждёт", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = "## Вопросы\n\n1. Кодировка?\n";
+    // вне auto ответы на вопросы — владельца
+    const asked = next(f, ["49"]);
+    expect(asked.code).toBe(1);
+    expect(asked.step).toBe(`Next: waits for the owner — the answers to the open questions — asked in one message, each with options and a recommendation; each answer — ${RUN}task answer 49 1 '<answer>' --repo miroshnik/elves`);
+    // и мерж зелёного PR — по его «да»
+    const green = new FakeGitHub(REC);
+    green.prs[80] = { files: [], closes: [49], head: "fix/49-invoice-export", base: "main", model: null, checks: { tests: "SUCCESS" } };
+    const config = scratch();
+    premerged(config, 80);
+    expect(next(green, ["49"], { config }).step).toStartWith("Next: waits for the owner — the «yes» to the merge of PR #80 (the project is without auto), then gh pr merge 80 --rebase — a separate call");
+    // эпик в работу не берут: его шаг — вопрос владельцу о диспетчере
+    const epic = next(new FakeGitHub(REC), ["45"]);
+    expect(epic.state).toEndWith(": an epic — it isn't taken into work");
+    expect(epic.step).toBe(`Next: waits for the owner — the question «run the dispatcher on epic #45?»; «yes» — ${RUN}task queue --epic 45 --repo miroshnik/elves`);
+  });
+
+  it("`task next` для ветки с коммитами без PR называет `task finish`", () => {
+    const f = new FakeGitHub(REC);
+    // не взята — шаг: взять
+    expect(next(f, ["49"]).step).toBe(`Next: ${RUN}task start 49 --branch '<type>/49-<slug>' --repo miroshnik/elves`);
+    const { work } = worktree();
+    git(work, "switch", "-q", "-c", "fix/49-invoice-export", "--no-track", "origin/main");
+    // ветка задачи без коммитов — работа задачи; номер — из ветки чекаута, без аргумента
+    const empty = next(f, [], { cwd: work });
+    expect(empty.state).toBe(`#49 «${f.issue(49).title}»: branch fix/49-invoice-export: no commits past origin/main yet`);
+    expect(empty.step).toBe(`Next: the task's code and tests — the scenarios are their it names; the checks before a commit (elves precommit), git commit; then ${RUN}task finish 49 --repo miroshnik/elves`);
+    writeFileSync(path.join(work, "README.md"), "changed\n");
+    expect(next(f, [], { cwd: work }).step).toBe(`Next: the checks before a commit (elves precommit), git commit, then ${RUN}task finish 49 --repo miroshnik/elves`);
+    git(work, "-c", "user.email=spec@example.test", "-c", "user.name=spec", "-c", "commit.gpgsign=false", "commit", "-q", "-am", "fix(github): экспорт счёта");
+    const r = next(f, [], { cwd: work });
+    expect(r.code).toBe(1);
+    expect(r.lines).toEqual([
+      `#49 «${f.issue(49).title}»: branch fix/49-invoice-export: 1 commit past origin/main, no PR`,
+      `Next: ${RUN}task finish 49 --repo miroshnik/elves in the background — it pushes the branch, opens the PR, waits for its CI and runs pr premerge`,
+    ]);
+    // ветка задачи есть, но не в этом чекауте — продолжать там, а не брать второй раз
+    const other = new FakeGitHub(REC);
+    other.branches.push("fix/49-invoice-export");
+    expect(next(other, ["49"]).step).toStartWith("Next: continue on fix/49-invoice-export — in its worktree (git worktree list)");
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("`task next` для зелёного PR называет мерж одной командой", () => {
+    const f = new FakeGitHub(REC);
+    f.prs[80] = { files: [], closes: [49], head: "fix/49-invoice-export", base: "main", model: null, checks: { tests: "IN_PROGRESS" } };
+    const cwd = autoDir();
+    const config = scratch();
+    // CI идёт — его ждёт task finish; красный — починка
+    expect(next(f, ["49"], { cwd, config }).step).toBe(`Next: ${RUN}task finish 49 --repo miroshnik/elves in the background — it waits for the CI, then runs pr premerge`);
+    f.prs[80]!.checks = { tests: "FAILURE" };
+    expect(next(f, ["49"], { cwd, config }).state).toEndWith(": PR #80 into main: CI red — tests");
+    // зелёный без premerge на его голове — premerge
+    f.prs[80]!.checks = { tests: "SUCCESS" };
+    expect(next(f, ["49"], { cwd, config }).step).toBe(`Next: ${RUN}pr premerge 80 --repo miroshnik/elves — a separate call: the checks on the merge with the base`);
+    // premerge прошёл на этой голове — мерж отдельным вызовом
+    premerged(config, 80);
+    const r = next(f, ["49"], { cwd, config });
+    expect(r.code).toBe(1);
+    expect(r.lines).toEqual([
+      `#49 «${f.issue(49).title}»: PR #80 into main: CI green, pr premerge passed on its head`,
+      `Next: gh pr merge 80 --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${RUN}task finish 49 --repo miroshnik/elves in the background — it waits for the deploy`,
+    ]);
+    // голова сменилась после premerge — premerge снова; база ушла после него — тоже
+    premerged(config, 80, "sha-old");
+    expect(next(f, ["49"], { cwd, config }).step).toStartWith(`Next: ${RUN}pr premerge 80`);
+    premerged(config, 80);
+    f.mainMovedAt = new Date(Date.now() + 60_000).toISOString();
+    expect(next(f, ["49"], { cwd, config }).step).toStartWith(`Next: ${RUN}pr premerge 80`);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("`task next` для влитого PR называет ожидание деплоя и закрытие", () => {
+    const f = new FakeGitHub(REC);
+    f.prs[77] = { files: [], closes: [49], head: "fix/49-x", base: "main", model: null, merged: true };
+    const config = scratch();
+    const r = next(f, ["49"], { config });
+    expect(r.code).toBe(1);
+    expect(r.lines).toEqual([
+      `#49 «${f.issue(49).title}»: PR #77 merged into main, its deploy isn't awaited yet`,
+      `Next: ${RUN}task finish 49 --repo miroshnik/elves in the background — it waits for the deploy of the merge, then the epic refresh and task close`,
+    ]);
+    // деплой прошёл — закрытие
+    finished(config, 49, { deployed: 77 });
+    expect(next(f, ["49"], { config }).step).toBe(`Next: ${RUN}task close 49 --repo miroshnik/elves`);
+    // в эпике другие открытые задачи — сначала актуализация, её итог, затем закрытие
+    const epic = new FakeGitHub(REC);
+    Object.assign(epic.issue(46), { state: "OPEN", stateReason: null });
+    epic.issue(45).subIssues.nodes.find((x: { number: number }) => x.number === 46).state = "OPEN";
+    epic.prs[77] = { files: [], closes: [47], head: "feat/47-x", base: "main", model: null, merged: true };
+    const ec = scratch();
+    finished(ec, 47, { deployed: 77 });
+    expect(next(epic, ["47"], { config: ec }).step).toBe(`Next: ${RUN}task finish 47 --repo miroshnik/elves — it does the epic refresh's mechanics and prints its subagent's prompt`);
+    finished(ec, 47, { deployed: 77, actualized: "2026-11-17T10:00:00Z" });
+    expect(next(epic, ["47"], { config: ec }).step).toStartWith("Next: the subagent is at work — wait for its answer, then ");
+    epic.comments[45] = [{ body: "Актуализация после #47, итог: блок актуален", url: "c1" }];
+    expect(next(epic, ["47"], { config: ec }).step).toBe(`Next: ${RUN}task close 47 --repo miroshnik/elves`);
+    // влит в ветку пачки — дальше выпуск диспетчера: для задачи шагов нет, код 0
+    const batch = new FakeGitHub(REC);
+    batch.prs[80] = { files: [], closes: [], body: "Closes #49", head: "fix/49-invoice-export", base: "batch/2026-10-26-1", model: null, merged: true };
+    const b = next(batch, ["49"]);
+    expect(b.code).toBe(0);
+    expect(b.step).toBe("Next: waits for the dispatcher — the release of batch/2026-10-26-1 (batch release): the CI, the deploy, the epic refresh and task close are the release's — nothing more for the task");
+  });
+
+  it("`task next` для закрытой задачи говорит, что шагов нет", () => {
+    const f = new FakeGitHub(REC);
+    f.prs[77] = { files: [], closes: [47], head: "feat/47-x", base: "main", model: null, merged: true };
+    f.closed(47);
+    f.status(47, "Готово");
+    f.numbers[47] = { "Факт, ч": 0.4 };
+    const r = next(f, ["47"]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.lines).toEqual([`#47 «${f.issue(47).title}»: closed, its tail is over — done, the actual written`, "Next: none — the task has no steps left"]);
+    f.closed(49, "NOT_PLANNED");
+    expect(next(f, ["49"]).lines).toEqual([`#49 «${f.issue(49).title}»: closed as not planned — not done`, "Next: none — the task has no steps left"]);
+    // закрыта мержем, хвост не закончен (нет «Готово» и факта) — его шаги
+    const tail = new FakeGitHub(REC);
+    tail.prs[77] = { files: [], closes: [49], head: "fix/49-x", base: "main", model: null, merged: true };
+    tail.closed(49);
+    expect(next(tail, ["49"]).state).toEndWith(": closed by the merge of PR #77 into main, its deploy isn't awaited yet");
+    // задачи нет — ошибка, а не шаг
+    const none = next(f, ["999"]);
+    expect(none.code).toBe(2);
+    expect(none.err).toContain("no issue #999 in miroshnik/elves");
+  });
+
+  it("Каждая команда задачи заканчивается строкой `Next:` от того же автомата", () => {
+    const f = new FakeGitHub(REC);
+    f.issue(49).body = "Что сделать.\n\n## Сценарии\n\n1. экспорт в PDF\n\n## Вопросы\n\n1. Кодировка?\n2. Разделитель?\n";
+    const cwd = elsewhere();
+    const step = () => next(f, ["49"], { cwd }).step;
+    const last = (args: string[]) => task(f, args, REPO, { cwd }).out.split("\n").at(-1);
+    expect(last(["show", "49"])).toBe(step());
+    expect(last(["answer", "49", "1", "UTF-8"])).toBe(step());
+    expect(last(["edit", "49", "--add", "## Сценарии", "экспорт пустого счёта"])).toBe(step());
+    expect(last(["answer", "49", "2", "запятая"])).toBe(step());
+    expect(step()).toBe(`Next: ${RUN}task start 49 --branch '<type>/49-<slug>' --repo miroshnik/elves`);
+    expect(last(["status", "49", "Бэклог"])).toBe(step());
+    // команды без строки Next нет: каждая кончается шагом автомата
+    for (const args of [["show", "47"], ["status", "47", "В работе"], ["drop", "42"]]) expect(last(args)).toStartWith("Next: ");
   });
 });

@@ -51,7 +51,7 @@ help() {
       "${exits[@]}" "" "Examples:" "  wait-ci merged 57" "  wait-ci merged 57 --context Vercel" ;;
     issue) printf '%s\n' \
       "wait-ci issue <N> [--repo owner/repo] [--interval 60] [--timeout 7200]" "" \
-      "Waits for an issue to close — the bug on a red main (github pr premerge, code 3): PASS when it is closed; no such" \
+      "Waits for an issue to close — the bug on a red main (github pr premerge, main red): PASS when it is closed; no such" \
       "issue — ERROR." \
       "${exits[@]}" "" "Examples:" "  wait-ci issue 61" ;;
     *) printf '%s\n' \

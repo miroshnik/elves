@@ -129,7 +129,10 @@ describe("`task edit --add` — раздел по имени без «##», не
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(bodyOf(f)).toBe(BODY.replace("- выгрузка в PDF\n", "- выгрузка в PDF\n- выгрузка в CSV\n"));
-    expect(r.out).toBe("+ #47: description — 1 edit: added to «## Сценарии»");
+    // последняя строка — шаг автомата (#842)
+    const lines = r.out.split("\n");
+    expect(lines[0]).toBe("+ #47: description — 1 edit: added to «## Сценарии»");
+    expect(lines.slice(1).map((l) => l.slice(0, 6))).toEqual(["Next: "]);
   });
 
   it("`task edit --add` в раздел канона, которого в описании нет, создаёт его в конце описания", () => {
@@ -138,7 +141,7 @@ describe("`task edit --add` — раздел по имени без «##», не
     expect(r.code).toBe(0);
     // первый вопрос — «1.»: task answer ищет вопрос по номеру
     expect(bodyOf(f)).toBe("Экспорт счетов.\n\n## Что сделать\n\n- [ ] PDF\n\n## Сценарии\n\n- выгрузка в PDF\n\n## Вопросы\n\n1. Формат?\n");
-    expect(r.out).toBe("+ #47: description — 2 edits: added to «## Сценарии» — a new section, added to «## Вопросы» — a new section");
+    expect(r.out.split("\n")[0]).toBe("+ #47: description — 2 edits: added to «## Сценарии» — a new section, added to «## Вопросы» — a new section");
     // подпись после `---` в конце описания остаётся последней
     const signed = edit(`Что сделать.\n\n${SIGNATURE}`, ["--add", "## Сценарии", "выгрузка в PDF"]);
     expect(bodyOf(signed.f)).toBe(`Что сделать.\n\n## Сценарии\n\n- выгрузка в PDF\n\n${SIGNATURE}`);

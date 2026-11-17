@@ -405,7 +405,7 @@ const RECENT_PRS = 50;
  */
 export const HEAD_CHECKS = `commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion databaseId checkSuite { app { databaseId } } } ... on StatusContext { context state } } } } } } }`;
 /** A PR for task show: its state and the checks of its head. */
-const PR_SHOW = `number state merged isDraft headRefName
+const PR_SHOW = `number state merged isDraft headRefName headRefOid baseRefName
         ${HEAD_CHECKS}`;
 /** How many of an issue's latest comments task show prints (#651): GraphQL gives at most 100 per page. */
 const COMMENTS_SHOWN = 100;
@@ -2337,7 +2337,14 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   return 0;
 }
 
-export function cmdTaskStatus(io: Io, slug: string, number: number, name: string, branch?: string): number {
+export function cmdTaskStatus(io: Io, slug: string, number: number, name: string, branch?: string, next = true): number {
+  const code = setTaskStatus(io, slug, number, name, branch);
+  // the command's last line — the automaton's step (#842); task start prints its own after its lines
+  if (next) nextOfTask(io, slug, number);
+  return code;
+}
+
+function setTaskStatus(io: Io, slug: string, number: number, name: string, branch?: string): number {
   // status: a name in any dictionary language; checked before reading the project; the option is in the board's language
   if (!statusAliases()[name.toLowerCase()]) throw new GhError(`status: ${statusOptions().join(", ")}`);
   if (branch !== undefined && statusAliases()[name.toLowerCase()] !== N.status.inProgress) throw new GhError(`--branch — only with ${q(N.status.inProgress)}: the branch is renamed when the task is taken into work`);
@@ -2430,10 +2437,11 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   for (const line of t.lines) io.out(line);
   const asked = [t.open.length ? `#${number}: ${t.open.join(", ")}` : "", t.epicOpen?.ks.length ? `epic #${t.epicOpen.number}: ${t.epicOpen.ks.join(", ")}` : ""].filter(Boolean);
   if (asked.length) {
-    // the answer's command ready — of the task's first open question, otherwise of the epic's (#841)
-    const [n, k] = t.open.length ? [number, t.open[0]!] : [t.epicOpen!.number, t.epicOpen!.ks[0]!];
-    io.out(`! open questions — ${asked.join("; ")}: ask the owner all of them in one message, with options and a recommendation (auto mode — by the recommendation: ${ready(["task", "answer", n, k, "<answer>", "--auto", "--repo", slug])}), then task start ${number} again — the task isn't taken`);
-    return 1;
+    // the answer's command ready — of the task's first open question, otherwise of the epic's (#841); the step — the
+    // automaton's (#842)
+    const at = t.open.length ? { number, k: t.open[0]! } : { number: t.epicOpen!.number, k: t.epicOpen!.ks[0]! };
+    io.out(`! open questions — ${asked.join("; ")}: the answers first, then task start ${number} again — the task isn't taken`);
+    return endWith(io, STEP.questions(readyIn(slug), "", at, locale.autoProject(io.cwd ?? process.cwd())), 1);
   }
   const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const mine = (head: string) => head !== "" && head === current;
@@ -2444,12 +2452,12 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   if (resume && !parallel.length && !here) throw new GhError(`--resume: #${number} has no branch or open PR to continue — a first take: task start ${number} --branch <type>/${number}-<slug>`);
   if (parallel.length && !resume) {
     io.out(`! #${number} is in work elsewhere — ${parallel.join(", ")}: continue that work or wait for its merge — the task isn't taken a second time`);
-    return 1;
+    return endWith(io, { state: "", next: `continue that work — in its checkout (git worktree list) — or wait for its merge`, who: "agent" }, 1);
   }
-  const code = cmdTaskStatus(io, slug, number, N.status.inProgress, branch);
+  const code = cmdTaskStatus(io, slug, number, N.status.inProgress, branch, false);
   const now = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const scenarios = locale.scenarioItems(t.body);
-  io.out(`Next: the session name — «#${number} ${t.title}»`);
+  io.out(`Session name: «#${number} ${t.title}»`);
   if (resume && !here) io.out(`Branch: continue ${parallel.join(", ")} — checked out in another worktree (git worktree list): work in that one; in none — git switch it here`);
   else io.out(now ? `Branch: ${now}` : `Branch: none — the task branch from a fresh origin/<base>${branch ? `: ${branch}` : ""}`);
   io.out(
@@ -2458,6 +2466,7 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
       : `○ no scenarios in ${q(N.sections.scenarios)} — a code task gets them in the description before code: ${ready(["task", "edit", number, "--add", N.sections.scenarios, "<scenario>", "--repo", slug])}`,
   );
   if (io.env["CLAUDECODE"] === "1") io.out(`ToolSearch select:${APP_TOOLS.join(",")}`);
+  nextOfTask(io, slug, number);
   return code;
 }
 
@@ -2478,7 +2487,7 @@ export function cmdTaskDrop(io: Io, slug: string, number: number, duplicateOf?: 
     io.out(`+ #${number} removed from project ${q(ctx.board!.project.title)}`);
   }
   if (!ctx.board) io.out(noBoard(number, "nothing to remove from a board"));
-  return 0;
+  return endWith(io, STEP.closed(""), 0);
 }
 
 // ----------------------------------------------------------------------------
@@ -2492,6 +2501,9 @@ interface ShownPr {
   merged: boolean;
   draft: boolean;
   head: string;
+  /** The head commit and the base branch — what `task next` reads a PR's step by (#842). */
+  sha: string;
+  base: string;
   checks: { green: number; pending: string[]; red: string[] } | null;
   why?: string | undefined;
 }
@@ -2500,7 +2512,17 @@ interface ShownPr {
 function shownPr(p: Any, why?: string): ShownPr {
   const by = [...checkStates(rollupOf(p))];
   const of = (...states: CheckBucket[]) => by.filter(([, v]) => states.includes(v)).map(([k]) => k);
-  return { number: p.number, state: p.state ?? "", merged: Boolean(p.merged), draft: Boolean(p.isDraft), head: p.headRefName ?? "", checks: by.length ? { green: of("pass", "skipping").length, pending: of("pending"), red: of("cancel", "fail") } : null, why };
+  return {
+    number: p.number,
+    state: p.state ?? "",
+    merged: Boolean(p.merged),
+    draft: Boolean(p.isDraft),
+    head: p.headRefName ?? "",
+    sha: p.headRefOid ?? "",
+    base: p.baseRefName ?? "main",
+    checks: by.length ? { green: of("pass", "skipping").length, pending: of("pending"), red: of("cancel", "fail") } : null,
+    why,
+  };
 }
 
 function prLine(p: ShownPr): string {
@@ -2636,7 +2658,10 @@ function commentLines(title: string, c: { total: number; nodes: ShownComment[] }
  * auto over it), and the description as is. Read-only.
  */
 export function cmdTaskShow(io: Io, slug: string, number: number): number {
-  for (const line of showTask(io, slug, number).lines) io.out(line);
+  const t = showTask(io, slug, number);
+  for (const line of t.lines) io.out(line);
+  // the last line — the automaton's step (#842), by the issue already read
+  io.out(nextLine(nextOf(io, slug, number, t.issue)));
   return 0;
 }
 
@@ -2650,6 +2675,8 @@ interface ShownTask {
   open: number[];
   epicOpen: { number: number; ks: number[] } | null;
   prs: ShownPr[];
+  /** The issue as `Q.IssueShow` read it — the automaton's facts (#842), not read twice. */
+  issue: Any;
 }
 
 /** The field values of the task's item in the repository's project (IssueShow) — or of its first item. */
@@ -2658,13 +2685,17 @@ function itemValues(i: Any, name: string): Any[] {
   return (items.find((it) => it.project?.title === name) ?? items[0])?.fieldValues?.nodes ?? [];
 }
 
+/** The type of an issue as `Q.IssueShow` reads it: its issue type; a personal account has none — an epic is the epic label. */
+function shownType(i: Any): string | null {
+  return i.issueType?.name ?? ((i.labels?.nodes ?? []).some((l: Any) => l.name === EPIC_LABEL) ? N.issueTypes.epic : null);
+}
+
 function showTask(io: Io, slug: string, number: number): ShownTask {
   const [owner, name] = slug.split("/");
   const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
   if (!i) throw new GhError(`no issue #${number} in ${slug}`);
   const labels: string[] = (i.labels?.nodes ?? []).map((l: Any) => l.name);
-  // a personal account has no issue types: an epic is the epic label
-  const type: string | null = i.issueType?.name ?? (labels.includes(EPIC_LABEL) ? N.issueTypes.epic : null);
+  const type = shownType(i);
   const epic = type !== null && locale.every((n) => n.issueTypes.epic).includes(type);
   const items: Any[] = i.projectItems?.nodes ?? [];
   const values = itemValues(i, name!);
@@ -2738,7 +2769,7 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   out.push(...commentLines("Comments", comments));
   if (epicComments) out.push(...commentLines(`Epic #${i.parent.number} comments`, epicComments));
   if (lines.join("").trim()) out.push("", ...lines);
-  return { lines: out, title: i.title, state: i.state, epic, body: i.body ?? "", open, epicOpen, prs };
+  return { lines: out, title: i.title, state: i.state, epic, body: i.body ?? "", open, epicOpen, prs, issue: i };
 }
 
 /** The answer's text on one line: `task answer` and the refresh's file of edits (#669). */
@@ -2780,12 +2811,14 @@ export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, a
   const { body: next, open } = answerInBody(number, i.body ?? "", k, answer, auto);
   mutate(io, { op: "UpdateIssue", input: { id: i.id, body: next } });
   io.out(`+ #${number}: question ${k} — ✅ and the answer in the description`);
-  if (open.length) return io.out(`○ #${number}: open questions left: ${open.join(", ")}`), 0;
+  if (open.length) io.out(`○ #${number}: open questions left: ${open.join(", ")}`);
   const label: Any[] = (i.labels?.nodes ?? []).filter((l: Any) => locale.every((n) => n.labels.questions).includes(l.name));
-  if (label.length) {
+  if (!open.length && label.length) {
     mutate(io, { op: "RemoveLabels", input: { labelableId: i.id, labelIds: label.map((l) => l.id) } });
     io.out(`+ #${number}: label ${label.map((l) => q(l.name)).join(", ")} removed — no open questions left`);
   }
+  // the next step by the description as written (#842): the next open question or, none left, the task's work
+  io.out(nextLine(nextOf(io, slug, number, { ...i, body: next })));
   return 0;
 }
 
@@ -2938,6 +2971,8 @@ export function cmdTaskEdit(io: Io, slug: string, number: number, edits: Edit[])
   const { body, done } = applyEdits(number, i.body ?? "", edits);
   mutate(io, { op: "UpdateIssue", input: { id: i.id, body } });
   io.out(`+ #${number}: description — ${done.length} edit${done.length > 1 ? "s" : ""}: ${done.join(", ")}`);
+  // the next step by the description as written (#842) — an added question is the next one
+  io.out(nextLine(nextOf(io, slug, number, { ...i, body })));
   return 0;
 }
 
@@ -4782,7 +4817,7 @@ function applyRefresh(io: Io, slug: string, file: string, r: { numbers: number[]
  * (`mechanics`) comes before the subagent and isn't it. The tasks shipped together (a batch's release, #676) have one
  * report on their epic — «Refresh after #N, #M, result: …»: it is each one's.
  */
-function refreshReported(epic: TaskText, number: number): boolean {
+function refreshReported(epic: { comments: { body: string }[] }, number: number): boolean {
   const SLOT = "\u0001";
   const heads = locale
     .every((n) => n.actualize.report)
@@ -4946,23 +4981,14 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
       cleanupBranches(io, number, [...shipped, ...ofTask].filter((p) => !live(p.head).length));
     }
   }
-  // three lines — in the project language (AGENTS.md, "Language")
-  io.out(
-    `Next: the last line of the answer is one of three: ${q(N.lastLine.done)}; ` +
-      `the owner has something to decide — ${q(`${N.lastLine.questions} …`)} with the questions themselves, without ${q(N.lastLine.done)}; ` +
-      `something remains — ${q(`${N.lastLine.remaining} …`)}. ` +
-      // the command doesn't read the mode (auto) or the session's background tasks: the session knows them, the step is spelled out in words
-      `In auto mode after ${q(N.lastLine.done)} — archive the session where the agent has the tool, ` +
-      `first stopping its own background tasks still running (a wait, a watcher over its output, a subagent): a live one blocks archiving; ` +
-      `after the other two lines — don't. ` +
-      `Information without a decision (an observation, a deadline, a warning) isn't a question: the line and archiving are as with ${q(N.lastLine.done)}`,
-  );
-  return 0;
+  // the marks of task finish and pr premerge (#842) — nothing is left to resume
+  rmSync(finishFile(io, slug, number), { force: true });
+  return endWith(io, STEP.over(""), 0);
 }
 
 /** `task finish` without `--timeout`: an hour — a CI run or a deploy fits into one background call. */
 export const FINISH_TIMEOUT = 3600;
-/** Less time left than this — a wait isn't started: the call returns with its state (code 5) — `task finish` again. */
+/** Less time left than this — a wait isn't started: the call returns with its state and the same command — `task finish` again. */
 const FINISH_MIN_WAIT = 30;
 /** A PR title by the canon — a conventional commit: `type(scope)!: subject`. */
 const CONVENTIONAL = /^[a-z]+(?:\([^)]*\))?!?: \S/;
@@ -5032,21 +5058,23 @@ function pushTaskBranch(io: Io, branch: string): string | null {
  * `--timeout`, prints the state and the next step, and a repeat goes on from where it stopped — the state is GitHub's and
  * git's, plus two marks (`FinishMarks`). Before the merge: the branch pushed, the PR (the title — a conventional commit:
  * `--title`, otherwise the branch type's first commit; the body — spec-diff and `Closes #N`; an existing PR — its body
- * updated), decision labels (`pr labels`), the CI wait (ci-wait), `pr premerge` — then the merge command, code 4: the
+ * updated), decision labels (`pr labels`), the CI wait (ci-wait), `pr premerge` — then the merge command: the
  * merge stays a separate `gh pr merge <N> --rebase` call — the owner's permission rule in auto mode matches it
  * (claude/CLAUDE.md). After the merge (the task is open or already closed by «Closes #N» — the tail is over only by
  * `task close`'s Status Done and actual, #761): the deploy wait on the merge SHA, the epic refresh's mechanics and its subagent's
- * prompt (code 4), `task close` once its report is on the epic. A PR into a batch branch (#676): no CI to wait for, and
- * after its merge — nothing, the release does the rest. Codes: 0 — finished (closed; merged into a batch), 1 — stopped
- * on something to fix (red CI, a conflict, a push refused, premerge red), 3 — the base is red (premerge), 4 — the agent's
- * step (the merge, the refresh subagent), 5 — out of time: the same command again.
+ * prompt, `task close` once its report is on the epic. A PR into a batch branch (#676): no CI to wait for, and
+ * after its merge — nothing, the release does the rest. Codes (#842): 0 — finished (closed; merged into a batch), 1 —
+ * stopped on a step — a fix (red CI, a conflict, a push refused, premerge red), the red base's bug, the merge, the refresh
+ * subagent, out of time (the same command again): the automaton's `Next:` line (`STEP`) tells them, not the code.
  */
 export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout: number; title?: string | undefined }): number {
   const until = Date.now() + o.timeout * 1000;
   const left = () => Math.floor((until - Date.now()) / 1000);
   const again = `bun --no-env-file ${import.meta.path} task finish ${number}${o.timeout === FINISH_TIMEOUT ? "" : ` --timeout ${o.timeout}`}`;
-  const stop = (code: number, why: string, next: string) => (io.out(why), io.out(`Next: ${next}`), code);
-  const outOfTime = (what: string) => stop(5, `○ out of time (--timeout ${o.timeout}) — ${what}`, `${again} — it goes on from here`);
+  // a stop — the why and the automaton's step (#842): code 1, the step is told by the Next line, not by the code
+  const stop = (why: string, step: NextStep) => (io.out(why), endWith(io, step, 1));
+  const fix = (next: string): NextStep => ({ state: "", next, who: "agent" });
+  const outOfTime = (what: string) => stop(`○ out of time (--timeout ${o.timeout}) — ${what}`, STEP.again("", again));
   const issue = loadIssue(io, slug, number);
   if (issue.state !== "OPEN") {
     // «Closes #N» of the PR closes the task at the merge (#761): a closed issue isn't a finished tail — task close's marks are
@@ -5054,14 +5082,14 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
     // a task reopened after its merge (#813): its open PR or its branch's unmerged work is the tail, not the merged PR
     const work = workPastMerge(io, slug, number, issue, closer);
     if (work) {
-      if (issue.stateReason !== "COMPLETED") return stop(1, `! #${number} is closed as ${issue.stateReason ?? "not planned"}, but ${work}`, `gh issue reopen ${number} --repo ${slug}, then ${again}`);
+      if (issue.stateReason !== "COMPLETED") return stop(`! #${number} is closed as ${issue.stateReason ?? "not planned"}, but ${work}`, fix(`gh issue reopen ${number} --repo ${slug}, then ${again}`));
       mutate(io, { op: "ReopenIssue", input: { issueId: issue.id } });
       // no board (#847) — the task's work is the fact that puts it in work
       const put = putStatus(io, taskContext(io, slug), issue, N.status.inProgress) !== null;
       io.out(`+ #${number} reopened${put ? `, ${STATUS} ${q(N.status.inProgress)}` : ""}: ${work} — the task's merged PR isn't its finish`);
       return cmdTaskFinish(io, slug, number, { ...o, timeout: Math.max(0, left()) });
     }
-    if (!closer || tailOver(io, slug, number)) return io.out(`= #${number} is closed — nothing to finish`), 0;
+    if (!closer || tailOver(io, slug, number)) return io.out(`= #${number} is closed — nothing to finish`), endWith(io, STEP.closed(""), 0);
     io.out(`○ #${number} is closed by the merge of PR #${closer.number}, the tail isn't over (no ${q(N.status.done)} with the actual) — going on`);
     return finishMerged(io, slug, number, issue.parent?.number ?? null, closer, { left, again, stop, outOfTime });
   }
@@ -5076,27 +5104,26 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
 
   const branch = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const open = prs.find((p) => p.state === "OPEN");
-  if (open && open.head !== branch) return stop(1, `! PR #${open.number} of #${number} is on branch ${open.head}, the checkout — on ${branch || "a detached HEAD"}`, `git switch ${open.head} (or continue in that PR's checkout), then ${again}`);
+  if (open && open.head !== branch) return stop(`! PR #${open.number} of #${number} is on branch ${open.head}, the checkout — on ${branch || "a detached HEAD"}`, fix(`git switch ${open.head} (or continue in that PR's checkout), then ${again}`));
   if (!isTaskBranch(branch, number)) throw new GhError(`the checkout is on ${q(branch || "a detached HEAD")}, not on a branch of #${number} — task start ${number} --branch <type>/${number}-<slug>`);
   const dirty = git(io, io.cwd, "status", "--porcelain", "--untracked-files=no").stdout.trim();
-  if (dirty) return stop(1, `! uncommitted changes in the checkout — the PR would go without them`, `the checks before a commit, git commit, then ${again}`);
+  if (dirty) return stop(`! uncommitted changes in the checkout — the PR would go without them`, STEP.commit("", again));
   const base = open?.base ?? finishBase(io, slug, number, found);
   const fetched = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
   if (fetched.status !== 0) throw new GhError(`git fetch origin ${base}: ${why(fetched)}`);
   const commits = git(io, io.cwd, "log", "--reverse", "--format=%s", `origin/${base}..HEAD`).stdout.split("\n").filter((l) => l.trim());
-  if (!commits.length) return stop(1, `! no commits on ${branch} past origin/${base} — nothing to put into a PR`, `commit the task's work, then ${again}`);
+  if (!commits.length) return stop(`! no commits on ${branch} past origin/${base} — nothing to put into a PR`, STEP.work("", again));
   // commits already in the base by their changes (#768) — a released batch's, rebased into the default branch with other
   // SHAs: the PR would take its title from them and its decision labels from their diff; a rebase drops them
   const applied = git(io, io.cwd, "cherry", `origin/${base}`, "HEAD").stdout.split("\n").filter((l) => l.startsWith("-")).length;
   if (applied) {
     return stop(
-      1,
       `! ${applied} ${applied > 1 ? "commits" : "commit"} of ${branch} ${applied > 1 ? "are" : "is"} in origin/${base} already by the changes (a released batch's, a merged PR's) — the PR would take its title and decision labels from them`,
-      `git rebase origin/${base} (it drops them), then ${again} (it pushes the rebased branch with --force-with-lease)`,
+      fix(`git rebase origin/${base} (it drops them), then ${again} (it pushes the rebased branch with --force-with-lease)`),
     );
   }
   const refused = pushTaskBranch(io, branch);
-  if (refused) return stop(1, `! ${refused}`, `then ${again}`);
+  if (refused) return stop(`! ${refused}`, fix(`the fix the line above names, then ${again}`));
 
   const spec = specDiffOf(io, base, "HEAD", "the PR");
   const body = `${[...(spec ? [spec] : []), `Closes #${number}`].join("\n\n")}\n`;
@@ -5124,17 +5151,19 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
     if (left() < FINISH_MIN_WAIT) return outOfTime(`PR #${pr} is up, its CI isn't awaited yet`);
     const ci = finishWait(io, slug, "pr", pr, left());
     if (ci.code === 2) return outOfTime(`the CI of PR #${pr} is still running (${ci.result})`);
-    if (ci.code === 1) return stop(1, `❌ the CI of PR #${pr} is red — ${ci.result}`, `the failed check's log (gh pr checks ${pr}), the root cause fixed, the checks before a commit, git commit, then ${again}`);
+    if (ci.code === 1) return stop(`❌ the CI of PR #${pr} is red — ${ci.result}`, STEP.ciRed("", pr, again));
     if (ci.code !== 0) {
-      return stop(1, `❌ the CI of PR #${pr} didn't finish — ${ci.result}`, `a conflict with ${base} — git fetch origin ${base}, git rebase origin/${base}, resolve, the checks before a commit, then ${again} (it pushes the rebased branch with --force-with-lease); otherwise — the reason above, then ${again}`);
+      return stop(
+        `❌ the CI of PR #${pr} didn't finish — ${ci.result}`,
+        fix(`a conflict with ${base} — git fetch origin ${base}, git rebase origin/${base}, resolve, ${PRECOMMIT}, then ${again} (it pushes the rebased branch with --force-with-lease); otherwise — the reason above, then ${again}`),
+      );
     }
     io.out(`✅ the CI of PR #${pr} is green`);
   }
-  const premerge = cmdPrPremerge(io, slug, pr);
-  if (premerge === 3) return stop(3, `⛔ PR #${pr} isn't merged: ${base} is red by itself`, `the bug's close (above), then ${again}`);
-  if (premerge !== 0) return stop(1, `❌ PR #${pr} isn't merged: pr premerge — code ${premerge} (above)`, `what premerge names, then ${again}`);
-  const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
-  return stop(4, `✅ PR #${pr} is ready to merge`, `${yes}gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${again}${isBatchBranch(base) ? "" : " — in the background: it waits for the deploy"}`);
+  const premerge = premergeOf(io, slug, pr).code;
+  if (premerge === MAIN_RED) return stop(`⛔ PR #${pr} isn't merged: ${base} is red by itself`, STEP.mainRed("", again));
+  if (premerge !== 0) return stop(`❌ PR #${pr} isn't merged: pr premerge stopped (above)`, fix(`what premerge names, then ${again}`));
+  return stop(`✅ PR #${pr} is ready to merge`, STEP.merge("", pr, locale.autoProject(io.cwd ?? process.cwd()), `${again}${isBatchBranch(base) ? "" : " — in the background: it waits for the deploy"}`));
 }
 
 /** The task's latest merged PR — the highest number: a task reopened after a merge has several (#813). */
@@ -5197,7 +5226,12 @@ function finishBase(io: Io, slug: string, number: number, found: ReturnType<type
  */
 function tailOver(io: Io, slug: string, number: number): boolean {
   const [owner, name] = slug.split("/");
-  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  return tailOverOf(io, slug, graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue);
+}
+
+/** `tailOver` of an issue as `Q.IssueShow` reads it — `task next` has it read already (#842). */
+function tailOverOf(io: Io, slug: string, i: Any): boolean {
+  const name = slug.split("/")[1];
   if (!taskContext(io, slug).board) return i?.state === "CLOSED" && i.stateReason === "COMPLETED" && shownComments(i.comments).nodes.some((c) => commentKind(c) === "actual");
   const values = itemValues(i, name!);
   const done = values.some((v) => v?.field?.name === STATUS && locale.every((n) => n.status.done).includes(v.name));
@@ -5212,14 +5246,13 @@ function finishMerged(
   number: number,
   epicNumber: number | null,
   merged: Issue["prs"][number],
-  f: { left: () => number; again: string; stop: (code: number, why: string, next: string) => number; outOfTime: (what: string) => number },
+  f: { left: () => number; again: string; stop: (why: string, step: NextStep) => number; outOfTime: (what: string) => number },
 ): number {
   if (isBatchBranch(merged.base)) {
     io.out(`✅ PR #${merged.number} is merged into ${merged.base} — #${number} stays ${q(N.status.inProgress)} till the batch's release`);
     // the task's stacks don't wait for the release (#765): the executor is done, its stack only loads the machine
     if (checkoutOfRepo(io, originUrl(io), slug)) takeDownStacks(io, number);
-    io.out(`Next: nothing more for the task — no CI or deploy wait, no epic refresh and no task close: the dispatcher's batch release does them`);
-    return 0;
+    return endWith(io, STEP.release("", merged.base), 0);
   }
   const marks = finishMarks(io, slug, number);
   if (marks.deployed === merged.number) io.out(`= the checks and the deploy of the merge of PR #${merged.number} passed earlier`);
@@ -5227,7 +5260,9 @@ function finishMerged(
     if (f.left() < FINISH_MIN_WAIT) return f.outOfTime(`PR #${merged.number} is merged, its deploy isn't awaited yet`);
     const deploy = finishWait(io, slug, "merged", merged.number, f.left());
     if (deploy.code === 2) return f.outOfTime(`the checks or the deploy of the merge of PR #${merged.number} are still running (${deploy.result})`);
-    if (deploy.code !== 0) return f.stop(1, `❌ the merge of PR #${merged.number} is red — ${deploy.result}`, `the failed check or deploy on the merge SHA: a fix is the same task — a new branch from a fresh origin/main, its PR with Refs #${number}; then ${f.again}`);
+    if (deploy.code !== 0) {
+      return f.stop(`❌ the merge of PR #${merged.number} is red — ${deploy.result}`, { state: "", next: `the failed check or deploy on the merge SHA: a fix is the same task — a new branch from a fresh origin/main, its PR with Refs #${number}; then ${f.again}`, who: "agent" });
+    }
     io.out(`✅ the checks and the deploy of the merge of PR #${merged.number} passed`);
     markFinish(io, slug, number, { deployed: merged.number });
   }
@@ -5240,17 +5275,11 @@ function finishMerged(
     const others = epic.subIssues.filter((x) => x.state === "OPEN" && x.number !== number).length;
     if (others && !refreshReported(epic, number)) {
       const head = locale.fill(N.actualize.report, { number, text: "…" });
-      if (!marks.actualized) return f.stop(4, `○ the epic refresh: its subagent's prompt is above`, `the subagent in the background with that prompt; after its answer — ${f.again}`);
-      return f.stop(
-        4,
-        `○ the epic refresh hasn't reported — no comment «${head}» on epic #${epicNumber}; its prompt was printed at ${marks.actualized}`,
-        `the subagent is at work — wait for its answer, then ${f.again}; it wasn't launched — task actualize ${number} prints its prompt again; it answered without the comment — post its result: gh issue comment ${epicNumber} --repo ${slug} --body "${head}"`,
-      );
+      if (!marks.actualized) return f.stop(`○ the epic refresh: its subagent's prompt is above`, STEP.refreshSubagent("", f.again));
+      return f.stop(`○ the epic refresh hasn't reported — no comment «${head}» on epic #${epicNumber}; its prompt was printed at ${marks.actualized}`, STEP.refreshWait("", slug, epicNumber, number, f.again));
     }
   }
-  const code = cmdTaskClose(io, slug, number, { git: true });
-  rmSync(finishFile(io, slug, number), { force: true });
-  return code;
+  return cmdTaskClose(io, slug, number, { git: true });
 }
 
 /**
@@ -5301,6 +5330,264 @@ export function cmdTaskResume(io: Io): number {
     );
   if (!prs.length) io.out(`○ ${task}: no PR — no wait to restart`);
   return 0;
+}
+
+// ----------------------------------------------------------------------------
+// The task's next step — one automaton for the task's commands (#842)
+// ----------------------------------------------------------------------------
+
+/**
+ * Who does the next step (#842): the agent — a command, or a wait it runs; the owner — an answer or a «yes» the agent
+ * asks for and waits on; the dispatcher — a batch's release, its session's step; nobody — the task has no steps left.
+ */
+type NextWho = "agent" | "owner" | "dispatcher" | "none";
+
+/** A task's state in one line and its one next step — a ready command, or whom it waits for and what (#842). */
+export interface NextStep {
+  state: string;
+  next: string;
+  who: NextWho;
+}
+
+const NEXT_LEAD: Record<NextWho, string> = { agent: "", owner: "waits for the owner — ", dispatcher: "waits for the dispatcher — ", none: "none — " };
+
+/** The `Next:` line (#842): the owner's and the dispatcher's steps are named as waits, no steps — as none. */
+const nextLine = (s: Pick<NextStep, "who" | "next">) => `Next: ${NEXT_LEAD[s.who]}${s.next}`;
+
+/**
+ * A command's end (#842): the step's `Next:` line and the code — the step is told by the text, not by the code: 0 — the
+ * command did its part, 1 — it stopped on the step (a fix, a wait, the merge, the owner's answer); 2 is an error's.
+ */
+function endWith(io: Io, s: NextStep, code: number): number {
+  io.out(nextLine(s));
+  return code;
+}
+
+/** A step's command ready to run: the script, the arguments and the repository — `task next` runs from anywhere. */
+type Ready = (...args: (string | number)[]) => string;
+const readyIn =
+  (slug: string): Ready =>
+  (...args) =>
+    ready([...args, "--repo", slug]);
+
+/** The checks before a commit (AGENTS.md, "Git, PRs and merging") — one wording in every step that commits. */
+const PRECOMMIT = "the checks before a commit (elves precommit)";
+
+/**
+ * The automaton's steps (#842), each worded once: `task next` picks one by the facts, and the commands that reach the same
+ * point — `task finish`, `pr premerge`, `task start`, `task answer`, `task close` — end with that step, not with a
+ * wording of their own. `finish`, `again` — the command that goes on after the step.
+ */
+const STEP = {
+  epic: (r: Ready, number: number): NextStep => ({
+    state: "an epic — it isn't taken into work",
+    next: `the question «run the dispatcher on epic #${number}?»; «yes» — ${r("task", "queue", "--epic", number)}`,
+    who: "owner",
+  }),
+  closed: (state: string): NextStep => ({ state, next: "the task has no steps left", who: "none" }),
+  /** The last line of a session's answer after its task's close — in the project language (AGENTS.md, "Language"). */
+  over: (state: string): NextStep => ({
+    state,
+    next:
+      `the task's steps are over; the last line of the answer is one of three: ${q(N.lastLine.done)}; ` +
+      `the owner has something to decide — ${q(`${N.lastLine.questions} …`)} with the questions themselves, without ${q(N.lastLine.done)}; ` +
+      `something remains — ${q(`${N.lastLine.remaining} …`)}. ` +
+      // the command doesn't read the mode (auto) or the session's background tasks: the session knows them, the step is spelled out in words
+      `In auto mode after ${q(N.lastLine.done)} — archive the session where the agent has the tool, ` +
+      `first stopping its own background tasks still running (a wait, a watcher over its output, a subagent): a live one blocks archiving; ` +
+      `after the other two lines — don't. ` +
+      `Information without a decision (an observation, a deadline, a warning) isn't a question: the line and archiving are as with ${q(N.lastLine.done)}`,
+    who: "none",
+  }),
+  questions: (r: Ready, state: string, at: { number: number; k: number }, auto: boolean): NextStep =>
+    auto
+      ? { state, next: `each open question answered by its recommendation — ${r("task", "answer", at.number, at.k, "<answer>", "--auto")}; one without a clear recommendation — the owner's`, who: "agent" }
+      : { state, next: `the answers to the open questions — asked in one message, each with options and a recommendation; each answer — ${r("task", "answer", at.number, at.k, "<answer>")}`, who: "owner" },
+  take: (r: Ready, state: string, number: number): NextStep => ({ state, next: r("task", "start", number, "--branch", `<type>/${number}-<slug>`), who: "agent" }),
+  elsewhere: (state: string, branches: string[]): NextStep => ({
+    state,
+    next: `continue on ${branches.join(", ")} — in its worktree (git worktree list), in none — git switch ${branches[0]}: the task isn't taken a second time`,
+    who: "agent",
+  }),
+  work: (state: string, finish: string): NextStep => ({ state, next: `the task's code and tests — the scenarios are their it names; ${PRECOMMIT}, git commit; then ${finish}`, who: "agent" }),
+  commit: (state: string, finish: string): NextStep => ({ state, next: `${PRECOMMIT}, git commit, then ${finish}`, who: "agent" }),
+  finish: (state: string, finish: string): NextStep => ({ state, next: `${finish} in the background — it pushes the branch, opens the PR, waits for its CI and runs pr premerge`, who: "agent" }),
+  ciWait: (state: string, finish: string): NextStep => ({ state, next: `${finish} in the background — it waits for the CI, then runs pr premerge`, who: "agent" }),
+  ciRed: (state: string, pr: number, again: string): NextStep => ({ state, next: `the failed check's log (gh pr checks ${pr}), the root cause fixed, ${PRECOMMIT}, git commit, then ${again}`, who: "agent" }),
+  premerge: (r: Ready, state: string, pr: number): NextStep => ({ state, next: `${r("pr", "premerge", pr)} — a separate call: the checks on the merge with the base`, who: "agent" }),
+  merge: (state: string, pr: number, auto: boolean, then: string): NextStep => {
+    const merge = `gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${then}`;
+    return auto ? { state, next: merge, who: "agent" } : { state, next: `the «yes» to the merge of PR #${pr} (the project is without auto), then ${merge}`, who: "owner" };
+  },
+  mainRed: (state: string, again: string): NextStep => ({ state, next: `the close of the bug on the red base — its wait above (wait-ci.sh issue <N>, a background command), then ${again}`, who: "agent" }),
+  release: (state: string, batch: string): NextStep => ({
+    state,
+    next: `the release of ${batch} (batch release): the CI, the deploy, the epic refresh and task close are the release's — nothing more for the task`,
+    who: "dispatcher",
+  }),
+  deploy: (state: string, finish: string): NextStep => ({ state, next: `${finish} in the background — it waits for the deploy of the merge, then the epic refresh and task close`, who: "agent" }),
+  refresh: (state: string, finish: string): NextStep => ({ state, next: `${finish} — it does the epic refresh's mechanics and prints its subagent's prompt`, who: "agent" }),
+  refreshSubagent: (state: string, again: string): NextStep => ({ state, next: `the subagent in the background with that prompt; after its answer — ${again}`, who: "agent" }),
+  refreshWait: (state: string, slug: string, epic: number, number: number, again: string): NextStep => {
+    const head = locale.fill(N.actualize.report, { number, text: "…" });
+    return {
+      state,
+      next: `the subagent is at work — wait for its answer, then ${again}; it wasn't launched — task actualize ${number} prints its prompt again; it answered without the comment — post its result: gh issue comment ${epic} --repo ${slug} --body "${head}"`,
+      who: "agent",
+    };
+  },
+  close: (r: Ready, state: string, number: number): NextStep => ({ state, next: r("task", "close", number), who: "agent" }),
+  again: (state: string, again: string): NextStep => ({ state, next: `${again} — it goes on from here`, who: "agent" }),
+};
+
+/**
+ * `pr premerge` passed on a PR's head (#842): `<config directory>/premerges/<owner>__<repo>__<PR>.json` — the head and the
+ * time; `task next` names the merge while the head is the same and the base hasn't moved since, otherwise premerge again.
+ */
+const premergeFile = (io: Io, slug: string, pr: number) => path.join(configDir(io.env), "premerges", `${slug.replace("/", "__")}__${pr}.json`);
+function markPremerge(io: Io, slug: string, pr: number, head: string): void {
+  const file = premergeFile(io, slug, pr);
+  mkdirSync(path.dirname(file), { recursive: true });
+  // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — marks aren't committed into it
+  writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
+  writeFileSync(file, `${JSON.stringify({ head, at: new Date().toISOString() })}\n`);
+}
+function premergePassed(io: Io, slug: string, pr: { number: number; sha: string; base: string }): boolean {
+  let mark: { head?: string; at?: string } = {};
+  try {
+    mark = JSON.parse(readFileSync(premergeFile(io, slug, pr.number), "utf8"));
+  } catch {
+    return false;
+  }
+  if (!mark.head || !mark.at || mark.head !== pr.sha) return false;
+  try {
+    const moved = restCall(io, ["api", `repos/${slug}/activity?ref=${encodeURIComponent(`refs/heads/${pr.base}`)}&per_page=1`])[0]?.timestamp ?? null;
+    return !moved || Date.parse(moved) <= Date.parse(mark.at);
+  } catch (e) {
+    if (!(e instanceof GhError)) throw e;
+    return false;
+  }
+}
+
+/** A task's PR as `task next` reads it: linked (with its checks) or found by the branch or «Closes #N», into a batch too. */
+type NextPr = { number: number; state: string; merged: boolean; head: string; base: string; sha: string; checks: ShownPr["checks"] };
+
+/**
+ * The task's state and its one next step by the facts (#842) — the knowledge of the sequence lives here, not in SKILL.md:
+ * the task (an epic, closed, its tail over), the open questions of the task and its epic, its PRs (linked, found by the
+ * branch or «Closes #N», into a batch) with their checks, the premerge and finish marks, the batch's release, the epic
+ * refresh's report, the checkout's task branch — its changes and commits past the base. Read-only.
+ */
+export function taskNext(io: Io, slug: string, number: number): NextStep & { title: string } {
+  const [owner, name] = slug.split("/");
+  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  if (!i) throw new GhError(`no issue #${number} in ${slug}`);
+  return { title: i.title, ...nextOf(io, slug, number, i) };
+}
+
+function nextOf(io: Io, slug: string, number: number, i: Any): NextStep {
+  const r = readyIn(slug);
+  const auto = locale.autoProject(io.cwd ?? process.cwd());
+  const finish = r("task", "finish", number);
+  const type = shownType(i);
+  if (type !== null && locale.every((n) => n.issueTypes.epic).includes(type)) return STEP.epic(r, number);
+  const linked: NextPr[] = (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean).map((p: Any) => shownPr(p));
+  const inRepo = checkoutOfRepo(io, originUrl(io), slug);
+  const current = inRepo ? git(io, io.cwd, "branch", "--show-current").stdout.trim() : "";
+  const here = isTaskBranch(current, number);
+  // the epic refresh (`task close` refuses without its report): the epic has other open tasks and no report on it
+  const others = (i.parent?.subIssues?.nodes ?? []).filter((x: Any) => x.state === "OPEN" && x.number !== number).length;
+  const reported = !i.parent || !others || refreshReported({ comments: shownComments(i.parent.comments).nodes }, number);
+  const afterMerge = (pr: { number: number }, state: string): NextStep => {
+    const marks = finishMarks(io, slug, number);
+    if (marks.deployed !== pr.number) return STEP.deploy(`${state}, its deploy isn't awaited yet`, finish);
+    if (reported) return STEP.close(r, `${state}, deployed${i.parent ? `, the refresh of epic #${i.parent.number} done` : ""}`, number);
+    const s = `${state}, deployed, the refresh of epic #${i.parent.number} hasn't reported`;
+    return marks.actualized ? STEP.refreshWait(`${s} — its prompt printed at ${marks.actualized}`, slug, i.parent.number, number, finish) : STEP.refresh(s, finish);
+  };
+  let found: ReturnType<typeof unlinkedPrs> | null = null;
+  const recent = () => (found ??= unlinkedPrs(io, slug, number));
+
+  if (i.state !== "OPEN") {
+    if (i.stateReason !== "COMPLETED") return STEP.closed(`closed as ${String(i.stateReason ?? "not planned").toLowerCase().replace("_", " ")} — not done`);
+    if (tailOverOf(io, slug, i)) return STEP.closed("closed, its tail is over — done, the actual written");
+    // a task reopened after its merge (#813) — task finish reopens it and goes on with that work
+    const closer = lastMerged(linked.filter((p) => !isBatchBranch(p.base)));
+    const open = linked.find((p) => p.state === "OPEN");
+    const branch = !open && here ? unmergedBranch(io, number, closer?.base ?? recent().base, closer?.head) : null;
+    if (open || branch) return { state: `closed, but ${open ? `its PR #${open.number} is open` : `branch ${branch} has commits that aren't in the base`}`, next: `${finish} — it reopens the task and goes on with that work`, who: "agent" };
+    if (closer) return afterMerge(closer, `closed by the merge of PR #${closer.number} into ${closer.base}`);
+    // closed as completed without a PR: the refresh and the close are the executor's (#628)
+    if (!reported)
+      return { state: `closed without a PR, the refresh of epic #${i.parent.number} hasn't reported`, next: `${r("task", "actualize", number)} — its subagent in this turn, not in the background; after its answer — ${r("task", "close", number)}`, who: "agent" };
+    return STEP.close(r, "closed without a PR, its close not done (the actual)", number);
+  }
+
+  const open = questionItems(i.body ?? "").filter((x) => !x.answered).map((x) => x.k);
+  const epicOpen = i.parent ? questionItems(i.parent.body ?? "").filter((x) => !x.answered).map((x) => x.k) : [];
+  if (open.length || epicOpen.length) {
+    const asked = [open.length ? `#${number}: ${open.join(", ")}` : "", epicOpen.length ? `epic #${i.parent.number}: ${epicOpen.join(", ")}` : ""].filter(Boolean).join("; ");
+    return STEP.questions(r, `open questions — ${asked}`, open.length ? { number, k: open[0]! } : { number: i.parent.number, k: epicOpen[0]! }, auto);
+  }
+
+  const prs: NextPr[] = [...linked];
+  for (const p of [...recent().prs, ...recent().batched]) if (!prs.some((x) => x.number === p.number)) prs.push({ ...p, sha: "", checks: null });
+  const pr = prs.find((p) => p.state === "OPEN");
+  const merged = lastMerged(prs);
+  if (merged && !pr && !(here && unmergedBranch(io, number, merged.base, merged.head))) {
+    if (!isBatchBranch(merged.base)) return afterMerge(merged, `PR #${merged.number} merged into ${merged.base}`);
+    const release = releasePrOf(recent().recent, merged.base);
+    const into = `PR #${merged.number} merged into ${merged.base}`;
+    // the release merged without «Closes #N» of the task (#819) — task close finds it by the batch
+    if (release?.merged) return reported ? STEP.close(r, `${into}, released by PR #${release.number}`, number) : STEP.refresh(`${into}, released by PR #${release.number}, the epic refresh hasn't reported`, finish);
+    return STEP.release(`${into} — ${q(N.status.inProgress)} till the batch's release`, merged.base);
+  }
+  if (pr) {
+    const shown = pr.sha ? pr : { ...pr, ...shownPr(graphql(io, Q.PrShow, { owner: slug.split("/")[0], name: slug.split("/")[1], number: pr.number })?.repository?.pullRequest ?? { number: pr.number }) };
+    const into = `PR #${pr.number} into ${pr.base}`;
+    const batch = isBatchBranch(pr.base);
+    // a PR into a batch runs no CI (#676): its gate — the checks before a commit and pr premerge
+    if (!batch) {
+      const c = shown.checks;
+      if (c?.red.length) return STEP.ciRed(`${into}: CI red — ${c.red.join(", ")}`, pr.number, finish);
+      if (!c || c.pending.length) return STEP.ciWait(`${into}: ${c ? `CI running — ${c.pending.join(", ")}` : "no checks yet"}`, finish);
+    }
+    const ci = batch ? "no CI into a batch" : "CI green";
+    if (premergePassed(io, slug, { number: pr.number, sha: shown.sha, base: pr.base }))
+      return STEP.merge(`${into}: ${ci}, pr premerge passed on its head`, pr.number, auto, `${finish}${batch ? "" : " in the background — it waits for the deploy"}`);
+    return STEP.premerge(r, `${into}: ${ci}, pr premerge not run on its head`, pr.number);
+  }
+
+  if (!here) {
+    // the task's branches — local ones and GitHub's (not git ls-remote: task next runs outside a checkout too)
+    const local = inRepo ? git(io, io.cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/").stdout.split("\n").map((l) => l.trim()) : [];
+    const branches = [...new Set([...local.filter((b) => isTaskBranch(b, number)), ...originBranches(io, slug, number)])].sort();
+    if (branches.length) return STEP.elsewhere(`in work on ${branches.join(", ")}, not in this checkout${inRepo ? ` (${current || "a detached HEAD"})` : ""}`, branches);
+    return STEP.take(r, "open — no task branch or PR", number);
+  }
+  if (git(io, io.cwd, "status", "--porcelain", "--untracked-files=no").stdout.trim()) return STEP.commit(`branch ${current}: uncommitted changes`, finish);
+  const base = finishBase({ ...io, out: () => {} }, slug, number, recent());
+  git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
+  const cherry = git(io, io.cwd, "cherry", `origin/${base}`, "HEAD");
+  const commits = cherry.status === 0 ? cherry.stdout.split("\n").filter((l) => l.startsWith("+")).length : 0;
+  if (commits) return STEP.finish(`branch ${current}: ${plural(commits, "commit", "commits")} past origin/${base}, no PR`, finish);
+  return STEP.work(`branch ${current}: no commits past origin/${base} yet`, finish);
+}
+
+/**
+ * `task next [<N>]` (#842): one entry instead of choosing among the commands by tables — the task's state in one line and
+ * its one next step, a ready command; a step that waits for the owner or the dispatcher is named so. Code 0 — nothing for
+ * the caller (no steps; the dispatcher's release), 1 — a step.
+ */
+export function cmdTaskNext(io: Io, slug: string, number: number): number {
+  const s = taskNext(io, slug, number);
+  io.out(`#${number} ${q(s.title)}: ${s.state}`);
+  return endWith(io, s, s.who === "none" || s.who === "dispatcher" ? 0 : 1);
+}
+
+/** The step a task command ends with (#842): `task next`'s, printed as the command's last line. */
+function nextOfTask(io: Io, slug: string, number: number): void {
+  io.out(nextLine(taskNext(io, slug, number)));
 }
 
 // canon task types — a copy of EST_TYPES and BRANCH_CONV_RE from skills/est/scripts/est.ts (and in skills/task-env/scripts/task-env.ts):
@@ -6221,10 +6508,33 @@ function redOnBase(io: Io, base: string, head: string, recheck: string): number 
  * time: the head on a fresh origin/<batch> — merge, the batch moved on past it — the fast checks on the merge, as for a
  * moved main. Before all of it — red on base (#844) for a PR with files in `tests/`: its added tests fail on the base
  * code (`redOnBase`).
+ * The command's exit (#842) — done, a step or an error: 0 — merge, 1 — don't merge (the PR's fix or the red base's bug —
+ * the `Next:` line says which), 2 — couldn't check; `MAIN_RED` is the verdict's, `task finish` tells it apart.
  */
 export function cmdPrPremerge(io: Io, slug: string, number: number): number {
+  const v = premergeOf(io, slug, number);
+  const again = `bun --no-env-file ${import.meta.path} ${v.task ? `task finish ${v.task}` : `pr premerge ${number}`}`;
+  if (v.code === 0) {
+    const then = v.task ? `${again}${isBatchBranch(v.base) ? "" : " — in the background: it waits for the deploy"}` : "the deploy wait and task close of its tasks";
+    return endWith(io, STEP.merge("", number, locale.autoProject(io.cwd ?? process.cwd()), then), 0);
+  }
+  if (v.code === MAIN_RED) return endWith(io, STEP.mainRed("", again), 1);
+  return endWith(io, { state: "", next: `${v.code === 2 ? "the reason above" : "what the ❌ line above names"}, then ${again}`, who: "agent" }, v.code === 2 ? 2 : 1);
+}
+
+/** The verdict «the base is red by itself, not this PR» — `pr premerge` exits with 1 and the bug's wait (#842). */
+const MAIN_RED = 3;
+
+/** `pr premerge`'s verdict (0 · 1 · 2 · `MAIN_RED`), the PR's base and task; passed — the mark `task next` names the merge by. */
+function premergeOf(io: Io, slug: string, number: number): { code: number; base: string; task: number | null } {
   const pr = restCall(io, ["api", `repos/${slug}/pulls/${number}`]);
   if (pr.state !== "open") throw new GhError(`PR #${number} is not open — nothing to merge`);
+  const code = premergeVerdict(io, slug, number, pr);
+  if (code === 0) markPremerge(io, slug, number, pr.head.sha);
+  return { code, base: pr.base.ref, task: taskBranch(String(pr.head?.ref ?? ""))?.issue ?? closingInBody(pr.body ?? "")[0] ?? null };
+}
+
+function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number {
   const head: string = pr.head.sha;
   const base: string = pr.base.ref;
   const closes = closingInBody(pr.body ?? "");
@@ -6312,7 +6622,7 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
       io.out(`no bug on red ${base} about ${say(unnamed)} — ${label} and ask the owner whether to queue it: bun --no-env-file ${import.meta.path} task new --type ${N.issueTypes.bug}${priority} --title ${JSON.stringify(title)}; ${wait("<N>")}`);
     }
     io.out(`⛔ don't merge: ${base} is red, not this PR — don't fix it in your PR`);
-    return 3;
+    return MAIN_RED;
   };
 
   // a batch branch and a PR into it run no CI (#676): neither a red check of the base nor the PR's CI by time — git below
@@ -6707,8 +7017,9 @@ Taking a task into work in one call: project check (once per session — a marke
 ~/.config/elves; ❌ — the report and code 1), the task as task show prints it, then the stops before any change, code 1:
 open questions of the task or its epic (ask the owner, then task start again), the task in work elsewhere (an open PR
 of it — into a batch branch too — or a branch */<N>-* locally or on origin that isn't the current one). Then task
-status N «In progress» --branch (the pin, the epic, the branch rename) and the next lines: the session name «#N <title>», the branch, the scenarios of the description and,
-in Claude Code (CLAUDECODE=1), one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}). An epic
+status N «In progress» --branch (the pin, the epic, the branch rename) and the next lines: the session name «#N <title>», the branch, the scenarios of the description,
+in Claude Code (CLAUDECODE=1) one ToolSearch line with the app tools the flow calls (${APP_TOOLS.join(", ")}), and
+task next's Next line. An epic
 and a closed task — refused (code 2). --resume — an executor's restart: the task's branch and open PR are the previous
 executor's work to continue, not a stop; the current branch isn't renamed, the Branch line names the one to continue;
 nothing to continue — refused (code 2).
@@ -6716,6 +7027,18 @@ nothing to continue — refused (code 2).
 Examples:
   github task start 42 --branch feat/42-invoice-export
   github task start 42 --resume`,
+  "task next": `github task next [<N>] [--repo owner/repo]
+
+The one entry of a task (#842): by the facts — the task, its questions and its epic's, the checkout's task branch, its
+changes and commits, the PR and its checks, pr premerge passed on its head, the batch, the deploy, the epic refresh, the
+close — the state in one line and exactly one next step: a ready command; a step that waits for the owner (an answer, a
+«yes» to the merge outside auto) or the dispatcher (a batch's release) is named so; a closed task — none. Without <N> —
+the checkout's task branch, otherwise the session's pinned task. The other task commands end with the same Next line.
+Read-only. Exit: 0 — nothing for the caller (no steps, the dispatcher's release), 1 — a step, 2 — an error.
+
+Examples:
+  github task next
+  github task next 42`,
   "task finish": `github task finish <N> [--timeout S] [--title "<type>(<scope>): <subject>"] [--repo owner/repo]
 
 The tail of a task from its committed branch to its close, resumable: each call does what is ready within --timeout
@@ -6726,9 +7049,9 @@ rebase drops them; the title — --title, otherwise the branch type's first comm
 its body updated), pr labels, the CI wait (ci-wait pr; none into a batch), pr premerge, then the merge command — a
 separate gh pr merge <PR> --rebase. After the merge: the deploy wait on the merge SHA (ci-wait merged), the epic
 refresh's mechanics and its subagent's prompt (once), task close once the report is on the epic; merged into a batch —
-nothing, the release does it. Marks between calls — finishes/ of ~/.config/elves. Exit: 0 finished, 1 stopped on
-something to fix (red CI, a conflict, the push refused, premerge), 3 the base is red, 4 the agent's step (the merge,
-the refresh subagent), 5 out of time — the same command again. A subagent — --timeout 240 (shorter than the cache TTL).
+nothing, the release does it. Marks between calls — finishes/ of ~/.config/elves. Exit: 0 finished, 1 stopped on a
+step — its Next line names it (a fix, the red base's bug, the merge, the refresh subagent, out of time — the same
+command again), 2 an error. A subagent — --timeout 240 (shorter than the cache TTL).
 
 Examples:
   github task finish 42
@@ -6889,9 +7212,10 @@ Examples:
 
 Before gh pr merge, after ci-wait PASS: the default branch moved after the PR's CI — the PR head merged with it in a
 temporary worktree and ${PREMERGE_SCRIPTS.join(", then ")} from package.json (those that exist, as in CI). Code 0 —
-merge, 1 — don't merge (red, conflict), 2 — couldn't check (the stack of the PR's task didn't come up: the checks get
-ELVES_TASK — the number of the PR's branch — for task-env up on the detached HEAD), 3 — main is red by itself (the same
-check on bare main, a red check on its last commit): don't merge, one bug for it — wait for it to close. A PR into a batch branch runs no
+merge (the Next line — the merge command; the mark premerges/ of ~/.config/elves lets task next name it), 1 — don't
+merge: red, a conflict, or main red by itself (the same check on bare main, a red check on its last commit — one bug
+for it, the Next line names its wait), 2 — couldn't check (the stack of the PR's task didn't come up: the checks get
+ELVES_TASK — the number of the PR's branch — for task-env up on the detached HEAD). A PR into a batch branch runs no
 CI, so no ci-wait before it: the head on a fresh origin/<batch> — code 0 without checks (the checks before a commit
 checked this tree), the batch moved on — the fast checks on the merge with it. The
 batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
@@ -7317,6 +7641,17 @@ export function main(argv: string[], io: Io): number {
       if (cmd === "resume") {
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")} — task resume takes the task from the session pin`);
         return cmdTaskResume(io);
+      }
+      if (cmd === "next") {
+        if (positionals.length > 1) throw new GhError(`extra arguments: ${positionals.slice(1).join(" ")}`);
+        if (positionals.length) return cmdTaskNext(io, repoOf(values.repo), issueNumber(positionals[0], "task next"));
+        // without a number — the session's task (#842): the checkout's task branch (an executor's, in its worktree), otherwise
+        // the session pin — its repository is in it
+        const branch = taskBranch(git(io, io.cwd, "branch", "--show-current").stdout.trim());
+        if (branch) return cmdTaskNext(io, repoOf(values.repo), branch.issue);
+        const pin = pinnedTask(io)?.task;
+        if (pin) return cmdTaskNext(io, values.repo ? repoOf(values.repo) : pin.slug, pin.number);
+        throw new GhError("task next: no task here — the checkout isn't on a task branch <type>/<N>-<slug> and the session has no pin: task next <N>");
       }
       const slug = repoOf(values.repo);
       if (cmd === "new") {
