@@ -156,7 +156,7 @@ describe("Ссылка на раздел документа флоу по наз
     includes: [
       "bin/elves.ts → AGENTS.md, «First step of a session»",
       "claude/CLAUDE.md → AGENTS.md, «First step of a session»",
-      "skills/est/scripts/est.ts → skills/est/SKILL.md, «Cloud session»",
+      "skills/task-env/scripts/task-env.ts → skills/task-env/SKILL.md, «Docker and the sandbox»",
       "skills/github/scripts/github.ts → skills/github/SKILL.md, «Git, PRs and merging — mechanics»",
       "skills/github/reference.md → AGENTS.md, «Actual — the `est` skill»",
       "docs/ci-concurrency.md → AGENTS.md, «CI: parallel tasks»",
@@ -167,7 +167,7 @@ describe("Ссылка на раздел документа флоу по наз
   describe("примеры", () => {
     const files: Record<string, string> = {
       "AGENTS.md": "# Rules\n\n## First step of a session — an up-to-date flow\n\n## Task tracking\n\n```\n## Not a heading\n```\n",
-      "skills/est/SKILL.md": "# est\n\n## Cloud session\n",
+      "skills/task-env/SKILL.md": "# task-env\n\n## Docker and the sandbox\n",
       "skills/github/SKILL.md": "# github\n\n## Git, PRs and merging — mechanics\n",
     };
     const file = (rel: string) => files[rel] ?? null;
@@ -185,11 +185,11 @@ describe("Ссылка на раздел документа флоу по наз
     });
 
     it("ссылка на SKILL.md без имени скилла ищет раздел в SKILL.md того же скилла", () => {
-      expect(refsIn({ file: "skills/est/scripts/est.ts", text: "console.log(`… est cloud-import (SKILL.md, «Cloud session»)`);" })).toEqual([
-        { file: "skills/est/scripts/est.ts", line: 1, target: "skills/est/SKILL.md", name: "Cloud session" },
+      expect(refsIn({ file: "skills/task-env/scripts/task-env.ts", text: "return ` — run it outside the sandbox (SKILL.md, «Docker and the sandbox»)`;" })).toEqual([
+        { file: "skills/task-env/scripts/task-env.ts", line: 1, target: "skills/task-env/SKILL.md", name: "Docker and the sandbox" },
       ]);
-      expect(refsIn({ file: "bin/elves.ts", text: "// see SKILL.md est, «Cloud session»" })[0]?.target).toBe("skills/est/SKILL.md");
-      expect(check({ file: "skills/github/scripts/github.ts", text: '// (SKILL.md, "Cloud session")' })[0]).toContain("в skills/github/SKILL.md нет раздела «Cloud session»");
+      expect(refsIn({ file: "bin/elves.ts", text: "// see SKILL.md task-env, «Docker and the sandbox»" })[0]?.target).toBe("skills/task-env/SKILL.md");
+      expect(check({ file: "skills/github/scripts/github.ts", text: '// (SKILL.md, "Docker and the sandbox")' })[0]).toContain("в skills/github/SKILL.md нет раздела «Docker and the sandbox»");
     });
 
     it("формы ссылки: файл и раздел через запятую, «section» в скобках, раздел перед файлом; перенос строки комментария — не помеха", () => {
@@ -208,9 +208,9 @@ describe("Ссылка на раздел документа флоу по наз
     });
 
     it("раздел того же документа — `section \"…\"` в документе; в коде и в «…» — не ссылка", () => {
-      const md = 'The rule — section "Cloud session" below; the generated «Outside the tree» section.\n';
-      expect(refsIn({ file: "skills/est/SKILL.md", text: md })).toEqual([{ file: "skills/est/SKILL.md", line: 1, target: "skills/est/SKILL.md", name: "Cloud session" }]);
-      expect(refsIn({ file: "skills/est/scripts/est.ts", text: md })).toEqual([]);
+      const md = 'The rule — section "Docker and the sandbox" below; the generated «Outside the tree» section.\n';
+      expect(refsIn({ file: "skills/task-env/SKILL.md", text: md })).toEqual([{ file: "skills/task-env/SKILL.md", line: 1, target: "skills/task-env/SKILL.md", name: "Docker and the sandbox" }]);
+      expect(refsIn({ file: "skills/task-env/scripts/task-env.ts", text: md })).toEqual([]);
     });
 
     it("пример формы в `…` документа — не ссылка; имя файла в `…` перед названием — ссылка", () => {

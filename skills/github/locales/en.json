@@ -172,7 +172,6 @@
       "commitUnit": "commit {oid}",
       "taken": " Not counted again: {h} h already in the actual of #{issue}.",
       "overlap": " Overlap with the actual of #{issue}: {h} h — recompute #{issue}.",
-      "cloudMissing": " Cloud session https://claude.ai/code/{sid} not imported — est cloud-import.",
       "tokens": "Tokens: {total} M",
       "tokensSplit": " (input {in} · output {out} · cache write {cw} · cache read {cr})",
       "cost": "; cost at API rates ≈ ${usd}",
@@ -180,18 +179,7 @@
       "steps": "Turns: {n} (subagents {agents}, their turns {agentSteps}), preamble {preamble}K, context at the end {end}K, turns with context > {tail}K — {share} %.",
       "overhead": "Overhead: flow turns {flow}, harness {harness}, checks {checks} of {n}; cache rewrites after a pause {rewrites} — ${usd}.",
       "waits": "Waits: CI {ci} min · after the merge {merged} · checks {checks}{slot} · rest {rest}.",
-      "waitsSlot": " (slot queue {slot})",
-      "and": " and ",
-      "cloudAgent": "a Claude Code cloud session"
-    },
-    "cloud": {
-      "actual": "Actual (cloud):",
-      "body": "{h} h active in a Claude Code cloud session, {prompts}.",
-      "tokens": " Tokens: {total} M{cost}.",
-      "cost": ", at API rates ≈ ${usd}",
-      "fields": " Session: https://claude.ai/code/{sid}. The local session sets the project fields: est fact {number} --write.",
-      "unavailable": "Actual unavailable (cloud): the task was done in a Claude Code cloud session — est can't see the GitHub project there; a local session gives the number by importing this session's events (est cloud-import) (coverage none).",
-      "session": " Session: https://claude.ai/code/{sid}."
+      "waitsSlot": " (slot queue {slot})"
     }
   },
   "updateCommit": "Elves flow {version}",

@@ -1,6 +1,6 @@
 ---
 name: est
-description: Records the actual of GitHub tasks from Claude Code and claude.ai/code cloud session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); in a cloud session when closing a task — its part of the actual («Actual (cloud)»); when the cloud part wasn't counted (a Claude-Session trailer in commits, «not imported» in the actual) — importing the session's events; when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
+description: Records the actual of GitHub tasks from local Claude Code session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
 allowed-tools: Bash(bun *skills/est/scripts/est.ts *) Bash(gh issue view *) Bash(gh pr view *)
 ---
 
@@ -25,10 +25,11 @@ calendar time. Manual work outside the agent (> 0.5 h) the human
 adds themselves as a line «+ manually: N h» in the actual
 comment. The comment's language — reference.md, "Comment language".
 
-**The source of the actual is the agent's transcripts** (Claude Code,
-claude.ai/code cloud sessions — section "Cloud session"), not memory and not a
-number by eye. A task done by an agent whose transcripts `est` doesn't read has
-its actual "unavailable" until its source is added.
+**The source of the actual is the agent's transcripts** (local Claude Code
+sessions), not memory and not a number by eye. A task done by an agent whose
+transcripts `est` doesn't read has its actual "unavailable" until its source is
+added. The flow doesn't run in a Claude Code cloud session
+(`CLAUDE_CODE_REMOTE=true`): `est` answers there with one line and exit code 2.
 
 **Project fields are set only by the script:** «Actual, h», «Tokens, M»,
 «Cost, $» — `est fact --write` inside `github task close`; never touch them by
@@ -54,7 +55,6 @@ update the same comment (reference.md, "Writing and reruns").
 | The actual's definition changed (the counting of time, the split) | `est fact --sweep --recompute --since <window> --write` — every recorded actual of the window and their epics; an actual whose transcripts are gone stays |
 | The actual says «Not counted again: N h already in the actual of #M» or «Overlap with the actual of #M … — recompute #M», and #M's actual is the wrong one | `est fact M --write`, then this task again — reference.md, "Double counting and shared commits" |
 | `--write` ended with «not written: …» (exit code 1) | the command to retry it prints |
-| The actual says «Cloud session … not imported — est cloud-import» | the import — section "Cloud session" |
 | Compare the flow before and after a change, spend over a period without tasks | `est period --since <before> --until <change> --since <change>` — section "Period summary" |
 
 An epic's actual is the sum of its subtasks' actuals (`est fact <epic>` sums
@@ -94,38 +94,6 @@ more than a made-up number.
 Tasks we "won't do" and duplicates get no actual (they are no longer in the
 project).
 
-### Cloud session
-
-A Claude Code cloud session (claude.ai/code, `CLAUDE_CODE_REMOTE=true`) counts
-its own part; GraphQL and GitHub Projects are closed there. When a task is
-closed, `est fact <N>` in the cloud takes this session's transcript in the
-container (linking — the branch `<type>/<N>-…` or the only "#N" in the first
-prompt, its background block included — `docs/cloud-sessions.md`, "The brief";
-PRs and commits aren't visible from there: a PR of the clone's `origin`
-repository keeps the link, another repository's breaks it) and prints the comment
-«Actual (cloud): …» with hours, tokens and a link to the session, with a part
-marker (`cloud`) (or «Actual unavailable (cloud)», if the transcript isn't linked
-to the task) — the agent writes it into the issue with a GitHub tool. Other
-commands fail with an explanation (`docs/cloud-sessions.md` in Elves). Project
-fields can't be set from the cloud: they are set by the nearest local `est fact
-<N> --write` or `--sweep` (closed tasks without the «Actual, h» field), which adds
-the cloud part to the local work without double counting; the part is kept in the
-marker on rewrites too.
-
-Cloud session commits carry the trailer `Claude-Session:
-https://claude.ai/code/session_…`: a PR with such a commit, for whose session
-there is neither a part nor an imported export, gets coverage `partial` and the
-line «Cloud session … not imported — est cloud-import» in the actual. Then a
-local session imports the events through a browser where the user is signed in
-to claude.ai (Claude in Chrome): run the snippet from reference.md, "Cloud session import",
-in a claude.ai tab — it saves `<session>.json` to downloads (the download — with
-the user's permission: file name, source, size); then
-
-```bash
-est cloud-import ~/Downloads/session_….json   # → ~/.config/elves/cloud/<owner>/<repo>/
-est fact <N> --write
-```
-
 ## Period summary — the flow before and after
 
 A task's actual sees only the work linked to the task — you can't compare the
@@ -158,7 +126,8 @@ from its actual (details — reference.md, "Linking — details"):
 - one session — one task; a branch by the convention `<type>/<issue>-<slug>`
   (`feat/42-invoice-export`) — the script takes from it both the task
   number and the type (the actual's marker);
-- the task number (`#263` or a link) — in the session's first prompt **and in the
+- the task number (`#263` or a link) — in the session's first prompt (the only
+  `#N` there: several numbers link it to no task) **and in the
   assignment of every subagent / workflow agent** that does this task, after the
   word «Task» or at the very start (`Task #263 (epic #250). …`, `#263 …`);
 - `Closes #263` in the PR body; in a repo where tasks are closed by commits

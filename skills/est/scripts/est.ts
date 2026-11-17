@@ -5,7 +5,6 @@
  * Subcommands:
  *   est fact     — actual (the agent's active hours) from Claude Code transcripts for an issue
  *   est period   — summary of all the repo's sessions over a period, not tied to tasks: the flow before and after
- *   est cloud-import — cloud session events into the sources of the actual
  *
  * Runs on Bun (`bun est.ts …`), only `node:` APIs + the `gh` CLI. The source of truth is GitHub (the comment with the
  * HTML marker <!-- fact {...} --> and, where the repository has a board, the project field "Actual, h"). Without --write
@@ -32,10 +31,9 @@ const HOME = os.homedir();
 export const EST_DIR = process.env.ELVES_CONFIG_DIR || path.join(HOME, ".config", "elves");
 export const REGISTRY_PATH = path.join(EST_DIR, "repos.json");
 const CACHE_DIR = path.join(EST_DIR, "cache");
-// Actual sources: Claude Code transcripts (~/.claude/projects) and event exports of Claude Code cloud sessions
-// (<state directory>/cloud/<owner>/<repo>/<session>.json, est cloud-import). Other agents' sessions aren't read (#836).
+// The actual's source: local Claude Code transcripts (~/.claude/projects). Other agents' sessions (#836) and Claude
+// Code cloud sessions (#837) aren't read.
 const PROJECTS_DIR = path.join(HOME, ".claude", "projects");
-export const CLOUD_DIR = path.join(EST_DIR, "cloud");
 // Session pinning to tasks: `github task status` "In progress" writes <state directory>/sessions/<session id> with the
 // line owner/repo#N — direct evidence "this session worked on this task", stronger than any feature in the transcript.
 export const PINS_DIR = path.join(EST_DIR, "sessions");
@@ -458,8 +456,6 @@ export interface PR {
   commits: { oid: string; at: number | null }[];
   commits_total: number;
   files: { path: string; a: number; d: number }[];
-  /** Cloud sessions from the `Claude-Session` trailer of PR commits: transcripts in the cloud (est cloud-import). */
-  cloud?: string[];
   why?: string;
 }
 
@@ -535,7 +531,7 @@ export interface Closers {
   pr: Record<string, number[]>;
 }
 
-/** Session summary (Claude Code, local or cloud), as in the sessions.json cache. */
+/** Summary of a Claude Code session, as in the sessions.json cache. */
 export interface Session {
   sid: string;
   cwd: string | null;
@@ -561,8 +557,7 @@ export interface Session {
   title_urls: string[];
   title_hist?: [number, string][]; // (rename time, name) — in transcript order
   n_subagents: number;
-  agents?: string[]; // ids of subagents by number (agent k — agents[k - 1]): the transcript's file name, in the cloud —
-  // the call that started the subagent
+  agents?: string[]; // ids of subagents by number (agent k — agents[k - 1]): the transcript's file name
   wt_branches?: string[][]; // branches of the session's subagent worktrees by scope (scope k — wt_branches[k - 1])
   source: string;
   routine: boolean;
@@ -572,38 +567,8 @@ export interface Session {
   // linked only by features of the task's repository
 }
 
-/**
- * The part of an actual computed by a cloud session from its own transcript in the container (`est fact <N>` in the
- * cloud) and handed over by the `cloud` marker of the "Actual" comment: project fields can't be set from the cloud —
- * the local computation sets them, adding up the parts.
- */
-export interface CloudPart {
-  session: string;
-  h: number;
-  iv: [number, number][];
-  prompts: number;
-  agents?: number; // the cloud session's subagents whose work is linked to the task
-  tok: { in: number; out: number; cw: number; cr: number; total: number } | null;
-  models: Record<string, { mtok: number; usd: number | null }>;
-  steps?: number; // the part's turns (model responses), including subagents
-  steps_agents?: number;
-  tail?: number; // turns with context larger than TAIL_CTX
-  preamble?: number; // context of the first top-level turn
-  ctx_end?: number; // context of the last top-level turn
-  kinds?: Record<CallKind, number>; // the part's turns by kind (Fact.kinds)
-  rewrites?: number; // its cache rewrites after a pause and their $ (Fact.rewrites)
-  rewrite_usd?: number;
-}
-
 /** Turn context from which a turn is "tail": turns with such context were 20 % of turns and 45 % of tokens. */
 export const TAIL_CTX = 400_000;
-
-/** Cloud parts from all comments with the "Actual" marker: per session — the last one, order — of first appearance. */
-export function cloudPartsIn(bodies: string[]): CloudPart[] {
-  const by = new Map<string, CloudPart>();
-  for (const b of bodies) for (const p of parseMarker(b, "fact")?.cloud ?? []) if (p && typeof p.session === "string") by.set(p.session, p);
-  return [...by.values()];
-}
 
 /** The subset of Repo the actual computation needs (in tests — a stub without GitHub). */
 export interface FactRepo {
@@ -624,16 +589,10 @@ export type Recorded = Map<number, Record<string, [number, number][]>>;
 
 const PR_FIELDS = `number title state headRefName baseRefName body mergedAt updatedAt additions deletions changedFiles
         mergeCommit{oid} closingIssuesReferences(first:20){nodes{number}}
-        commits(first:100){totalCount nodes{commit{oid authoredDate messageBody}}}
+        commits(first:100){totalCount nodes{commit{oid authoredDate}}}
         files(first:100){nodes{path additions deletions}}`;
 
-/** Cloud sessions from `Claude-Session: https://claude.ai/code/session_…` trailers in a commit message. */
-export function cloudSessionsIn(message: string): string[] {
-  return uniqSortedStrs([...String(message ?? "").matchAll(/^Claude-Session:\s*https:\/\/claude\.ai\/code\/(session_[A-Za-z0-9]+)/gm)].map((m) => m[1]!));
-}
-
-export function packPr(p: Any): PR {
-  const commitNodes: Any[] = p.commits?.nodes ?? [];
+function packPr(p: Any): PR {
   return {
     number: p.number,
     title: p.title ?? null,
@@ -651,7 +610,6 @@ export function packPr(p: Any): PR {
     commits: (p.commits?.nodes ?? []).map((c: Any) => ({ oid: c.commit.oid, at: parseTs(c.commit.authoredDate) })),
     commits_total: p.commits?.totalCount ?? 0,
     files: (p.files?.nodes ?? []).map((f: Any) => ({ path: f.path, a: f.additions, d: f.deletions })),
-    cloud: uniqSortedStrs(commitNodes.flatMap((c: Any) => cloudSessionsIn(c.commit?.messageBody ?? ""))),
   };
 }
 
@@ -855,7 +813,7 @@ class Repo implements FactRepo {
     const cache = loadJson<Any>(file, { prs: {} });
     let prs = new Map<number, PR>();
     for (const [k, v] of Object.entries(cache.prs ?? {})) prs.set(Number(k), v as PR);
-    if ([...prs.values()].some((v) => !("baseRefName" in v) || !("cloud" in v))) prs = new Map(); // old cache format — reread
+    if ([...prs.values()].some((v) => !("baseRefName" in v))) prs = new Map(); // old cache format — reread
     this.defaultBranch = cache.default_branch ?? null;
     const knownMax = prs.size ? Math.max(...[...prs.values()].map((v) => v.updatedAt || 0)) : 0;
     const q = `query($o:String!,$r:String!,$c:String){ repository(owner:$o,name:$r){ defaultBranchRef{name} pullRequests(first:${PR_PAGE},after:$c,states:[MERGED],orderBy:{field:UPDATED_AT,direction:DESC}){ pageInfo{hasNextPage endCursor} nodes{ ${PR_FIELDS} } } } }`;
@@ -1489,7 +1447,7 @@ const ASK_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 /**
  * Whether a user record that isn't a tool result ends a wait for input. Not input: a background command's notification
  * and a background subagent's hand-back — the session waited for its own work; a subagent's assignment and the
- * harness's insertions into its stream; the user's interrupt of the agent's work; a cloud session's service record.
+ * harness's insertions into its stream; the user's interrupt of the agent's work.
  * Input: at the session's top level — everything else (a human prompt, a command, the app's event, another session's
  * message); in a subagent — the coordinator's message (SendMessage: a dispatcher's executor waited for the owner's
  * answer) and the text of a continuation.
@@ -1498,7 +1456,7 @@ function isInput(r: Any, subagent: boolean, first: boolean): boolean {
   const kind = r.origin && typeof r.origin === "object" ? r.origin.kind : undefined;
   const txt = promptText(r.message?.content).trimStart();
   if (kind === "task-notification" || txt.startsWith("<task-notification") || txt.startsWith("<\\task-notification")) return false;
-  if ((kind === "peer" && r.origin.handback) || kind === "agent") return false;
+  if (kind === "peer" && r.origin.handback) return false;
   if (txt.startsWith("[Request interrupted by user")) return false;
   if (!subagent) return true;
   if (first) return false;
@@ -1569,17 +1527,10 @@ function finishCommits(acc: Acc): void {
  * human, so n_human and the first prompt are taken only from the top level. On the other hand, a subagent's
  * assignment names the task ("Task #N (epic #M)", "#N" or an issue URL — taskHintIn): all records of that subagent
  * get the hint hint=N — this way the work of parallel subagents in a workflow is linked to their own tasks instead of
- * being split by commit order.
+ * being split by commit order. agent — 0 for the session itself, k for the k-th subagent: the number goes into the
+ * record, by it the actual computes task fan-out.
  */
 function scanJsonl(file: string, acc: Acc, agent: number): void {
-  scanRecords(jsonlRecords(file), acc, agent);
-}
-
-/**
- * The same from ready records: for a cloud session they're assembled from its events (parseCloudFile). agent — 0 for
- * the session itself, k for the k-th subagent: the number goes into the record, by it the actual computes task fan-out.
- */
-function scanRecords(records: Iterable<Any>, acc: Acc, agent: number): void {
   const subagent = agent > 0;
   const commitToolIds = new Set<string>();
   const listingToolIds = new Set<string>();
@@ -1602,7 +1553,7 @@ function scanRecords(records: Iterable<Any>, acc: Acc, agent: number): void {
       if (call.kind) acc.calls.push([call.at, at, call.kind, agent, outputSlotWait(tagIn(part, "output-file"))]);
     }
   };
-  for (const r of records) {
+  for (const r of jsonlRecords(file)) {
     const t = r.type;
     const ts = r.timestamp ? parseTs(r.timestamp) : null;
     if (acc.cwd === null && r.cwd) acc.cwd = r.cwd;
@@ -1801,90 +1752,6 @@ const kindsOf = (acc: Acc): Pick<Session, "call_kinds"> => (acc.kinds.some(Boole
 /** The session's wait calls (by start) and whether its tool results tell a wait for the user's approval apart. */
 const callsOf = (acc: Acc): Pick<Session, "calls" | "perm"> => ({ ...(acc.calls.length ? { calls: acc.calls.sort(byTs) } : {}), ...(acc.perm !== null ? { perm: acc.perm } : {}) });
 
-/** A cloud session export: what the browser snippet of reference.md, "Cloud session import", saves. */
-export interface CloudExport {
-  v: number;
-  session: string;
-  repo: string;
-  title?: string;
-  events: Any[];
-}
-
-export function isCloudExport(x: Any): x is CloudExport {
-  return !!x && typeof x === "object" && typeof x.session === "string" && /^session_[A-Za-z0-9]+$/.test(x.session) && typeof x.repo === "string" && /^[^/\s]+\/[^/\s]+$/.test(x.repo) && Array.isArray(x.events);
-}
-
-/**
- * Claude Code cloud session summary from its events (claude.ai/v1/code/sessions/<id>/events) in the same format as a
- * local one: assistant/user events are the same transcript records. A record has no branch — the `vcs_state_changed`
- * event brings it (on commit and push), before the first such event the branch is neutral; a human is
- * `source: client`; subagent responses (`parent_tool_use_id`) are a separate stream, like a local session's subagent
- * file. The session name comes from the export: "#N …" links, as for a local one.
- */
-export function parseCloudFile(file: string): Session {
-  const data = JSON.parse(readFileSync(file, "utf8"));
-  if (!isCloudExport(data)) throw new EstError(`${file}: not a cloud session export (needs session, repo, events)`);
-  const events = [...data.events].sort((a, b) => Number(a.sequence_num) - Number(b.sequence_num));
-  let branch = "";
-  let cwd: string | null = null;
-  const top: Any[] = data.title ? [{ type: "custom-title", customTitle: data.title }] : [];
-  const subs = new Map<string, Any[]>();
-  for (const e of events) {
-    const p = e?.payload ?? {};
-    if (e?.event_type === "system") {
-      if (p.subtype === "init" && p.cwd) cwd = p.cwd;
-      if (p.subtype === "vcs_state_changed" && p.branch) branch = p.branch;
-      continue;
-    }
-    if (e?.event_type !== "user" && e?.event_type !== "assistant") continue;
-    const parent: string | null = p.parent_tool_use_id ?? null;
-    const rec = {
-      type: e.event_type,
-      timestamp: p.timestamp || e.created_at,
-      gitBranch: branch,
-      cwd,
-      message: p.message,
-      toolUseResult: p.tool_use_result,
-      origin: { kind: e.source === "client" && !parent ? "human" : "agent" },
-    };
-    if (!parent) top.push(rec);
-    else {
-      if (!subs.has(parent)) subs.set(parent, []);
-      subs.get(parent)!.push(rec);
-    }
-    // the cloud reports the branch only on commit — a switch to another branch is visible in git output
-    if (e.event_type === "user") branch = gitBranchIn(textOfContent(p.message?.content) + "\n" + String(p.tool_use_result?.stdout ?? "")) ?? branch;
-  }
-  const acc = newAcc();
-  scanRecords(top, acc, 0);
-  for (const [k, recs] of [...subs.values()].entries()) scanRecords(recs, acc, k + 1);
-  finishWorktrees(acc);
-  acc.ev.sort(byTs);
-  finishCommits(acc);
-  return {
-    sid: data.session,
-    cwd: acc.cwd,
-    n_human: acc.n_human,
-    ev: acc.ev,
-    prlinks: [],
-    commits: acc.commits,
-    first_refs: acc.first_refs ?? [],
-    first_urls: acc.first_urls,
-    usage: acc.usage,
-    ...kindsOf(acc),
-    models: acc.models,
-    title: acc.title,
-    title_refs: refsIn(acc.title),
-    title_urls: urlsIn(acc.title),
-    title_hist: acc.titles,
-    n_subagents: subs.size,
-    agents: [...subs.keys()],
-    ...callsOf(acc),
-    source: "cloud",
-    routine: acc.n_human < 3 && !acc.commits.length,
-  };
-}
-
 /**
  * Branches git switched to in this output, in order: `Switched to branch 'x'`, a commit line `[x abc1234]` or the
  * flow's rename `+ branch <old> → x` (`github task status --branch`; the same line — renameBranch in
@@ -1895,17 +1762,8 @@ function gitBranchesIn(txt: string): string[] {
   return [...txt.matchAll(re)].map((m) => (m[1] ?? m[2] ?? m[3])!);
 }
 
-/** The last branch git switched to in this output. */
-function gitBranchIn(txt: string): string | null {
-  return gitBranchesIn(txt).at(-1) ?? null;
-}
-
-/**
- * Session key in the "Actual" marker (iv) and in output — 8 chars of the id: for a local one — the UUID start, for a
- * cloud one — after the `session_` prefix shared by all cloud ones (otherwise their intervals would merge into one
- * key).
- */
-export const sidKey = (sid: string) => sid.replace(/^session_/, "").slice(0, 8);
+/** Session key in the "Actual" marker (iv) and in output — 8 chars of the id, the UUID start. */
+export const sidKey = (sid: string) => sid.slice(0, 8);
 
 /**
  * Key of an agent's intervals in the "Actual" marker: the session itself — sidKey, a subagent — `sidKey:<the end of
@@ -1917,27 +1775,11 @@ export function agentKey(s: Pick<Session, "sid" | "agents">, agent: number): str
   return `${sidKey(s.sid)}:${(s.agents?.[agent - 1] ?? String(agent)).slice(-8)}`;
 }
 
-/** Path of a cloud session export in the state directory: by repository, the file is the session id. */
-export const cloudPath = (repoFull: string, session: string) => path.join(CLOUD_DIR, ...repoFull.split("/"), `${session}.json`);
-
-function cloudFiles(repo: Repo): string[] {
-  const d = path.join(CLOUD_DIR, ...repo.full.split("/"));
-  try {
-    return readdirSync(d).filter((f) => f.endsWith(".json")).map((f) => path.join(d, f)).sort();
-  } catch {
-    return [];
-  }
-}
-
-const isCloudFile = (file: string) => file.startsWith(CLOUD_DIR.replace(/\/+$/, "") + "/");
-
 /**
  * A session belongs to the repository if at least one of its records was made in its directory (or a worktree
- * inside): sessions are also started outside the project and then moved into it. A cloud one — by the export
- * directory, not by the container's cwd.
+ * inside): sessions are also started outside the project and then moved into it.
  */
 export function inRepo(s: Session, paths: string[]): boolean {
-  if (s.source === "cloud") return true;
   const cwds = s.cwds?.length ? s.cwds : [s.cwd];
   return cwds.some((c) => cwdMatches(c, paths));
 }
@@ -2133,11 +1975,11 @@ function loadSessions(repo: Repo): Parsed {
   let changed = false;
   const guests = new Set(guestTranscripts(repo.full, repo.paths, repo.otherPaths, PROJECTS_DIR, path.join(repo.cacheDir, "guest-index.json")));
   const pinned = new Set(pinnedTranscripts(repo.full, repo.pins()));
-  const files = uniqSortedStrs(transcriptFiles(repo).concat([...guests], [...pinned])).concat(cloudFiles(repo));
+  const files = uniqSortedStrs(transcriptFiles(repo).concat([...guests], [...pinned]));
   for (const f of files) {
     let mtime: number;
     try {
-      mtime = isCloudFile(f) ? mtimeOf(f) : sessionMtime(f);
+      mtime = sessionMtime(f);
     } catch {
       continue;
     }
@@ -2148,7 +1990,7 @@ function loadSessions(repo: Repo): Parsed {
     }
     let s: Session;
     try {
-      s = isCloudFile(f) ? parseCloudFile(f) : parseSessionFile(f);
+      s = parseSessionFile(f);
     } catch (e) {
       console.error(`skipped ${f}: ${(e as Error).message}`);
       continue;
@@ -2424,8 +2266,6 @@ export interface Fact {
   iv?: Record<string, [number, number][]>; // intervals by session (sid, 8 chars) — into the "Actual" marker
   taken?: { issue: number; h: number }[]; // not counted: already in another task's recorded actual
   overlap?: { issue: number; h: number }[]; // counted (pinning, branch, subagent, commit), but also in someone else's actual
-  cloud_missing?: string[]; // cloud sessions from the PR commits' trailer whose export is missing (est cloud-import)
-  cloud_parts?: CloudPart[]; // parts computed by cloud sessions (the cloud marker) — kept in the marker on rewrite
   waits?: Waits; // the actual's split by waits, minutes (#518); absent — no time or an epic
   perm_unknown?: number; // linked sessions whose transcript doesn't tell a wait for the user's approval apart
 }
@@ -2539,7 +2379,7 @@ interface Win {
   scope: number;
 }
 
-export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closers: Closer[], gapMin = 30, parts: CloudPart[] = []): Fact {
+export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closers: Closer[], gapMin = 30): Fact {
   const prsAll = repo.prs();
   const openPrs = repo.openPrs().items;
   const cidx = repo.closers();
@@ -2708,8 +2548,7 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
       return head ? (s.wt_branches ?? []).findIndex((bs) => bs.includes(head)) + 1 : 0;
     };
     const anchors: Anchor[] = [];
-    // a PR of our repository that isn't the task's is a foreign anchor: every PR of the repository is known here. Mirror:
-    // cloudOwnPart — the cloud knows none, its own repository's pr-links aren't anchors there
+    // a PR of our repository that isn't the task's is a foreign anchor: every PR of the repository is known here
     for (const [ts, pr] of links) {
       const own = ourPrs.has(pr);
       // Claude Code repeats the pr-link of the PR bound to the session even after the merge — that's the app's status,
@@ -3008,49 +2847,6 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     details.push({ sid: s.sid, src: s.source ?? "claude", start: sFirst!, hours: round2((sessW * par) / 3600), prompts, rules, branches });
   }
 
-  // Cloud parts (computed by the cloud session itself) — as one more session; a session with an imported export
-  // is counted from the export, its part isn't.
-  const known = new Set(sessions.map((s) => s.sid));
-  const partsUsed = parts.filter((p) => !known.has(p.session) && p.h > 0);
-  for (const p of partsUsed) {
-    const piv: [number, number][] = (p.iv ?? []).map(([a, b]) => [a, b]);
-    intervals.push(...piv);
-    rawTotal += piv.reduce((acc, [a, b]) => acc + (b - a), 0);
-    weightedTotal += p.h * 3600;
-    iv[sidKey(p.session)] = piv;
-    nSessions++;
-    nPrompts += p.prompts || 0;
-    nAgents += p.agents || 0;
-    if (p.tok) {
-      tok.in += p.tok.in || 0;
-      tok.out += p.tok.out || 0;
-      tok.cw += p.tok.cw || 0;
-      tok.cr += p.tok.cr || 0;
-    }
-    for (const [model, m] of Object.entries(p.models ?? {})) {
-      if (!byModel.has(model)) byModel.set(model, { tok: 0.0, usd: 0.0, priced: true });
-      const bm = byModel.get(model)!;
-      bm.tok += (m.mtok || 0) * 1e6;
-      if (m.usd === null) bm.priced = false;
-      else bm.usd += m.usd;
-    }
-    const pFirst = piv.length ? Math.min(...piv.map((x) => x[0])) : null;
-    const pLast = piv.length ? Math.max(...piv.map((x) => x[1])) : null;
-    if (pFirst !== null) firstTs = firstTs === null ? pFirst : Math.min(firstTs, pFirst);
-    if (pLast !== null) lastTs = lastTs === null ? pLast : Math.max(lastTs, pLast);
-    // turns and tail add up, preamble — from the earliest part or session, context at the end — from the latest
-    steps += p.steps || 0;
-    stepsAgents += p.steps_agents || 0;
-    tail += p.tail || 0;
-    for (const k of CALL_KINDS) kinds[k] += p.kinds?.[k] || 0;
-    rewrites += p.rewrites || 0;
-    rewriteUsd += p.rewrite_usd || 0;
-    if (p.preamble !== undefined && pFirst !== null && (preAt === null || pFirst < preAt)) (preAt = pFirst), (preamble = p.preamble);
-    if (p.ctx_end !== undefined && pLast !== null && (endAt === null || pLast > endAt)) (endAt = pLast), (ctxEnd = p.ctx_end);
-    details.push({ sid: p.session, src: "cloud", start: pFirst ?? 0, hours: p.h, prompts: p.prompts || 0, rules: { "cloud part": 1 }, branches: {} });
-  }
-  const partSids = new Set(partsUsed.map((p) => p.session));
-
   const merged = mergeIntervals(intervals);
   const activeRaw = merged.reduce((s, [a, b]) => s + (b - a), 0); // without double counting across sessions
   const overlap = rawTotal > 0 ? activeRaw / rawTotal : 1.0;
@@ -3058,16 +2854,12 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
 
   // coverage
   const prSeen = (p: PR) =>
-    seenPrs.has(p.number) || (!!p.headRefName && seenBranches.has(p.headRefName)) || [...seenHashes].some((h) => hashMatches(h, p.commits.map((c) => c.oid))) || (p.cloud ?? []).some((sid) => partSids.has(sid));
+    seenPrs.has(p.number) || (!!p.headRefName && seenBranches.has(p.headRefName)) || [...seenHashes].some((h) => hashMatches(h, p.commits.map((c) => c.oid)));
   const units = [...prObjs.map(prSeen), ...closers.map((c) => [...seenHashes].some((h) => hashMatches(h, [c.oid])))];
   let cov: Fact["cov"];
   if (nSessions === 0) cov = "none";
   else if (units.length && units.every(Boolean)) cov = "full";
   else cov = "partial";
-  // the PR's commits were made in a cloud session, and there's neither its export nor its part — part of the work
-  // isn't visible
-  const cloudMissing = uniqSortedStrs(prObjs.flatMap((p) => p.cloud ?? [])).filter((sid) => !known.has(sid) && !partSids.has(sid));
-  if (cloudMissing.length && cov === "full") cov = "partial";
 
   let diff = prObjs.reduce((s, p) => s + diffSize(p), 0);
   let diffNa = false;
@@ -3107,18 +2899,16 @@ export function computeFact(repo: FactRepo, number: number, prObjs: PR[], closer
     iv,
     taken: hoursByIssue(takenS),
     overlap: hoursByIssue(overlapS),
-    cloud_missing: cloudMissing,
-    cloud_parts: parts,
     perm_unknown: permUnknown,
   };
   Object.assign(res, cov !== "none" ? tokensResult(tok, byModel) : { tok: null, usd: null });
-  // the split of the actual by waits: the time of the cloud parts has no calls — it's in the rest
+  // the split of the actual by waits
   const waits = res.h !== null ? splitWaits(merged, waitIv, queueIv, res.h) : null;
   if (waits) res.waits = waits;
   return res;
 }
 
-/** Turns by kind to a tenth — the actual's, as its marker and cloud part keep them. */
+/** Turns by kind to a tenth — the actual's, as its marker keeps them. */
 const roundKinds = (k: Record<CallKind, number>): Record<CallKind, number> => ({ work: round1(k.work), flow: round1(k.flow), harness: round1(k.harness), checks: round1(k.checks) });
 
 /** {task: seconds} → [{issue, h}] by task number; less than 0.01 h isn't shown. */
@@ -3278,6 +3068,9 @@ export function extractKeptLines(body: string | null | undefined): [number, stri
   return [manual, lines];
 }
 
+/** The agent whose sessions give the actual: local Claude Code sessions only (#836, #837). */
+const AGENT = "Claude Code";
+
 /**
  * The "Actual" comment in the project language (`language`, by default — of the current directory); the marker is the
  * same in all languages.
@@ -3292,7 +3085,7 @@ export function factCommentBody(res: Fact, keptLines: string[], manual: number, 
   } else {
     const na = res.agents ?? 0;
     const subagents = na ? ` ${count(n.est.fact.subagents, na)},` : "";
-    const body = { h: fmtH(h), agents: agentsTxt(res, language), sessions: count(n.est.fact.sessions, res.sessions), prompts: count(n.est.fact.prompts, res.prompts), subagents, wall: fmtH(res.wall, 1), cov: res.cov };
+    const body = { h: fmtH(h), agents: AGENT, sessions: count(n.est.fact.sessions, res.sessions), prompts: count(n.est.fact.prompts, res.prompts), subagents, wall: fmtH(res.wall, 1), cov: res.cov };
     text = `${n.comments.actual} ${locale.fill(n.est.fact.body, body)}`;
   }
   text += res.prs.length ? locale.fill(n.est.fact.prs, { list: res.prs.map((p) => `#${p}`).join(", ") }) : n.est.fact.noPr;
@@ -3300,7 +3093,6 @@ export function factCommentBody(res: Fact, keptLines: string[], manual: number, 
   if (res.shared?.length) text += " " + sharedTxt(res, language) + ".";
   for (const x of res.taken ?? []) text += locale.fill(n.est.fact.taken, { h: fmtH(x.h), issue: x.issue });
   for (const x of res.overlap ?? []) text += locale.fill(n.est.fact.overlap, { h: fmtH(x.h), issue: x.issue });
-  for (const sid of res.cloud_missing ?? []) text += locale.fill(n.est.fact.cloudMissing, { sid });
   if (res.tok) text += "\n" + tokensTxt(res, language);
   if (res.steps) text += "\n" + stepsTxt(res, language);
   if (res.steps && res.kinds) text += "\n" + overheadTxt(res, language);
@@ -3321,87 +3113,7 @@ export function factCommentBody(res: Fact, keptLines: string[], manual: number, 
     marker.shared = sh;
   }
   if (res.iv && Object.keys(res.iv).length) marker.iv = res.iv; // by them the next computation sees what's already counted
-  if (res.cloud_missing?.length) marker.cloud_missing = res.cloud_missing;
-  if (res.cloud_parts?.length) marker.cloud = res.cloud_parts; // computed by the cloud session — without them a recomputation would lose it
   return [text, ...keptLines, `<!-- fact ${pyDumps(marker)} -->`].join("\n");
-}
-
-// Claude Code cloud session (claude.ai/code): GitHub — only REST of its own repository, GraphQL and projects are
-// closed by the session proxy, so the actual can't be computed there from GitHub — an honest "unavailable
-// (cloud)" with a link to the session. A local session gives the number: importing the cloud session's events
-// (est cloud-import, parseCloudFile).
-const isCloud = () => process.env.CLAUDE_CODE_REMOTE === "true";
-const CLOUD_ERR = "Claude Code cloud session: GitHub GraphQL and projects are unreachable from here — the sweep and the period summary only in a local session (docs/cloud-sessions.md in Elves)";
-
-/** "Actual" comment of a task closed from a cloud session: actual unavailable, a marker with cov none and src cloud. */
-/** Cloud session id for a link: env gives cse_…, the link needs session_…. */
-const cloudSid = (sessionId: string | undefined) => (sessionId ? "session_" + sessionId.replace(/^(cse|session)_/, "") : null);
-
-/**
- * This cloud session's part of the actual — from its transcript in the container (the work directory is the git
- * root). Without GitHub: linking is by the `<type>/<N>-…` branch, a "#N" first prompt, a subagent assignment; PRs and
- * commits aren't visible from here. The repository — `owner/repo` of the clone's origin, as for a local one (#617):
- * otherwise a PR of its own repository the session opened looks like another repository's and unlinks the first
- * prompt's period; no origin — "cloud", any PR with a repository is then another's.
- */
-function cloudOwnPart(number: number, session: string, gap: number): CloudPart | null {
-  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
-  const cwd = top.status === 0 && top.stdout.trim() ? top.stdout.trim() : process.cwd();
-  const origin = spawnSync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" });
-  const full = (origin.status === 0 && originRepo(origin.stdout)) || "cloud";
-  // The cloud sees no PRs, so a PR of its own repository is neither the task's nor another task's: computeFact would
-  // take it for a foreign anchor and end the first prompt's period when the session opened it — CI, the merge and the
-  // actual after it are the task's too. Mirror: computeFact, the pr-link anchors — locally every PR is known.
-  const ownLink = (r?: string) => !r || r.toLowerCase() === full.toLowerCase();
-  const sessions = transcriptFilesIn([cwd])
-    .map((f) => parseSessionFile(f))
-    .filter((x) => x.ev.length) // don't discard a routine one: a cloud session is often a single prompt
-    .map((s) => ({ ...s, prlinks: s.prlinks.filter(([, , r]) => !ownLink(r)) }));
-  if (!sessions.length) return null;
-  const stub: FactRepo = {
-    full,
-    prs: () => new Map(),
-    openPrs: () => ({ at: 0, items: {} }),
-    closers: () => ({ oid: {}, pr: {} }),
-    sessions: () => sessions,
-    neutralBranches: () => new Set(["main", "master"]),
-    commitDiff: () => null,
-  };
-  const res = computeFact(stub, number, [], [], gap);
-  if (!res.h) return null;
-  const t = res.tok;
-  return {
-    session,
-    h: res.h,
-    iv: (res.intervals ?? []).map(([a, b]) => [Math.floor(a), Math.ceil(b)] as [number, number]),
-    prompts: res.prompts,
-    agents: res.agents ?? 0,
-    tok: t ? { in: t.in, out: t.out, cw: t.cw, cr: t.cr, total: t.total } : null,
-    models: res.models ?? {},
-    steps: res.steps ?? 0,
-    steps_agents: res.steps_agents ?? 0,
-    tail: res.tail ?? 0,
-    ...(res.preamble !== undefined ? { preamble: res.preamble } : {}),
-    ...(res.ctx_end !== undefined ? { ctx_end: res.ctx_end } : {}),
-    ...(res.kinds ? { kinds: res.kinds, rewrites: res.rewrites ?? 0, rewrite_usd: res.rewrite_usd ?? 0 } : {}),
-  };
-}
-
-/** The "Actual (cloud)" comment in the project language (`language`, by default — of the current directory). */
-export function cloudFactBody(sessionId: string | undefined, part: CloudPart | null = null, number?: number, language = locale.projectLanguage()): string {
-  const n = locale.names(language);
-  const sid = cloudSid(sessionId);
-  if (sid && part) {
-    const usds = Object.values(part.models).map((m) => m.usd);
-    const usd = usds.length && usds.every((u) => u !== null) ? round2(usds.reduce((a, u) => a + (u as number), 0)) : null;
-    let text = `${n.est.cloud.actual} ${locale.fill(n.est.cloud.body, { h: fmtH(part.h), prompts: locale.count(language, n.est.fact.prompts, part.prompts) })}`;
-    if (part.tok) text += locale.fill(n.est.cloud.tokens, { total: fmtMtok(part.tok.total), cost: usd !== null ? locale.fill(n.est.cloud.cost, { usd: usd.toFixed(2) }) : "" });
-    text += locale.fill(n.est.cloud.fields, { sid, number: number ?? "<N>" });
-    return `${text}\n<!-- fact ${pyDumps({ v: 1, h: part.h, manual: 0, cov: "cloud", src: "cloud", session: sid, cloud: [part] })} -->`;
-  }
-  let text = n.est.cloud.unavailable;
-  if (sid) text += locale.fill(n.est.cloud.session, { sid });
-  return `${text}\n<!-- fact ${pyDumps({ v: 1, h: null, manual: 0, cov: "none", src: "cloud", session: sid })} -->`;
 }
 
 const diffTxt = (res: Fact, language = locale.projectLanguage()) => (res.diff_na ? locale.names(language).est.fact.diffNa : locale.fill(locale.names(language).est.fact.diffLines, { n: res.diff }));
@@ -3470,8 +3182,7 @@ function factForIssue(repo: Repo, number: number, gap: number, quiet = false): [
   // epic — by the issue type "Epic" in any dictionary language; the epic label is the fallback for repos without types
   if (locale.every((n) => n.issueTypes.epic.toLowerCase()).includes(itype) || labels.includes("epic")) return factForEpic(repo, issue, gap, quiet);
   const [prObjs, closers, weakUsed] = resolveLinks(repo, issue);
-  const parts = cloudPartsIn(issue.comments.nodes.map((c: Any) => c.body));
-  const res = computeFact(repo, number, prObjs, closers, gap, parts);
+  const res = computeFact(repo, number, prObjs, closers, gap);
   res.title = issue.title;
   res.weak_links = weakUsed;
   res.links = prObjs.map((p) => ({ pr: p.number, branch: p.headRefName, why: p.why! }));
@@ -3573,15 +3284,6 @@ function factForEpic(repo: Repo, issue: Any, gap: number, quiet = false): [Any, 
   return [issue, res];
 }
 
-/** "Claude Code", the cloud session or both — by the sources of linked sessions. */
-function agentsTxt(res: Fact, language = locale.projectLanguage()): string {
-  const n = locale.names(language);
-  const srcs = new Set((res.details ?? []).map((d) => d.src ?? "claude"));
-  const names: Record<string, string> = { claude: "Claude Code", cloud: n.est.fact.cloudAgent };
-  if (!srcs.size) return "Claude Code";
-  return [...srcs].sort().map((s) => names[s] ?? s).join(n.est.fact.and);
-}
-
 function printFact(repo: Repo, res: Fact): void {
   console.log(`== ${repo.full}#${res.issue}: ${res.title}`);
   if (res.is_pr) console.log(`WARNING: #${res.issue} is a PR, not an issue; the actual is computed for the PR itself, it can't be written`);
@@ -3600,14 +3302,14 @@ function printFact(repo: Repo, res: Fact): void {
     console.log("actual unavailable: no sessions found (coverage none)");
   } else {
     const raw = res.shared?.length && res.h_raw !== null && res.h_raw !== undefined ? ` (unsplit: ${fmtH(res.h_raw)} h)` : "";
-    console.log(`actual: ${fmtH(res.h)} h active in ${agentsTxt(res, "en")}${raw}; ${res.sessions} sess., ${res.prompts} prompts, wall ${fmtH(res.wall, 1)} h, coverage ${res.cov}`);
+    console.log(`actual: ${fmtH(res.h)} h active in ${AGENT}${raw}; ${res.sessions} sess., ${res.prompts} prompts, wall ${fmtH(res.wall, 1)} h, coverage ${res.cov}`);
   }
   if (res.tok) console.log(tokensTxt(res, "en"));
   if (res.steps && res.kinds) console.log(overheadTxt(res, "en"));
   if (res.waits) console.log(waitsTxt(res.waits, "en"));
   // a wait for the user's approval is told apart by the permission decision on a tool result (Claude Code); without it
   // the wait is inside the call's time (#518)
-  if (res.h !== null && res.perm_unknown) console.log(`○ waits for permission approval aren't told apart in ${res.perm_unknown} ${plural(res.perm_unknown, "session", "sessions")} (no permission decision in the transcript: an older Claude Code, cloud) — they're in the call time`);
+  if (res.h !== null && res.perm_unknown) console.log(`○ waits for permission approval aren't told apart in ${res.perm_unknown} ${plural(res.perm_unknown, "session", "sessions")} (no permission decision in the transcript: an older Claude Code) — they're in the call time`);
   console.log(`secondary: PR ${res.prs.map((p) => `#${p}`).join(", ") || "none"}; commits ${res.commits}; diff ${diffTxt(res, "en")} (without lock files / snapshots / minified)`);
   for (const d of res.details) {
     const brs = Object.entries(d.branches).slice(0, 4).map(([b, h]) => `${b} ${h} h`).join(", ");
@@ -3616,7 +3318,6 @@ function printFact(repo: Repo, res: Fact): void {
   }
   for (const x of res.taken ?? []) console.log(`WARNING: Not counted again: ${fmtH(x.h)} h already in the actual of #${x.issue} (linked by the session name / first prompt); if that actual is wrong — est fact ${x.issue} --write, then this task again`);
   for (const x of res.overlap ?? []) console.log(`WARNING: Overlap with the actual of #${x.issue}: ${fmtH(x.h)} h of this task (pinning, branch, subagent, commit) — recompute #${x.issue}: est fact ${x.issue} --write`);
-  for (const sid of res.cloud_missing ?? []) console.log(`WARNING: part of the work is the cloud session https://claude.ai/code/${sid}, its events aren't imported: export them through the browser and est cloud-import (SKILL.md est, «Cloud session»)`);
 }
 
 /** Writes the actual (the comment and, where there's a board, its fields); returns the comment body. */
@@ -3712,20 +3413,6 @@ function cmdFact(args: FactArgs): number {
   if (args.model !== undefined && !args.sweep) throw new EstError("--model — only with --sweep: recomputing the recorded actuals with this model");
   if (args.recompute && !args.sweep) throw new EstError("--recompute — only with --sweep: recomputing the recorded actuals of the window");
   if (args.recompute && args.model !== undefined) throw new EstError("--recompute and --model are incompatible: --recompute takes every recorded actual of the window");
-  if (isCloud()) {
-    if (args.number === undefined) throw new EstError(CLOUD_ERR);
-    const sid = cloudSid(process.env.CLAUDE_CODE_REMOTE_SESSION_ID);
-    const part = sid ? cloudOwnPart(args.number, sid, args.gap) : null;
-    const what = part
-      ? `this session's part of the actual is computed from its transcript (${fmtH(part.h)} h); the project fields can't be set from here — a local session sets them (est fact ${args.number} --write or --sweep)`
-      : "this session's actual can't be computed: the transcript isn't linked to the task (branch <type>/<N>-… or «#N» in the first prompt) — a local session imports the events (est cloud-import)";
-    console.log(
-      `Claude Code cloud session: GitHub GraphQL and the project fields are unreachable from here — ${what}${args.write ? " (--write writes nothing)" : ""}.\n` +
-        `Write the comment below into issue #${args.number} with a GitHub tool; «${projectNames().status.done}» is set by the project workflow «Item closed», otherwise by the user.\n\n` +
-        cloudFactBody(process.env.CLAUDE_CODE_REMOTE_SESSION_ID, part, args.number),
-    );
-    return 0;
-  }
   const repo = new Repo(repoOf(args.repo), registry);
   // the board and its fields before the transcripts: a board without the fields — the error at once; no board — the
   // actual is the comment (#847)
@@ -4067,7 +3754,6 @@ interface PeriodArgs {
 }
 
 function cmdPeriod(args: PeriodArgs): void {
-  if (isCloud()) throw new EstError(CLOUD_ERR);
   const repo = new Repo(repoOf(args.repo), loadRegistry());
   const sessions = repo.periodSessions();
   const prs = [...repo.prs().values()];
@@ -4109,17 +3795,11 @@ checks) and cache rewrites after a pause; two periods — side by side, «after 
 Examples:
   est period --since 2026-09-01
   est period --since 2026-08-01 --until 2026-09-01 --since 2026-09-01`,
-  "cloud-import": `est cloud-import <export.json>...
-
-Cloud session events (SKILL.md, «Cloud session») into the sources of the actual.
-
-Examples:
-  est cloud-import session.json`,
 };
 
 /** `est --help`: what the script is and the synopsis of each command. */
 const OVERVIEW = [
-  "est — records the actual of tasks from Claude Code transcripts, local and cloud, and sums up a period's sessions.",
+  "est — records the actual of tasks from local Claude Code transcripts and sums up a period's sessions.",
   "",
   ...Object.values(HELP).map((h) => h.split("\n\n")[0]!.replace(/^/gm, "  ")),
   "",
@@ -4134,35 +3814,17 @@ function helpOf(argv: string[]): string | undefined {
   return cmd ? HELP[cmd] : OVERVIEW;
 }
 
-/** Cloud session exports → the state directory; a summary of each, so that it's visible what landed. */
-function cmdCloudImport(files: string[]): void {
-  const hhmm = (t: number) => new Date(t * 1000).toISOString().slice(11, 16);
-  for (const f of files) {
-    let data: Any;
-    try {
-      data = JSON.parse(readFileSync(f, "utf8"));
-    } catch (e) {
-      throw new EstError(`${f}: ${(e as Error).message}`);
-    }
-    if (!isCloudExport(data)) throw new EstError(`${f}: not a cloud session export (needs session, repo, events — the snippet of reference.md est, «Cloud session import»)`);
-    const s = parseCloudFile(f);
-    const dst = cloudPath(data.repo, data.session);
-    mkdirSync(path.dirname(dst), { recursive: true });
-    writeFileSync(dst, JSON.stringify(data));
-    const n = data.events.length;
-    const span = s.ev.length ? `${hhmm(s.ev[0]![0])}–${hhmm(s.ev[s.ev.length - 1]![0])} UTC` : "no records";
-    const title = data.title ? `, «${data.title}»` : "";
-    console.log(`${data.session} (${data.repo}${title}): ${n} ${plural(n, "event", "events")}, ${s.n_human} ${plural(s.n_human, "prompt", "prompts")}, ${span} → ${dst}`);
-  }
-}
-
 function intArg(v: string | undefined, name: string): number | undefined {
   if (v === undefined) return undefined;
   if (!/^-?\d+$/.test(v)) throw new EstError(`${name}: expected an integer, got «${v}»`);
   return parseInt(v, 10);
 }
 
+/** The flow doesn't run in a Claude Code cloud session (#837): one line, before help and arguments. */
+const CLOUD_REFUSAL = "the flow doesn't support Claude Code cloud sessions (CLAUDE_CODE_REMOTE=true) — run it in a local session";
+
 export function main(argv: string[]): number {
+  if (process.env.CLAUDE_CODE_REMOTE === "true") return console.error(CLOUD_REFUSAL), 2;
   const cmd = argv[0];
   const rest = argv.slice(1);
   const help = helpOf(argv);
@@ -4170,11 +3832,6 @@ export function main(argv: string[]): number {
   try {
     if (!cmd) return console.log(OVERVIEW), 2;
     if (!Object.hasOwn(HELP, cmd)) throw new EstError(`unknown command «${cmd}»; expected ${Object.keys(HELP).join(", ")} (est --help)`);
-    if (cmd === "cloud-import") {
-      if (!rest.length) throw new EstError("pass the cloud session export files");
-      cmdCloudImport(rest);
-      return 0;
-    }
     if (cmd === "fact") {
       const { values, positionals } = parseArgs({
         args: rest,
