@@ -1,6 +1,6 @@
 ---
 name: est
-description: Records the actual of GitHub tasks from local Claude Code session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — and sums up all of a repo's sessions over a period. When — a task is closed or a PR is merged (actual); when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`).
+description: Records the actual of GitHub tasks from local Claude Code session transcripts when a task is closed — the agent's active hours, tokens and cost in the «Actual, h», «Tokens, M», «Cost, $» fields and the actual comment (`github task close` runs it) — sums up all of a repo's sessions over a period and reports the flow's use. When — a task is closed or a PR is merged (actual); when asked "how many hours did it take", "how much did it cost", for an actuals backfill or a recomputation (a model's rate fixed, the actual's definition changed); when comparing the flow before and after a change or spend over a period across all of a repo's sessions (`est period`); monthly and before a task for a new flow capability, or when asked what of the flow is used, how often --help is called, which commands or references nothing calls (`est usage`).
 allowed-tools: Bash(bun *skills/est/scripts/est.ts *) Bash(gh issue view *) Bash(gh pr view *)
 ---
 
@@ -56,6 +56,7 @@ update the same comment (reference.md, "Writing and reruns").
 | The actual says «Not counted again: N h already in the actual of #M» or «Overlap with the actual of #M … — recompute #M», and #M's actual is the wrong one | `est fact M --write`, then this task again — reference.md, "Double counting and shared commits" |
 | `--write` ended with «not written: …» (exit code 1) | the command to retry it prints |
 | Compare the flow before and after a change, spend over a period without tasks | `est period --since <before> --until <change> --since <change>` — section "Period summary" |
+| Once a month, before a task for a new flow capability | `est usage --all-repos` — section "The flow's use" |
 
 An epic's actual is the sum of its subtasks' actuals (`est fact <epic>` sums
 them itself and says how many subtasks have no actual).
@@ -109,6 +110,23 @@ the same flow; the flow's effect shows in tokens, output and hours per PR, and
 its overhead — in turns by kind and cache rewrites after a pause
 (reference.md, "Turn kinds and cache rewrites").
 Periods, columns and how to read them — reference.md, "Period summary".
+
+## The flow's use — what to remove
+
+The flow has a way to add (an incident becomes a rule) and this one to remove:
+
+```bash
+est usage [--since 30d] [--repo o/r | --all-repos]
+```
+
+counts over the transcripts, subagents included, the calls of the flow
+scripts' commands and of them `--help`, the reads of its references
+(`SKILL.md`, `reference.md`, `docs/`) and the bypasses of its commands by the
+guard hook's list, and names the commands and references nothing called — the
+candidates for removal. Each candidate gets a removal task (`github task new`)
+or a «keep, because …» line in its decision's md: a command only a hook or CI
+calls is never in transcripts. What counts as a call and a read — reference.md,
+"The flow's use".
 
 ## So the actual is found — linking work to the task
 
