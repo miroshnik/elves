@@ -1,15 +1,14 @@
 ---
 name: ci-wait
-description: Waiting for all checks of a PR or commit (CI in GitHub Actions, the host's deploy, an external check) with a script that shows progress and has the outcomes PASS / FAIL / TIMEOUT / ERROR. When — after a push, before merging a PR; after a merge, before reporting "done", if the merge triggers a deploy (`merged <N>` — the script takes the merge SHA itself); whenever you need to wait for CI or a deploy, instead of `gh pr checks --watch`, `sleep` in a loop and manual polling; `issue <N>` — for the closing of the bug on a red main (`github pr premerge`, exit code 3).
+description: Waiting for all checks of a PR or commit (CI in GitHub Actions, the host's deploy, an external check) with a script that shows progress and has the outcomes PASS / FAIL / TIMEOUT / ERROR. When — after a push, before merging a PR; after a merge, before reporting "done", if the merge triggers a deploy (`merged <N>` — the script takes the merge SHA itself); whenever you need to wait for CI or a deploy, instead of `sleep` in a loop and manual polling; `issue <N>` — for the closing of the bug on a red main (`github pr premerge`, exit code 3).
 allowed-tools: Bash(bash *skills/ci-wait/scripts/wait-ci.sh *) Bash(gh pr checks *) Bash(gh pr view *) Bash(git rev-parse *)
 ---
 
 # ci-wait — wait for checks, don't guess
 
 Waiting for CI and deploys must be observable, time-bounded and complete in
-its outcomes. `gh pr checks --watch` right after a push confuses "checks not
-registered yet" with "passed", `sleep` in a loop doesn't show what is
-happening, and manual polling gets forgotten. The `scripts/wait-ci.sh` script
+its outcomes: `sleep` in a loop doesn't show what is happening, and manual
+polling gets forgotten. The `scripts/wait-ci.sh` script
 next to this file does it all deterministically; the agent only reads the
 outcome.
 
