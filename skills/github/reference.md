@@ -99,6 +99,9 @@ command's summary — `github <command> --help`. Examples use made-up owners and
 discrepancy — `project check` prints an `○` line «no board connected» and
 exits 0, `install` connects none, `project fix --create` connects one (the
 owner's choice: the board is for a human, not every project needs it).
+The board is the open project linked to the repository titled with its
+name, otherwise the first open linked one; a closed project is no board —
+one rule for `github` and `est` (`scripts/board.ts`, #880).
 Without a board the same commands run — `task new`, `show`, `start`,
 `status`, `drop`, `close`, `finish`, `actualize`, `queue`, `batch release`
 and `est fact --write`: a board's step is an `○` line, and **a task's status
