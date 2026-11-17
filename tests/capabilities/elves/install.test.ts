@@ -97,10 +97,11 @@ describe("В проект — тонкий флоу: версия пакета, 
    */
   it("Установка в проект не ставит облачный хук", () => {
     expect(install().code).toBe(0);
-    expect(existsSync(path.join(proj, ".claude"))).toBe(false);
+    // без auto в настройках — только правила ask (#840), хуков нет
+    expect(Object.keys(JSON.parse(read(path.join(proj, ".claude/settings.json"))))).toEqual(["permissions"]);
     const settings = JSON.stringify({ permissions: { allow: ["Bash(ls)"] }, hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo мой хук" }] }] } });
     writeTree(proj, { ".claude/settings.json": settings });
-    expect(install().code).toBe(0);
+    expect(install(["--auto"]).code).toBe(0);
     expect(read(path.join(proj, ".claude/settings.json"))).toBe(settings);
     const clone = bareClone(path.join(tmp, "clone"));
     expect(install([], clone).code).toBe(0);
@@ -114,7 +115,7 @@ describe("В проект — тонкий флоу: версия пакета, 
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(`package.json — @miroshnik/elves ${VERSION}; no lockfile — install the dependencies: npm install`);
     expect(JSON.parse(read(path.join(proj, "package.json"))).devDependencies).toEqual({ "@miroshnik/elves": VERSION });
-    expect(readdirSync(proj).sort()).toEqual([".agents", ".git", "AGENTS.md", "package.json"]);
+    expect(readdirSync(proj).sort()).toEqual([".agents", ".claude", ".git", ".worktreeinclude", "AGENTS.md", "package.json"]);
   });
 
   it("менеджер пакетов не поставил пакет (нет сети) — версия в package.json, предупреждение с командой, код 0", () => {
@@ -128,7 +129,7 @@ describe("В проект — тонкий флоу: версия пакета, 
   /** Ни скриптов, ни тестов на JS — закреплять нечего; канон и скиллы проекту дают машина и блок AGENTS.md. */
   it("проект без package.json — без devDependency: манифест, шим и блок AGENTS.md", () => {
     expect(elves(sb, ["install"], { bin: release.bin }).code).toBe(0);
-    expect(readdirSync(proj).sort()).toEqual([".agents", ".git", "AGENTS.md"]);
+    expect(readdirSync(proj).sort()).toEqual([".agents", ".claude", ".git", ".worktreeinclude", "AGENTS.md"]);
     expect(readdirSync(path.join(proj, ".agents")).sort()).toEqual(["elves.json", "slot.sh"]);
   });
 
@@ -294,10 +295,13 @@ describe("Файлы флоу не игнорируются git проекта �
     expect(gitignore()).toBe(text);
   });
 
-  /** Шаблоны, которые прятали файлы копии (`CLAUDE.md`, `.claude/`, `vendor/`), тонкому проекту безразличны: его файлы — не там. */
-  it("шаблоны CLAUDE.md, .claude/ и vendor/ тонкому проекту не мешают — исключений не нужно", () => {
+  /**
+   * Шаблоны, которые прятали файлы копии (`CLAUDE.md`, `.claude/`, `vendor/`), тонкому проекту безразличны: его файлы —
+   * не там; `.claude/settings.json` с правилами ask флоу пишет только проекту без auto (#840).
+   */
+  it("шаблоны CLAUDE.md, .claude/ и vendor/ тонкому проекту с auto не мешают — исключений не нужно", () => {
     writeTree(proj, { ".gitignore": "CLAUDE.md\n.claude/\nvendor/\n" });
-    expect(install().code).toBe(0);
+    expect(install(["--auto"]).code).toBe(0);
     expect(gitignore()).toBe("CLAUDE.md\n.claude/\nvendor/\n");
     expect(ignored()).toEqual([]);
     expect(elves(sb, ["check"]).code).toBe(0);
@@ -1109,6 +1113,100 @@ describe("Задача целиком без спроса — настройка
 });
 
 /**
+ * Два правила канона Claude Code держит своей настройкой (#840): «commit, push и мерж — по „да“» в проекте без `auto` —
+ * правила `permissions.ask` в `.claude/settings.json` проекта, их спрашивает само приложение, и в режиме разрешений
+ * `auto` тоже; «свежему worktree скопировать `.env*.local`» — `.worktreeinclude`, по нему приложение копирует
+ * игнорируемые git файлы в каждый новый worktree. Своими установка считает ровно свои строки: чужие правила и строки
+ * проекта остаются.
+ */
+describe("Родные настройки Claude Code вместо правил канона: permissions.ask в проекте без auto и .worktreeinclude", () => {
+  const ASK = ["Bash(git commit *)", "Bash(git push *)", "Bash(gh pr merge *)"];
+  const settingsFile = () => path.join(proj, ".claude/settings.json");
+  const settings = () => JSON.parse(read(settingsFile()));
+  const include = () => read(path.join(proj, ".worktreeinclude"));
+
+  it("Установка в проект без `auto` пишет правила `ask` на commit, push и мерж", () => {
+    const r = install();
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(".claude/settings.json — permissions.ask: git commit, git push and gh pr merge — Claude Code asks the owner");
+    expect(settings()).toEqual({ permissions: { ask: ASK } });
+    install();
+    expect(settings()).toEqual({ permissions: { ask: ASK } });
+    // свои настройки и правила проекта — на месте, правила флоу — после его правил
+    const own = { model: "opus", permissions: { allow: ["Bash(ls)"], ask: ["Bash(rm *)", ASK[1]] } };
+    writeTree(proj, { ".claude/settings.json": JSON.stringify(own) });
+    install();
+    expect(settings()).toEqual({ model: "opus", permissions: { allow: ["Bash(ls)"], ask: ["Bash(rm *)", ASK[1], ASK[0], ASK[2]] } });
+    // правила — в коммите: другой чекаут спрашивает так же; .claude/ в .gitignore проекта снимается ровно с файла
+    writeTree(proj, { ".gitignore": ".claude/\n", ".claude/settings.local.json": "{}\n" });
+    install();
+    const ignored = (p: string) => spawnSync("git", ["check-ignore", "-q", p], { cwd: proj, env }).status === 0;
+    expect(ignored(".claude/settings.json")).toBe(false);
+    expect(ignored(".claude/settings.local.json")).toBe(true);
+  });
+
+  it("Установка в проект с `auto` правил `ask` не пишет", () => {
+    expect(install(["--auto"]).code).toBe(0);
+    expect(existsSync(path.join(proj, ".claude"))).toBe(false);
+    const own = JSON.stringify({ permissions: { ask: ["Bash(rm *)"] } });
+    writeTree(proj, { ".claude/settings.json": own, ".gitignore": ".claude/\n" });
+    expect(install().code).toBe(0);
+    expect(read(settingsFile())).toBe(own);
+    // с auto файл настроек — проекта, не флоу: игнорируемый остаётся игнорируемым
+    expect(read(path.join(proj, ".gitignore"))).toBe(".claude/\n");
+  });
+
+  it("Смена режима на `auto` убирает правила `ask` флоу и оставляет чужие", () => {
+    install();
+    const s = settings();
+    writeTree(proj, { ".claude/settings.json": JSON.stringify({ ...s, permissions: { allow: ["Bash(ls)"], ask: ["Bash(rm *)", ...s.permissions.ask] } }) });
+    const r = install(["--auto"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(".claude/settings.json — removed permissions.ask");
+    expect(settings()).toEqual({ permissions: { allow: ["Bash(ls)"], ask: ["Bash(rm *)"] } });
+    // файл только с правилами флоу уходит целиком, пустой .claude/ — с ним
+    rmSync(path.join(proj, ".claude"), { recursive: true });
+    install(["--no-auto"]);
+    expect(settings()).toEqual({ permissions: { ask: ASK } });
+    install(["--auto"]);
+    expect(existsSync(path.join(proj, ".claude"))).toBe(false);
+  });
+
+  it("Установка пишет `.worktreeinclude` с `.env*.local`, не трогая строки проекта", () => {
+    expect(install(["--auto"]).code).toBe(0);
+    expect(include()).toBe(".env*.local\n");
+    writeTree(proj, { ".worktreeinclude": "# свои файлы\n.env\nconfig/secrets.json" });
+    const r = install(["--auto"]);
+    expect(r.stdout).toContain(".worktreeinclude — .env*.local: Claude Code copies the git-ignored local env files into a new worktree");
+    expect(include()).toBe("# свои файлы\n.env\nconfig/secrets.json\n.env*.local\n");
+    install();
+    expect(include()).toBe("# свои файлы\n.env\nconfig/secrets.json\n.env*.local\n");
+  });
+
+  it("Проверка проекта называет отсутствующие правила `ask` и `.worktreeinclude`", () => {
+    install();
+    expect(elves(sb, ["check"]).code).toBe(0);
+    rmSync(path.join(proj, ".claude"), { recursive: true });
+    rmSync(path.join(proj, ".worktreeinclude"));
+    const before = snapshot(proj);
+    const c = elves(sb, ["check"]);
+    expect(c.code).toBe(1);
+    expect(c.stdout).toContain("  + .claude/settings.json — permissions.ask: git commit, git push and gh pr merge");
+    expect(c.stdout).toContain("  + .worktreeinclude — .env*.local");
+    expect(snapshot(proj)).toEqual(before);
+    expect(elves(sb, ["update"]).code).toBe(0);
+    expect(elves(sb, ["check"]).code).toBe(0);
+    // режим, правленный в манифесте руками, — не отставание (capability `elves#update`): лишние правила check не зовёт,
+    // update приводит их к режиму
+    const file = path.join(proj, ".agents/elves.json");
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(read(file)), auto: true }));
+    expect(elves(sb, ["check"]).code).toBe(0);
+    expect(elves(sb, ["update"]).code).toBe(0);
+    expect(existsSync(path.join(proj, ".claude"))).toBe(false);
+  });
+});
+
+/**
  * Флоу написан по-английски, а агент работает с человеком на языке проекта: диалог, задачи, промпты, документы. Язык —
  * настройка проекта, как auto: хранится в манифесте, его видят другой чекаут и любой агент.
  */
@@ -1187,7 +1285,8 @@ describe("Мерж своего PR в Claude Code — правило разре�
     for (const args of [[], ["--no-auto"], ["-g"]]) {
       const r = install(args);
       expect(r.code).toBe(0);
-      expect(r.stdout + r.stderr).not.toContain("gh pr merge");
+      // правило ask на мерж (#840) — не подсказка: она — о permissions.allow машины
+      expect(r.stdout + r.stderr).not.toContain("permissions.allow");
     }
     install(["--auto"]);
     // update и check идут с режимом манифеста — подсказка только у install
