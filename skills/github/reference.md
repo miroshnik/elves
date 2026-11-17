@@ -154,7 +154,7 @@ added to the project right on creation (`github task new`). Required:
   is:closed updated:<@today-2w`) takes a task closed and untouched for two
   weeks off the board and the table.
 - **No estimate field:** tasks aren't estimated (`AGENTS.md`, section
-  "Actual — the `est` skill"); a project that still has the old «Estimate, h»
+  "Task tracking"); a project that still has the old «Estimate, h»
   gets an `○` line from `project check`, `project fix --confirm` deletes it.
 - **The `Actual, h`, `Tokens, M`, `Cost, $` fields** (Number) — the actual:
   the agent's active hours, all tokens
@@ -786,7 +786,7 @@ same command again. Every stop is code 1 (#842: before it — 1, 3, 4 and 5 by
 kind): the step is the automaton's `Next:` line, the one `task next` prints.
 A session runs it in the background — once before the merge and once
 after; a subagent — `--timeout 240` (540 with the hour cache,
-`docs/pr-checks.md`), again while its `Next:` says so. The separate commands stay for manual
+`skills/ci-wait/reference.md`), again while its `Next:` says so. The separate commands stay for manual
 work.
 
 ### task status
@@ -1043,8 +1043,8 @@ network — `git remote get-url` per directory. A new bypass — a row of
 ### task queue
 
 The dispatcher: "do all tasks of epic #M", "fix all High bugs", the owner's
-"yes" to «run the dispatcher on epic #M?» (`AGENTS.md`, "Session and branch —
-one task") — any session; one with its own task keeps it pinned, and its task
+"yes" to «run the dispatcher on epic #M?» (`AGENTS.md`, "Task
+tracking") — any session; one with its own task keeps it pinned, and its task
 is `=` in the queue. The rules are a model in code, `scripts/queue.ts`: a
 task's state by its facts, the transitions between the states, the
 dispatcher's step; why each rule is so — the decision
@@ -1511,7 +1511,7 @@ are the same.
 Principles — `AGENTS.md`, section "Git, PRs and merging"; here — the full
 rules (the short form — `SKILL.md`, "Git, PRs and merging — mechanics").
 Waiting for checks, the full SHA and a merge that deploys —
-`docs/pr-checks.md`.
+`skills/ci-wait/reference.md`.
 
 - **Merge — rebase only:** `gh pr merge <N> --rebase`; other methods in the
   repository are turned off by `project fix` (item 11 of section "What is

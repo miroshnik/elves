@@ -146,7 +146,7 @@ describe("README называет всё, что ставит флоу, и не 
       if (!p.mention.test(README)) throw new Error(`README не называет ${p.key} — допиши его в README (tests/standards/documents/readme)`);
     },
     violator: { name: "скилл, которого README не называет", item: skill("billing") },
-    includes: ["skills/spec", "elves install", "elves release", "skills/spec/scripts/spec-break", "skills/ci-wait/scripts/wait-ci", "docs/pr-checks.md"],
+    includes: ["skills/spec", "elves install", "elves release", "skills/spec/scripts/spec-break", "skills/ci-wait/scripts/wait-ci", "docs/testing.md"],
   });
 
   invariant(it, {

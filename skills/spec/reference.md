@@ -467,7 +467,7 @@ isn't applied, exit code 2 — compare by hand.
 `spec-break` ran 22 times on ~500 merged PRs (November 1–16), and a migration
 found at least 165 tests counted as coverage that caught no breakage (#844).
 `spec-red` makes it a mechanism; `github pr premerge` runs it once per PR
-with files in `tests/`, on every path to the merge (`docs/pr-checks.md`).
+with files in `tests/`, on every path to the merge (`skills/ci-wait/reference.md`).
 
 - **What is checked** — `spec-diff`'s added tests, by static parsing: not a
   renamed or a moved one, not a harness test only a run names (an invariant

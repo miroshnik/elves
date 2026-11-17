@@ -1,315 +1,157 @@
 # Shared rules for all projects
 
+The Elves canon: each rule names the mechanism that holds it or stands in
+"Judgment".
+
 ## This file and skills
 
-The Elves canon, for Claude Code (other agents — `docs/other-agents.md`).
-It lives in **miroshnik/elves** with the skills (`skills/*`) and references
-(`docs/`, next to this file), installed onto the machine — README,
-"Installation". A rule or skill change from
-another project's session is a task in Elves (project #6) without that
-project's names, for a separate session; I don't edit an Elves clone from
-someone else's session.
+- **The canon lives in Elves.** The rules, skills and references come from
+  miroshnik/elves by `elves install -g`; a change to them from another
+  project's session is a task in Elves without that project's names, not an
+  edit of an Elves clone.
+- **References load by themselves.** `elves install -g` links every
+  reference with `paths:` into `~/.claude/rules`, and Claude Code loads it
+  when I work with matching files: tests, workflows, compose files.
 
-**The repository is public:** no names, owners, paths or numbers of other
-repositories, no colleagues or clients — in files, git history or issues;
-examples are made up. **A skill is `SKILL.md` + `scripts/`** in TypeScript
-under Bun (Agent Skills; README, "Repository layout"); repository specifics
-— local configuration. **Budgets** — a ceiling, standard `documents#canon-size`.
-Here — what always applies and where to go; reference — `reference.md`,
-`--help`, `docs/`. **A file at its budget** — a detail
-moves whole into its topic's md (else a new `docs/<topic>.md`), here — a
-link to it. **Unused is deleted:** `est usage` monthly and before a new flow
-capability; a candidate — a removal task or «keep, because …» in its
-decision.
+## First step of a session
 
-## First step of a session — an up-to-date flow
-
-Rules load at the session start, so before the task: `bunx
-@miroshnik/elves check -g` (machine) and `check` (project, with its mode
-and language). The machine's copy and a project's package version
-follow Elves releases (tags `vYYYY.MM.DD`), a `--link` clone — `origin/main`;
-a release is the owner's step (`elves release`), I cut one only when asked.
-
-- **The machine is behind** — `update -g`. After an `update` I tell the user
-  briefly what changed and re-read what was updated: it applies, not what
-  loaded at the start.
-- **The project is behind** (or git ignores flow files) — `update` in the
-  task's branch: the package version.
-- **`update` refused or the check unavailable** — I don't fix the clone; I
-  work by the current flow and say so.
+- **The SessionStart hook checks the flow.** Its `elves check --hook` lines
+  say whether the machine or the project is behind and name the project's
+  mode and language; I do what they say, tell the user what an update
+  changed and re-read the updated files.
 
 ## Language
 
-The flow is written in English; the agent works in the **project language**
-(`language` in `.agents/elves.json`, printed by `check`; none — `github` won't
-write): talking with the user, issues, prompts to subagents, documents, commit
-and PR descriptions, `describe`/`it` names, decision docs — briefly. Always English:
-code, identifiers, terms, conventional-commit type and scope. Names that
-scripts write to GitHub and parse back are exact — `locales/<language>.json`
-of the `github` skill; in `en`: sections `## Questions`, `## Scenarios`;
-`Status` `Backlog` → `In progress` → `Done`; the comment `State`; `Task #N`,
-`epic #M` in a subagent's prompt; the last line `All
-done. The session can be closed.` · `All done, but there are questions: …` ·
-`Remaining: …`.
+- **The project language.** I talk to the user and write issues, subagent
+  prompts, documents, commit and PR descriptions and test names in the
+  language the SessionStart hook names; code, identifiers and terms stay in
+  English, and the names scripts parse back come exactly from the locales of
+  the `github` skill.
 
 ## What I do without asking and what needs a yes
 
-- **Without asking:** reading and search, tests, lint, typecheck, build, local
-  edits in my checkout, local infrastructure (Docker, dev database), logs and
-  read-only requests to external systems; task tracking; re-running my own CI
-  run, closing my own duplicate PR, deleting my own merged branch; updating
-  the flow and committing it.
-- **Only on an explicit "yes"** — anything irreversible or external: deploy,
-  tag, migrations and writes to live databases, external service settings,
-  deleting others' or unmerged remote branches and data, outgoing messages
-  (auto mode — below). `git commit`, `git push` and merge — Claude Code asks
-  itself: `permissions.ask` that `install` puts into the project's
-  `.claude/settings.json`; `check` names them missing — until then, a "yes".
-- **Permission is for this action, this time:** "fix whatever is needed" ≠ a
-  deploy, a past "yes" doesn't carry over. A repository may set
-  another mode in its `AGENTS.md`. "Do it all yourself" lifts intermediate
-  confirmations for the named task, except on a discrepancy that changes
-  scope or approach. An autonomous routine does exactly what
-  its assignment names; merge, deploy, external settings — only if named.
-- **`"auto": true` in `.agents/elves.json` — the whole task without asking**:
-  commit, push, fixing CI, merging my own PR on green checks; work outside the
-  task — a Backlog task and the question «queue it?». The task's open
-  questions — I answer by a recommendation with ✅ auto (`task answer
-  --auto`); my own question goes into the questions section the same way,
-  before code, not into chat. I ask only
-  without a clear recommendation, when the decision is critical or a human's,
-  or on a discrepancy that changes scope or approach — not when the answer
-  would be "yes" or "as you recommend". Anything else irreversible or
-  external still needs a "yes".
-- **Secrets and bypassing protections — only with permission** (tokens, keys,
-  bypass secrets, disabling checks at the host, CI or cloud): first — what
-  will appear and where; a secret from chat — never stored (memory, files,
-  commits, issues, logs), rotation reminded.
+- **Commit, push and merge ask in a project without auto.** `elves install`
+  puts them into `permissions.ask` of the project's `.claude/settings.json`,
+  so Claude Code asks the owner itself. With `"auto": true` in
+  `.agents/elves.json` the whole task goes without asking, and I answer its
+  questions by the recommendation with `github task answer --auto`, asking
+  only without a clear recommendation, on a critical or a human's decision,
+  or on a discrepancy that changes the scope.
 
 ## Task tracking
 
-- Tasks live in the repository's **GitHub Issues**, not in local lists, TODO
-  files or the agent's task list; no repository — ask where. The `github`
-  skill runs them; how tasks, the project and milestones are organized —
-  its `reference.md`.
-- **Types:** Task (one PR), Bug, Epic (a personal account — the `epic`
-  label). **Decision labels** — the topic's name, kind by color: a task
-  carries those of the topics it introduces or changes, an epic — their
-  union.
-- **A big task is an epic** (prefix `<Prefix> · …`) **+ subtasks**
-  (sub-issues); **dependencies only as GitHub links** (sub-issue, blocked
-  by — on another repository's issue too; a blocker that isn't an issue — the
-  `external blocker` label, the reason in a comment): a task with an open
-  *blocked by* or that label isn't taken. Before creating — check it doesn't
-  exist (`gh issue list --search`).
-- **What GitHub keeps natively isn't repeated in an issue's text** —
-  sub-issues, blocked by, `Status`, milestone, labels, fields, the PR: a copy
-  goes stale; an epic's description has no list of subtasks or stages.
-- **A GitHub Project (optional)** per repository, named after it, with all
-  tasks: `project check` once per session, ❌ — `project fix`; none — status
-  by facts. `Status` I set
-  **myself, immediately**: `task status`, `task close`, `task drop` (won't
-  do, duplicate). An organization's open task requires `Priority`
-  (`Urgent` → `Low`, `Medium` by default). A milestone (an epic stage, a
-  release) I close with its last task.
-
-### Session and branch — one task
-
-- **Session = task:** `task start` won't take a second one. Another task —
-  Backlog and the question «queue #263?», "yes" — its executor at once;
-  "do it here" — a one-sentence refusal and the question again. My own
-  regression and a fix for a green PR are the same task. A new epic — the
-  question «run the dispatcher on epic #M?», without In progress.
-- **A dispatcher** — "do all tasks of epic #M", "fix all High bugs", a "yes"
-  (scope, not merges outside auto) — any session, its task stays; one started
-  for it — in the project folder, not a worktree: executors start from `main`.
-  `github task queue` prints executors' prompts; an executor — a background
-  subagent (own worktree): at most the machine's executors at once, the
-  owner's number replaces it (`task queue` names the executors, `slot`'s
-  `machine.json` sets them); failed — a task
-  comment, no restart; an executor session whose task closed — the dispatcher
-  archives it in an auto project, not one still working in the background or
-  awaiting the owner's answer; outside auto the owner closes it. A batch
-  project — `github batch release`.
-- **The session is named `#<number> <task title>`** (without a task — by
-  meaning, no number) as soon as the task is clear (no tool — ask the user):
-  `est` links the session to the task by it.
-- **Branch = `<type>/<issue>-<slug>`** (`feat/42-invoice-export`): `type` —
-  conventional-commit types (`feat fix docs refactor perf test chore ci
-  build`) plus `research` (a spike without code); slug — Latin kebab-case,
-  2–5 words; a repository's area prefix goes first (`backend/fix/263-…`). A
-  branch named by a worktree tool is renamed before the first push by `github
-  task start <N> --branch <type>/<N>-<slug>`.
-- **PR:** the title is a conventional commit, the body has `Closes #263`.
-  **Merge — rebase only** (`gh pr merge <N> --rebase`): commits land in
-  `main`, each a conventional commit with `Refs #263` (`Closes` would close
-  the task). Without PRs — `Closes #N` in the last commit.
-
-### Open questions — at the start of work
-
-A task's questions are a numbered list in its description's questions
-section. Taking a task, **first of all** — before the plan, code and
-subagents — I read the questions of the task and its epic (`github task start
-<N>` prints them) and **ask the user all open ones (without ✅)** in one message, each
-with options and a recommendation. What already has an answer (comments,
-code) gets ✅; my own questions join the message and the section. While
-waiting I do what doesn't depend on the answer — what does, I neither start
-nor replace with an assumption. The answer goes straight into the issue:
-`github task answer <N> <k> "<answer>"`. An autonomous routine doesn't take a
-task with open questions.
-
-### Actual — the `est` skill
-
-Tasks aren't estimated; the actual measures the flow itself. The unit is the
-agent's hours on the task except waits for the user's input; CI and check
-waits count, split out. The actual is set by `github task close`, never by
-hand; no actual — "actual unavailable", not a number by eye. Work is
-linked to the task by the pinned session, the session name, the branch,
-`Closes #N` and the task number in every subagent's assignment ("Subagents
-and worktrees") — otherwise there is no actual.
-
-### Epic refresh on task close
-
-Once a task is merged, **a subagent with a fresh context** brings the open
-tasks of its epic in line with what shipped: `github task finish <N>` waits
-for the deploy, does the mechanics, prints its prompt and, after its report,
-closes the task. The last line of the answer ("Language"): merged,
-deployed, branch removed, epic refreshed, no questions — "all done, can be
-closed"; the owner has something to decide — "all done, but there are
-questions" with them; otherwise — "remaining" with what the session waits for
-and from whom. In auto mode after "can be closed" the session archives itself
-where the agent has the tool; information without a decision doesn't prevent
-it.
+- **Tasks live in GitHub Issues.** Not in local lists, TODO files or the
+  agent's task list: the `github` skill creates and edits them, and the
+  PreToolUse hook denies `gh issue view` and `gh issue edit --body` with the
+  command to run instead. Without a repository I ask where tasks go.
+- **`github task next` is the entry.** It prints the task's state and the
+  one next step as a ready command, and every task command ends with the
+  same `Next:` line; I run what it prints.
+- **One session, one task.** `github task start` pins the task to the
+  session and refuses another one with the question «queue #N?»: "yes" gives
+  that task its own executor, "do it here" gets a one-sentence refusal and
+  the question again. My own regression and a fix for a green PR are the
+  same task.
+- **Open questions first.** `github task start` stops on open questions of
+  the task or its epic: I ask the user all of them in one message, each with
+  options and a recommendation, and meanwhile do only what doesn't depend on
+  them.
+- **A big task is an epic with subtasks.** `github task new --epic` makes a
+  subtask and `--blocked-by` a dependency — dependencies are GitHub links
+  only, a blocker that isn't an issue is the `external blocker` label — and
+  `github task queue` hands out no blocked task.
+- **The dispatcher runs the queue.** "Do all tasks of epic #M" or "fix all
+  High bugs" makes any session a dispatcher: `github task queue` prints each
+  executor's prompt and, after each answer, the next step.
+- **The actual comes from transcripts.** `github task close` writes it; the
+  work is linked to the task by the session name, the branch, `Closes #N`
+  and «Task #N», in the project language, at the start of every subagent's
+  prompt.
 
 ## Git, PRs and merging
 
-- **Taking a task** — check it isn't going in a parallel session (an open PR,
-  a branch `*/<N>-*` — `task start` checks): continue that work or wait
-  for the merge; two PRs for one thing — close the second.
-- **Branch only from a fresh `origin/main`** (`git fetch origin && git switch
-  -c feat/263-slug origin/main --no-track`). Into `main` only via a PR; a
-  direct push and `gh pr merge --admin` — only on the owner's direct
-  instruction. **Before a push** — is it my branch.
-- **Commits in logical steps**, tests in the same commit as the code.
-  **Before a commit — one `elves precommit`** (`lint`, `typecheck`,
-  `test:spec`, the affected tests; the full run — CI, `docs/testing.md`);
-  before merging — a full build; `set -o pipefail` in
-  `script | tail`.
-- **I merge as soon as all checks are green** (the preview deploy too; an
-  empty list is "not registered yet") and GitHub merges without a conflict;
-  rebase and `--force-with-lease` — only on a textual conflict or my own
-  changes. **Before merging — `github pr premerge`:** `main` moved after the
-  PR's CI — fast checks on the merge with it; red — I fix the root cause;
-  `main` red by itself — no merge and no fix in the PR: one bug
-  for it, I wait for it to close.
-- **The next step — `github task next`**: the task's state and one step, a
-  ready command; every task command ends with the same `Next:`.
-- **The tail — `github task finish <N>`**, resumable: push, PR, labels, CI,
-  `premerge`, the merge command, the deploy on the merge SHA, refresh, close;
-  a batch's — its release's.
-  Others' branches, stacks and unmerged work I don't touch.
-- Mechanics — the `github` skill, "Git, PRs and merging — mechanics";
-  waiting for checks and deploys — `docs/pr-checks.md`.
+- **A branch from a fresh base.** The task branch `<type>/<N>-<slug>` starts
+  from a fresh `origin/main`, and `github task start --branch` renames a
+  branch a worktree tool named; into `main` only through a PR, on which
+  `github project fix` sets the `elves` ruleset with required checks and
+  the rebase-only merge.
+- **Before a commit — `elves precommit`.** One call runs `lint`,
+  `typecheck`, `test:spec` and the affected tests through the machine queue;
+  the full run is CI's.
+- **The tail — `github task finish <N>`.** It pushes, opens the PR with
+  `Closes #N` and the body from `spec-diff`, waits for CI, runs `github pr
+  premerge` and prints the merge command; after the merge it waits for the
+  deploy, prints the epic refresh prompt, closes the task and names the
+  session's last line. I call it again while its `Next:` says so.
 
 ## Specification — decisions
 
-A project's spec is **decisions with a deterministic check**, functional and
-non-functional (a test, a lint rule, an architecture check).
-**No check — no decision; no decision — no code:** behavior without a check
-may change without agreement; code no decision claims is dead. A check is
-written before the code, red first (acceptance; `spec-red` checks it), then
-holds the decision (regression); a decision changes through its check: the
-check first, red, then the code. Three `tests/` roots by the reader's question:
-`capabilities` (what the system does), `architecture` (what it's made of),
-`standards` (code rules, qualities); a decision is a topic with sections
-(`<topic>.md` — the subject, `<section>.md` — why, `<section>.test.ts` —
-statements), a new rule — a section of the topic covering it.
-Exceptions — a mark in the element's file or an `exceptions/` file, with an
-`#issue`, a reason, a ratchet. Test names are statements in the project
-language; a code task gets the scenarios section (future `it` names) before
-code. The PR body is `spec-diff` output; docs — generated (`spec-doc`),
-in the `spec` branch if the project publishes it. A recurring decision — a "Standard · …"
-issue, a rule in `tests/standards/`; repeats in a PR's files — fixed in it.
-The full canon and wiring — the `spec` skill (`canon.md`, `checks.md`).
-
-## Tests and code
-
-- **A test failed — I fix the root cause** (the test or the logic), even if
-  unrelated to my changes or a rerun is green — no "pre-existing flake",
-  timeouts or retries; a race goes by its cause (the real event, not a
-  pause). A flake suspicion — the same run on the base branch: red there too
-  — I compare the delta; a timeout — first `slot`'s overload line, it's there
-  — a rerun on an idle machine (`docs/testing.md`).
-- **A run's result — by the runner's summary**, not the wrapper's exit code.
-  Project checks go through the machine queue (the `slot` skill), a full run
-  — in the background; e2e and UI in a browser — `docs/testing.md`.
-- **A regression test and a "no defect" guard must be able to fail**: I
-  revert the fix, see red, restore it; it didn't fail — it guards against
-  overcorrection (named so) or is deleted.
-- **An external API contract — by its schema or docs**, not intuition; on a
-  mismatch I fix the test, not the code.
-- **Intentionally different behavior in two places** — mirrored comments
-  with the reason.
-- **I check what reached the human** (the delivered email, the page at the
-  recipient), not my output; a component on several surfaces — in each.
-- **Judgment:** before a run — which of our mistakes would give the same
-  outcome; labels — after checking what the numbers mean; I edit exactly
-  what was named; "doesn't reproduce" — with what I measured.
-  `docs/judgment.md`.
-
-## Production and debugging
-
-- **The production database is read-only.** Data and schema change via a
-  migration in a PR; DDL on production — only on
-  the owner's direct instruction, as a migration file; the environment
-  refuses — I explain, no workaround. Data the application manages (roles,
-  permissions, audited settings) never changes by direct DML: the audit is
-  lost, guards bypassed; what the UI lacks is a code change.
-- **Production numbers — first, is it the right database:** the first query
-  checks it against the repository; no match — stop (`docs/production.md`).
-- **"Didn't help" → production facts, not a third reproduction:** the logs
-  of the real request and production data (the row, `updated_at`, audit),
-  then a new hypothesis.
+- **Decisions with a deterministic check.** A project's spec is decisions
+  held by checks — tests, lint rules, architecture checks — under
+  `tests/capabilities`, `tests/architecture` and `tests/standards`: behavior
+  without a check may change without agreement, code no decision claims is
+  dead. The full canon is the `spec` skill.
+- **The check comes first, red.** A code task gets its scenarios, the future
+  test names, before code, and `github pr premerge` runs the tests a PR adds
+  on the base code (`spec-red`): one that passes there checks nothing.
 
 ## Subagents and worktrees
 
-- **Subagents don't share a dirty worktree.** An agent that may install
-  packages or touch files "to try" gets an isolated worktree or "read-only
-  plus a temp folder" without `git checkout/restore/stash/clean`: its cleanup
-  reverts everything uncommitted, others' work too. Several agents in one
-  worktree, temp files shared with subagents — `docs/parallel-checkouts.md`.
-  After a fan-out — `git status` and `git diff --stat`.
-- **A fresh worktree lacks dependencies** — I install them (`.env*.local`
-  Claude Code copies by `.worktreeinclude`). Paths in commands and
-  assignments lead into the worktree (a path "from memory" edits `main`);
-  `git -C <worktree> status` before and after an edit.
-- **Parallel checkouts share ports, databases and `.git/config`:** the task's
-  apps, databases and e2e run in its own Compose stack (the `task-env`
-  skill), not on a host port; others'
-  stacks and busy ports I don't touch — `docs/parallel-checkouts.md`.
-- **A subagent gets a unit of ~50 turns** (one decision's folder, one file,
-  one spec), not a 200-turn zone: its price is quadratic in turns. The
-  assignment has the task
-  number after the word for "task" or at the start, the epic after the word
-  for "epic" ("Language") — so `est` links its work. **Fewer turns:** a file
-  in one full read, independent tool calls in one turn.
+- **Heavy runs wait in the machine queue.** `elves install` wraps the
+  project's `lint`, `typecheck`, `test` and `test:*` in `slot`; I run checks
+  by those scripts, a full run in the background.
+- **A task's services run in its own stack.** Apps, databases and e2e run in
+  the task's Compose stack by `task-env up` and `task-env e2e`, not on a host
+  port; `elves check` holds the compose file to the isolation rules, `github
+  task close` takes the stack down.
+- **A fresh worktree gets its files.** Claude Code copies `.env*.local` by
+  the `.worktreeinclude` of `elves install`; dependencies I install.
 
-## Project knowledge and handoff
+## Judgment
 
-- **Shared — in Elves, project-specific — in the project's spec**
-  ("Specification — decisions"), the reason in the section's `<section>.md`;
-  neither shared nor checkable (operations, product documents) — the
-  project's `docs/`. The project's `AGENTS.md` — the install block and how
-  its mode differs. An agreement from chat goes there too, not into the
-  agent's memory: memory is a cache, not a source.
-- **I don't revisit the stack** or drag in dependencies; something in the way
-  — a question to the user, not a silent replacement. Versions — latest
-  stable; a tool question — its official documentation first.
-- **Before a pause or an agent change — a State comment in the issue:** done,
-  the branch, next, blockers.
-
-## CI: parallel tasks
-
-Branches and PRs in parallel, `main`, tags and manual runs never cancelled,
-deploy — a queue per environment; others' runs I don't cancel or re-run —
-`docs/ci-concurrency.md`.
+- **Irreversible and external actions need a yes.** A deploy, a tag or a
+  release, migrations and writes to live databases, external service
+  settings, deleting others' data or unmerged remote branches and outgoing
+  messages wait for the owner's "yes" to this action, this time; auto mode
+  covers them only when the task names them, and an autonomous routine does
+  exactly what its assignment names.
+- **Secrets and protections need permission.** Before a token, a key, a
+  bypass secret or a check disabled at the host or CI I say what will appear
+  and where; a secret from chat is never stored, and I remind about its
+  rotation.
+- **Others' work isn't mine.** I don't touch, cancel or re-run others'
+  branches, worktrees, stacks, CI runs or unmerged work.
+- **A failed test gets its root cause fixed,** even when it is unrelated to
+  my change or a rerun is green: no "pre-existing flake", timeouts or
+  retries. A flake suspicion is the same run on the base branch, and a race
+  goes by its real event, not a pause.
+- **A run's result is the runner's summary,** not a wrapper's exit code.
+- **A green check may hold wrong behavior.** An external API's contract goes
+  by its schema or docs, intentionally different behavior in two places gets
+  mirrored comments with the reason, and I check what reached the human —
+  the delivered email, the page at the recipient — not my own output.
+- **A mistake may look like a result.** Before a run I ask which of our
+  mistakes would give the same outcome, a label is checked against what its
+  number means, I edit exactly what was named, and "doesn't reproduce" comes
+  with what I measured.
+- **The production database is read-only.** Data and schema change by a
+  migration in a PR, data the application manages never by direct DML, and
+  before reporting production numbers the first query checks that the
+  database is the project's.
+- **"Didn't help" goes to production facts** — the logs of the real request
+  and the production data, not a third reproduction.
+- **A subagent gets a small unit:** about 50 turns, one decision or one
+  file, because its price grows with the square of its turns; a file is read
+  in one full read, independent tool calls go in one turn.
+- **Commits in logical steps.** Each is a conventional commit with `Refs #N`
+  and its tests; an issue doesn't repeat what GitHub keeps natively —
+  sub-issues, blockers, the status, labels, the PR — and before creating a
+  task I check that it doesn't exist.
+- **Knowledge lives in the project.** Shared rules go into Elves, a
+  project's own into its spec with the reason, an agreement from chat too:
+  the agent's memory is a cache, not a source.
+- **The stack stays.** I don't revisit it or add dependencies without
+  asking; versions are the latest stable, a tool question goes to its
+  official documentation first.
+- **A pause leaves a State comment** in the issue: what is done, the branch,
+  what is next and the blockers.

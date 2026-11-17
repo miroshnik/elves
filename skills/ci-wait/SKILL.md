@@ -88,8 +88,8 @@ What to do next:
   (`gh run view <id> --log-failed`), fix the cause; a "known red first
   build" — re-run your own run (`gh run rerun <id> --failed`) and `ci-wait`
   again. Don't merge. Jobs didn't start, with the annotation "recent account
-  payments have failed…" — the owner's billing, not the code
-  (`docs/pr-checks.md`).
+  payments have failed…" — the owner's billing, not the code: neither a
+  rerun nor a fix helps, tell the owner (`reference.md`).
 - **TIMEOUT** — count it neither as a success nor as a failure; the result
   names what was still awaited: `no checks yet` — none registered; `waiting:
   …` — a stuck runner or a long job; `waiting: workflow queued: <path>` — the

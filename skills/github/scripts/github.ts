@@ -2023,7 +2023,7 @@ function dispatcherBatch(io: Io, slug: string, recent: Recent, file: string | nu
   const off = `executors go into ${base}, as without batches`;
   if (!file) return io.out(`○ batch: true, but the session isn't recognized (no CLAUDE_CODE_SESSION_ID) — no batch branch: ${off}`), none;
   if (!checkoutOfRepo(io, originUrl(io), slug)) {
-    return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in the project folder`), none;
+    return io.out(`! batch: true, but ${io.cwd ?? process.cwd()} isn't a checkout of ${slug} — no batch branch: ${off}; the dispatcher works in a checkout of ${slug}`), none;
   }
   const failed = (what: string, r: RunResult) => (io.out(`! ${what}: ${why(r)} — no batch branch: ${off}`), null);
   const kept = batchOf(io, slug);
@@ -2419,7 +2419,7 @@ function projectChecked(io: Io, slug: string): boolean {
 /**
  * Taking a task in one call (#666) instead of ~11 flow turns: `project check` (once per session), the task as `task
  * show` prints it, then the stops before any change — open questions of the task or its epic (they are asked first,
- * AGENTS.md, "Open questions"), parallel work (an open PR of the task or its branch `*\/N-*` that isn't this checkout's
+ * AGENTS.md, "Task tracking"), parallel work (an open PR of the task or its branch `*\/N-*` that isn't this checkout's
  * — continue it or wait for its merge); then `task status N "In progress" --branch` and what the agent needs next:
  * the session name, the branch, the scenarios and, in
  * Claude Code, one `ToolSearch` line for the app tools the flow calls. Code 1 — stopped, the task isn't taken.
@@ -2597,7 +2597,7 @@ const FLOW_COMMENTS: [kind: string, re: RegExp][] = [
   ["epic refresh, the script's fixes", templateStart((n) => n.actualize.mechanics)],
   ["closed by PR", templateStart((n) => n.comments.closedByPr)],
 ];
-/** The State comment — a handoff of the work (AGENTS.md, "Project knowledge and handoff"): printed in full, not an answer. */
+/** The State comment — a handoff of the work (AGENTS.md, "Judgment"): printed in full, not an answer. */
 const STATE_RE = new RegExp(`^[\\s*_>#]*(?:${locale.every((n) => n.comments.state).map(locale.escapeRe).join("|")})(?![\\p{L}\\p{N}_])`, "iu");
 /** An external blocker's reason (`task queue` reads it): printed in full, not an answer. */
 const EXTERNAL_BLOCKER_RE = templateStart((n) => n.comments.externalBlocker);
@@ -5602,7 +5602,7 @@ export function taskBranch(branch: string): { type: string; issue: number } | nu
   return m ? { type: m[1]!.toLowerCase(), issue: parseInt(m[2]!, 10) } : null;
 }
 const isTaskBranch = (branch: string, number: number) => taskBranch(branch)?.issue === number;
-/** The slug of a branch `task status --branch` creates: Latin kebab-case after `<N>-` (AGENTS.md, "Session and branch"). */
+/** The slug of a branch `task status --branch` creates: Latin kebab-case after `<N>-` (AGENTS.md, "Git, PRs and merging"). */
 const TASK_SLUG_RE = /\/\d{1,6}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Attempts to write the shared `.git/config` while another checkout's git holds its lock: 20 with 0.5 s between — ~10 s. */

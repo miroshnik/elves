@@ -164,7 +164,7 @@ no decision claims is dead and is deleted.
   - the order of interaction, when it is itself a decision ("reserve first,
     then charge"), — `sequence` with `order` over a `trace` at the model's
     boundaries.
-- **A check can fail and doesn't flake** (the "Tests and code" section in
+- **A check can fail and doesn't flake** (the "Judgment" section in
   `AGENTS.md`): a test is written before the code and is red first, a lint
   rule proves "not allowed" with an example, an invariant — with a violator,
   an exception — with a ratchet. `.only`, `skip` without a reason and an issue
@@ -258,8 +258,8 @@ no decision claims is dead and is deleted.
   pages — in the `spec` branch if the project publishes it (`spec-publish`,
   optional); review goes by `spec-diff`. Product documents
   (vision, business decisions, research) aren't spec and live separately.
-- **A recurring decision is a standard:** on task close (check 5 of the "Epic
-  refresh on task close" section in `AGENTS.md`) a repetition found becomes a
+- **A recurring decision is a standard:** on task close (the "Epic refresh
+  on task close" section of `skills/github/reference.md`) a repetition found becomes a
   "Standard · …" issue; the result is a rule in `tests/standards/` and a
   refactoring.
 - **Migrating an old spec** (OpenSpec, a technical specification) into
