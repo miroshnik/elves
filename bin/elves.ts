@@ -31,7 +31,8 @@
  * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
  * (PACKAGE: the project's version of the harness and the skills' scripts for its tests and CI), the manifest, the
- * machine queue's shim `.agents/slot.sh` and a block in the project's `AGENTS.md` linking to the canon on the machine;
+ * machine queue's shim `.agents/slot.sh`, a block in the project's `AGENTS.md` linking to the canon on the machine,
+ * `.worktreeinclude` and, without auto, the ask rules in `.claude/settings.json` (`askRules`, #840);
  * updating the project is bumping the package version — a few lines in the branch of the current task. Claude Code
  * cloud sessions are outside the flow (#837): every command refuses there (CLOUD_REFUSAL), and the cloud session's
  * hook a previous version put into a project's `.claude/settings.json` goes (`oldCloudHook`).
@@ -187,9 +188,11 @@ elves install -g [--link]
 
 The flow of the latest Elves release into the project (the git root or the current directory), thin — without a copy:
 ${PACKAGE} of the release in devDependencies of package.json (the project's package manager installs it, the lockfile
-changes too), .agents/elves.json, the machine queue's shim .agents/slot.sh and a block in AGENTS.md linking to the canon
-on the machine; the cloud session's SessionStart hook a previous version put into .claude/settings.json goes, your own
-settings and hooks stay; the package.json checks (lint, typecheck, test, test:*) go through the shim, the skills' scripts —
+changes too), .agents/elves.json, the machine queue's shim .agents/slot.sh, a block in AGENTS.md linking to the canon
+on the machine and .worktreeinclude with .env*.local (Claude Code copies them into a new worktree); without auto —
+permissions.ask in .claude/settings.json for git commit, git push and gh pr merge: Claude Code asks the owner itself,
+with auto the rules go; the cloud session's SessionStart hook a previous version put into .claude/settings.json goes,
+your own settings and hooks stay; the package.json checks (lint, typecheck, test, test:*) go through the shim, the skills' scripts —
 ${PACKAGE_RUN} <script>, without the project's env files; on Yarn 2+, which runs the .ts bin by Node, both go through
 the package of the project's version — ${PACKAGE_BUNX} <script>.
 In a terminal asks whether the agent does tasks entirely by itself — answers by recommendation, commit, push,
@@ -224,8 +227,8 @@ isn't in git in a repository with commits (the github skill refuses to write nam
 breaks task isolation, standards and architecture have no test:spec script or the CI of a project (an
 Elves clone too) with "batch": true runs a workflow on a PR into a batch branch — on.pull_request lets a batch branch in,
 its gate is the checks before a commit and pr premerge (ci.md of the spec skill, «Batches»), 2 — the check is unavailable; the machine's copy and a project's package version are compared with the latest release (from the npm
-package — by restarting from the latest release's package), a --link clone — with origin/main. For a project names the
-mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ! — a warning, ○ — not checked: no
+package — by restarting from the latest release's package), a --link clone — with origin/main; a project without auto
+missing the ask rules (permissions.ask) or one missing the .worktreeinclude line — behind too. For a project names the mode (auto) and the language, holds the compose file to the task isolation rules (❌ per violation, ! — a warning, ○ — not checked: no
 docker compose; the task-env skill), names a test that runs standards and architecture again next to test:spec (○, the
 ready test without them) and warns (!) if a script in slot calls turbo and turbo.json doesn't pass the queue variables
 to tasks (the exit code stays the same); for the machine the elves command missing or of another release is falling
@@ -1030,15 +1033,92 @@ function oldCloudHook(root: string) {
   const rest = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !ours(h)) })).filter((g) => g.hooks.length);
   const hooks: Hooks = { ...settings.hooks, SessionStart: rest.length ? rest : undefined };
   const out = { ...settings, hooks: Object.values(hooks).some(Boolean) ? hooks : undefined };
-  const empty = !Object.values(out).some((v) => v !== undefined);
-  if (dry) return void change(empty ? "-" : "~", file, { note: OLD_CLOUD_HOOK });
-  if (!empty) writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
-  else {
-    rmSync(file);
-    if (!readdirSync(path.dirname(file)).length) rmSync(path.dirname(file), { recursive: true });
-  }
+  if (dry) return void change(isEmpty(out) ? "-" : "~", file, { note: OLD_CLOUD_HOOK });
+  putSettings(file, out);
   touch(PROJECT_SETTINGS);
   note(`${PROJECT_SETTINGS} — removed ${OLD_CLOUD_HOOK}`);
+}
+
+/** Nothing left in a settings object: every key undefined. */
+const isEmpty = (o: Record<string, unknown>) => !Object.values(o).some((v) => v !== undefined);
+
+/** A plain JSON object, not an array; anything else — undefined. */
+const asObject = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined);
+
+/**
+ * The project's `.claude/settings.json` as the install leaves it (`oldCloudHook`, `askRules`): written, or — nothing
+ * left in it — removed, and an empty `.claude/` with it.
+ */
+function putSettings(file: string, out: Record<string, unknown>) {
+  if (!isEmpty(out)) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    return writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
+  }
+  rmSync(file, { force: true });
+  if (existsSync(path.dirname(file)) && !readdirSync(path.dirname(file)).length) rmSync(path.dirname(file), { recursive: true });
+}
+
+/**
+ * Claude Code's permission rules that ask the owner for commit, push and merge (#840): in a project without auto they
+ * are the canon's «only on an explicit yes» held by the app itself — on any subcommand of a compound command, in the
+ * app's auto permission mode too, a subagent's prompt in the main session. Exactly these strings are ours.
+ */
+const ASK_RULES = ["Bash(git commit *)", "Bash(git push *)", "Bash(gh pr merge *)"];
+
+/** What the install and a dry run say about the ask rules (`askRules`). */
+const ASK_NOTE = "permissions.ask: git commit, git push and gh pr merge — Claude Code asks the owner (a project without auto)";
+
+/**
+ * The ask rules (ASK_RULES) in the project's `.claude/settings.json`: without auto — added after the project's own
+ * rules, with auto — removed; the user's other settings and rules stay, a `permissions` or a file left empty goes, and
+ * an empty `.claude/` with it. Not JSON — a warning with the rules to add, the file stays as it was. A dry run names
+ * only missing rules: the mode edited by hand in the manifest isn't the install falling behind (`projectManifest`), the
+ * rules follow it on the next install or update.
+ */
+function askRules(root: string, auto: boolean) {
+  const file = path.join(root, PROJECT_SETTINGS);
+  let settings: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      settings = JSON.parse(readFileSync(file, "utf8")) ?? {};
+    } catch {
+      if (auto) return;
+      const text = `not JSON: add yourself to permissions.ask ${ASK_RULES.map((r) => JSON.stringify(r)).join(", ")}`;
+      return void (dry ? change("!", file, { note: text }) : warn(`${PROJECT_SETTINGS} — ${text}`));
+    }
+  }
+  const permissions = asObject(settings.permissions) ?? {};
+  const ask: unknown[] = Array.isArray(permissions.ask) ? permissions.ask : [];
+  const want = auto ? ask.filter((r) => !ASK_RULES.includes(r as string)) : [...ask, ...ASK_RULES.filter((r) => !ask.includes(r))];
+  if (want.length === ask.length) return;
+  const perms = { ...permissions, ask: want.length ? want : undefined };
+  if (dry) return void (auto || change(existsSync(file) ? "~" : "+", file, { note: ASK_NOTE }));
+  putSettings(file, { ...settings, permissions: isEmpty(perms) ? undefined : perms });
+  touch(PROJECT_SETTINGS);
+  note(`${PROJECT_SETTINGS} — ${auto ? "removed " : ""}${ASK_NOTE}`);
+}
+
+/** Claude Code's list of git-ignored files it copies into every new worktree it creates — `.gitignore` syntax. */
+const WORKTREE_INCLUDE = ".worktreeinclude";
+/** The lines the install puts there: the local env files a fresh worktree lacks. */
+const WORKTREE_LINES = [".env*.local"];
+
+/**
+ * `.worktreeinclude` (#840): the app copies the git-ignored `.env*.local` of the main checkout into each new worktree —
+ * the session's, a subagent's, the desktop app's — instead of the agent copying them by the canon. A missing line goes
+ * at the end; the project's own lines stay as they were.
+ */
+function worktreeInclude(root: string) {
+  const file = path.join(root, WORKTREE_INCLUDE);
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const lines = new Set(text.split("\n").map((l) => l.trim()));
+  const missing = WORKTREE_LINES.filter((l) => !lines.has(l));
+  if (!missing.length) return;
+  const what = `${missing.join(", ")}: Claude Code copies the git-ignored local env files into a new worktree`;
+  if (dry) return void change(text ? "~" : "+", file, { note: what });
+  writeFileSync(file, (text && !text.endsWith("\n") ? text + "\n" : text) + missing.join("\n") + "\n");
+  touch(WORKTREE_INCLUDE);
+  note(`${WORKTREE_INCLUDE} — ${what}`);
 }
 
 /** The block linking to the rules in the project's AGENTS.md: at the start of the file, a repeated install replaces it. */
@@ -1116,15 +1196,21 @@ function ignoredBy(root: string, paths: string[]) {
   return out;
 }
 
-/** The project's Claude Code settings: where a previous version put the cloud session's hook (`oldCloudHook`). */
+/**
+ * The project's Claude Code settings: the ask rules of a project without auto (`askRules`), where a previous version put
+ * the cloud session's hook (`oldCloudHook`).
+ */
 const PROJECT_SETTINGS = ".claude/settings.json";
 
 /**
  * What the install puts into a project and what must go into the commit: the manifest, the shim — without it in the
- * commit a package.json check fails in CI and another checkout (#558, question 4), — and AGENTS.md.
+ * commit a package.json check fails in CI and another checkout (#558, question 4), — AGENTS.md, `.worktreeinclude` and,
+ * without auto, `.claude/settings.json` with the ask rules: another checkout asks too. With auto the file is the
+ * project's own, if any: an ignored one stays ignored.
  */
 function flowEntries(root: string) {
-  return [MANIFEST, SLOT_SHIM, "AGENTS.md"].map((p) => ({ path: p, dir: false })).filter((e) => lstat(path.join(root, e.path))?.isDirectory() === e.dir);
+  const files = [MANIFEST, SLOT_SHIM, "AGENTS.md", WORKTREE_INCLUDE, ...(autoOf(root) ? [] : [PROJECT_SETTINGS])];
+  return files.map((p) => ({ path: p, dir: false })).filter((e) => lstat(path.join(root, e.path))?.isDirectory() === e.dir);
 }
 
 interface Ignored {
@@ -1370,9 +1456,8 @@ function packageDependency(root: string, version: string | null) {
   } catch {
     return; // packageScripts names it
   }
-  const object = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
-  const section = object(pkg.dependencies)?.[PACKAGE] !== undefined ? "dependencies" : "devDependencies";
-  const deps = object(pkg[section]) ?? {};
+  const section = asObject(pkg.dependencies)?.[PACKAGE] !== undefined ? "dependencies" : "devDependencies";
+  const deps = asObject(pkg[section]) ?? {};
   const have = deps[PACKAGE];
   if (!version) {
     if (have === undefined) warn(`package.json — ${PACKAGE} isn't added: this installer isn't a release (a clone or no releases yet) — a release adds it: ${RUN} install`);
@@ -1401,17 +1486,19 @@ function packageDependency(root: string, version: string | null) {
 }
 
 /**
- * The project's thin flow (#552): the manifest, the shim, the AGENTS.md block, the package.json scripts, the package
- * version and the `.gitignore` exceptions; the cloud session's hook of a previous version goes (`oldCloudHook`); the
- * package manager runs after every package.json edit. auto and language — the project's mode and language; only
- * `install` sets them (a flag or a question in the terminal), `update` and `check` go with the manifest's previous
- * value.
+ * The project's thin flow (#552): the manifest, the shim, the AGENTS.md block, the ask rules of a project without auto
+ * and `.worktreeinclude` (#840), the package.json scripts, the package version and the `.gitignore` exceptions; the
+ * cloud session's hook of a previous version goes (`oldCloudHook`); the package manager runs after every package.json
+ * edit. auto and language — the project's mode and language; only `install` sets them (a flag or a question in the
+ * terminal), `update` and `check` go with the manifest's previous value.
  */
 function installProject(root: string, auto = autoOf(root), language = languageOf(root)) {
   projectManifest(root, auto, language);
   slotShim(root);
   agentsBlock(root);
   oldCloudHook(root);
+  askRules(root, auto);
+  worktreeInclude(root);
   packageScripts(root);
   turboEnv(root);
   composeOutsideQueue(root);

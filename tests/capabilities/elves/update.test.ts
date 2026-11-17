@@ -285,7 +285,8 @@ describe("Тонкий проект сверяется с версией пак�
     const file = path.join(sb.proj, ".claude/settings.json");
     const repo = gitRepo(sb.proj, { init: false });
     const add = (out: string) => /git add -A -- [^&\n]+/.exec(out)?.[0] ?? "";
-    elves(sb, ["install"]);
+    // с auto: без него в файле и правила ask флоу (#840), а тест — об одном хуке
+    elves(sb, ["install", "--auto"]);
     repo.commit({ ".claude/settings.json": JSON.stringify({ ...own, hooks: { ...own.hooks, SessionStart: [mine, PREVIOUS] } }, null, 2) + "\n" }, "chore: флоу Elves");
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
