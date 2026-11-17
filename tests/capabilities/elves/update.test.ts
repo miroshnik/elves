@@ -909,6 +909,39 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(elves(sb, ["check", "-g"]).code).toBe(0);
   });
 
+  /**
+   * Причина в строке о снятой ссылке скилла (#879) — то, что агент пересказывает пользователю после обновления: скилл
+   * выпуска плагин даёт как `elves:<имя>`, а скилла, которого в выпуске нет, не даёт и плагин — причина та же, что у его
+   * каталога `.agents/skills/<имя>`. Так же — в списке `check -g`. Выпуск — `newer`: скилла ci-wait в нём нет.
+   */
+  function previousLinks(...names: string[]) {
+    elves(sb, ["install", "-g"]);
+    // машина прошлой версии: до плагина каждый скилл ставился своей ссылкой в ~/.claude/skills
+    for (const s of names) symlinkSync(`../../.agents/skills/${s}`, path.join(sb.home, ".claude/skills", s));
+  }
+
+  it("update -g убирает ссылку скилла, которого нет в выпуске, с причиной «Elves no longer has it», а не «the Elves plugin gives»", () => {
+    previousLinks("ci-wait");
+    const r = elves(sb, ["check", "-g"], { bin: newer.bin });
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("  - ~/.claude/skills/ci-wait — a skill link of a previous version: Elves no longer has it\n");
+    const u = elves(sb, ["update", "-g"], { bin: newer.bin });
+    expect(u.code).toBe(0);
+    expect(u.stdout).toContain(".claude/skills/ci-wait — removed: Elves no longer has it\n");
+    expect(r.stdout + u.stdout).not.toContain("elves:ci-wait");
+    expect(readdirSync(path.join(sb.home, ".claude/skills"))).toEqual(["elves"]);
+  });
+
+  it("update -g убирает ссылку скилла выпуска с причиной «the Elves plugin gives elves:<name>»", () => {
+    previousLinks("spec");
+    const r = elves(sb, ["check", "-g"], { bin: newer.bin });
+    expect(r.stdout).toContain("  - ~/.claude/skills/spec — a skill link of a previous version: the Elves plugin gives elves:spec\n");
+    const u = elves(sb, ["update", "-g"], { bin: newer.bin });
+    expect(u.code).toBe(0);
+    expect(u.stdout).toContain(".claude/skills/spec — removed: the Elves plugin gives elves:spec\n");
+    expect(readdirSync(path.join(sb.home, ".claude/skills"))).toEqual(["elves"]);
+  });
+
   it("старая установка без SHA и без плагина — отстаёт; update -g ставит плагин и пишет SHA", () => {
     elves(sb, ["install", "-g"]);
     dropSha(sb.home);
