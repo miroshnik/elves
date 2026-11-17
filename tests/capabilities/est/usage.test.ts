@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
-import { scanUsage, usageSummary, usageTable } from "../../../skills/est/scripts/est.ts";
+import { ruleRefs, scanUsage, usageSummary, usageTable } from "../../../skills/est/scripts/est.ts";
 import type { Universe, UsageSession } from "../../../skills/est/scripts/est.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir } from "../../lib/spec.ts";
@@ -183,6 +183,15 @@ describe("Отчёт использования флоу — что из ком�
     expect(u.reads).toEqual({ "github/reference.md": 1, "docs/testing.md": 1, "docs/pr-checks.md": 1, "docs/judgment.md": 1, "spec/canon.md": 1, "docs/production.md": 1, "github/SKILL.md": 2 });
     expect(u.unread).toEqual([]);
     expect(cells(usageTable(u, "o/proj"), "  github/SKILL.md")).toEqual(["github/SKILL.md", "2"]);
+  });
+
+  /** Справка с `paths:` — правило Claude Code (#846): грузится с подходящим файлом, чтения в транскрипте нет. */
+  it("`est usage` не называет кандидатом справку с paths: — она грузится правилом Claude Code, без чтения", () => {
+    const docs = fileURLToPath(new URL("../../../docs", import.meta.url));
+    expect(ruleRefs(docs)).toContain("docs/testing.md");
+    expect(ruleRefs(docs)).not.toContain("docs/installation.md");
+    const universe: Universe = { commands: {}, refs: ["docs/testing.md", "docs/installation.md"], rules: ruleRefs(docs) };
+    expect(usageSummary([], universe, NOW - 30 * DAY, NOW).unread).toEqual(["docs/installation.md"]);
   });
 
   it("`est usage` считает обходы по списку защитного хука", () => {
