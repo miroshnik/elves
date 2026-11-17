@@ -75,4 +75,4 @@ The choice and its price are the owner's: the flow checks and recommends,
 - `/usage` in a session: the `Prompt cache (main)` line — hit ratio and
   whether the cache is warm.
 
-Waits in a subagent — `docs/pr-checks.md`, "Rules".
+Waits in a subagent — `skills/ci-wait/reference.md`, "Rules".
