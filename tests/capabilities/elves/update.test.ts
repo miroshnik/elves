@@ -932,6 +932,7 @@ describe("Копия на машине (-g) сверяется и обновля
     expect(readdirSync(path.join(sb.home, ".claude/skills"))).toEqual(["elves"]);
   });
 
+  // spec-existing #879: страховка от перекоррекции — причина у скилла выпуска была верной и до PR и остаётся прежней
   it("update -g убирает ссылку скилла выпуска с причиной «the Elves plugin gives elves:<name>»", () => {
     previousLinks("spec");
     const r = elves(sb, ["check", "-g"], { bin: newer.bin });
