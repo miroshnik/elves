@@ -22,8 +22,8 @@
  *   github task close    — after the merge and the deploy: the actual, "Done", the epic and the milestone, the task's
  *                          stacks (task-env) and the task's merged branches removed
  *   github task queue    — the dispatcher's ready tasks with the prompts of their executors (subagents);
- *                          --assignment — an executor's whole assignment (--cloud, --session — the prompt of a cloud
- *                          executor or an app executor session, printed by the dispatcher)
+ *                          --assignment — an executor's whole assignment (--session — the prompt of an app executor
+ *                          session, printed by the dispatcher)
  *   github pr labels    — decision labels for the task from "Closes #N" by the PR diff, for its epic — the union
  *   github pr premerge   — before the merge: the default branch moved after the PR's CI — typecheck and test:spec on
  *                          the merge with it
@@ -716,12 +716,10 @@ function restCall(io: Io, args: string[]): Any {
 }
 
 /**
- * A Claude Code cloud session (docs/cloud-sessions.md): its proxy closes GraphQL, `search/…` and Projects v2 — only the
- * REST of `repos/{owner}/{repo}/…` of the session's repositories.
+ * A Claude Code cloud session (#837): the flow doesn't support it — its proxy closes GraphQL and Projects v2, and a
+ * half-working flow there is worse than none: `main` refuses with one line, before the help and the arguments.
  */
-const inCloud = (io: Io) => io.env["CLAUDE_CODE_REMOTE"] === "true";
-/** The commands with a REST path in the cloud (#603): the rest need GraphQL or the project and refuse there. */
-const CLOUD_COMMANDS = ["task show", "task answer", "task edit", "task new"];
+const CLOUD_REFUSAL = "the flow doesn't support Claude Code cloud sessions (CLAUDE_CODE_REMOTE=true) — run it in a local session";
 /**
  * The commands that write the canon's names to GitHub in the project language or check the project against them
  * (#681, question 1): views, fields and `Status` options, a task's sections, statuses and comments, a decision label's
@@ -732,11 +730,10 @@ const CLOUD_COMMANDS = ["task show", "task answer", "task edit", "task new"];
 const LANGUAGE_COMMANDS = ["project check", "project fix", "task new", "task answer", "task start", "task status", "task actualize", "task close", "task finish", "pr labels", "batch release"];
 
 /**
- * A REST request of the cloud's path: the payload — JSON on stdin (a description doesn't fit an argument); an error
- * response is an exception with its message, a missing resource (404) with `missing` — null; an empty answer (204) —
- * null.
+ * A REST request with a payload: JSON on stdin (a body doesn't fit an argument); an error response is an exception with
+ * its message; an empty answer (204) — null.
  */
-function rest(io: Io, route: string, o: { method?: string; payload?: unknown; missing?: boolean } = {}): Any {
+function rest(io: Io, route: string, o: { method?: string; payload?: unknown } = {}): Any {
   const what = `${o.method ?? "GET"} ${route}`;
   const out = io.gh(["api", ...(o.method ? ["-X", o.method] : []), route, ...(o.payload === undefined ? [] : ["--input", "-"])], o.payload === undefined ? undefined : JSON.stringify(o.payload));
   let res: Any;
@@ -745,62 +742,8 @@ function rest(io: Io, route: string, o: { method?: string; payload?: unknown; mi
   } catch {
     throw new GhError(`${what}: the response is not JSON: ${out.slice(0, 200)}`);
   }
-  if (res && !Array.isArray(res) && typeof res.message === "string" && res.id === undefined) {
-    if (o.missing && String(res.status) === "404") return null;
-    throw new GhError(`${what}: ${res.message}`);
-  }
+  if (res && !Array.isArray(res) && typeof res.message === "string" && res.id === undefined) throw new GhError(`${what}: ${res.message}`);
   return res;
-}
-
-/** A whole REST list: pages of 100 until a shorter one. */
-function restList(io: Io, route: string): Any[] {
-  const out: Any[] = [];
-  for (let page = 1; page <= 100; page++) {
-    const rows: Any[] = rest(io, `${route}${route.includes("?") ? "&" : "?"}per_page=100&page=${page}`) ?? [];
-    out.push(...rows);
-    if (rows.length < 100) break;
-  }
-  return out;
-}
-
-/** `owner/repo` of a REST `repository_url` (`https://api.github.com/repos/owner/repo`). */
-const repoOfUrl = (url: string | undefined, slug: string) => /\/repos\/([^/]+\/[^/]+)$/.exec(url ?? "")?.[1] ?? slug;
-
-/** A REST issue in the shape of the GraphQL answer: the state and its reason in upper case, labels with ids. */
-function restIssueNode(i: Any): Any {
-  return {
-    id: i.node_id,
-    databaseId: i.id,
-    number: i.number,
-    title: i.title,
-    state: String(i.state).toUpperCase(),
-    stateReason: i.state_reason ? String(i.state_reason).toUpperCase() : null,
-    url: i.html_url,
-    body: i.body ?? "",
-    issueType: i.type?.name ? { name: i.type.name } : null,
-    labels: { nodes: (i.labels ?? []).map((l: Any) => ({ id: l.node_id, name: l.name })) },
-    milestone: i.milestone ? { id: i.milestone.node_id, number: i.milestone.number, title: i.milestone.title, open: i.milestone.open_issues ?? 0 } : null,
-  };
-}
-
-/** The issue over REST (#603); not an issue (no such number, a PR) — null. */
-function restIssue(io: Io, slug: string, number: number): Any {
-  const i = rest(io, `repos/${slug}/issues/${number}`, { missing: true });
-  return i && !i.pull_request ? restIssueNode(i) : null;
-}
-
-/** An issue in a REST list (sub-issues, blocked by) in the shape of the GraphQL answer. */
-const restBrief = (x: Any, slug: string) => ({ id: x.node_id, databaseId: x.id, number: x.number, state: String(x.state).toUpperCase(), title: x.title, repository: { nameWithOwner: repoOfUrl(x.repository_url, slug) } });
-const restSubIssues = (io: Io, slug: string, number: number) => ({ nodes: restList(io, `repos/${slug}/issues/${number}/sub_issues`).map((x) => restBrief(x, slug)) });
-
-/** The issue's sub-issues, blocked by and epic over REST, in the shape of the GraphQL answer. */
-function restLinks(io: Io, slug: string, number: number): { subIssues: Any; blockedBy: Any; parent: Any } {
-  const parent = rest(io, `repos/${slug}/issues/${number}/parent`, { missing: true });
-  return {
-    subIssues: restSubIssues(io, slug, number),
-    blockedBy: { nodes: restList(io, `repos/${slug}/issues/${number}/dependencies/blocked_by`).map((x) => restBrief(x, slug)) },
-    parent: parent && restIssueNode(parent),
-  };
 }
 
 /** The real `gh`: an exit code ≠ 0 is an exception with stderr. */
@@ -976,8 +919,6 @@ function loadMerge(io: Io, slug: string): Merge | null {
 }
 
 function loadLabels(io: Io, slug: string): Label[] {
-  // the cloud (#603) — REST: the labels without their open tasks (task new doesn't need them)
-  if (inCloud(io)) return restList(io, `repos/${slug}/labels`).map((l) => ({ id: l.node_id, name: l.name, color: l.color, description: l.description ?? null, open: { total: 0, numbers: [] } }));
   const [owner, name] = slug.split("/") as [string, string];
   return pages<Any>((after) => graphql(io, Q.RepoLabels, { owner, name, after }).repository.labels).map(({ issues, ...l }) => ({
     ...l,
@@ -1013,7 +954,7 @@ export function modelModules(text: string): Record<string, string[]> | string {
 /** Default-branch decisions: spec tree folders by kind, and model modules for architecture. */
 export function loadDecisions(io: Io, slug: string): Decisions {
   const [owner, name] = slug.split("/") as [string, string];
-  const r = inCloud(io) ? restSpecTree(io, slug) : (graphql(io, Q.SpecDecisions, { owner, name })?.repository ?? {});
+  const r = graphql(io, Q.SpecDecisions, { owner, name })?.repository ?? {};
   const dirs = (t: Any): string[] => (t?.entries ?? []).filter((e: Any) => e.type === "tree").map((e: Any) => e.name as string);
   const names = { capability: dirs(r.capabilities), standard: dirs(r.standards), architecture: dirs(r.architecture) };
   const topics = (t: Any): Record<string, string[]> =>
@@ -1049,22 +990,6 @@ export function sectionTopics(d: Decisions, name: string, kinds: DecisionKind[])
   const out = new Set<string>();
   for (const k of DECISION_KINDS) if (kinds.includes(k)) for (const [topic, ss] of Object.entries(d.sections[k] ?? {})) if (ss.includes(name)) out.add(topic);
   return [...out].sort();
-}
-
-/** SpecDecisions over the REST contents of the default branch — the cloud (#603): folders as `tree` entries, the model's text. */
-function restSpecTree(io: Io, slug: string): Any {
-  const list = (p: string) => {
-    const entries = rest(io, `repos/${slug}/contents/${p}`, { missing: true });
-    return Array.isArray(entries) ? entries.map((e: Any) => ({ name: e.name as string, type: e.type === "dir" ? "tree" : "blob" })) : null;
-  };
-  // a topic folder's files — its sections: one listing per topic
-  const dir = (kind: DecisionKind) => {
-    const root = `tests/${DECISIONS[kind].dir}`;
-    const entries = list(root);
-    return entries ? { entries: entries.map((e) => (e.type === "tree" ? { ...e, object: { entries: list(`${root}/${e.name}`) ?? [] } } : e)) } : null;
-  };
-  const model = rest(io, `repos/${slug}/contents/${MODEL_PATH}`, { missing: true });
-  return { capabilities: dir("capability"), standards: dir("standard"), architecture: dir("architecture"), model: model?.content ? { text: Buffer.from(model.content, "base64").toString("utf8") } : null };
 }
 
 /** `capability:billing` → the decision's kind and name; anything else — null. The kind of a new decision in `--labels`. */
@@ -1660,9 +1585,6 @@ export function cmdFix(io: Io, slug: string, opts: { confirm: boolean; template:
 
 interface Issue {
   id: string;
-  /** Read in the cloud (#603): the REST id (sub-issues and blocked by take it) and the issue's route — its writes go there. */
-  databaseId?: number;
-  rest?: string;
   number: number;
   title: string;
   state: string;
@@ -1696,7 +1618,6 @@ interface Blocker {
 const blockerRef = (slug: string, b: { number: number; repo: string }) => (b.repo.toLowerCase() === slug.toLowerCase() ? `#${b.number}` : `${b.repo}#${b.number}`);
 
 function loadIssue(io: Io, slug: string, number: number): Issue {
-  if (inCloud(io)) return restLoadIssue(io, slug, number);
   const [owner, name] = slug.split("/");
   const i = graphql(io, Q.IssueRef, { owner, name, number })?.repository?.issue;
   if (!i) throw new GhError(`no issue #${number} in ${slug}`);
@@ -1716,32 +1637,6 @@ function loadIssue(io: Io, slug: string, number: number): Issue {
     prs: (i.closedByPullRequestsReferences?.nodes ?? []).map((p: Any) => ({ number: p.number, state: p.state ?? "", merged: Boolean(p.merged), head: p.headRefName ?? "", base: p.baseRefName ?? "main" })),
     items: (i.projectItems?.nodes ?? []).map((it: Any) => ({ id: it.id, projectId: it.project.id, status: it.status?.name ?? null })),
     priority: (i.issueFieldValues?.nodes ?? []).find((v: Any) => v?.field?.name === PRIORITY)?.name ?? null,
-  };
-}
-
-/** loadIssue in the cloud (#603) — the repository's REST: no project items, PRs and Priority (an issue field). */
-function restLoadIssue(io: Io, slug: string, number: number): Issue {
-  const i = restIssue(io, slug, number);
-  if (!i) throw new GhError(`no issue #${number} in ${slug}`);
-  const l = restLinks(io, slug, number);
-  return {
-    id: i.id,
-    databaseId: i.databaseId,
-    rest: `repos/${slug}/issues/${number}`,
-    number: i.number,
-    title: i.title,
-    state: i.state,
-    stateReason: i.stateReason,
-    url: i.url,
-    type: i.issueType?.name ?? null,
-    labels: i.labels.nodes.map((x: Any) => x.name),
-    parent: l.parent ? { id: l.parent.id, number: l.parent.number } : null,
-    subIssues: l.subIssues.nodes.map((x: Any) => ({ number: x.number, state: x.state, title: x.title })),
-    blockers: l.blockedBy.nodes.map((b: Any) => ({ number: b.number, state: b.state, repo: b.repository.nameWithOwner })),
-    milestone: i.milestone,
-    prs: [],
-    items: [],
-    priority: null,
   };
 }
 
@@ -2009,10 +1904,9 @@ const isDispatcher = (io: Io) => {
  * questions, and till then the queue gave the task out as ready. A separate file: executors append to it in parallel,
  * the queue rewrites the marker. It lives for the session: after the app restarts, the stopped executors are continued
  * with `SendMessage` (`task resume`) — dropped, it would make a task not yet In progress ready for a second executor.
- * The worktree — the checkout the executor called its assignment in (#533): the queue keeps it while the task is open. A
- * cloud executor's (`--assignment N --cloud`, #609) — `CLOUD_HANDOUT` in its place: the dispatcher printed its brief,
- * there is no worktree, and the queue names the wait for the task's closing. An app executor session's (`--assignment N
- * --session`, #624) — `SESSION_HANDOUT`: the dispatcher printed its prompt, the app makes the session's worktree later.
+ * The worktree — the checkout the executor called its assignment in (#533): the queue keeps it while the task is open.
+ * An app executor session's (`--assignment N --session`, #624) — `SESSION_HANDOUT` in its place: the dispatcher printed
+ * its prompt, the app makes the session's worktree later.
  * A task past the batch (`--assignment N --main`, #697) — `MAIN_HANDOUT` as the line's last word: its PR goes into the
  * default branch, the queue names it so and the batch's release doesn't wait for it.
  */
@@ -2021,22 +1915,17 @@ const handedOutFile = (io: Io) => {
   return file && `${file}.tasks`;
 };
 
-/** A hand-out: the task and its executor's worktree; the assignment called outside a checkout, a cloud or a session one — null. */
+/** A hand-out: the task and its executor's worktree; the assignment called outside a checkout or a session one — null. */
 interface HandOut {
   number: number;
   worktree: string | null;
-  /**
-   * Who executes it: a subagent of this session; a cloud session (#609) — the dispatcher waits for the task's closing; an
-   * app session (#624) — the end of each of its turns comes as the app's note.
-   */
-  executor: "subagent" | "cloud" | "session";
+  /** Who executes it: a subagent of this session; an app session (#624) — the end of each of its turns comes as the app's note. */
+  executor: "subagent" | "session";
   /** Past the dispatcher's batch (#697): the PR into the default branch, the release doesn't wait for it. */
   main: boolean;
 }
 
-/** A cloud executor's mark in place of the worktree: a worktree is an absolute path. */
-const CLOUD_HANDOUT = "@cloud";
-/** An app executor session's mark in place of the worktree (#624): the app makes the session's worktree after the hand-out. */
+/** An app executor session's mark in place of the worktree (#624): a worktree is an absolute path, the app makes the session's after the hand-out. */
 const SESSION_HANDOUT = "@session";
 /** A hand-out past the batch (#697) — the line's last word, after the worktree or the executor's mark. */
 const MAIN_HANDOUT = "@main";
@@ -2057,7 +1946,7 @@ function handOutsIn(file: string, slug: string): HandOut[] {
       const [number, ...rest] = l.slice(slug.length + 1).split(" ");
       const main = rest.at(-1) === MAIN_HANDOUT;
       const worktree = (main ? rest.slice(0, -1) : rest).join(" ").trim();
-      const executor: HandOut["executor"] = worktree === CLOUD_HANDOUT ? "cloud" : worktree === SESSION_HANDOUT ? "session" : "subagent";
+      const executor: HandOut["executor"] = worktree === SESSION_HANDOUT ? "session" : "subagent";
       return { number: Number(number), worktree: executor === "subagent" ? worktree || null : null, executor, main };
     })
     .filter((h) => Number.isInteger(h.number) && h.number > 0);
@@ -2282,24 +2171,21 @@ export const taskTemplate = (type: string): string =>
 
 export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   const [owner, name] = slug.split("/");
-  // the cloud (#603): the repository's REST without the project — what it can't set, a line for a local session names;
-  // a repository without a board (#847) — GraphQL, its board's step an `○` line
-  const cloud = inCloud(io);
-  const ctx = cloud ? null : taskContext(io, slug);
-  const org = ctx ? ctx.repo.owner.org : rest(io, `repos/${slug}`).owner?.type === "Organization";
+  // a repository without a board (#847) — its board's step an `○` line
+  const ctx = taskContext(io, slug);
+  const org = ctx.repo.owner.org;
 
   // All checks come before creating: a task mustn't appear half-made. The type — a name in any dictionary language.
   const type = typeAliases()[(task.type ?? N.issueTypes.task).toLowerCase()];
   if (!type) throw new GhError(`--type: ${issueTypes().join(", ")}`);
-  const o ={ ...task, type, body: task.body.trim() ? task.body : taskTemplate(type) };
-  // in the cloud the organization's types aren't readable (`orgs/…` — 403): the type goes by name, GitHub checks it
-  const issueType = org && ctx ? ctx.repo.owner.issueTypes.find((t) => t.name === o.type && t.isEnabled) : undefined;
-  if (org && ctx && !issueType) throw new GhError(`the organization has no enabled type ${q(o.type)} — github project fix`);
+  const o = { ...task, type, body: task.body.trim() ? task.body : taskTemplate(type) };
+  const issueType = org ? ctx.repo.owner.issueTypes.find((t) => t.name === o.type && t.isEnabled) : undefined;
+  if (org && !issueType) throw new GhError(`the organization has no enabled type ${q(o.type)} — github project fix`);
   // a personal account keeps neither a priority nor a Task/Bug type (#682): the flags are taken alike — the task is
   // created, a ○ line says what wasn't kept; a priority is still checked: a typo is a typo in either account
-  if ((!org || !ctx) && o.priority && !(PRIORITIES as readonly string[]).includes(o.priority)) throw new GhError(`--priority: ${PRIORITIES.join(", ")}`);
+  if (!org && o.priority && !(PRIORITIES as readonly string[]).includes(o.priority)) throw new GhError(`--priority: ${PRIORITIES.join(", ")}`);
   let priority: { fieldId: string; optionId: string; name: string } | null = null;
-  if (org && ctx) {
+  if (org) {
     const f = ctx.repo.owner.issueFields.find((x) => x.name === PRIORITY);
     if (!f) throw new GhError(`the organization has no issue field ${PRIORITY} — github project fix`);
     const want = o.priority ?? DEFAULT_PRIORITY;
@@ -2317,16 +2203,10 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   }
   const blockers = o.blockedBy.map((n) => loadIssue(io, slug, n));
   const needCtx = !!o.milestone || (!org && o.type === N.issueTypes.epic);
-  const restCtx = () => {
-    const label = rest(io, `repos/${slug}/labels/${EPIC_LABEL}`, { missing: true });
-    return { label: label && { id: label.node_id }, milestones: { nodes: restList(io, `repos/${slug}/milestones?state=open`).map((m) => ({ id: m.node_id, number: m.number, title: m.title })) } };
-  };
-  const repoCtx = !needCtx ? null : cloud ? restCtx() : graphql(io, Q.TaskContext, { owner, name }).repository;
-  const milestone = o.milestone ? (repoCtx.milestones.nodes as { id: string; number?: number; title: string }[]).find((m) => m.title === o.milestone) : undefined;
+  const repoCtx = needCtx ? graphql(io, Q.TaskContext, { owner, name }).repository : null;
+  const milestone = o.milestone ? (repoCtx.milestones.nodes as { id: string; title: string }[]).find((m) => m.title === o.milestone) : undefined;
   if (o.milestone && !milestone) throw new GhError(`no open milestone ${q(o.milestone)}`);
-  // `search/issues` in the cloud is 403 («sessions are bound to their configured repositories») — a listing of the open ones
-  const openIssues: Any[] | null = cloud ? restList(io, `repos/${slug}/issues?state=open`).filter((i) => !i.pull_request) : null;
-  const found: Any[] = openIssues ?? graphql(io, Q.IssueSearch, { q: `repo:${slug} is:issue is:open in:title "${title.replaceAll('"', "")}"` }).search.nodes;
+  const found: Any[] = graphql(io, Q.IssueSearch, { q: `repo:${slug} is:issue is:open in:title "${title.replaceAll('"', "")}"` }).search.nodes;
   const dup = found.find((x) => x?.title === title);
   if (dup) throw new GhError(`an open task with this title already exists: #${dup.number}`);
   const wanted = [...new Set(o.labels ?? [])];
@@ -2360,19 +2240,18 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
   });
 
   const done: string[] = [];
-  // a new label of the repository — its id; in the cloud over REST
-  const createLabel = (label: { name: string; color: string; description: string }): string =>
-    ctx ? (mutate(io, { op: "CreateLabel", input: { repositoryId: ctx.repo.id, ...label } }).createLabel.label.id as string) : rest(io, `repos/${slug}/labels`, { method: "POST", payload: label }).node_id;
-  // the issue's labels: GraphQL takes their ids, REST — their names
-  const labels: { id: string; name: string }[] = [];
-  if (issueType || (org && !ctx)) done.push(`type ${q(o.type)}`);
+  // a new label of the repository — its id
+  const createLabel = (label: { name: string; color: string; description: string }): string => mutate(io, { op: "CreateLabel", input: { repositoryId: ctx.repo.id, ...label } }).createLabel.label.id as string;
+  // the issue's labels — their ids
+  const labels: string[] = [];
+  if (issueType) done.push(`type ${q(o.type)}`);
   if (!org && o.type === N.issueTypes.epic) {
     let labelId: string | undefined = repoCtx.label?.id;
     if (!labelId) {
       labelId = createLabel(epicLabel());
       done.push(`created label ${q(EPIC_LABEL)}`);
     }
-    labels.push({ id: labelId, name: EPIC_LABEL });
+    labels.push(labelId);
     done.push(`label ${q(EPIC_LABEL)} — the type in a personal account`);
   }
   if (plan.length) {
@@ -2382,7 +2261,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
         id = createLabel(decisionLabel(x.name, x.kinds));
         done.push(`created label ${q(x.name)}`);
       }
-      labels.push({ id, name: x.name });
+      labels.push(id);
     }
     // the decision will appear in this task's PR — the label says so instead of failing
     done.push(`labels: ${plan.map((x) => x.name).join(", ")}`, ...plan.flatMap((x) => (x.fresh ? [x.fresh] : [])));
@@ -2394,33 +2273,20 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
       done.push(`created label ${q(N.labels.questions)}`);
     }
     // `--labels` may name it too
-    if (!labels.some((l) => l.id === id)) labels.push({ id, name: N.labels.questions });
+    if (!labels.includes(id)) labels.push(id);
     done.push(`label ${q(N.labels.questions)} — open questions in the description: ${open.join(", ")}`);
   }
-  let created: { id: string; databaseId?: number; number: number; title: string; url: string; projectItems?: Any };
-  let unboarded = false;
-  if (ctx) {
-    const input: Record<string, unknown> = { repositoryId: ctx.repo.id, title, body: o.body, ...(ctx.board ? { projectV2Ids: [ctx.board.project.id] } : {}) };
-    if (issueType) input["issueTypeId"] = issueType.id;
-    if (labels.length) input["labelIds"] = labels.map((l) => l.id);
-    if (milestone) input["milestoneId"] = milestone.id;
-    if (epic) input["parentIssueId"] = epic.id;
-    if (priority) input["issueFields"] = [{ fieldId: priority.fieldId, singleSelectOptionId: priority.optionId }];
-    created = mutate(io, { op: "CreateIssue", input }).createIssue.issue;
-    // We set Status ourselves, without waiting for the "Item added to project" workflow.
-    const listed = (created.projectItems?.nodes ?? []).map((it: Any) => ({ id: it.id, projectId: it.project.id, status: null }));
-    if (putStatus(io, ctx, { id: created.id, number: created.number, items: listed }, N.status.backlog)) done.push(`project ${q(ctx.board!.project.title)}: ${STATUS} ${q(N.status.backlog)}`);
-    else unboarded = true;
-  } else {
-    const payload: Record<string, unknown> = { title, body: o.body };
-    if (org) payload["type"] = o.type;
-    if (labels.length) payload["labels"] = labels.map((l) => l.name);
-    if (milestone) payload["milestone"] = milestone.number;
-    const i = rest(io, `repos/${slug}/issues`, { method: "POST", payload });
-    created = { id: i.node_id, databaseId: i.id, number: i.number, title: i.title, url: i.html_url };
-    // REST has no parent in the issue's creation — the epic takes it as its sub-issue by the REST id
-    if (epic) rest(io, `repos/${slug}/issues/${epic.number}/sub_issues`, { method: "POST", payload: { sub_issue_id: created.databaseId } });
-  }
+  const input: Record<string, unknown> = { repositoryId: ctx.repo.id, title, body: o.body, ...(ctx.board ? { projectV2Ids: [ctx.board.project.id] } : {}) };
+  if (issueType) input["issueTypeId"] = issueType.id;
+  if (labels.length) input["labelIds"] = labels;
+  if (milestone) input["milestoneId"] = milestone.id;
+  if (epic) input["parentIssueId"] = epic.id;
+  if (priority) input["issueFields"] = [{ fieldId: priority.fieldId, singleSelectOptionId: priority.optionId }];
+  const created: { id: string; number: number; title: string; url: string; projectItems?: Any } = mutate(io, { op: "CreateIssue", input }).createIssue.issue;
+  // We set Status ourselves, without waiting for the "Item added to project" workflow.
+  const listed = (created.projectItems?.nodes ?? []).map((it: Any) => ({ id: it.id, projectId: it.project.id, status: null }));
+  const boarded = putStatus(io, ctx, { id: created.id, number: created.number, items: listed }, N.status.backlog) !== null;
+  if (boarded) done.push(`project ${q(ctx.board!.project.title)}: ${STATUS} ${q(N.status.backlog)}`);
   if (priority) done.push(`${PRIORITY} ${q(priority.name)}`);
   if (epic) done.push(`subtask of epic #${epic.number}`);
   for (const b of blockers) {
@@ -2428,8 +2294,7 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
       done.push(`#${b.number} is closed — doesn't block, skipped`);
       continue;
     }
-    if (ctx) mutate(io, { op: "AddBlockedBy", input: { issueId: created.id, blockingIssueId: b.id } });
-    else rest(io, `repos/${slug}/issues/${created.number}/dependencies/blocked_by`, { method: "POST", payload: { issue_id: b.databaseId } });
+    mutate(io, { op: "AddBlockedBy", input: { issueId: created.id, blockingIssueId: b.id } });
     done.push(`blocked by #${b.number}`);
   }
   if (milestone) done.push(`milestone ${q(milestone.title)}`);
@@ -2448,20 +2313,11 @@ export function cmdTaskNew(io: Io, slug: string, task: NewTask): number {
 
   io.out(`Created #${created.number} ${created.title} — ${created.url}`);
   for (const d of done) io.out(`+ ${d}`);
-  if (unboarded) io.out(noBoard(created.number, `${STATUS} ${q(N.status.backlog)} isn't set`));
+  if (!boarded) io.out(noBoard(created.number, `${STATUS} ${q(N.status.backlog)} isn't set`));
   if (!org && o.priority) io.out(`○ ${PRIORITY} ${q(o.priority)} isn't kept: a personal account has no issue fields`);
   if (!org && task.type !== undefined && o.type !== N.issueTypes.epic) io.out(`○ type ${q(o.type)} isn't kept: a personal account has no issue types, only an epic gets its label`);
   for (const l of epicLabels) io.out(l);
-  const isEpicType = o.type === N.issueTypes.epic;
-  if (!ctx) {
-    // the project — a local session's command; Priority — an issue field, GraphQL only
-    const n = created.number;
-    const local = [`github task status ${n} "${N.status.backlog}" (the project, ${STATUS})`];
-    const want = org ? (o.priority ?? DEFAULT_PRIORITY) : null;
-    if (want) local.push(`${PRIORITY} ${q(want)}${epic ? ` and no lower at epic #${epic.number}` : ""} — on the issue page`);
-    io.out(`Next: the cloud has no GitHub Projects (docs/cloud-sessions.md) — a local session: ${local.join("; ")}.`);
-  }
-  if (isEpicType) {
+  if (o.type === N.issueTypes.epic) {
     // an epic's work goes to the dispatcher on the owner's "yes" (#546), not to a session card per subtask
     io.out(
       `Next: once its subtasks are created — the question to the owner «run the dispatcher on epic #${created.number}?»; ` +
@@ -2575,7 +2431,7 @@ export function cmdTaskStart(io: Io, slug: string, number: number, branch?: stri
   }
   const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   const mine = (head: string) => head !== "" && head === current;
-  const prs = [...t.prs.filter((p) => !p.merged && p.state === "OPEN"), ...(inCloud(io) ? [] : unlinkedPrs(io, slug, number).batched.filter((p) => !p.merged && p.state === "OPEN"))];
+  const prs = [...t.prs.filter((p) => !p.merged && p.state === "OPEN"), ...unlinkedPrs(io, slug, number).batched.filter((p) => !p.merged && p.state === "OPEN")];
   const others = taskBranchesHere(io, slug, number).filter((b) => b !== current);
   const parallel = [...new Set([...prs.filter((p) => !mine(p.head)).map((p) => `PR #${p.number} (${p.head})`), ...others.map((b) => `branch ${b}`)])];
   const here = isTaskBranch(current, number);
@@ -2653,44 +2509,10 @@ function prLine(p: ShownPr): string {
   return `PR #${p.number} ${state}${checks}${p.why ? ` (not linked: ${p.why})` : ""}`;
 }
 
-/** An issue's comments over REST (#651) in the shape of `COMMENTS_SHOW`: the latest `COMMENTS_SHOWN`, oldest first. */
-function restComments(io: Io, slug: string, number: number): Any {
-  const all = restList(io, `repos/${slug}/issues/${number}/comments`);
-  return { totalCount: all.length, nodes: all.slice(-COMMENTS_SHOWN).map((c) => ({ author: c.user ? { login: c.user.login } : null, createdAt: c.created_at, body: c.body ?? "" })) };
-}
-
-/**
- * IssueShow in the cloud (#603) — the repository's REST in the shape of the GraphQL answer: the issue, its epic with the
- * epic's tasks, sub-issues, blocked by, the comments of both (#651); no project (Projects v2 — 403) and no Priority (an
- * issue field, GraphQL only).
- */
-function restIssueShow(io: Io, slug: string, number: number): Any {
-  const i = restIssue(io, slug, number);
-  if (!i) return null;
-  const l = restLinks(io, slug, number);
-  const parent = l.parent && { ...l.parent, subIssues: restSubIssues(io, slug, l.parent.number), comments: restComments(io, slug, l.parent.number) };
-  return { ...i, ...l, comments: restComments(io, slug, number), parent };
-}
-
-/**
- * The task's PRs in the cloud (#603): GraphQL's links to the task aren't there — the latest open and merged PRs into the
- * default branch by the task branch or «Closes #N» in the body, as `unlinkedPrs`; an open one's head checks — REST
- * check-runs and commit statuses in the shape of `HEAD_CHECKS`, for `checkStates`.
- */
-function restPrs(io: Io, slug: string, number: number): Any[] {
-  const prs: Any[] = rest(io, `repos/${slug}/pulls?state=all&sort=updated&direction=desc&per_page=${RECENT_PRS}`) ?? [];
-  const mine = prs.filter((p) => p.base?.ref === p.base?.repo?.default_branch && (p.state === "open" || p.merged_at) && prOfTask(p, number));
-  return mine.map((p) => {
-    const open = p.state === "open";
-    const nodes = open ? restRollup(io, slug, p.head.sha).nodes : [];
-    return { number: p.number, state: open ? "OPEN" : "MERGED", merged: !open, isDraft: Boolean(p.draft), headRefName: p.head?.ref ?? "", commits: { nodes: [{ commit: { statusCheckRollup: nodes.length ? { contexts: { nodes } } : null } }] } };
-  });
-}
-
 /**
  * A commit's checks over REST in the shape of `HEAD_CHECKS` (`checkStates` reads them): its check-runs and the hosting's
- * commit statuses; `runs` — the check-runs as REST gives them (their ids are the Actions jobs' ids). `task show` in the
- * cloud (#603) and a batch's release (#650).
+ * commit statuses; `runs` — the check-runs as REST gives them (their ids are the Actions jobs' ids). A batch's release
+ * (#650).
  */
 function restRollup(io: Io, slug: string, sha: string): { nodes: Any[]; runs: Any[] } {
   const runs: Any[] = rest(io, `repos/${slug}/commits/${sha}/check-runs?per_page=100`)?.check_runs ?? [];
@@ -2832,8 +2654,7 @@ function itemValues(i: Any, name: string): Any[] {
 
 function showTask(io: Io, slug: string, number: number): ShownTask {
   const [owner, name] = slug.split("/");
-  const cloud = inCloud(io);
-  const i = cloud ? restIssueShow(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
   if (!i) throw new GhError(`no issue #${number} in ${slug}`);
   const labels: string[] = (i.labels?.nodes ?? []).map((l: Any) => l.name);
   // a personal account has no issue types: an epic is the epic label
@@ -2848,11 +2669,11 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   const reason: Record<string, string> = { NOT_PLANNED: ": not planned", DUPLICATE: ": duplicate" };
   const shownLabels = labels.filter((l) => !(l === EPIC_LABEL && !i.issueType));
   // no board (#847) — the status by the facts, after the PRs: an open one is one of them
-  const board = cloud || taskContext(io, slug).board !== null;
+  const board = taskContext(io, slug).board !== null;
   const facts = [
     type,
     i.state === "CLOSED" ? `closed${reason[i.stateReason] ?? ""}` : null,
-    cloud ? "no project in the cloud (docs/cloud-sessions.md)" : !board ? "" : !items.length ? "not in the project" : status ? `${STATUS} ${q(status)}` : `no ${STATUS}`,
+    !board ? "" : !items.length ? "not in the project" : status ? `${STATUS} ${q(status)}` : `no ${STATUS}`,
     actual ? `${q(actual.field.name)} ${actual.number}` : null,
     priority ? `${PRIORITY} ${priority}` : null,
     i.milestone ? `milestone ${q(i.milestone.title)}` : null,
@@ -2880,8 +2701,8 @@ function showTask(io: Io, slug: string, number: number): ShownTask {
   if (blockers.length) out.push(`Blocked by: ${blockers.map((x) => `${blockerRef(slug, { number: x.number, repo: x.repository?.nameWithOwner ?? slug })} ${q(x.title)}`).join(", ")}`);
   // an epic has no PR of its own
   if (!epic) {
-    prs = (cloud ? restPrs(io, slug, number) : (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean)).map((p: Any) => shownPr(p));
-    if (!cloud && !prs.length && i.state === "OPEN") {
+    prs = (i.closedByPullRequestsReferences?.nodes ?? []).filter(Boolean).map((p: Any) => shownPr(p));
+    if (!prs.length && i.state === "OPEN") {
       for (const p of unlinkedPrs(io, slug, number).prs) {
         const pr = graphql(io, Q.PrShow, { owner, name, number: p.number })?.repository?.pullRequest;
         if (pr) prs.push(shownPr(pr, p.why));
@@ -2948,18 +2769,15 @@ export function answerInBody(number: number, body: string, k: number, answer: st
 export function cmdTaskAnswer(io: Io, slug: string, number: number, k: number, answer: string, auto: boolean): number {
   if (!answerText(answer)) throw new GhError("task answer: expected the answer text after the question number");
   const [owner, name] = slug.split("/");
-  const cloud = inCloud(io);
-  const i = cloud ? restIssue(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
   if (!i) throw new GhError(`no issue #${number} in ${slug}`);
   const { body: next, open } = answerInBody(number, i.body ?? "", k, answer, auto);
-  if (cloud) rest(io, `repos/${slug}/issues/${number}`, { method: "PATCH", payload: { body: next } });
-  else mutate(io, { op: "UpdateIssue", input: { id: i.id, body: next } });
+  mutate(io, { op: "UpdateIssue", input: { id: i.id, body: next } });
   io.out(`+ #${number}: question ${k} — ✅ and the answer in the description`);
   if (open.length) return io.out(`○ #${number}: open questions left: ${open.join(", ")}`), 0;
   const label: Any[] = (i.labels?.nodes ?? []).filter((l: Any) => locale.every((n) => n.labels.questions).includes(l.name));
   if (label.length) {
-    if (cloud) for (const l of label) rest(io, `repos/${slug}/issues/${number}/labels/${encodeURIComponent(l.name)}`, { method: "DELETE" });
-    else mutate(io, { op: "RemoveLabels", input: { labelableId: i.id, labelIds: label.map((l) => l.id) } });
+    mutate(io, { op: "RemoveLabels", input: { labelableId: i.id, labelIds: label.map((l) => l.id) } });
     io.out(`+ #${number}: label ${label.map((l) => q(l.name)).join(", ")} removed — no open questions left`);
   }
   return 0;
@@ -3017,7 +2835,7 @@ const QUESTIONS_SECTION_RE = new RegExp(`^(?:${locale.every((n) => n.sections.qu
 /** The canon's sections of a description in any language of the dictionary: `task edit --add` creates a missing one. */
 const CANON_SECTIONS = [...locale.every((n) => n.sections.questions), ...locale.every((n) => n.sections.scenarios)];
 
-/** Where a new section goes: the description's end, before the cloud proxy's signature — a thematic break with no heading after it. */
+/** Where a new section goes: the description's end, before its footer — a thematic break with no heading after it (a signature). */
 function sectionsEnd(lines: string[]): number {
   const at = lines.reduce((last, l, i) => (THEMATIC_BREAK_RE.test(l) ? i : last), -1);
   return at >= 0 && !lines.slice(at + 1).some((l) => headingLevel(l)) ? at : lines.length;
@@ -3038,7 +2856,7 @@ function itemMarker(prev: string | undefined, none: string): string {
 /**
  * The edits applied in order to the description, each to the result of the previous one; an edit that is ambiguous or
  * finds nothing — an error, so none is written. `--add` — after the section's last non-blank line (the section ends at
- * a heading of its level or higher, or a thematic break: the cloud proxy's signature isn't the section's); an item
+ * a heading of its level or higher, or a thematic break: a signature after it isn't the section's); an item
  * without a list marker gets the one of the section's last item: `- [ ]`, the next number, or `-`; the first one of the
  * questions section — `1.`: `task answer <N> <k>` finds a question by its number (#795).
  */
@@ -3105,17 +2923,14 @@ export function applyEdits(number: number, body: string, edits: Edit[]): { body:
 
 /**
  * An edit of the task's description in one call, in place of `gh issue view --json body`, a file and `gh issue edit
- * --body-file` (#670): the edits together or none — an error in any leaves the description untouched. A cloud session
- * — over the repository's REST.
+ * --body-file` (#670): the edits together or none — an error in any leaves the description untouched.
  */
 export function cmdTaskEdit(io: Io, slug: string, number: number, edits: Edit[]): number {
   const [owner, name] = slug.split("/");
-  const cloud = inCloud(io);
-  const i = cloud ? restIssue(io, slug, number) : graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
+  const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
   if (!i) throw new GhError(`no issue #${number} in ${slug}`);
   const { body, done } = applyEdits(number, i.body ?? "", edits);
-  if (cloud) rest(io, `repos/${slug}/issues/${number}`, { method: "PATCH", payload: { body } });
-  else mutate(io, { op: "UpdateIssue", input: { id: i.id, body } });
+  mutate(io, { op: "UpdateIssue", input: { id: i.id, body } });
   io.out(`+ #${number}: description — ${done.length} edit${done.length > 1 ? "s" : ""}: ${done.join(", ")}`);
   return 0;
 }
@@ -3199,42 +3014,8 @@ function executorPrompt(slug: string, number: number, epic: number | null): stri
 }
 
 /**
- * A cloud executor's brief and the dispatcher's steps after it (`task queue --assignment N --cloud`, #609). The brief —
- * without local paths and `#` but at its task: numbers in the title and the epic go without it. A batch project (#648,
- * question 1 of the task) — the cloud executor isn't in the batch: its PR goes into the default branch with the full CI,
- * as before, the brief and `Next:` say so. A cloud session can't message a local one, the dispatcher learns of its end
- * only by the task's closing, and GitHub closes a task only by a merge into the default branch — in a batch the task
- * stays open till the release, and the wait would never end. Outside auto (#667) — the merge on the owner's «yes» in
- * the cloud session: it can't message the dispatcher.
- */
-function cloudBrief(io: Io, slug: string, issue: Issue, batch: string | null, auto: boolean): void {
-  const number = issue.number;
-  const vars = {
-    task: N.subagentPrompt.task,
-    number,
-    title: issue.title.replace(/#(\d)/g, "$1"),
-    repo: slug,
-    epic: issue.parent ? locale.fill(N.queue.cloudEpic, { epicWord: N.subagentPrompt.epic, epic: issue.parent.number }) : "",
-    actual: N.est.cloud.actual.replace(/:$/, ""),
-    state: N.comments.state,
-    questions: N.sections.questions,
-    batch: batch ?? "",
-    cloudMode: auto ? N.queue.modeAuto : N.queue.cloudModeAsk,
-  };
-  const lines = [N.queue.cloud, ...(batch ? [N.queue.cloudBatch] : []), N.queue.cloudDoc, N.queue.repeats, N.queue.cloudClose, N.queue.cloudDispatcher, N.queue.cloudQuestion];
-  for (const line of lines) io.out(locale.fill(line, vars));
-  io.out(
-    `Next: the lines above — the cloud session's first prompt as is, the session started from the project folder (the cloud starts from main); ` +
-      (batch ? `a cloud executor isn't in the batch ${batch} — its PR goes into the default branch with the full CI: the dispatcher learns of its end only by the task's closing; ` : "") +
-      `then as a background command: bash ${waitCi()} issue ${number} — a cloud session can't message a local one (docs/cloud-sessions.md), the task's closing is the signal: ` +
-      `PASS — bun --no-env-file ${import.meta.path} task close ${number} (the actual with --write, ${STATUS}, the merged branch), then archive the executor's session in an auto project where the agent has the tool; ` +
-      `TIMEOUT — the task's ${q(N.sections.questions)} and its ${q(N.comments.state)} comment, the executor's session, then the same wait again`,
-  );
-}
-
-/**
- * The dispatcher's step for its executor sessions — the app's (`start_session`: another project's task) and cloud ones
- * (#621). In auto mode a session archives itself after the last line, but not always: it ended with a question whose
+ * The dispatcher's step for its executor sessions — the app's (`start_session`: another project's task, #621). In auto
+ * mode a session archives itself after the last line, but not always: it ended with a question whose
  * answer went to the dispatcher, or its last turn was the wait for the deploy. The queue is what the dispatcher reads
  * after each executor's answer, so its `Next:` names the step. Not archived: a session with live background work (the
  * app refuses), one awaiting the owner's answer (an archived session leaves the list, and the owner wouldn't read its
@@ -3292,7 +3073,7 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * Marks the session as a dispatcher (`dispatcherFile`). A batch project (#648) — the batch branch first
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
  * doesn't hold. The batch's release (#649): nothing ready and every task of the batch merged into it — `Next:` names
- * `batch release`, a task past the batch (a PR into the default branch, a cloud executor — #696) doesn't hold it;
+ * `batch release`, a task past the batch (a PR into the default branch — #696) doesn't hold it;
  * its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
  * names its guilty task by the labels and the fix (`redRelease`, `fixSteps`), the bisect — `batch release`'s. Before the queue —
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
@@ -3365,8 +3146,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   /**
    * Of the tasks in work: the batch's live executors — the release waits for them (#696). Without a batch — all of them;
    * with one — a task with an open PR into the batch, or handed out to an executor of the batch (a subagent, an app
-   * session) that is neither merged into it nor gone past it: a PR into another branch (the default one), a cloud
-   * executor, or In progress without a hand-out (the dispatcher's own task, another session's) don't hold the release.
+   * session) that is neither merged into it nor gone past it: a PR into another branch (the default one) or In progress
+   * without a hand-out (the dispatcher's own task, another session's) don't hold the release.
    */
   let holding = 0;
   /** Tasks in work past the batch — named by the release's `Next:` (#696). */
@@ -3398,10 +3179,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       merged === undefined ? "" : `PR #${merged} merged into ${batch} — the task closes with the batch's release`,
     ].filter(Boolean);
     const hand = handed.find((h) => h.number === i.number);
-    // a cloud executor's wait for the task's closing dies with the app's process: the line names it, task resume — the queue
-    if (!work.length && hand?.executor === "cloud") work.push(`handed out to a cloud executor of this session, its wait — a background command: bash ${waitCi()} issue ${i.number}`);
     // an app executor session (#624): the app continues the dispatcher at the end of each of its turns
-    else if (!work.length && hand?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
+    if (!work.length && hand?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
     else if (!work.length && hand) work.push("handed out to an executor of this session");
     // past the batch (#697): its PR goes into the default branch — the release doesn't wait for it
     if (batch !== null && hand?.main && merged === undefined) work.push(`past the batch ${batch} (--main): its PR goes into ${recent.base} with the full CI — the release doesn't wait for it`);
@@ -3410,7 +3189,7 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       // merged into the batch, no open PR of it: its executor is done, the task waits for the release
       if (merged !== undefined && pr === undefined) settled.push(i.number);
       else if (batch === null) holding++;
-      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && hand.executor !== "cloud" && !hand.main && !pastBatch(i)) holding++;
+      else if (pr !== undefined ? prBase(i, pr) === batch : merged === undefined && hand !== undefined && !hand.main && !pastBatch(i)) holding++;
       else past.push(`#${i.number}`);
       continue;
     }
@@ -3443,7 +3222,6 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
     const batches = [...batchesIn(file).filter((b) => b.repo.toLowerCase() !== slug.toLowerCase()), ...(batch ? [{ repo: slug, branch: batch }] : [])];
     writeFileSync(file, `bun --no-env-file ${import.meta.path} task queue ${args ? `${args} ` : ""}--repo ${slug}\n${batches.map((b) => `batch ${b.repo} ${b.branch}\n`).join("")}`);
   } else io.out("○ session not recognized (no CLAUDE_CODE_SESSION_ID) — not marked as a dispatcher: task status in the executors would pin their tasks");
-  appWorktreeWarning(io);
   // the executor the dispatcher continues with SendMessage — an answered question, a restart — has no lock (#533)
   pruneExecutors(io, slug, handed, isOpen, awaiting);
   // a task merged into the batch waits for the release, its stack doesn't (#765): the executor didn't take it down — the queue does
@@ -3998,25 +3776,6 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
 /** A Claude Code agent's worktree (`isolation: "worktree"`): `<checkout>/.claude/worktrees/agent-<id>`, branch `worktree-agent-<id>`. */
 const AGENT_WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/]agent-[^\\/]+$/;
 const AGENT_BRANCH = /^worktree-agent-/;
-/** A session's worktree of the app: `<checkout>/.claude/worktrees/<name>`, not an agent's. */
-const APP_WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/](?!agent-)[^\\/]+$/;
-
-/**
- * The app starts a cloud session from the branch in the starting session's record (`get_session` → `branch`), not from
- * git (#588): a session from the app's worktree has its `claude/<slug>-<hash>` there, never pushed — the clone fails, and
- * a detached checkout doesn't help, the record keeps the branch; a session in the project folder has none — `main`. The
- * dispatcher gets a `!` line, the queue still goes: subagent executors branch from origin/main in their own worktrees.
- */
-function appWorktreeWarning(io: Io): void {
-  const top = git(io, io.cwd, "rev-parse", "--show-toplevel").stdout.trim();
-  if (!APP_WORKTREE.test(top)) return;
-  const project = top.replace(/[\\/]\.claude[\\/]worktrees[\\/][^\\/]+$/, "");
-  io.out(
-    `! session in an app worktree ${top}: the app starts its cloud sessions from the branch in the session's record, not from main — ` +
-      `cloud executors from it fail with «The requested branch or commit was not found»; a dispatcher with cloud executors — ` +
-      `a session in the project folder ${project} without a worktree; subagent executors aren't affected`,
-  );
-}
 
 interface Worktree {
   path: string;
@@ -4434,10 +4193,7 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * owner's "yes" — unrecorded, its "In progress" would be refused by the session's pin or would pin the session to it.
  * A session pinned to this very task records nothing: the task is its own. A restart while the previous executor or its
  * subagent is alive (`livePredecessors`, #565) — no assignment and no hand-out: the `!` lines and the answer that
- * makes the dispatcher wait, code 1. `cloud` — the brief of a cloud executor (#609), printed by the dispatcher: whole, `task
- * queue` refuses in the cloud; `#` only at its task (`est` links a cloud session by the only `#N` of its first
- * prompt — docs/cloud-sessions.md, "The brief"); no restart line — the cloud assigns its own branch. A cloud session
- * can't message a local one, so `Next:` gives the dispatcher the wait for the task's closing and the local close.
+ * makes the dispatcher wait, code 1.
  * The epic refresh — in the same turn, not in the background, then `task close`, then the answer (#628): an executor of a
  * task without commits answered «waits for subagents» while its refresh ran, and its worktree without changes was
  * removed under the refresh subagent; a task without a PR is closed as completed first — `task close` needs it closed.
@@ -4449,18 +4205,18 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * dispatcher: a session, not a subagent — by the canon of its project and its mode, named by the task, waits in the
  * background, the canon's last line; the subagent's lines say the opposite. `Next:` — how to start it. The batch's
  * release red with the task in it (#650, `fixOf`) — the fix's lead: the release PR and its failed checks, a new task
- * branch from the batch, not the task's earlier one (rebase-merged into the batch already) — no restart line; `cloud`
- * refused before the hand-out: a cloud executor isn't in the batch. The project's mode (#667, `autoProject` of the
+ * branch from the batch, not the task's earlier one (rebase-merged into the batch already) — no restart line. The
+ * project's mode (#667, `autoProject` of the
  * checkout): auto — like a session in auto mode; outside auto the executor merged on green checks too, and the owner,
  * who hadn't said «yes» to that merge, learned of it from the dispatcher afterwards — now the lead's mode and the
  * `merge` line: up to `pr premerge` by itself, then the answer «question: merge PR #N?», the merge — on the owner's «yes»
- * the dispatcher forwards; a cloud executor asks in its session; an app session's lead names its mode itself.
+ * the dispatcher forwards; an app session's lead names its mode itself.
  * `main` — past the dispatcher's batch (#697, the owner's word): the plain lead with the `bypass` line — the branch from
  * origin/<base>, the PR into it with the full CI, the deploy, the refresh and `task close`; the hand-out marked
  * (`MAIN_HANDOUT`) — a restart keeps the way, `task finish` opens the PR into the default branch, the queue names the task
  * «past the batch» and its release doesn't wait for it; a task of a red release refuses it — its fix is the batch's.
  */
-export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { cloud?: boolean; session?: boolean; main?: boolean } = {}): number {
+export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { session?: boolean; main?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
   const file = handedOutFile(io);
   const own = pinnedTask(io)?.task;
@@ -4479,24 +4235,19 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { clo
   // past the batch (#697): the owner's word, or the task's earlier hand-out with it — a restart keeps the way
   const main = dispatched !== null && (Boolean(o.main) || handedPastBatch(io, slug, number));
   const batch = main ? null : dispatched;
-  // the batch's release is red and the task is in it (#650): its fix goes into the batch — a cloud executor isn't in it
+  // the batch's release is red and the task is in it (#650): its fix goes into the batch — not past it
   const fix = dispatched === null ? null : fixOf(io, slug, dispatched, number);
-  if (fix && (o.cloud || main)) {
-    throw new GhError(
-      `#${number} is in the red release PR #${fix.release.number} of ${dispatched}: its fix goes into the batch, and ${o.cloud ? "a cloud executor isn't in the batch — a subagent or an app executor session" : "--main takes it past the batch — the assignment without --main"}`,
-    );
-  }
+  if (fix && main) throw new GhError(`#${number} is in the red release PR #${fix.release.number} of ${dispatched}: its fix goes into the batch, and --main takes it past the batch — the assignment without --main`);
   if (file && !(own?.slug === slug && own.number === number)) {
     mkdirSync(path.dirname(file), { recursive: true });
     // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — hand-outs aren't committed into it
     writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-    const where = [o.cloud ? CLOUD_HANDOUT : o.session ? SESSION_HANDOUT : worktree, main ? MAIN_HANDOUT : ""].filter(Boolean).join(" ");
+    const where = [o.session ? SESSION_HANDOUT : worktree, main ? MAIN_HANDOUT : ""].filter(Boolean).join(" ");
     appendFileSync(file, `${slug}#${number}${where ? ` ${where}` : ""}\n`);
   }
   // the project's mode (#667): outside auto the executor's merge waits for the owner's «yes» — the dispatcher's request
   // is the work's scope, not a «yes» to each merge
   const auto = locale.autoProject(io.cwd ?? process.cwd());
-  if (o.cloud) return cloudBrief(io, slug, issue, dispatched, auto), 0;
   // a fix starts a new branch from the batch: the task's earlier branch is in the batch already — no restart line
   const inProgress = taskStatus(taskContext(io, slug), issue, issue.prs.find((p) => p.state === "OPEN")?.number, () => workFacts(io, slug)) === N.status.inProgress;
   const restart = fix || inProgress ? taskBranchesHere(io, slug, number) : [];
@@ -4578,7 +4329,7 @@ const MEANING_CHECKS = [0, 2, 4];
  * «✅ auto») — doesn't answer (#603).
  */
 const ANSWER_MARK_RE = /(?:^\s*(?:\d+\.\s+)?|[?.!—–][»"'*_)`]*\s+)[*_(]*✅/;
-/** A thematic break ends the questions section: the cloud proxy's signature after `---` isn't the last question's (#603). */
+/** A thematic break ends the questions section: a signature after `---` at the description's end isn't the last question's (#603). */
 const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 
 /**
@@ -5300,7 +5051,7 @@ export function cmdTaskFinish(io: Io, slug: string, number: number, o: { timeout
       if (issue.stateReason !== "COMPLETED") return stop(1, `! #${number} is closed as ${issue.stateReason ?? "not planned"}, but ${work}`, `gh issue reopen ${number} --repo ${slug}, then ${again}`);
       mutate(io, { op: "ReopenIssue", input: { issueId: issue.id } });
       // no board (#847) — the task's work is the fact that puts it in work
-      const put = inCloud(io) || putStatus(io, taskContext(io, slug), issue, N.status.inProgress) !== null;
+      const put = putStatus(io, taskContext(io, slug), issue, N.status.inProgress) !== null;
       io.out(`+ #${number} reopened${put ? `, ${STATUS} ${q(N.status.inProgress)}` : ""}: ${work} — the task's merged PR isn't its finish`);
       return cmdTaskFinish(io, slug, number, { ...o, timeout: Math.max(0, left()) });
     }
@@ -5436,11 +5187,9 @@ function finishBase(io: Io, slug: string, number: number, found: ReturnType<type
 /**
  * The tail is over — what `task close` leaves (#761, question 1): Status Done and the actual written, not the issue's
  * state, which «Closes #N» sets at the merge. No board (#847) — done by the facts (closed as completed) and est's
- * actual comment (its `<!-- fact {…} -->` marker): the fields are a board's. In the cloud there is no project to read —
- * over, as before.
+ * actual comment (its `<!-- fact {…} -->` marker): the fields are a board's.
  */
 function tailOver(io: Io, slug: string, number: number): boolean {
-  if (inCloud(io)) return true;
   const [owner, name] = slug.split("/");
   const i = graphql(io, Q.IssueShow, { owner, name, number })?.repository?.issue;
   if (!taskContext(io, slug).board) return i?.state === "CLOSED" && i.stateReason === "COMPLETED" && shownComments(i.comments).nodes.some((c) => commentKind(c) === "actual");
@@ -5780,11 +5529,10 @@ function cleanupBranches(io: Io, number: number, prs: { head: string; base: stri
 // ----------------------------------------------------------------------------
 
 /** The labels the task doesn't have — in one mutation; returns them comma-separated (nothing to add — empty). */
-function addLabels(io: Io, issue: Pick<Issue, "id" | "labels" | "rest">, names: string[], all: Label[]): string {
+function addLabels(io: Io, issue: Pick<Issue, "id" | "labels">, names: string[], all: Label[]): string {
   const missing = names.filter((n) => !issue.labels.includes(n));
   if (!missing.length) return "";
-  if (issue.rest) rest(io, `${issue.rest}/labels`, { method: "POST", payload: { labels: missing } });
-  else mutate(io, { op: "AddLabels", input: { labelableId: issue.id, labelIds: missing.map((n) => all.find((l) => l.name === n)!.id) } });
+  mutate(io, { op: "AddLabels", input: { labelableId: issue.id, labelIds: missing.map((n) => all.find((l) => l.name === n)!.id) } });
   issue.labels.push(...missing);
   return missing.join(", ");
 }
@@ -6909,9 +6657,7 @@ Examples:
 
 A task by the canon: type, project and Backlog, Priority, epic, blocked by, milestone, decision labels, the questions
 label when the description has a question without ✅ (created if missing); prints what was created and the next
-step. No board (GitHub Projects) — the task without one, an ○ line: its status is by the facts. A Claude Code cloud
-session — over the repository's REST, without the project: Status and an organization's Priority — a line for a local
-session.
+step. No board (GitHub Projects) — the task without one, an ○ line: its status is by the facts.
 
 Examples:
   github task new --title "Billing · Export invoices to PDF" --epic 40 --body-file task.md
@@ -6923,8 +6669,7 @@ blockers, the PRs with their checks, open and answered questions (a comment that
 the question), the comments of the task and its epic (the flow's own — one line with the kind), the description;
 read-only. No board (GitHub Projects) — the status by the facts: closed as completed — Done, closed otherwise — not
 done; open — In progress with an open PR, a task branch */<N>-* on origin or a session pin on this machine, otherwise
-Backlog. A cloud session — over the repository's REST, without the project's fields; the PRs — by the task branch or
-«Closes #N».
+Backlog.
 
 Examples:
   github task show 42`,
@@ -6932,7 +6677,7 @@ Examples:
 
 ✅ and «**Answer:** …» at question k of the questions section (--auto — the auto mark), the numbering unchanged; no open
 questions left — the questions label is removed; an answered question is refused (a changed answer — task edit --replace). A question is answered by ✅ at the
-start of its answer, not by ✅ in its text. A cloud session — over the repository's REST.
+start of its answer, not by ✅ in its text.
 
 Examples:
   github task answer 42 1 "Only PDF, no CSV yet"
@@ -6945,7 +6690,7 @@ name; the canon's questions or scenarios section the description lacks — creat
 the one of the section's last item: «- [ ]», the next number, its bullet; the questions section's first — «1.»); --check —
 «- [ ]» → «- [x]» of the one unchecked item with the text. Several edits — in order, each sees the previous one's result,
 written together; any not found or ambiguous — refused (code 2), the description untouched. Questions are answered by
-task answer. A cloud session — over the repository's REST.
+task answer.
 
 Examples:
   github task edit 42 --replace "PDF only" "PDF and CSV"
@@ -7033,7 +6778,7 @@ that can't be continued, in the worktree of its task's branch.
 Examples:
   github task resume`,
   "task queue": `github task queue [--epic N | --tasks N,M,…] [--type Task|Bug] [--priority Urgent,High] [--repo owner/repo]
-github task queue --assignment <N> [--cloud | --session] [--main] [--repo owner/repo]
+github task queue --assignment <N> [--session] [--main] [--repo owner/repo]
 
 The dispatcher session's queue: ready tasks (open, not an epic, not in work, no open blockers — other repositories'
 too —, no external blocker label) by Priority, then number, each with its executor's prompt; the rest — in work (=: In
@@ -7050,31 +6795,27 @@ written in the last ${QUIET_MINUTES} min); loose worktree-agent-* branches — t
 organization. --assignment N (the executor's first call; read-only on GitHub) — its whole assignment; in a session
 (not one pinned to N) it records the task as handed out with the executor's worktree (dispatchers/<id>.tasks). The
 project's mode ("auto" in .agents/elves.json): auto — the task like a session in auto mode; outside auto — up to pr
-premerge by itself, then the answer «question: merge PR #N?», the merge on the owner's «yes» the dispatcher forwards (a
-cloud executor asks in its session), and Next: of the queue names that wait. A
-restart while the task's previous executor or its subagent is alive — a worktree of it locked by a live process, with
-such a subagent at work or HEAD moved in the last ${QUIET_MINUTES} min — code 1: ! lines and the answer that makes the
-dispatcher wait, no hand-out. --cloud — printed by the dispatcher: the brief of a cloud executor (claude.ai/code) —
-whole, # only at its task — and the dispatcher's steps: a cloud session can't message a local one, so the dispatcher
-waits for the task's closing (ci-wait issue N, background) and closes it locally; the hand-out has no worktree, and the
-queue's = line names that wait. --session — printed by the dispatcher: the prompt of an app executor session
+premerge by itself, then the answer «question: merge PR #N?», the merge on the owner's «yes» the dispatcher forwards,
+and Next: of the queue names that wait. A restart while the task's previous executor or its subagent is alive — a
+worktree of it locked by a live process, with such a subagent at work or HEAD moved in the last ${QUIET_MINUTES} min —
+code 1: ! lines and the answer that makes the dispatcher wait, no hand-out. --session — printed by the dispatcher: the
+prompt of an app executor session
 (start_session in the folder of another project, its own worktree) — a session by its project's canon and mode, named
 by the task, waiting in the background, ending with the canon's last line — and how to start it; the hand-out has no
 worktree, the task is = in the queue. A batch project ("batch": true in .agents/elves.json): the first queue with a ready
 task pushes the dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh origin/<base> (+), nothing ready — no branch
 (○), the next ones take the same (○), it is kept in the marker; the assignment — the task branch from it and the PR
 into it, merged after the checks before a commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
-release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold; a
-cloud executor isn't in the batch — its PR goes into the default branch. Nothing ready and every task of the batch
-merged into it — Next: names batch release, a task past the batch (a PR into the default branch, a cloud executor)
-doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
+release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold.
+Nothing ready and every task of the batch merged into it — Next: names batch release, a task past the batch (a PR into
+the default branch) doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
 Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
-assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N; --cloud
-refused); released — a new batch with a ready task, a released batch branch without an open PR into it is deleted (+).
+assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N); released —
+a new batch with a ready task, a released batch branch without an open PR into it is deleted (+).
 --main — the owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
 into it with the full CI, the deploy, the epic refresh, task close), the hand-out marked — a restart keeps it, task
 finish opens the PR into the default branch, the queue's = line says «past the batch» and the release doesn't wait for
-it; a task of a red release refuses it; with --cloud — the same, a cloud executor isn't in the batch anyway.
+it; a task of a red release refuses it.
 --tasks N,M,… — the dispatcher's group, the owner's chosen tasks (kept in the marker's queue command): only they are handed out, the batch's release —
 once they are merged; after it a new batch — only from the group's tasks still open; nothing left — no new batch, the
 last line says so. Tasks created meanwhile (by executors, the epic refresh) join only by the owner's word: task queue
@@ -7085,7 +6826,6 @@ Examples:
   github task queue --tasks 47,49,52
   github task queue --type Bug --priority Urgent,High
   github task queue --assignment 42
-  github task queue --assignment 42 --cloud
   github task queue --assignment 42 --session
   github task queue --assignment 42 --main`,
   "task close": `github task close <N> [--no-git] [--repo owner/repo]
@@ -7244,6 +6984,8 @@ function checkoutOfRepo(io: Io, origin: string, slug: string): boolean {
 }
 
 export function main(argv: string[], io: Io): number {
+  // a cloud session — one line and code 2 before anything else (#837): not the help, not half a command
+  if (io.env["CLAUDE_CODE_REMOTE"] === "true") return io.err(CLOUD_REFUSAL), 2;
   const help = helpOf(argv);
   if (help) return io.out(help), 0;
   N = locale.names(locale.projectLanguage(io.cwd ?? process.cwd()));
@@ -7255,15 +6997,6 @@ export function main(argv: string[], io: Io): number {
       io.err(`unknown command «${argv.slice(0, 2).join(" ")}»; expected ${Object.keys(HELP).join(", ")} (github --help)`);
       return 2;
     }
-    if (inCloud(io) && group === "task" && cmd === "close") {
-      const n = /^#?(\d+)$/.exec(rest.find((a) => !a.startsWith("--")) ?? "")?.[1] ?? "<N>";
-      io.err(`cloud session: task close is unavailable to it — no GitHub Projects in the cloud (docs/cloud-sessions.md). The actual — the ${q(N.est.cloud.actual.replace(/:$/, ""))} comment printed by est fact ${n}; ${q(N.status.done)} is set by the project's workflow ${q(WORKFLOW_CLOSED)}; the cloud's branch and container are temporary, nothing to clean up.`);
-      return 2;
-    }
-    if (inCloud(io) && !CLOUD_COMMANDS.includes(`${group} ${cmd}`)) {
-      io.err(`cloud session: GitHub GraphQL and Projects are unavailable to it (403, docs/cloud-sessions.md) — ${group} ${cmd} runs in a local session; in the cloud — ${CLOUD_COMMANDS.join(", ")} over the repository's REST`);
-      return 2;
-    }
     // without the manifest a command that writes names would write the `en` ones into a project of another language
     // (#681): a repository without Elves refuses too (question 2) — one rule, no guessing by package.json
     const missing = LANGUAGE_COMMANDS.includes(`${group} ${cmd}`) ? locale.missingManifest(io.cwd ?? process.cwd()) : null;
@@ -7271,12 +7004,11 @@ export function main(argv: string[], io: Io): number {
       io.err(`${group} ${cmd} writes or checks the canon's names in the project language — ${missing}; a repository without Elves — install the flow: bunx @miroshnik/elves install --lang <project language>`);
       return 2;
     }
-    // the repository — under its current name: --repo or origin may still name it as it was before a rename (#560); the
-    // cloud has no GraphQL, and its session is bound to its repositories by their names
+    // the repository — under its current name: --repo or origin may still name it as it was before a rename (#560)
     const repoOf = (v: string | undefined) => {
       const slug = v ?? detectRepo();
       if (!/^[\w.-]+\/[\w.-]+$/.test(slug)) throw new GhError(`invalid --repo «${slug}», expected owner/repo`);
-      return inCloud(io) ? slug : canonicalRepo(io, slug);
+      return canonicalRepo(io, slug);
     };
     const command = `${group} ${cmd}`;
     if (group === "pr") {
@@ -7316,7 +7048,6 @@ export function main(argv: string[], io: Io): number {
           "no-git": { type: "boolean", default: false },
           assignment: { type: "boolean", default: false },
           apply: { type: "string" },
-          cloud: { type: "boolean", default: false },
           session: { type: "boolean", default: false },
           main: { type: "boolean", default: false },
           resume: { type: "boolean", default: false },
@@ -7346,13 +7077,11 @@ export function main(argv: string[], io: Io): number {
         return cmdTaskNew(io, slug, { title: values.title, body, type: values.type, epic, milestone: values.milestone, blockedBy, priority: values.priority, labels });
       }
       if (cmd === "queue") {
-        if (values.cloud && !values.assignment) throw new GhError("--cloud — only with --assignment <N>: the brief of one task's cloud executor");
         if (values.session && !values.assignment) throw new GhError("--session — only with --assignment <N>: the prompt of one task's app executor session");
-        if (values.cloud && values.session) throw new GhError("--cloud or --session, not both: a cloud executor or an app session");
         if (values.main && !values.assignment) throw new GhError("--main — only with --assignment <N>: one task's assignment past the batch");
         if (values.assignment) {
           if (positionals.length !== 1) throw new GhError("task queue --assignment <N>: one task number");
-          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { cloud: values.cloud!, session: values.session!, main: values.main! });
+          return cmdTaskAssignment(io, slug, issueNumber(positionals[0], "task queue --assignment"), { session: values.session!, main: values.main! });
         }
         if (positionals.length) throw new GhError(`extra arguments: ${positionals.join(" ")} — the queue is chosen by --epic or --tasks, --type and --priority`);
         const priority = values.priority === undefined ? undefined : values.priority.split(",").map((x) => x.trim()).filter(Boolean);

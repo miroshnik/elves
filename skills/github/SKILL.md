@@ -38,10 +38,10 @@ types — `admin:org`.
 | Session start, before working with tasks | `project check` — once per session |
 | `check` gave ❌ | `project fix` → UI steps → confirmations → `check` again |
 | Repository without a project | the board is optional: `check` — an `○` line, code 0; the tasks go by the facts (`reference.md`, "Project"); the owner wants one — `project fix --create`: links the owner's project of the same name, otherwise copies the template, otherwise creates one |
-| Cloud session | `task show`, `task answer`, `task edit`, `task new` — REST, no project (`docs/cloud-sessions.md`); others — code 2 |
 
 Codes: `0` — everything per the canon (for `fix` — and no steps left), `1` —
-there are ❌, steps or errors, `2` — a call or access error, or a cloud session.
+there are ❌, steps or errors, `2` — a call or access error, or a Claude Code
+cloud session (`CLAUDE_CODE_REMOTE=true`): the flow runs only in a local one.
 
 `fix` prints `+` lines — done via the API; **UI steps** — calling `fix` is
 permission to configure this repository's project: the agent goes through the
@@ -133,19 +133,17 @@ What the agent gets wrong without the details (all of them — `reference.md`,
   with the questions themselves; something remains — `Remaining: …`. In auto
   mode after the first — archiving the session where the agent has the tool,
   after the other two — no; information without a decision isn't a question.
-  A cloud session — a refusal (`docs/cloud-sessions.md`).
 
 ### Dispatcher
 
 "Do all tasks of epic #M", "fix all High bugs", a "yes" to «run the
 dispatcher on epic #M?» (`AGENTS.md`, "Session and branch — one task"): any
 session, its own task stays pinned; one started for it — in the project
-folder, not a worktree: executors (subagents, cloud sessions) start from
-`main`. `task queue` prints ready
+folder, not a worktree: executors start from `main`. `task queue` prints ready
 tasks, each with an indented line — its executor's prompt. In Claude Code: an executor — `Agent` with
 `isolation: "worktree"` and `run_in_background: true`, the prompt — as
-is; at most the machine's executors in subagents and 5 cloud sessions at
-once, the owner's number replaces either; another project's task — an app session in
+is; at most the machine's executors at once, the owner's number replaces
+it; another project's task — an app session in
 its folder (`start_session`, own worktree);
 `=` — a task in work, its line says why, not launched again. A batch project
 (`"batch": true` in `.agents/elves.json`) — executors merge into the batch
@@ -164,7 +162,7 @@ continued, not replaced. Waits for subagents — it answers again. Failed — a
 task comment, no restart (the owner's restart, external blockers —
 `reference.md`, "task queue", "Dependencies"). Queue empty and nothing running — the summary, the last
 line (a session with its own task — after it) and, in auto mode, archiving. The executor's side (`--assignment`;
-`--cloud`, `--session`) — `reference.md`, "task queue".
+`--session`) — `reference.md`, "task queue".
 
 ## Git, PRs and merging — mechanics
 
