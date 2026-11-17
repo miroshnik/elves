@@ -109,6 +109,7 @@ export const HOLDERS: Record<string, Holder> = {
   "The stack stays": "judgment",
   "A pause leaves a State comment": "judgment",
   "The app's tools load at once": script("github task start", GITHUB, "ToolSearch select:"),
+  "Auto-fix is off": script("github task finish", GITHUB, "set_monitor with auto_fix: false"),
   "CI waits are background commands": hook("PreToolUse", BYPASSES, 'rule: "Bash(gh run watch *)"'),
   "A merge in auto mode is a separate call": script("github task finish", GITHUB, "separate gh pr merge <PR> --rebase"),
   // каждый скрипт на gh держит строку — стандарт tests/standards/scripts/gh-sandbox

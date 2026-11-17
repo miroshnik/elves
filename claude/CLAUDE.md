@@ -13,9 +13,9 @@ into `~/.claude/rules`.
   so `~/.claude/settings.json` needs `"cleanupPeriodDays": 365`, or the
   history is cleaned before the task closes.
 - **Auto-fix is off.** Its conflict event wants the base merged in, which
-  breaks the rebase merge: right after `gh pr create` I call `set_monitor`
-  with `auto_fix: false` and the PR's url, and on a conflict I rebase onto a
-  fresh `origin/main`.
+  breaks the rebase merge: `github task finish` stops right after opening
+  the PR with the step — `set_monitor` with `auto_fix: false` and the PR's
+  url — and on a conflict I rebase onto a fresh `origin/main`.
 - **CI waits are background commands.** `ci-wait` runs with
   `run_in_background`, and its completion wakes the session; the PreToolUse
   hook denies `gh run watch` and `gh pr checks --watch`, and I put no

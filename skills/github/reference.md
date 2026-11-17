@@ -773,7 +773,10 @@ the base by their changes (a released batch's, rebased with other SHAs) —
 code 1 before the PR: `git rebase origin/<base>` drops them, otherwise the
 PR's title and decision labels would be theirs; the title — `--title`, otherwise the first commit of the
 branch type, a conventional commit; the body — `spec-diff` and `Closes #N`
-(an existing PR — the body updated); `pr labels`; `ci-wait pr` (none into a
+(an existing PR — the body updated); `pr labels`; a PR it opened in Claude
+Code (`CLAUDECODE=1`, #866) — code 1 with the step `set_monitor` with
+`auto_fix: false` and the PR's url (Auto-fix wants the base merged in on a
+conflict), a repeat finds the PR open and goes on; `ci-wait pr` (none into a
 batch): FAIL, a conflict — code 1 with the step; `pr premerge` — stopped
 (code 1 with its step: the fix, or the red base's bug). Then the merge
 command, code 1: the merge stays a separate `gh pr merge

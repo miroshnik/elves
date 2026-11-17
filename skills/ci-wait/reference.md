@@ -65,7 +65,8 @@ merging — mechanics".
 
 ## Auto-fix — off
 
-`claude/CLAUDE.md`, "Auto-fix is off" — the rule; its mechanism — #866.
+`claude/CLAUDE.md`, "Auto-fix is off" — the rule; its mechanism —
+`github task finish`'s stop right after it opens the PR (#866).
 Auto-fix of the Claude Code app's CI monitor wakes the session with a
 `<ci-monitor-event>` on failed checks, a conflict and review comments, and on
 a conflict tells it to merge the base branch in, never rebase or force-push.
@@ -78,9 +79,14 @@ dispatcher session while the executor was in the middle of a rebase in its
 worktree: `main` merged in there would have broken it (#529).
 
 - **Off for the flow's PRs:** the app binds each new PR of the session with
-  Auto-fix on, so right after `gh pr create` — `get_status` (the newest PR is
-  the bound one, earlier ones go to `otherBoundPrs`); Auto-fix on for my PR —
-  `set_monitor` with `auto_fix: false` and the PR's url. Nothing is lost: red checks and a conflict come from
+  Auto-fix on, so `github task finish`, having opened the PR in Claude Code,
+  stops before the CI wait with the step: `set_monitor` with `auto_fix:
+  false` and the PR's url (an executor subagent's PR isn't bound to its
+  session — the refusal leaves nothing to turn off), then the same `task
+  finish` again. A PR opened by hand (`gh pr create`) — `get_status` (the
+  newest PR is the bound one, earlier ones go to `otherBoundPrs`); Auto-fix
+  on for my PR — the same `set_monitor`. Nothing is lost: red checks and a
+  conflict come from
   `ci-wait` (FAIL; ERROR "rebase onto origin/main"), and its completion
   wakes the session.
 - **An event came anyway** (Auto-fix was on): a conflict — `git fetch

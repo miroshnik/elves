@@ -5567,7 +5567,7 @@ describe("task finish доводит задачу от ветки до закр�
    * Вызов `task finish`: ci-wait — подпроцесс bash, его коды по очереди (`ci` — PR, `deploy` — мерж; кончились — PASS),
    * spec-diff и est — подпроцессы bun, git — настоящий.
    */
-  function finish(f: FakeGitHub, args: string[], o: { cwd: string; ci?: number[]; deploy?: number[]; config?: string }) {
+  function finish(f: FakeGitHub, args: string[], o: { cwd: string; ci?: number[]; deploy?: number[]; config?: string; env?: Record<string, string> }) {
     const waits: string[][] = [];
     const est: string[][] = [];
     const stacks: string[][] = [];
@@ -5581,7 +5581,7 @@ describe("task finish доводит задачу от ветки до закр�
       return realRun(cmd, a, cwd);
     });
     const config = o.config ?? scratch();
-    const r = task(f, ["finish", ...args], REPO, { run, cwd: o.cwd, env: { ELVES_CONFIG_DIR: config, ELVES_SPEC_DIFF: OUTSIDE_SPEC } });
+    const r = task(f, ["finish", ...args], REPO, { run, cwd: o.cwd, env: { ELVES_CONFIG_DIR: config, ELVES_SPEC_DIFF: OUTSIDE_SPEC, ...o.env } });
     return { ...r, waits, est, stacks, config, last: r.out.split("\n").at(-1)! };
   }
   const created = (f: FakeGitHub) => f.rest.filter((x) => x.method === "POST" && x.route.endsWith("/pulls")).map((x) => x.payload);
@@ -5600,6 +5600,42 @@ describe("task finish доводит задачу от ветки до закр�
     expect(r.waits[0]!.slice(0, 4)).toEqual(["pr", "1", "--repo", REPO]);
     expect(r.out).toContain("✅ merge: main hasn't moved since the CI of PR #1");
     expect(r.last).toStartWith("Next: waits for the owner — the «yes» to the merge of PR #1 (the project is without auto), then gh pr merge 1 --rebase — a separate call");
+  });
+
+  /**
+   * #866: приложение Claude Code привязывает новый PR к монитору CI с Auto-fix, а его событие о конфликте велит влить базу
+   * в ветку — мерж только rebase ломается. Правило держала только строка канона; теперь `task finish` останавливается на
+   * шаге `set_monitor` до ожидания CI: событие о красном CI или конфликте пришло бы раньше, чем ожидание кончится.
+   */
+  it("task finish после создания PR в Claude Code печатает шаг set_monitor с auto_fix false и url PR", () => {
+    const f = new FakeGitHub(REC);
+    const { work } = onBranch();
+    const claude = { CLAUDECODE: "1" };
+    const r = finish(f, ["49"], { cwd: work, env: claude });
+    expect(r.code).toBe(1);
+    expect(created(f)).toHaveLength(1);
+    expect(r.out).toContain("PR #1 → #49: no decisions in the diff");
+    expect(r.waits).toEqual([]);
+    expect(r.out).toContain("○ PR #1 is new: the Claude Code app binds it to its CI monitor with Auto-fix on");
+    expect(r.last).toBe(
+      "Next: set_monitor with auto_fix: false and the PR's url https://github.com/miroshnik/elves/pull/1 — Auto-fix's conflict event wants the base merged in; refused as not bound to this session — nothing to turn off; " +
+        `then ${RUN}task finish 49 in the background — it waits for the CI, then runs pr premerge`,
+    );
+    // повтор находит PR открытым — шаг не повторяется, дальше ожидание CI и premerge
+    const again = finish(f, ["49"], { cwd: work, env: claude });
+    expect(again.out).not.toContain("set_monitor");
+    expect(again.waits).toHaveLength(1);
+    expect(again.last).toContain("gh pr merge 1 --rebase");
+    // PR в ветку пачки CI не ждёт: следующий шаг после set_monitor — premerge
+    const live = worktree().work;
+    const config = releasedBatch(live, { released: false });
+    taskOn(live, `origin/${BATCH}`);
+    const batched = finishIn(new FakeGitHub(REC), live, config, claude);
+    expect(batched.code).toBe(1);
+    expect(batched.out.split("\n").at(-1)).toBe(
+      "Next: set_monitor with auto_fix: false and the PR's url https://github.com/miroshnik/elves/pull/1 — Auto-fix's conflict event wants the base merged in; refused as not bound to this session — nothing to turn off; " +
+        `then ${RUN}task finish 49 — it runs pr premerge`,
+    );
   });
 
   it("повторный task finish продолжает с шага, на котором остановился", () => {
@@ -5802,10 +5838,10 @@ describe("task finish доводит задачу от ветки до закр�
     commitFile(work, "fix.txt", "fix(github): задача после выпуска");
   }
   const inBatchSession = (config: string) => ({ ...inSession(config).env!, ELVES_SPEC_DIFF: OUTSIDE_SPEC });
-  function finishIn(f: FakeGitHub, work: string, config: string) {
+  function finishIn(f: FakeGitHub, work: string, config: string, env: Record<string, string> = {}) {
     const out: string[] = [];
     const run = githubOrigin((cmd: string, a: string[], cwd?: string) => (cmd === "bash" ? { status: 0, stdout: "RESULT: PASS\n", stderr: "" } : cmd === "bun" ? { status: 0, stdout: "", stderr: "" } : realRun(cmd, a, cwd)));
-    const code = main(["task", "finish", "49", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run, cwd: work, env: inBatchSession(config) });
+    const code = main(["task", "finish", "49", "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run, cwd: work, env: { ...inBatchSession(config), ...env } });
     return { code, out: out.join("\n") };
   }
   const labelled = (f: FakeGitHub) => f.rest.filter((x) => x.method === "POST" && x.route.endsWith("/labels"));
