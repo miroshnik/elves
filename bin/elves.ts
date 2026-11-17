@@ -46,8 +46,8 @@
  * task-env skill, and `batch` — the dispatcher's batches (epic #645). `install` in a project sets auto and language — by a question in the terminal or by
  * the flags `--auto` / `--no-auto` and `--lang <code>`; by default auto is "no", the language is `en`, without a
  * terminal and a flag — the previous value, `update` keeps it. With auto `install` suggests the Claude Code permission rule for the merge
- * (MERGE_HINT) — it doesn't change the machine's settings; nor does the machine's prompt cache TTL line of `check -g`,
- * `install -g` and `update -g` (`cacheTtlLines`) — it names the owner's command. The flow isn't installed into an Elves clone (the canon is
+ * (MERGE_HINT) — it doesn't change the machine's settings; nor do the machine's prompt cache TTL and transcript cleanup
+ * lines of `check -g`, `install -g` and `update -g` (`cacheTtlLines`, `cleanupLines`) — they name the owner's command. The flow isn't installed into an Elves clone (the canon is
  * at its root): `install` writes a single manifest there, with `auto` and `language`, `env` and `batch` carried over as
  * in a project; `check` there compares nothing but a batch clone's CI (`batchCi`).
  * The project's flow files are committed — the ones the project's git ignores (`.agents/`) the install un-ignores with
@@ -214,8 +214,8 @@ bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<versio
 (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md and others) go — only its own symlinks into the canon; another agent —
 docs/other-agents.md. From the npm package (npm i -g / bun add -g ${PACKAGE}) — the release of its version, without
 the network. --link — from an Elves clone: symlinks to the clone instead of copies, edits show up immediately. With
-Claude Code's prompt cache TTL not chosen — the line check -g prints, with the owner's command (docs/prompt-cache.md):
-install doesn't change ~/.claude/settings.json.
+Claude Code's prompt cache TTL not chosen or cleanupPeriodDays under 365 — the lines check -g prints, with the owner's
+command (docs/prompt-cache.md): install doesn't change ~/.claude/settings.json.
 
 Examples:
   elves install --auto --lang en
@@ -240,8 +240,9 @@ the lockfile). For the machine names the task-env proxy of *.localhost addresses
 command (with Docker on the machine; the exit code stays the same), run from the agent's Bash in Claude Code — a session
 without the agent's Bash environment, for a --link clone run from an Elves clone — flow commits not in a release yet;
 Claude Code 2.1.242+ (or no claude on PATH) with promptCacheTtl or subagentPromptCacheTtl not chosen by a setting or
-its variable — a prompt cache TTL line with the owner's command that sets the hour (docs/prompt-cache.md; the exit
-code stays the same).
+its variable — a prompt cache TTL line with the owner's command that sets the hour (docs/prompt-cache.md); with
+cleanupPeriodDays in ~/.claude/settings.json missing or under 365 days — a transcript cleanup line with the owner's
+command that sets 365: est reads a task's actual from the transcripts (the exit code stays the same).
 --hook — the machine and the project at once for the Claude Code SessionStart hook: the exit code is always 0 (else
 Claude Code drops its output), errors go to the output and don't block the session, the hook's timeout is 60 s; writes the agent's Bash environment to $CLAUDE_ENV_FILE — zsh without errors on a glob without matches
 and on =word, timeout from bin/shims.
@@ -259,7 +260,7 @@ the manifest comes from the main checkout or install --lang. In a project instal
 .gitignore patterns with exceptions at its end and wrap the package.json checks (lint, typecheck, test, test:*) in the machine queue slot;
 prints what changed: every release after the installed one, newest first, with the list of changes of its GitHub
 Release (a --link clone — the flow commits it pulled), and the git add of what changed; -g — also the prompt cache TTL
-line of check -g, without changing ~/.claude/settings.json.
+and transcript cleanup lines of check -g, without changing ~/.claude/settings.json.
 
 Examples:
   elves update
@@ -1809,7 +1810,8 @@ function changeLines(changes: Change[], root: string, global: boolean) {
  * behind — falls behind: update will install something new; ignored — the project's git ignores flow files: update
  * will add exceptions; compose — the project's compose file breaks task isolation: update won't fix it; spec — the
  * project has standards or architecture without a `test:spec` script: update won't add it; run — the text names a
- * command to run; ttl — the machine's line about the prompt cache TTL with the owner's command (`cacheTtlLines`).
+ * command to run; ttl — the machine's line about the prompt cache TTL with the owner's command (`cacheTtlLines`);
+ * cleanup — the machine's line about the transcript cleanup with the owner's command (`cleanupLines`).
  */
 interface Result {
   code: 0 | 1 | 2;
@@ -1825,6 +1827,7 @@ interface Result {
   untracked?: boolean;
   run?: boolean;
   ttl?: boolean;
+  cleanup?: boolean;
 }
 
 /**
@@ -2212,37 +2215,50 @@ function claudeVersion(): string | null {
 }
 
 /**
- * The owner's command that sets the hour for `keys` in `~/.claude/settings.json` (Bun — the flow's runtime, no other
- * tool): a key that has a value Claude Code accepts stays — a repeat writes nothing; the file before the edit is copied
- * to `.bak`, that taken — `.bak2`, `.bak3`…; the other keys keep their values; prints the copy and what it set. In
- * single quotes for sh: the script has no `'`.
+ * The owner's command that sets `keys` in `~/.claude/settings.json` to `value` (Bun — the flow's runtime, no other
+ * tool): a key whose value `ok` accepts stays — a repeat writes nothing and prints "<what> already set"; the file
+ * before the edit is copied to `.bak`, that taken — `.bak2`, `.bak3`…; the other keys keep their values; prints the
+ * copy and what it set. `ok` — a JavaScript function of the key's value, put into the script as is. In single quotes
+ * for sh: the script has no `'`.
  */
-function ttlCommand(keys: string[]) {
+function settingsCommand(what: string, keys: string[], ok: string, value: string | number) {
+  const v = JSON.stringify(value);
   const js = [
-    `const fs=require("node:fs"),f=require("node:os").homedir()+"/.claude/settings.json",keys=${JSON.stringify(keys)}`,
+    `const fs=require("node:fs"),f=require("node:os").homedir()+"/.claude/settings.json",keys=${JSON.stringify(keys)},ok=${ok}`,
     'const s=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{}',
-    `const add=keys.filter(k=>!${JSON.stringify(CACHE_TTL_VALUES)}.includes(s[k]))`,
-    'if(!add.length)console.log("prompt cache TTL already set:",JSON.stringify(Object.fromEntries(keys.map(k=>[k,s[k]]))))',
+    "const add=keys.filter(k=>!ok(s[k]))",
+    `if(!add.length)console.log(${JSON.stringify(`${what} already set:`)},JSON.stringify(Object.fromEntries(keys.map(k=>[k,s[k]]))))`,
     'else{if(fs.existsSync(f)){let b=f+".bak",n=1;while(fs.existsSync(b))b=f+".bak"+(++n);fs.copyFileSync(f,b);console.log("copy:",b)}',
-    'for(const k of add)s[k]="1h"',
+    `for(const k of add)s[k]=${v}`,
     'fs.mkdirSync(require("node:path").dirname(f),{recursive:true});fs.writeFileSync(f,JSON.stringify(s,null,2)+"\\n")',
-    'console.log(f+":",JSON.stringify(Object.fromEntries(add.map(k=>[k,"1h"]))))}',
+    `console.log(f+":",JSON.stringify(Object.fromEntries(add.map(k=>[k,${v}]))))}`,
   ].join(";");
   return `bun --no-env-file -e '${js}'`;
 }
 
+/**
+ * The user's settings of Claude Code on the machine (`~/.claude/settings.json`): no file — `{}`; not JSON — null:
+ * Claude Code reports it itself, and the lines about its keys say nothing.
+ */
+function claudeSettings(home: string): Record<string, unknown> | null {
+  const file = path.join(home, ".claude/settings.json");
+  try {
+    return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) ?? {}) : {};
+  } catch {
+    return null;
+  }
+}
+
+/** A machine with Claude Code: `~/.claude` or `claude` on PATH (the desktop app alone has no `claude`). */
+const claudeMachine = (home: string) => existsSync(path.join(home, ".claude")) || onPath("claude");
+
 /** The line about the TTL not chosen on the machine (see CACHE_TTL) for `check -g` and the hook; nothing to say — none. */
 function cacheTtlLines(home: string): string[] {
-  if (!(existsSync(path.join(home, ".claude")) || onPath("claude"))) return [];
+  if (!claudeMachine(home)) return [];
   const version = claudeVersion();
   if (version && olderVersion(version, CACHE_TTL_SINCE)) return [];
-  const file = path.join(home, ".claude/settings.json");
-  let settings: Record<string, unknown> = {};
-  try {
-    if (existsSync(file)) settings = JSON.parse(readFileSync(file, "utf8")) ?? {};
-  } catch {
-    return [];
-  }
+  const settings = claudeSettings(home);
+  if (!settings) return [];
   const env = (name: string) => process.env[name] ?? (settings.env as Record<string, unknown> | undefined)?.[name];
   if (CACHE_TTL_BOTH.some((v) => env(v) === "1")) return [];
   const unset = CACHE_TTL.filter((c) => ![settings[c.key], env(c.env)].some((v) => CACHE_TTL_VALUES.includes(String(v)))).map((c) => c.key);
@@ -2250,11 +2266,36 @@ function cacheTtlLines(home: string): string[] {
   const what = `${unset.join(" and ")} ${unset.length > 1 ? "aren't" : "isn't"} set in ~/.claude/settings.json`;
   const why = "subagents, and the session on usage credits, keep the cache 5 minutes: after a longer pause (a CI wait, a long test run) the next turn writes the whole context again";
   const price = `the hour costs 2× input per cache write instead of 1.25× (Claude Code ${CACHE_TTL_SINCE}+, ~/${CANON}/docs/prompt-cache.md)`;
-  return [`  prompt cache TTL: ${what} — ${why}; ${price}. The owner's choice — the hour: ${ttlCommand(unset)}; 5 minutes — "5m" in the same keys`];
+  const command = settingsCommand("prompt cache TTL", unset, `v=>${JSON.stringify(CACHE_TTL_VALUES)}.includes(v)`, "1h");
+  return [`  prompt cache TTL: ${what} — ${why}; ${price}. The owner's choice — the hour: ${command}; 5 minutes — "5m" in the same keys`];
 }
 
-/** The TTL line for `install -g` and `update -g`: the same as `check -g` prints. */
-const ttlNote = () => cacheTtlLines(os.homedir()).forEach((l) => note(l.trimStart()));
+/**
+ * Claude Code's transcript cleanup (#865): `est` takes a task's actual from the session transcripts in
+ * `~/.claude/projects/`, and Claude Code deletes those older than `cleanupPeriodDays` — 30 days by default — while a
+ * task with its batch and `task close` can take longer. The key in `~/.claude/settings.json` that isn't a whole number
+ * of at least CLEANUP_DAYS — a line for `check -g` and the hook with the owner's command that sets CLEANUP_DAYS;
+ * `install -g` and `update -g` print the same, and none of them touches the file: the machine's settings are the
+ * owner's, as MERGE_HINT. Only the user's file: the flow's machines have neither managed nor project values of it. Not
+ * a Claude Code machine or a settings file that isn't JSON — no line, as with the TTL. The check's code stays: it's the
+ * owner's setting, not the flow falling behind.
+ */
+const CLEANUP_DAYS = 365;
+
+function cleanupLines(home: string): string[] {
+  if (!claudeMachine(home)) return [];
+  const settings = claudeSettings(home);
+  if (!settings) return [];
+  const days = settings.cleanupPeriodDays;
+  if (typeof days === "number" && Number.isInteger(days) && days >= CLEANUP_DAYS) return [];
+  const what = days === undefined ? "cleanupPeriodDays isn't set in ~/.claude/settings.json (Claude Code's default — 30 days)" : `cleanupPeriodDays in ~/.claude/settings.json is ${JSON.stringify(days)}, under ${CLEANUP_DAYS}`;
+  const why = "est takes a task's actual from the session transcripts, and Claude Code deletes older ones before a long task closes";
+  const command = settingsCommand("cleanupPeriodDays", ["cleanupPeriodDays"], `v=>Number.isInteger(v)&&v>=${CLEANUP_DAYS}`, CLEANUP_DAYS);
+  return [`  transcript cleanup: ${what} — ${why}. The owner's step — ${CLEANUP_DAYS} days: ${command}`];
+}
+
+/** The owner's lines of the machine (TTL, transcript cleanup) for `install -g` and `update -g`: the same as `check -g` prints. */
+const ownerNotes = () => [...cacheTtlLines(os.homedir()), ...cleanupLines(os.homedir())].forEach((l) => note(l.trimStart()));
 
 /**
  * The agent's Bash environment (tests/capabilities/elves/agent-shell). Claude Code's Bash tool — the user's zsh on macOS —
@@ -2327,13 +2368,14 @@ function capacityLines(): string[] {
 /**
  * The check's result plus the machine's lines, installed or not, behind or not: the capacity (`capacityLines`), the
  * proxy (`proxyLines`), the agent's Bash environment — the hook passes what writing it gave, `check -g` asks
- * `agentShellLines` — and Claude Code's prompt cache TTL (`cacheTtlLines`).
+ * `agentShellLines` — and Claude Code's prompt cache TTL (`cacheTtlLines`) and transcript cleanup (`cleanupLines`).
  */
 function withMachine(global: boolean, r: Result, shell = agentShellLines()): Result {
   if (!global || r.absent) return r;
   const ttl = cacheTtlLines(os.homedir());
-  const lines = [...capacityLines(), ...proxyLines(os.homedir()), ...shell, ...ttl];
-  return lines.length ? { ...r, text: [r.text, ...lines].join("\n"), ...(ttl.length ? { ttl: true } : {}) } : r;
+  const cleanup = cleanupLines(os.homedir());
+  const lines = [...capacityLines(), ...proxyLines(os.homedir()), ...shell, ...ttl, ...cleanup];
+  return lines.length ? { ...r, text: [r.text, ...lines].join("\n"), ...(ttl.length ? { ttl: true } : {}), ...(cleanup.length ? { cleanup: true } : {}) } : r;
 }
 
 /**
@@ -2423,6 +2465,7 @@ function hook(failed?: unknown) {
   if (shown.some((r) => r.spec)) tail.push("No test:spec script — pr premerge doesn't run standards and architecture on the merge; the ❌ line names the package.json scripts; adding them is a task of its own in the project.");
   // the machine's settings are the owner's: the agent names the command, as with the merge rule (MERGE_HINT)
   if (machine?.ttl) tail.push("The prompt cache TTL line is the owner's choice and price — name its command to the user, don't run it yourself.");
+  if (machine?.cleanup) tail.push("The transcript cleanup line is the owner's machine setting — name its command to the user, don't run it yourself.");
   if (shown.some((r) => r.code === 2)) tail.push("Check unavailable — work by the current flow and say so.");
   if (shown.some((r) => r.run)) tail.push(SANDBOX_HINT);
   note(["Elves flow (AGENTS.md, «First step of a session»):", ...shown.map((r) => r.text), ...resume, ...tail].join("\n"));
@@ -2483,7 +2526,7 @@ function update(global: boolean) {
     const from = readManifest(home);
     installGlobal(SRC, false);
     note(whatChanged(from).join("\n"));
-    ttlNote();
+    ownerNotes();
     return 0;
   }
   const root = projectRoot();
@@ -2898,8 +2941,9 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    // the TTL recommendation — after the install: the machine's settings are the owner's, as the merge rule (MERGE_HINT)
-    if (global) return installGlobal(SRC, linkMode), ttlNote(), 0;
+    // the TTL and transcript cleanup lines — after the install: the machine's settings are the owner's, as the merge
+    // rule (MERGE_HINT)
+    if (global) return installGlobal(SRC, linkMode), ownerNotes(), 0;
     const root = projectRoot();
     // questions — only here and only in a terminal: `update` and `check` (the hook at session start) go through
     // installProject without them
