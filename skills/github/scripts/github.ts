@@ -48,8 +48,8 @@ import { BYPASSES } from "./bypasses.ts";
 import type { Bypass } from "./bypasses.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
-import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, worktreeRemovable } from "./queue.ts";
-import type { BatchFacts, BlockerFacts, Entry, Step as QueueNext, TaskFacts } from "./queue.ts";
+import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, redFix, releaseRun, worktreeRemovable } from "./queue.ts";
+import type { BatchFacts, BlockerFacts, Entry, Fix, Step as QueueNext, ReleaseState, ReleaseStep, TaskFacts } from "./queue.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -3699,44 +3699,45 @@ function fixOf(io: Io, slug: string, batch: string, number: number): { release: 
 /**
  * The fix of a red release (#650) — `Next:` of `batch release` and of the queue, one text: the guilty task's executor
  * (continued, or a new one with the same prompt) fixes it in the batch by its assignment, then the release's full run
- * goes again on the same PR; the other tasks wait for the release. The fix going — its wait; the guilty task not named
- * — `batch release` names it (the queue), or the logs (after the bisect).
+ * goes again on the same PR; the other tasks wait for the release. Which fix — the model's (`redFix`, queue.ts): the
+ * fix going — its wait; the guilty task named — its fix; not named — `batch release` names it (the queue), or the logs
+ * and the owner (after the bisect). Here — only its text.
  */
-function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseChecks, r: ReturnType<typeof redRelease>, bisected: boolean): string[] {
+function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseChecks, r: ReturnType<typeof redRelease>, bisects: boolean): string[] {
   const lead = `Next: the release PR #${release.number} https://github.com/${slug}/pull/${release.number} of ${batch} is red (${checks.red.join(", ")})`;
   const again =
     `after its merge into ${batch} — the release's full run again on the same PR #${release.number}: batch release prints its steps; ` +
     `the other tasks of the batch wait — no new executors till the release's merge; ${SESSION_ARCHIVE}.`;
-  if (r.fixing) return [`${lead}: its fix PR #${r.fixing.number} into ${batch} is open — wait for its executor's answer; ${again}`];
-  const g = r.guilty;
-  if (g) {
-    return [
-      `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new background subagent in its own worktree with it as the prompt. ` +
-        `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the checks before a commit, no CI; ${again}`,
-      `  ${executorPrompt(slug, g.number, g.issue.parent?.number ?? null)}`,
-    ];
-  }
   const command = `bun --no-env-file ${import.meta.path} batch release --repo ${slug}`;
-  return [
-    bisected
-      ? `${lead} — the guilty task isn't named (the lines above say why): by the failed checks' logs (gh pr checks ${release.number}) the dispatcher names it or asks the owner, then its fix — task queue --assignment <N> to its executor; ${again}`
-      : `${lead} — the guilty task: ${command} names it (the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command) and prints its fix; ${again}`,
-  ];
+  const text: Record<Fix, () => string[]> = {
+    wait: () => [`${lead}: its fix PR #${r.fixing!.number} into ${batch} is open — wait for its executor's answer; ${again}`],
+    guilty: () => {
+      const g = r.guilty!;
+      return [
+        `${lead} — the guilty task #${g.number} ${q(g.issue.title)} fixes it in the batch: its executor — continued with SendMessage, the indented line its message; none alive — a new background subagent in its own worktree with it as the prompt. ` +
+          `Its assignment (task queue --assignment ${g.number}) names the red release: a new task branch from origin/${batch}, the PR into ${batch} with Refs #${g.number}, the checks before a commit, no CI; ${again}`,
+        `  ${executorPrompt(slug, g.number, g.issue.parent?.number ?? null)}`,
+      ];
+    },
+    bisect: () => [
+      `${lead} — the guilty task: ${command} names it (the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command) and prints its fix; ${again}`,
+    ],
+    owner: () => [
+      `${lead} — the guilty task isn't named (the lines above say why): by the failed checks' logs (gh pr checks ${release.number}) the dispatcher names it or asks the owner, then its fix — task queue --assignment <N> to its executor; ${again}`,
+    ],
+  };
+  return text[redFix({ fixing: r.fixing !== null, guilty: r.guilty !== null, bisects })]();
 }
 
 /**
  * The release of the dispatcher's batch (#649, epic #645): what is merged into the batch branch goes into the default
  * branch by one PR — one full CI run and one deploy for the batch. The batch — the session's (its marker, `batchOf`) or
- * the one named. Its release PR open — its title and body rebuilt by what is merged into the batch now
- * (`rebuildRelease`, #819), then its steps again, red (#650) — its guilty task and the fix in the batch (`redRelease`,
- * `fixSteps`), the PR stays open; merged — the closing steps, for the tasks of its «Closes» and of the PRs merged into
- * the batch. Otherwise: the tasks merged into
- * the batch (`batchTasks`; none — a refusal), the batch branch rebased onto a fresh origin/<base> in a temporary
- * worktree and pushed with `--force-with-lease` (on it already — no rebase; a conflict — a `!` line, code 1, the branch
- * unchanged), the PR into the default branch: the title — a conventional commit by the heaviest task type, the body —
- * the lead, the batch's spec-diff (`specDiffOf`) and «Closes #N» of each task: the merge closes them, and `task close`
- * finds the release PR linked. The live executors' open PRs into the batch aren't in it (question 2 of epic #645 — they
- * aren't stopped): `○` lines; their `pr premerge` holds the merge till the release, then moves them on (`batchBase`).
+ * the one named. The rules are the model's (queue.ts, #867): the release's state by its PR and its checks, what the
+ * command does in it and `Next:` — `releaseRun` by the transitions table; the actions and the texts are here.
+ * `none` — `openRelease`; nothing merged into the batch — a refusal. `open` — its title and body rebuilt by what is
+ * merged into the batch now (`rebuildRelease`, #819), then its steps again; `red` (#650) — the same, then its guilty
+ * task and the fix in the batch (`redRelease`, `fixSteps`), the PR stays open; `merged` — the batch executors'
+ * worktrees removed and the closing steps, for the tasks of its «Closes» and of the PRs merged into the batch.
  * Outside auto (#667) the release's merge in `Next:` waits for the owner's «yes», as the executors' merges do.
  */
 export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
@@ -3764,36 +3765,60 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
     `the dispatcher goes on — task queue at once: it starts the next batch from the merged ${base} (a group — only from its tasks still open; nothing left — no new batch), and the live executors' PRs go into it (their pr premerge moves them); ` +
     `it stops — no queue: they go into ${base} with the full CI. Then ${closing(pr, tasks)}.`;
   const release = releasePrOf(prs, batch);
-  if (release) {
-    if (release.merged) {
-      // a task merged into the batch past the release's «Closes» (#819: a fix PR merged, the release not rebuilt) — its
-      // refresh and task close too: task close closes it as released by this PR
-      const tasks = tasksOf([{ tasks: prTasks(release) }, ...batchTasks(prs, batch)]);
-      io.out(`○ ${batch} is released by PR ${link(release.number)}`);
+  const merged = batchTasks(prs, batch);
+  // the open release's checks: red (#650) — its guilty task fixes it in the batch, then the full run again on the same PR
+  const checks = release && !release.merged ? releaseChecks(io, slug, release) : null;
+  const run = releaseRun({ pr: release ? { merged: release.merged, red: checks?.state === "red" } : null, merged: merged.length });
+  if (!run) throw new GhError(`nothing is merged into ${batch} — nothing to release`);
+  /** The open release after its line: its title and body rebuilt by what is merged into the batch now (#819). */
+  const rebuilt = (line: string) => {
+    io.out(line);
+    const r = rebuildRelease(io, slug, batch, base, release!, prs);
+    return { pr: r, tasks: prTasks(r) };
+  };
+  /** What the command does in the release's state: the release PR it leaves (opened, rebuilt, merged) and its tasks; a rebase conflict — null. */
+  const act: Record<ReleaseState, () => { pr: PrRef; tasks: number[] } | null> = {
+    none: () => {
+      const opened = openRelease(io, slug, batch, base, prs, merged);
+      return opened && { pr: opened, tasks: tasksOf(merged) };
+    },
+    open: () => rebuilt(`= the release PR ${link(release!.number)} of ${batch} is open`),
+    red: () => rebuilt(`! the release PR ${link(release!.number)} of ${batch} is red: ${checks!.red.join(", ")}`),
+    merged: () => {
+      io.out(`○ ${batch} is released by PR ${link(release!.number)}`);
       // the batch executors' worktrees and branches go with the release (#698), as before the queue: a dispatcher that
       // stops runs no queue; git cherry — against a fresh origin/<base>, the release's commits are in it
       const fresh = git(io, io.cwd, "fetch", "-q", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`);
       if (fresh.status !== 0) io.out(`! git fetch origin ${base}: ${why(fresh)} — the executors' worktrees are checked against the local origin/${base}`);
       pruneExecutors(io, slug, handedOut(io, slug), openOf(io, slug));
-      io.out(`Next: ${closing(release.number, tasks)}.`);
-      return 0;
-    }
-    // a red release (#650): its guilty task fixes it in the batch, then the full run again on the same PR
-    const checks = releaseChecks(io, slug, release);
-    if (checks.state === "red") {
-      io.out(`! the release PR ${link(release.number)} of ${batch} is red: ${checks.red.join(", ")}`);
-      const rebuilt = rebuildRelease(io, slug, batch, base, release, prs);
-      const r = redRelease(io, slug, batch, base, rebuilt, prs, checks, true);
-      for (const line of fixSteps(slug, batch, rebuilt, checks, r, true)) io.out(line);
-      return 0;
-    }
-    io.out(`= the release PR ${link(release.number)} of ${batch} is open`);
-    io.out(steps(release.number, prTasks(rebuildRelease(io, slug, batch, base, release, prs))));
-    return 0;
-  }
-  const merged = batchTasks(prs, batch);
-  if (!merged.length) throw new GhError(`nothing is merged into ${batch} — nothing to release`);
-  const tasks = tasksOf(merged);
+      // a task merged into the batch past the release's «Closes» (#819: a fix PR merged, the release not rebuilt) — its
+      // refresh and task close too: task close closes it as released by this PR
+      return { pr: release!, tasks: tasksOf([{ tasks: prTasks(release!) }, ...merged]) };
+    },
+  };
+  const left = act[run.from]();
+  if (left === null) return 1;
+  const { pr, tasks } = left;
+  // `Next:` — the step of the state the command leaves the release in (queue.ts: the transitions table)
+  const next: Record<ReleaseStep, () => string[]> = {
+    checks: () => [steps(pr.number, tasks)],
+    fix: () => fixSteps(slug, batch, pr, checks!, redRelease(io, slug, batch, base, pr, prs, checks!, true), true),
+    close: () => [`Next: ${closing(pr.number, tasks)}.`],
+  };
+  for (const line of next[run.next]()) io.out(line);
+  return 0;
+}
+
+/**
+ * The release PR opened (`none` → `open`, #649): the tasks merged into the batch (`batchTasks`), the batch branch
+ * rebased onto a fresh origin/<base> in a temporary worktree and pushed with `--force-with-lease` (on it already — no
+ * rebase; a conflict — a `!` line and null, the branch unchanged), the PR into the default branch: the title — a
+ * conventional commit by the heaviest task type, the body — the lead, the batch's spec-diff (`specDiffOf`) and «Closes
+ * #N» of each task: the merge closes them, and `task close` finds the release PR linked. The live executors' open PRs
+ * into the batch aren't in it (question 2 of epic #645 — they aren't stopped): `○` lines; their `pr premerge` holds the
+ * merge till the release, then moves them on (`batchBase`). The PR opened.
+ */
+function openRelease(io: Io, slug: string, batch: string, base: string, prs: Recent, merged: ReturnType<typeof batchTasks>): PrRef | null {
   for (const p of openInto(prs, batch)) {
     const of = prTasks(p);
     io.out(`○ PR #${p.number}${of.length ? ` (${of.map((n) => `#${n}`).join(", ")})` : ""} into ${batch} is open — not in the release: its executor goes on, its pr premerge holds the merge till the release, then moves the PR to the next batch or ${base}`);
@@ -3832,7 +3857,7 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
       );
       return null;
     });
-    if (rebasedHead === null) return 1;
+    if (rebasedHead === null) return null;
     head = rebasedHead;
     const pushed = git(io, io.cwd, "push", "-q", `--force-with-lease=refs/heads/${batch}:${old}`, "origin", `${head}:refs/heads/${batch}`);
     if (pushed.status !== 0) throw new GhError(`git push --force-with-lease origin ${batch}: ${why(pushed)}`);
@@ -3841,9 +3866,8 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
 
   const { title, body } = releaseText(io, batch, base, head, merged);
   const created = rest(io, `repos/${slug}/pulls`, { method: "POST", payload: { title, head: batch, base, body } });
-  io.out(`+ the release PR ${link(created.number)}: ${title}`);
-  io.out(steps(created.number, tasks));
-  return 0;
+  io.out(`+ the release PR #${created.number} https://github.com/${slug}/pull/${created.number}: ${title}`);
+  return prRef(created);
 }
 
 /** A Claude Code agent's worktree (`isolation: "worktree"`): `<checkout>/.claude/worktrees/agent-<id>`, branch `worktree-agent-<id>`. */

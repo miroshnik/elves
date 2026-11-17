@@ -1288,14 +1288,41 @@ batch. From the dispatcher's checkout of the repository, outside the sandbox:
 batch/<YYYY-MM-DD>-<k>`. The batch's tasks — every PR merged into the batch
 branch (a query by the base, not the recent PRs: a task missed is one the
 release doesn't close): the task branch's number and `Closes #N` of its body.
+The rules are the queue's model, `scripts/queue.ts`: the release's state by
+its PR and its checks, the transitions, the step; why each rule is so — the
+decision `tests/capabilities/github/github-release` and its tests, one per
+transition.
 
-| The release PR | `batch release` | `Next:` |
+#### The release's states
+
+| State | `batch release` reads it by | It does |
 |---|---|---|
-| none, nothing merged into the batch | refuses | — |
-| none | the decision labels of each task's PR into the batch by `pr labels`' rule — a label its task or epic lacks is set (`+`), a PR not read — `!` with `pr labels <PR>`; the batch rebased onto a fresh `origin/<base>` in a temporary worktree (always removed) and pushed `--force-with-lease` against the SHA read — on it already, `=`; a conflict — `!` with the files, the branch unchanged, no PR, code 1: rebase it by hand in the checkout, then again; the PR into the default branch; open PRs into the batch — `○`: not in the release, their executors go on, their `pr premerge` holds the merge till the release, then moves the PR | its steps |
-| open | `=`; its title and body rebuilt from the PRs merged into the batch now and its head (a red release's fix merged after it opened, its `Closes #M`) — the same, `=`, otherwise a PATCH and a `+` line naming the tasks added | its steps |
-| open, red | `!` with the checks and the guilty task (below) | its fix |
-| merged | the batch executors' worktrees and branches removed (the queue's rule) | the closing steps |
+| `none` | no release PR of the batch | nothing merged into the batch — refuses; otherwise the decision labels of each task's PR into the batch by `pr labels`' rule — a label its task or epic lacks is set (`+`), a PR not read — `!` with `pr labels <PR>`; the batch rebased onto a fresh `origin/<base>` in a temporary worktree (always removed) and pushed `--force-with-lease` against the SHA read — on it already, `=`; a conflict — `!` with the files, the branch unchanged, no PR, code 1: rebase it by hand in the checkout, then again; the PR into the default branch (`opened`); open PRs into the batch — `○`: not in the release, their executors go on, their `pr premerge` holds the merge till the release, then moves the PR |
+| `open` | the release PR open, its checks running, none yet or green | `=`; its title and body rebuilt from the PRs merged into the batch now and its head (a red release's fix merged after it opened, its `Closes #M`) — the same, `=`, otherwise a PATCH and a `+` line naming the tasks added |
+| `red` | the release PR open, a check `fail` or `cancel` | `!` with the checks; its body rebuilt as `open`'s; the guilty task (below) |
+| `merged` | the release PR merged | the batch executors' worktrees and branches removed (the queue's rule) |
+
+#### Transitions
+
+| From | Event | To | By | Step |
+|---|---|---|---|---|
+| `none` | `opened` | `open` | batch release | — |
+| `open` | `checksRed` | `red` | GitHub | — |
+| `open` | `merged` | `merged` | dispatcher | `checks` |
+| `red` | `fixMerged` | `open` | executor | `fix` |
+| `merged` | `nextBatch` | `none` | dispatcher | `close` |
+
+`batch release` makes its own transition (`opened`) and prints `Next:` — the
+step of the state it leaves the release in: a state's step is the `step` of
+its first transition with one. `nextBatch` — the queue starts the next batch
+from the merged default branch, and the session's batch is that one, without
+a release.
+
+| Step | `Next:` |
+|---|---|
+| `checks` | its steps (below): its checks, `pr premerge`, the merge |
+| `fix` | the fix of the red release (below), by the model's choice |
+| `close` | the closing steps (below) |
 
 The release PR: the title — a conventional commit by the heaviest task type
 (`feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`) and
@@ -1338,18 +1365,26 @@ exist at the commit by the project's `test` script, a compiler error —
 `typecheck`, neither named — the failed checks named like a script (the scripts
 go through `slot`); first the head (green on the machine — the red isn't
 reproduced, nobody is blamed) and the base (red — not the batch's), then
-⌈log₂N⌉ runs — the first red block's task. Not named — a `!` line why, the
-dispatcher names it by the logs or asks the owner. The queue names the guilty
-task by the labels only; the bisect is `batch release`'s.
+⌈log₂N⌉ runs — the first red block's task. Not named — a `!` line why. The
+queue names the guilty task by the labels only; the bisect is `batch release`'s.
 
-The fix: the guilty task's executor — continued with `SendMessage`, none alive
+The fix — the model's choice (`redFix`), the first that holds; the text is
+`fixSteps`', one for `batch release` and the queue:
+
+| Fix | When | `Next:` |
+|---|---|---|
+| `wait` | a release task's fix PR is open into the batch — an `○` line, no search for the guilty task, no bisect | wait for its executor's answer |
+| `guilty` | the guilty task named | its executor's fix with the printed prompt |
+| `bisect` | not named by the labels — the queue | `batch release` names it: the bisect is its |
+| `owner` | not named after the bisect | the dispatcher names it by the failed checks' logs (`gh pr checks <R>`) or asks the owner, then its fix — `task queue --assignment <N>` to its executor |
+
+The guilty task's fix: its executor — continued with `SendMessage`, none alive
 — a new one, with the printed prompt; its assignment is the fix's: a new task
 branch `exec/fix/<N>-<slug>` from `origin/<batch>` (the task's earlier branch is
 rebase-merged already), the PR into the batch with `Refs #N` after the checks
 before a commit, no CI, `pr premerge` lets it through the red release. After
-its merge — the full run again on the same release PR: `batch release` prints
-its steps, no second PR. A fix PR open into the batch — an `○` line and the wait
-for it, no bisect.
+its merge — the full run again on the same release PR (`fixMerged`): `batch
+release` prints its steps, no second PR.
 
 ### task drop
 
