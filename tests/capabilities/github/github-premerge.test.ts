@@ -1163,6 +1163,30 @@ describe("pr premerge: добавленные PR-ом тесты красные 
     expect(r.out).toContain("✅ 1 added test is red on base");
     expect(r.last).toStartWith(`✅ merge: main hasn't moved since the CI of PR #${PR}`);
   });
+
+  // #892: против пачки тест зелёный, против main — красный; пометка spec-existing сломала бы выпуск, без неё premerge
+  // держал PR — вторая база main для PR в пачку
+  it("PR в пачку с тестом поведения другой задачи той же пачки вливается без пометки spec-existing, а выпуск по spec-red не краснеет", () => {
+    const BATCH = "batch/2026-10-02-1";
+    const sumTest = fix('it("складывает два числа", () => expect(sum(1, 2)).toBe(3));');
+    // в пачке — задача А, починка сложения; ветка задачи Б — от пачки, в ней только её тест
+    const p = project({ files: BUG, pr: { [SUM_TEST]: sumTest[SUM_TEST]! }, base: BATCH, mainAfter: { [SUM]: sumTest[SUM]! }, headRef: null });
+    p.git("-c", "user.email=spec@example.test", "-c", "user.name=spec", "rebase", "-q", BATCH);
+    const head = p.git("rev-parse", "HEAD").trim();
+    p.git("push", "-q", "origin", `HEAD:refs/pull/${PR}/head`);
+    const into = premerge(fakeGh(head, { files: [{ path: SUM_TEST, changeType: "ADDED" }], ref: "test-sum", base: BATCH, suites: [] }).gh, p.work);
+    expect(into.out).toContain("✅ 1 added test green on base is red on origin/main — it checks what the base adds to origin/main");
+    expect(into.last).toStartWith(`✅ merge: PR #${PR} is on the fresh origin/${BATCH}`);
+    expect(into.code).toBe(0);
+
+    // PR влит в пачку перебазированием — голова пачки та же; её выпуск в main — spec-red против main
+    p.git("push", "-q", "origin", `HEAD:refs/heads/${BATCH}`);
+    const release = premerge(fakeGh(head, { ...FILES, ref: BATCH }).gh, p.work);
+    expect(release.out).toContain("✅ 1 added test is red on base");
+    expect(release.out).not.toContain("❌");
+    expect(release.code).toBe(0);
+    expect(worktrees(p.work)).toHaveLength(1);
+  });
 });
 
 /**

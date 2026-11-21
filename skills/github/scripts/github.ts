@@ -6808,17 +6808,19 @@ const specRedScript = (io: Io) => io.env["ELVES_SPEC_RED"] ?? path.resolve(impor
 
 /**
  * Red on base (#844) before the merge: spec-red on the PR head against origin/<base> in the checkout — the added tests
- * run on the base code and must fail there, a test of existing behavior carries its mark. Its lines as they are; code
- * 0 — on, 1 — don't merge, its error — premerge's error: it couldn't check. No spec skill — an ○ line, not a hold. A
- * batch's release (#884) — the fix isn't the release PR's: the guilty task fixes the test in the batch.
+ * run on the base code and must fail there, a test of existing behavior carries its mark. A PR into a batch — `also`,
+ * the default branch, its release's base (#892): a test green on the batch and red on main checks the batch's change —
+ * no mark, the mark would make the release red. Its lines as they are; code 0 — on, 1 — don't merge, its error —
+ * premerge's error: it couldn't check. No spec skill — an ○ line, not a hold. A batch's release (#884) — the fix isn't
+ * the release PR's: the guilty task fixes the test in the batch.
  */
-function redOnBase(io: Io, base: string, head: string, recheck: string, release = false): number {
+function redOnBase(io: Io, base: string, head: string, recheck: string, release: boolean, also: string | null): number {
   const script = specRedScript(io);
   if (!existsSync(script)) {
     io.out(`○ red on base isn't checked: the spec skill isn't installed (${script})`);
     return 0;
   }
-  const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "--base", `origin/${base}`, "--head", head], io.cwd);
+  const r = (io.run ?? realRun)("bun", ["--no-env-file", script, "--base", `origin/${base}`, ...(also ? ["--also", `origin/${also}`] : []), "--head", head], io.cwd);
   for (const l of `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim())) io.out(l);
   if (r.status === 0) return 0;
   if (r.status !== 1) throw new GhError(`red on base isn't checked: spec-red — code ${r.status} (above); ${recheck}`);
@@ -6905,6 +6907,7 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
   const base: string = pr.base.ref;
   const closes = closingInBody(pr.body ?? "");
   const batch = isBatchBranch(base);
+  const main: string = pr.base.repo?.default_branch ?? "main";
   if (batch) {
     const code = batchBase(io, slug, number, pr);
     if (code !== null) return code;
@@ -6925,8 +6928,11 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
   const fetchPr = () => {
     if (fetchedPr) return;
     if (!checkoutOfRepo(io, originUrl(io), slug)) throw new GhError(`the merge check runs from a checkout of ${slug}: the current directory is not one`);
-    const fetched = git(io, io.cwd, "fetch", "-q", "origin", base);
-    if (fetched.status !== 0) throw new GhError(`git fetch origin ${base}: ${fetched.stderr.trim()}`);
+    // a PR into a batch — its release's base too: red on base checks the existing-behavior marks against it (#892)
+    for (const ref of batch ? [base, main] : [base]) {
+      const fetched = git(io, io.cwd, "fetch", "-q", "origin", ref);
+      if (fetched.status !== 0) throw new GhError(`git fetch origin ${ref}: ${fetched.stderr.trim()}`);
+    }
     // the head — by its SHA, not refs/pull/<N>/head: GitHub creates that ref up to minutes after the PR, when CI has
     // already passed (#505), while a reachable commit (the head branch, refs/pull/<N>/merge) it gives by SHA
     const got = git(io, io.cwd, "fetch", "-q", "origin", head);
@@ -6938,7 +6944,7 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
   // «CI checked this merge» and «on the fresh origin/<batch>» below; a PR without files in tests/ adds no test
   if (change.files.some((f) => f.changeType !== "DELETED" && /(?:^|\/)tests\//.test(f.path))) {
     fetchPr();
-    const code = redOnBase(io, base, head, recheck, releaseHead(pr) !== null);
+    const code = redOnBase(io, base, head, recheck, releaseHead(pr) !== null, batch ? main : null);
     if (code !== 0) return code;
   }
 
@@ -7618,8 +7624,9 @@ code 1 and the move: into the dispatcher's next batch or, without one, the defau
 PR's commits already in the base by their changes (git cherry) — code 1 and a rebase. The PR changes decisions whose
 labels its tasks or their epics lack (pr labels wasn't run) — code 1 and pr labels <N>, on every path to the merge. A PR
 with files in tests/ — red on base first, on every path too (spec-red of the spec skill): an added test green on the
-base code, or an existing-behavior mark on a test red there — code 1. Code 1 leaves the mark with the files of its ❌
-lines: a batch's release with it is red — Next names batch release, its guilty task fixes it in the batch.
+base code, or an existing-behavior mark on a test red there — code 1; into a batch — main the second base: a test green
+on the batch and red on main goes without the mark, the mark on it — code 1. Code 1 leaves the mark with the files of
+its ❌ lines: a batch's release with it is red — Next names batch release, its guilty task fixes it in the batch.
 
 Examples:
   github pr premerge 57`,
