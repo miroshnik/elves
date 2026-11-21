@@ -892,7 +892,9 @@ executor's word. The base and the PR head are fetched, `spec-red` of the
 base code — a temporary worktree at the merge-base with the head's `tests/` —
 and its lines are printed as they are: an added test green there, or an
 existing-behavior mark on a test red there — `❌`, code 1, the test is fixed
-in the PR; spec-red's error — code 2. On every path to the merge: before
+in the PR (a batch's release — in the batch by its guilty task: the release is
+red, `Next:` — `batch release`, "batch release" below); spec-red's error —
+code 2. On every path to the merge: before
 "CI checked this merge" and before "on the fresh `origin/<batch>`". No
 spec skill — an `○` line. Details — `skills/spec/reference.md`, "spec-red".
 
@@ -924,7 +926,9 @@ done, a step, an error; the step is told by the last line, `Next:`, as `task
 next` prints it): `0` — merge: `Next:` — the merge command, and the mark
 `premerges/<owner>__<repo>__<PR>.json` of `~/.config/elves` (the head, the
 time) lets `task next` name the merge while the head is the same and the base
-hasn't moved; `1` — don't merge: red `typecheck` (compiler errors), `test:spec`
+hasn't moved; code 1 leaves the mark with `red` — the files its ❌ lines name
+(a batch's release red by it is red, #884), the other codes remove it; `1` —
+don't merge: red `typecheck` (compiler errors), `test:spec`
 (lines of failed tests) or a conflict (files) — fix the root cause in the PR:
 rebase onto `origin/<base>`, edit, `push --force-with-lease`, `ci-wait` again;
 or **`main` is red, not this PR** — `Next:` names its bug's wait (below, "Red
@@ -935,7 +939,8 @@ A PR into a batch branch (#649) — first the batch's release PR (REST,
 `pulls?head=<owner>:<batch>`): open — code `1` and the wait for its close
 (`wait-ci.sh issue <R>`: a subagent — a regular call with `--timeout 540`, a
 session — a background command), then `premerge` again: a merge into the batch
-now would change what the release's CI checked. Open and red with the PR of
+now would change what the release's CI checked. Open and red — by its checks
+or by `pr premerge` on its head — with the PR of
 one of its tasks (the task branch or `Closes #N` — the release's `Closes #N`)
 — the guilty task's fix (#650): an `○` line, the check goes on as usual; a
 live executor's PR (its task isn't in the release) and any PR while the
@@ -1139,7 +1144,7 @@ hand-out, code 1: the answer «waits for the previous executor».
 | `prOpen` | an open PR — linked, or by the task branch or `Closes #N` among the recent PRs | `=` with the PR's link |
 | `inBatch` | its PR merged into the batch branch, no open PR — GitHub links a PR to a task only by a merge into the default branch, so the queue finds it by the branch or `Closes #N` | `=` till the release |
 | `releaseOpen` | merged into the batch, the batch's release PR open | `=` |
-| `releaseRed` | the same, the release's checks red | `=` |
+| `releaseRed` | the same, the release red: its checks, or `pr premerge` on its head | `=` |
 | `released` | merged into the default branch, its tail not over: by its own PR — the executor's (the deploy, the epic refresh, `task close`), by the batch's release — the dispatcher's | `=` — of its own PR only |
 | `closed` | closed, `task close` passed (Status Done, the actual), or closed without a merge | none |
 
@@ -1164,6 +1169,7 @@ subagents answers again, failed isn't restarted. A hand-out past the batch
 | `prOpen` | `fixMerged` | `releaseOpen` | executor |
 | `inBatch` | `releaseOpened` | `releaseOpen` | dispatcher |
 | `releaseOpen` | `checksRed` | `releaseRed` | GitHub |
+| `releaseOpen` | `premergeRed` | `releaseRed` | dispatcher |
 | `releaseOpen` | `releaseMerged` | `released` | dispatcher |
 | `releaseRed` | `fixOpened` | `prOpen` | executor |
 | `releaseRed` | `fixMerged` | `releaseOpen` | executor |
@@ -1352,7 +1358,7 @@ transition.
 |---|---|---|
 | `none` | no release PR of the batch | nothing merged into the batch — refuses; otherwise the decision labels of each task's PR into the batch by `pr labels`' rule — a label its task or epic lacks is set (`+`), a PR not read — `!` with `pr labels <PR>`; the batch rebased onto a fresh `origin/<base>` in a temporary worktree (always removed) and pushed `--force-with-lease` against the SHA read — on it already, `=`; a conflict — `!` with the files, the branch unchanged, no PR, code 1: rebase it by hand in the checkout, then again; the PR into the default branch (`opened`); open PRs into the batch — `○`: not in the release, their executors go on, their `pr premerge` holds the merge till the release, then moves the PR |
 | `open` | the release PR open, its checks running, none yet or green | `=`; its title and body rebuilt from the PRs merged into the batch now and its head (a red release's fix merged after it opened, its `Closes #M`) — the same, `=`, otherwise a PATCH and a `+` line naming the tasks added |
-| `red` | the release PR open, a check `fail` or `cancel` | `!` with the checks; its body rebuilt as `open`'s; the guilty task (below) |
+| `red` | the release PR open, a check `fail` or `cancel`, or `pr premerge` red on its head | `!` with the checks; its body rebuilt as `open`'s; the guilty task (below) |
 | `merged` | the release PR merged | the batch executors' worktrees and branches removed (the queue's rule) |
 
 #### Transitions
@@ -1361,6 +1367,7 @@ transition.
 |---|---|---|---|---|
 | `none` | `opened` | `open` | batch release | — |
 | `open` | `checksRed` | `red` | GitHub | — |
+| `open` | `premergeRed` | `red` | dispatcher | — |
 | `open` | `merged` | `merged` | dispatcher | `checks` |
 | `red` | `fixMerged` | `open` | executor | `fix` |
 | `merged` | `nextBatch` | `none` | dispatcher | `close` |
@@ -1388,7 +1395,7 @@ none (CI) — `elves`.
 
 Its steps: `wait-ci.sh pr <R>` as a background command; PASS — `pr premerge
 <R>`, code 0 — `gh pr merge <R> --rebase` (outside auto on the owner's «yes»);
-FAIL — `batch release` again: a red release. After the merge — `batch release`
+FAIL, or `pr premerge` ❌ (code 1) — `batch release` again: a red release. After the merge — `batch release`
 again, then a dispatcher that goes on runs `task queue` at once (the next batch
 from the merged default branch, a group's only from its tasks still open; the
 live executors' PRs go into it), one that stops doesn't (they go into the
@@ -1403,9 +1410,20 @@ A red release is fixed in the batch, not reverted: the full set runs first on
 the release, the release PR stays open, the other tasks wait — no new
 executors, their PRs held by `pr premerge`. Its checks — `checkStates` of its
 head (REST), as `task show` and `ci-wait` read them: `fail` or `cancel` — red,
-one running or none yet — its steps. The guilty task: the release's only task;
+one running or none yet — its steps. Red by `pr premerge` is red too (#884):
+its ❌ on the release's head (code 1 — spec-red against the default branch: a
+test marked existing behavior against the batch, where a batch task brought
+the behavior, is red on the default branch's code; a red check on the merge)
+leaves its mark — `premerges/<owner>__<repo>__<R>.json` with the files its ❌
+lines name, `pr premerge`'s other verdicts replace or remove it; the release
+with green checks is red while its head is the mark's, and a fix merged into
+the batch moves the head: the same PR, the full run again. Its `Next:` —
+`batch release` again; red — «pr premerge» among the release's red checks.
+The guilty task: the release's only task;
 otherwise the files the failed GitHub Actions jobs' logs name (a failure line
 of Bun, Vitest, Jest, Playwright or its file header above it, a compiler error)
+and those of `pr premerge`'s ❌ lines (spec-red's test file, a compiler error
+on the merge)
 — their decisions by the rule of `pr labels` against the decision labels of the
 release's tasks: one task holds them — it; several (a topic's label: a section
 has none) — the one whose PR into the batch changed the failed test's section
@@ -1418,8 +1436,10 @@ exist at the commit by the project's `test` script, a compiler error —
 `typecheck`, neither named — the failed checks named like a script (the scripts
 go through `slot`); first the head (green on the machine — the red isn't
 reproduced, nobody is blamed) and the base (red — not the batch's), then
-⌈log₂N⌉ runs — the first red block's task. Not named — a `!` line why. The
-queue names the guilty task by the labels only; the bisect is `batch release`'s.
+⌈log₂N⌉ runs — the first red block's task; red only by `pr premerge` — no
+bisect: every test is green on the machine, it would name nobody. Not named —
+a `!` line why. The queue names the guilty task by the labels only; the bisect
+is `batch release`'s.
 
 The fix — the model's choice (`redFix`), the first that holds; the text is
 `fixSteps`', one for `batch release` and the queue:
@@ -1429,13 +1449,16 @@ The fix — the model's choice (`redFix`), the first that holds; the text is
 | `wait` | a release task's fix PR is open into the batch — an `○` line, no search for the guilty task, no bisect | wait for its executor's answer |
 | `guilty` | the guilty task named | its executor's fix with the printed prompt |
 | `bisect` | not named by the labels — the queue | `batch release` names it: the bisect is its |
-| `owner` | not named after the bisect | the dispatcher names it by the failed checks' logs (`gh pr checks <R>`) or asks the owner, then its fix — `task queue --assignment <N>` to its executor |
+| `owner` | not named after the bisect, or by the labels when red only by `pr premerge` | the dispatcher names it by the failed checks' logs (`gh pr checks <R>`) and the ❌ lines of `pr premerge <R>` or asks the owner, then its fix — `task queue --assignment <N>` to its executor |
 
 The guilty task's fix: its executor — continued with `SendMessage`, none alive
 — a new one, with the printed prompt; its assignment is the fix's: a new task
 branch `exec/fix/<N>-<slug>` from `origin/<batch>` (the task's earlier branch is
 rebase-merged already), the PR into the batch with `Refs #N` after the checks
-before a commit, no CI, `pr premerge` lets it through the red release. After
+before a commit, no CI, `pr premerge` lets it through the red release — red by
+its checks or by `pr premerge`; the cause — the failed checks' logs and the ❌
+lines of `pr premerge <R>` (a `spec-existing` mark on a test red on the default
+branch's code goes: the release adds the behavior). After
 its merge — the full run again on the same release PR (`fixMerged`): `batch
 release` prints its steps, no second PR.
 

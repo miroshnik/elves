@@ -3959,9 +3959,9 @@ function release(f: FakeGitHub, work: string, config: string, calls: string[][] 
  * pr premerge исполнителя — в той же сессии: маркер диспетчера называет его пачку. `next` — последняя строка, шаг автомата
  * (#842); `out` — вывод до неё, вердикт.
  */
-function premergeIn(f: FakeGitHub, work: string, config: string, pr: number) {
+function premergeIn(f: FakeGitHub, work: string, config: string, pr: number, run: Io["run"] = noEst) {
   const out: string[] = [];
-  const code = main(["pr", "premerge", String(pr), "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run: noEst, cwd: work, env: inSession(config).env! });
+  const code = main(["pr", "premerge", String(pr), "--repo", REPO], { gh: f.gh, out: (l) => out.push(l), err: (l) => out.push(l), run, cwd: work, env: inSession(config).env! });
   const next = out.at(-1)?.startsWith("Next: ") ? out.pop()! : null;
   return { code, out: out.join("\n"), next };
 }
@@ -4823,6 +4823,70 @@ describe("Красный выпуск чинится в пачке", () => {
     expect(last).toMatch(
       new RegExp(`^Next: the release PR #${bare.pr} \\S+ of ${bare.name} is red \\(tests\\) — the guilty task: bun --no-env-file \\S+github\\.ts batch release --repo miroshnik/elves names it \\(the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command\\) and prints its fix; `),
     );
+  });
+
+  /**
+   * Красный по одному `pr premerge` (#884): исполнитель #47 поставил тесту экспорта пометку «существующее поведение» —
+   * в пачке поведение уже было, — а против main тест новый: CI выпуска зелёный, spec-red на premerge выпуска — ❌.
+   * Модель считала выпуск красным только по чекам: он оставался открытым, `pr premerge` PR починки держал его до
+   * закрытия выпуска, а выпуск был красным именно из-за неё — круг; обход владельца — закрыть выпуск и выпустить заново.
+   */
+  it("Выпуск пачки с зелёным CI и красным spec-red — красный выпуск: правка виновной задачи проходит в пачку", () => {
+    const { work, f, config, name, pr } = redRelease({ labels: true });
+    git(work, "fetch", "-q", "origin");
+    // CI выпуска зелёный; PR выпуска добавляет тест экспорта, его голова — настоящий коммит пачки на origin
+    Object.assign(f.prs[pr]!, { checks: { tests: "SUCCESS" }, logs: {}, files: [EXPORT_TEST], sha: git(work, "rev-parse", `origin/${name}`) });
+    expect(release(f, work, config).out.split("\n")[0]).toBe(`= the release PR ${pull(pr)} of ${name} is open`);
+    // pr premerge выпуска: spec-red против main — ❌ у пометки, верной против пачки
+    const SPEC_RED = fileURLToPath(new URL("../../../skills/spec/scripts/spec-red.ts", import.meta.url));
+    const mark = `❌ red on base, yet marked existing behavior (${EXPORT_TEST}:3) — the mark isn't needed, remove it: ${EXPORT_TEST}: экспорт › выгружает задачи`;
+    const specRed = githubOrigin((cmd: string, args: string[], cwd?: string) => {
+      if (cmd === "bun" && args[1] === SPEC_RED) return { status: 1, stdout: `${mark}\nspec-red: 1 ❌\n`, stderr: "" };
+      return cmd !== "bun" ? realRun(cmd, args, cwd) : { status: 0, stdout: "", stderr: "" };
+    });
+    const premerged = premergeIn(f, work, config, pr, specRed);
+    expect(premerged.code).toBe(1);
+    expect(premerged.out).toContain(mark);
+    expect(premerged.next).toMatch(/^Next: bun --no-env-file \S+github\.ts batch release --repo miroshnik\/elves again — the release is red by pr premerge /);
+    // очередь: выпуск красный, виновная — по файлу теста из строки ❌ и метке его решения, как по логам упавших джобов
+    const queue = queueIn(f, work, config).out.split("\n");
+    expect(queue).toContain(`○ the ❌ lines of pr premerge ${pr} name ${EXPORT_TEST}`);
+    expect(queue).toContain(`guilty: #47 «${f.issue(47).title}» — the label export — the failed files' decision export`);
+    expect(queue.at(-2)).toStartWith(`Next: the release PR ${pull(pr)} of ${name} is red (pr premerge) — the guilty task #47 «${f.issue(47).title}» fixes it in the batch: `);
+    // batch release называет то же, без логов чеков и без бисекта: чеки зелёные, воспроизводить на машине нечего
+    const red = release(f, work, config).out.split("\n");
+    expect(red[0]).toBe(`! the release PR ${pull(pr)} of ${name} is red: pr premerge`);
+    expect(red.filter((l) => l.startsWith("bisect") || l.startsWith("○ the failed checks' logs"))).toEqual([]);
+    expect(red.slice(-2)).toEqual(queue.slice(-2));
+    // задание виновной — починка в пачке, причина — в строках ❌ pr premerge, а не в логах чеков
+    f.status(47, "В работе");
+    const lead = task(f, ["queue", "--assignment", "47"], REPO, { ...inSession(config), cwd: work, run: noEst }).out.split("\n")[0]!;
+    expect(lead).toContain(`починка в пачке \`${name}\`: её PR выпуска #${pr} красный (pr premerge)`);
+    expect(lead).toContain(`причина — по строкам ❌ \`pr premerge ${pr}\` (`);
+    expect(lead).not.toContain("gh pr checks");
+    // PR починки — снять пометку — в пачку: pr premerge пропускает его при таком выпуске, как при красных чеках
+    git(work, "switch", "-q", "-c", "exec/fix/47-existing-mark", `origin/${name}`);
+    const fix = commitFile(work, "export-fix.txt", "fix(github): пометка теста экспорта\n\nRefs #47");
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/exec/fix/47-existing-mark");
+    git(work, "switch", "-q", "main");
+    f.prs[pr + 1] = { files: [EXPORT_TEST], closes: [], body: "Починка красного выпуска.\n\nRefs #47", head: "exec/fix/47-existing-mark", base: name, model: null, merged: false, sha: fix };
+    const fixing = premergeIn(f, work, config, pr + 1);
+    expect(fixing.code).toBe(0);
+    expect(fixing.out.split("\n")[0]).toBe(
+      `○ ${name} is being released — PR #${pr} into main is red (pr premerge), and PR #${pr + 1} is of its task #47: the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #${pr}`,
+    );
+    // живой исполнитель — его задачи в выпуске нет: ждёт выпуска, как раньше
+    const live = subtaskOf45(f, "Живой исполнитель");
+    f.prs[pr + 2] = { ...batchPr(live, `exec/feat/${live}-live`, name), merged: false };
+    expect(premergeIn(f, work, config, pr + 2).out).toStartWith(`❌ don't merge: ${name} is being released — PR #${pr} into main: `);
+    // починка влита: голова выпуска сдвинулась, ❌ был у прежней — выпуск снова открыт, полный прогон на том же PR
+    git(work, "push", "-q", "origin", `${fix}:refs/heads/${name}`);
+    Object.assign(f.prs[pr + 1]!, { merged: true, state: "MERGED" });
+    Object.assign(f.prs[pr]!, { sha: fix, checks: { tests: "IN_PROGRESS" } });
+    const again = release(f, work, config).out.split("\n");
+    expect(again[0]).toBe(`= the release PR ${pull(pr)} of ${name} is open`);
+    expect(again.at(-1)).toStartWith(`Next: the release PR ${pull(pr)} — its checks: bash `);
+    expect(posted(f)).toHaveLength(1);
   });
 });
 

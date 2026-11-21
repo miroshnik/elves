@@ -22,9 +22,11 @@ const STATE: Record<ReleaseState, string> = { none: "нет", open: "откры�
 
 /** Факты выпуска: PR выпуска нет, в пачку влит PR задачи — выпускать есть что; случай меняет только то, что делает его состояние. */
 const facts = (more: Partial<ReleaseFacts> = {}): ReleaseFacts => ({ pr: null, merged: 1, ...more });
-const OPEN = { merged: false, red: false };
-const RED = { merged: false, red: true };
-const MERGED = { merged: true, red: false };
+const OPEN = { merged: false, red: false, premerge: false };
+const RED = { merged: false, red: true, premerge: false };
+/** CI выпуска зелёный, `pr premerge` на его голове — ❌ (#884). */
+const PREMERGE_RED = { merged: false, red: false, premerge: true };
+const MERGED = { merged: true, red: false, premerge: false };
 
 /**
  * Случай перехода выпуска — факты до события и после: `batch release` читает «до» как `from`, «после» — как `to`. Ключ —
@@ -40,6 +42,11 @@ const CASES: Record<string, { name: string; before: ReleaseFacts; after: Release
     name: "проверки выпуска красные — он чинится в пачке, а не откатывается: PR выпуска остаётся открытым (#650)",
     before: facts({ pr: OPEN }),
     after: facts({ pr: RED }),
+  },
+  "open premergeRed": {
+    name: "CI зелёный, а pr premerge на голове выпуска — ❌ (spec-red против main) — выпуск красный, как по чекам: чинит виновная задача в пачке (#884)",
+    before: facts({ pr: OPEN }),
+    after: facts({ pr: PREMERGE_RED }),
   },
   "open merged": {
     name: "PR выпуска влит после зелёных проверок и pr premerge — его «Closes» закрыл задачи пачки, их хвост — у диспетчера (#649)",
@@ -86,19 +93,19 @@ describe("Каждый переход выпуска пачки — факты �
 const FIX_CASES: Record<Fix, { name: string; facts: FixFacts }> = {
   wait: {
     name: "PR починки задачи выпуска открыт в пачку — ждать ответа её исполнителя: виновную не ищут, бисекта нет (#650)",
-    facts: { fixing: true, guilty: false, bisects: true },
+    facts: { fixing: true, guilty: false, bisects: true, bisectable: true },
   },
   guilty: {
     name: "виновная названа — единственная задача выпуска, по меткам решений упавших тестов или бисектом: её исполнитель чинит в пачке (#650, #689)",
-    facts: { fixing: false, guilty: true, bisects: false },
+    facts: { fixing: false, guilty: true, bisects: false, bisectable: true },
   },
   bisect: {
     name: "очередь по меткам виновную не назвала — её называет batch release: бисект по границам задач на машине — его (#650)",
-    facts: { fixing: false, guilty: false, bisects: false },
+    facts: { fixing: false, guilty: false, bisects: false, bisectable: true },
   },
   owner: {
     name: "бисект виновную не назвал — диспетчер называет её по логам упавших проверок или спрашивает владельца (#650)",
-    facts: { fixing: false, guilty: false, bisects: true },
+    facts: { fixing: false, guilty: false, bisects: true, bisectable: true },
   },
 };
 
@@ -117,7 +124,18 @@ describe("Починку красного выпуска выбирает мод
   });
 
   it("открытый PR починки важнее названной виновной: её исполнитель уже чинит", () => {
-    expect(redFix({ fixing: true, guilty: true, bisects: false })).toBe("wait");
+    expect(redFix({ fixing: true, guilty: true, bisects: false, bisectable: true })).toBe("wait");
+  });
+
+  /**
+   * Бисект воспроизводит на машине упавшую проверку CI (#650); у выпуска, красного только по `pr premerge` (#884), все
+   * чеки зелёные — тесты на каждой границе зелёные, бисект никого не назвал бы: не названа по меткам файла из строки ❌ —
+   * диспетчер по строкам ❌ `pr premerge` или владелец, и у очереди тоже.
+   */
+  it("красный только по pr premerge — бисекта нет: метки виновную не назвали — диспетчер по строкам ❌ или владелец", () => {
+    expect(redFix({ fixing: false, guilty: false, bisects: false, bisectable: false })).toBe("owner");
+    expect(redFix({ fixing: false, guilty: false, bisects: true, bisectable: false })).toBe("owner");
+    expect(redFix({ fixing: false, guilty: true, bisects: false, bisectable: false })).toBe("guilty");
   });
 });
 
@@ -155,12 +173,23 @@ describe("Сценарии выпуска пачки на модели", () => {
   it("Красный выпуск называет виновную задачу и её починку", () => {
     expect(releaseRun(facts({ pr: RED }))).toEqual({ from: "red", to: "red", next: "fix" });
     // batch release бисектит: виновная названа — её починка, нет — диспетчер по логам или владелец
-    expect(redFix({ fixing: false, guilty: true, bisects: true })).toBe("guilty");
-    expect(redFix({ fixing: false, guilty: false, bisects: true })).toBe("owner");
+    expect(redFix({ fixing: false, guilty: true, bisects: true, bisectable: true })).toBe("guilty");
+    expect(redFix({ fixing: false, guilty: false, bisects: true, bisectable: true })).toBe("owner");
     // очередь — только по меткам: не названа — batch release
-    expect(redFix({ fixing: false, guilty: false, bisects: false })).toBe("bisect");
+    expect(redFix({ fixing: false, guilty: false, bisects: false, bisectable: true })).toBe("bisect");
     // починка влита — выпуск снова открыт, его шаги
     expect(releaseRun(facts({ pr: OPEN, merged: 2 }))!.next).toBe("checks");
+  });
+
+  /**
+   * ❌ `pr premerge` на голове выпуска пишет его метку (#884); batch release и очередь читают её как красный выпуск, PR
+   * починки в пачку пропускает `pr premerge` (тест «Выпуск пачки с зелёным CI и красным spec-red — красный выпуск: правка
+   * виновной задачи проходит в пачку» в github-task).
+   */
+  it("Выпуск с зелёным CI и ❌ pr premerge — красный: шаг — починка, а после неё — тот же PR", () => {
+    expect(releaseRun(facts({ pr: PREMERGE_RED }))).toEqual({ from: "red", to: "red", next: "fix" });
+    // починка влита в пачку — голова выпуска сдвинулась, ❌ был у прежней головы: снова открыт, второго PR нет
+    expect(releaseRun(facts({ pr: OPEN, merged: 2 }))).toEqual({ from: "open", to: "open", next: "checks" });
   });
 
   /**

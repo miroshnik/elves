@@ -314,12 +314,14 @@ describe("pr premerge: main не ушёл после зелёного CI — CI 
     expect(r.code).toBe(0);
     expect(r.next).toStartWith(`Next: waits for the owner — the «yes» to the merge of PR #${PR} (the project is without auto), then gh pr merge ${PR} --rebase — a separate call`);
     expect(JSON.parse(readFileSync(path.join(r.config, "premerges", `miroshnik__elves__${PR}.json`), "utf8")).head).toBe(p.head);
-    // не прошёл — метки нет
+    // не прошёл — метка ❌, а не пройденного (#884: по ней красен выпуск пачки): мерж task next по ней не называет
     const red = project({ pr: { "uses.txt": "b\n" }, mainAfter: { "items.txt": "a\n" } });
     const failed = premerge(fakeGh(red.head, { moved: "2026-10-02T10:20:00Z" }).gh, red.work);
     expect(failed.code).toBe(1);
     expect(failed.next).toStartWith("Next: what the ❌ line above names, then ");
-    expect(existsSync(path.join(failed.config, "premerges"))).toBe(false);
+    const mark = JSON.parse(readFileSync(path.join(failed.config, "premerges", `miroshnik__elves__${PR}.json`), "utf8"));
+    // строки падения test:spec файла не называют — файлов нет
+    expect({ head: mark.head, red: mark.red }).toEqual({ head: red.head, red: [] });
   });
 
   /** Merge-ref GitHub строит до события, по которому создаётся check suite: мерж в main в эту минуту мог в него не попасть. */
@@ -1127,6 +1129,31 @@ describe("pr premerge: добавленные PR-ом тесты красные 
       expect(r.last).toBe(`❌ don't merge: an added test is green on the base code or its existing-behavior mark is wrong (above) — fix the test in the PR, push, ${base === "main" ? "ci-wait again" : `pr premerge ${PR} again`}`);
       expect(worktrees(p.work)).toHaveLength(1);
     }
+  });
+
+  /**
+   * Выпуск пачки (#884): у теста пометка «существующее поведение», верная против пачки, а против main тест новый — CI
+   * выпуска зелёный, а spec-red — ❌. Чинит не PR выпуска, а виновная задача в пачке: premerge пишет метку ❌ на голове
+   * выпуска с файлами своих строк — по ней выпуск красный для очереди и batch release, — и шаг — batch release.
+   */
+  it("pr premerge выпуска пачки с ❌ spec-red пишет метку красного выпуска с файлом теста и называет batch release", () => {
+    const BATCH = "batch/2026-10-02-1";
+    const green = 'it("ноль ничего не меняет", () => expect(sum(2, 0)).toBe(2));';
+    const p = project({ files: BUG, pr: fix(green) });
+    const r = premerge(fakeGh(p.head, { ...FILES, ref: BATCH }).gh, p.work);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`❌ green on base: ${SUM_TEST}: ноль ничего не меняет — it doesn't check the PR's change`);
+    expect(r.last).toBe(
+      "❌ don't merge: an added test is green on the base code or its existing-behavior mark is wrong (above) — the release is red: its guilty task fixes the test in the batch (batch release names it), not in the release PR",
+    );
+    expect(r.next).toMatch(/^Next: bun --no-env-file \S+github\.ts batch release --repo miroshnik\/elves again — the release is red by pr premerge \(its ❌ lines above\): it names the guilty task and prints its fix in the batch, the release PR stays open$/);
+    const mark = JSON.parse(readFileSync(path.join(r.config, "premerges", "miroshnik__elves__7.json"), "utf8"));
+    expect({ head: mark.head, red: mark.red }).toEqual({ head: p.head, red: [SUM_TEST] });
+    // тест исправлен в пачке — тот же PR выпуска зелёный: метка ❌ сменяется пройденной
+    const p2 = project({ files: BUG, pr: fix('it("складывает два числа", () => expect(sum(1, 2)).toBe(3));') });
+    const ok = premerge(fakeGh(p2.head, { ...FILES, ref: BATCH }).gh, p2.work, processes().run, r.config);
+    expect(ok.code).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(r.config, "premerges", "miroshnik__elves__7.json"), "utf8")).red).toBeUndefined();
   });
 
   it("добавленный тест красный на базовом коде — premerge идёт дальше к проверке слияния", () => {

@@ -144,12 +144,14 @@ export class FakeGitHub {
     if (main !== undefined) return JSON.stringify(main);
     const pulls = args[0] === "api" && args[1]?.startsWith(`repos/${this.repo.nameWithOwner}/pulls`) ? this.restPulls(args[1]) : null;
     if (pulls) return JSON.stringify(pulls);
-    // чеки головы PR (`sha<номер>`) и лог джобы Actions по id её check-run — что читает красный выпуск пачки
-    const commit = args[0] === "api" ? new RegExp(`^repos/${this.repo.nameWithOwner}/commits/sha(\\d+)/(check-runs|status)\\b`).exec(args[1] ?? "") : null;
-    if (commit) {
-      const n = Number(commit[1]);
+    // чеки головы PR (`sha<номер>` или её настоящий коммит `sha` — голова, которую premerge берёт с origin) и лог джобы
+    // Actions по id её check-run — что читает красный выпуск пачки
+    const commit = args[0] === "api" ? new RegExp(`^repos/${this.repo.nameWithOwner}/commits/(sha\\d+|[0-9a-f]{40})/(check-runs|status)\\b`).exec(args[1] ?? "") : null;
+    const headOf = (sha: string) => (/^sha\d+$/.test(sha) ? Number(sha.slice(3)) : Number(Object.keys(this.prs).find((k) => this.prs[Number(k)]!.sha === sha) ?? NaN));
+    if (commit && !Number.isNaN(headOf(commit[1]!))) {
+      const n = headOf(commit[1]!);
       const runs = this.restCheckRuns(n);
-      return JSON.stringify(commit[2] === "status" ? { sha: `sha${n}`, state: "pending", statuses: [] } : { total_count: runs.length, check_runs: runs });
+      return JSON.stringify(commit[2] === "status" ? { sha: commit[1], state: "pending", statuses: [] } : { total_count: runs.length, check_runs: runs });
     }
     const job = args[0] === "api" ? new RegExp(`^repos/${this.repo.nameWithOwner}/actions/jobs/(\\d+)/logs$`).exec(args[1] ?? "") : null;
     if (job) {
