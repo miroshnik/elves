@@ -610,6 +610,37 @@ describe("pr premerge: main красный — не этот PR: не влива
     expect(r.next).toStartWith(MAIN_RED_NEXT);
   });
 
+  /**
+   * Круг #886: выпуск пачки ждёт закрытия бага на красный main, а мерж бага в ту же пачку ждал бы выпуска. `pr premerge`
+   * выпуска называл только заведение бага и его ожидание — диспетчер выдавал баг в пачку, и выпуск ждал вечно.
+   */
+  it("`pr premerge` выпуска пачки на красном main называет выдачу бага мимо пачки", () => {
+    const BATCH = "batch/2026-11-21-1";
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const main: MainChecks = { runs: [{ name: "deps", conclusion: "failure" }] };
+    const release = (bugs: { number: number; title: string }[]) => premerge(fakeGh(p.head, { main, bugs, ref: BATCH, body: "Выпуск пачки.\n\nCloses #47\n" }).gh, p.work);
+    const PAST =
+      `○ PR #${PR} is the release of ${BATCH}: the bug on red main goes past the batch — the dispatcher's task queue (the bug in its group) hands it out with --main, ` +
+      `its PR into main with the full CI: into ${BATCH} its merge would wait for this release`;
+    const found = release([{ number: 41, title: "main красный: чек deps" }]);
+    expect(found.code).toBe(1);
+    expect(found.out).toContain(`bug on red main — #41 «main красный: чек deps»: wait for it to close — bash ${WAIT} issue 41 as a background command, then pr premerge ${PR} again`);
+    expect(found.out).toContain(PAST);
+    expect(found.last).toBe(MAIN_RED);
+    expect(found.next).toBe(
+      `Next: the bug's executor past the batch — task queue with the bug in its group prints its prompt with --main (into ${BATCH} its merge would wait for this release); ` +
+        `then the close of the bug on the red base — its wait above (wait-ci.sh issue <N>, a background command), then bun --no-env-file ${GITHUB} pr premerge ${PR}`,
+    );
+    // бага нет — его заведение, вопрос владельцу и та же выдача мимо пачки
+    const none = release([]);
+    expect(none.out).toContain(`task new --type Баг --title "main красный: чек deps"`);
+    expect(none.out).toContain(PAST);
+    // PR задачи на красном main — как прежде: ожидание бага, без выдачи мимо пачки
+    const task = premerge(fakeGh(p.head, { main, bugs: [] }).gh, p.work);
+    expect(task.out).not.toContain("past the batch");
+    expect(task.next).toStartWith(MAIN_RED_NEXT);
+  });
+
   it("pr premerge в проекте на en находит баг «main is red: …» и подсказывает его заголовок", () => {
     const p = project({ pr: { "uses.txt": "a\n" }, files: { ".agents/elves.json": '{ "language": "en" }\n' } });
     const main: MainChecks = { runs: [{ name: "deploy", conclusion: "timed_out" }] };

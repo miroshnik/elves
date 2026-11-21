@@ -47,6 +47,7 @@ const task = (more: Partial<TaskFacts> = {}): TaskFacts => ({
   pastBatch: false,
   blockers: [],
   external: null,
+  mainRed: false,
   ...more,
 });
 /** Пачка диспетчера без открытого выпуска; без пачек — `NONE`. */
@@ -266,6 +267,40 @@ describe("Сценарии очереди диспетчера на модели
     // выпуск влит — следующая пачка, задача снова готова
     const next = batch({ batch: "batch/2026-11-17-2" });
     expect(queueStep([entryOf(task(), next)], next)).toBe("handOut");
+  });
+
+  /**
+   * Круг #886: `pr premerge` выпуска на красном main ждёт закрытия бага «main красный…», а очередь держала готовый баг до
+   * мержа того же выпуска; влитый в пачку, он ждал бы выпуска снова. Баг идёт мимо пачки — PR в main с полным CI.
+   */
+  it("Баг на красный main при открытом выпуске пачки выдаётся исполнителю мимо пачки", () => {
+    const open = batch({ release: RELEASE });
+    const bug = entryOf(task({ number: 52, mainRed: true }), open);
+    expect(bug).toEqual({
+      number: 52,
+      state: "ready",
+      mark: "+",
+      why: `a bug on red main: the release of ${BATCH} (PR #80) waits for its close — past the batch (--main): its PR goes into main with the full CI`,
+      role: "past",
+    });
+    // остальные готовые выпуск держит, как прежде
+    const held = entryOf(task(), open);
+    expect(held.state).toBe("notReady");
+    // шаг — выдача бага мимо пачки: раньше шагов выпуска и его починки — выпуск ждёт бага
+    expect(queueStep([held, bug], open)).toBe("handOutPast");
+    expect(queueStep([bug], batch({ release: RED }))).toBe("handOutPast");
+    // выдан с --main — в работе мимо пачки, выпуск он не держит: шаг — снова выпуск
+    const handed = entryOf(task({ number: 52, mainRed: true, handOut: { executor: "subagent", main: true } }), open);
+    expect(handed).toEqual({
+      number: 52,
+      state: "handedOut",
+      mark: "=",
+      why: `handed out to an executor of this session, past the batch ${BATCH} (--main): its PR goes into main with the full CI — the release PR #80 waits for its close`,
+      role: "past",
+    });
+    expect(queueStep([held, handed], open)).toBe("releaseSteps");
+    // выпуска нет — баг идёт в пачку, как любая задача: выпуск закроет его своим «Closes»
+    expect(entryOf(task({ mainRed: true }), batch())).toEqual({ number: 47, state: "ready", mark: "+", why: "", role: null });
   });
 
   /**
