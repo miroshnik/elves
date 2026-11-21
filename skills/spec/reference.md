@@ -604,15 +604,16 @@ the project's CI" below.
   known without a run (a literal, a template without substitutions, their
   concatenation), the first argument of `describe` / `it` / `test` (and the
   `x…`/`f…` variants, `suite`, `context`, `test.describe`), for `.each`,
-  `.for`, `.runIf`, `.skipIf` — of the second call: `it.each(...)('name %s')`
-  — a name with a placeholder; a type argument (`it.each<T>(…)`,
+  `.for`, `.runIf`, `.skipIf` and bun:test's `.if`, `.todoIf` — of the second
+  call: `it.each(...)('name %s')` — a name with a placeholder,
+  `describe.if(ok)('group', …)` — a describe; a type argument (`it.each<T>(…)`,
   `test<Ctx>(…)`) doesn't get in the way. A name that can't be computed (a
   template with a substitution, a variable) — a line in stderr with the
   location: such a test isn't in the `spec-diff` lists, `spec-doc` names it if
   it has a JSDoc. Modifiers — only known ones (`skip`, `only`, `todo`, `each`,
-  `for`, `concurrent`, `serial`, `fixme`, `fails`…): `test.step`, `test.use`,
-  `beforeEach` are not tests. A file the parser couldn't parse — a line in
-  stderr with the error location.
+  `for`, `concurrent`, `serial`, `fixme`, `fails`, `failing`…): `test.step`,
+  `test.use`, `beforeEach` are not tests. A file the parser couldn't parse — a
+  line in stderr with the error location.
 - Vitest and `bun test` reports don't contain the skip reason — keep it in the
   test name or in a comment next to it (rule: `skip` without a reason and an
   issue number is a lint error).
@@ -684,8 +685,8 @@ the project's CI" below.
   and JS — with JSX, an unknown file (`codeOnly(text)`) — TypeScript, then
   TSX; decorators — both after `export` and on parameters. All arguments of a
   `describe` after the name count as its body; for `.each`, `.for`, `.runIf`,
-  `.skipIf` the name is on the second call. A file that can't be parsed is an
-  error with its location, not an empty test list.
+  `.skipIf`, `.if`, `.todoIf` the name is on the second call. A file that
+  can't be parsed is an error with its location, not an empty test list.
 - There is one parse — `parseCode` in `speclib.ts`: it serves the name
   scanner, the harness (ESLint comments, `codeOnly`, lines of neighboring
   files) and the «Harness checks» section of `spec-diff` —

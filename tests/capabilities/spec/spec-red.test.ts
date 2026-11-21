@@ -52,6 +52,15 @@ describe("Добавленный PR-ом тест красный на базов
     expect(r.code).toBe(0);
   });
 
+  // describe условного запуска bun:test сканер не считал: тест искался в отчёте без группы — «not checked» (#885)
+  it("spec-red находит в отчёте добавленный тест внутри `describe.if` и называет его красным на базе", () => {
+    repo.commit({ ...FIX, [SUM_TEST]: testFile('describe.if(true)("сумма", () => {\n  it("складывает два числа", () => expect(sum(1, 2)).toBe(3));\n});') }, "pr");
+    const r = red();
+    expect(r.stdout).toContain("✅ 1 added test is red on base");
+    expect(r.stdout).not.toContain("not checked");
+    expect(r.code).toBe(0);
+  });
+
   /** Тест импортирует то, что добавляет PR: на базе его файл не загружается — тест без кода PR не проходит. */
   it("Тестовый файл, который не загружается на базовом коде, считается красным", () => {
     const mul = "tests/capabilities/mul/mul.test.ts";
