@@ -51,7 +51,7 @@ import type { Bypass } from "./bypasses.ts";
 import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal, shellArg } from "./command.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
-import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, redFix, releaseRun, worktreeRemovable } from "./queue.ts";
+import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, redFix, releaseIsRed, releaseRun, worktreeRemovable } from "./queue.ts";
 import type { BatchFacts, BlockerFacts, Entry, Fix, Step as QueueNext, ReleaseState, ReleaseStep, TaskFacts } from "./queue.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3253,8 +3253,8 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const release = batch === null ? undefined : releasePrOf(recent, batch);
   const releasing = release?.state === "OPEN" ? (release.number as number) : null;
   const checks = release && releasing !== null ? releaseChecks(io, slug, release) : null;
-  /** The batch as the model reads it (queue.ts): the branch, the default one, the open release and its red. */
-  const batchFacts = (): BatchFacts => ({ batch, base: recent.base, release: releasing === null ? null : { number: releasing, red: checks?.state === "red" } });
+  /** The batch as the model reads it (queue.ts): the branch, the default one, the open release, its checks' red and pr premerge's (#884). */
+  const batchFacts = (): BatchFacts => ({ batch, base: recent.base, release: releasing === null ? null : { number: releasing, red: checks?.state === "red", premerge: Boolean(checks?.premerge) } });
   /** Issue states the queue has read; a hand-out's task outside the queue is read when its worktree is up for removal. */
   const states = new Map<number, string>();
   const read = openOf(io, slug);
@@ -3466,21 +3466,37 @@ function specDiffOf(io: Io, base: string, head: string, what = "the release PR")
 /** GitHub Actions — the app whose check-runs are jobs with a log (`actions/jobs/<check-run id>/logs`). */
 const ACTIONS_APP = 15368;
 
-/** A release's checks (#650): red, still running (or none yet) or green; the red names and their latest Actions runs. */
+/** The name a release red by `pr premerge` (#884) shows among its red checks. */
+const PREMERGE_CHECK = "pr premerge";
+
+/**
+ * A release's checks (#650): red, still running (or none yet) or green; the red names and their latest Actions runs.
+ * `premerge` (#884) — `pr premerge` red on its head: the files its ❌ lines name; not red — null.
+ */
 interface ReleaseChecks {
   state: "red" | "pending" | "green";
   red: string[];
   failed: Any[];
+  premerge: string[] | null;
 }
+
+/** The release is red (#650, #884): a check, or `pr premerge` on its head — the model's `releaseIsRed`. */
+const isRed = (c: ReleaseChecks) => releaseIsRed({ red: c.state === "red", premerge: c.premerge !== null });
+/** The release's red names — its red checks, then `pr premerge` red on its head. */
+const redNames = (c: ReleaseChecks) => [...c.red, ...(c.premerge ? [PREMERGE_CHECK] : [])];
 
 /**
  * The release PR's checks (#650) by `checkStates` — the rule of `task show` and `ci-wait`: a red one (`fail`, `cancel` —
  * ci-wait's FAIL) — red; otherwise one still running or none yet (the head moved: a fix merged into the batch, the full
  * run starts again) — pending; otherwise green. `failed` — the latest GitHub Actions run of each red name: its job's
- * log names the failed files. Not read (REST failed, no head commit) — pending and an `○` line.
+ * log names the failed files. Not read (REST failed, no head commit) — pending and an `○` line. `pr premerge` red on
+ * the same head (#884, its mark — `markPremerge`) — `premerge`, whatever the checks: the merge is refused, and a fix
+ * merged into the batch moves the head, the mark is of the old one.
  */
 function releaseChecks(io: Io, slug: string, release: PrRef): ReleaseChecks {
-  const pending: ReleaseChecks = { state: "pending", red: [], failed: [] };
+  const mark = release.sha ? premergeMarkOf(io, slug, release.number) : {};
+  const premerge = mark.red && mark.head === release.sha ? mark.red : null;
+  const pending: ReleaseChecks = { state: "pending", red: [], failed: [], premerge };
   if (!release.sha) return pending;
   let rollup: { nodes: Any[]; runs: Any[] };
   try {
@@ -3497,7 +3513,7 @@ function releaseChecks(io: Io, slug: string, release: PrRef): ReleaseChecks {
   const latest = new Map<string, Any>();
   for (const r of rollup.runs) if (red.includes(r.name) && r.app?.id === ACTIONS_APP && !(latest.get(r.name)?.id > r.id)) latest.set(r.name, r);
   if (!red.length) return { ...pending, state: !by.length || by.some(([, v]) => v === "pending") ? "pending" : "green" };
-  return { state: "red", red, failed: [...latest.values()] };
+  return { state: "red", red, failed: [...latest.values()], premerge };
 }
 
 /** A test file's path — `x.test.ts`, `x.spec.tsx`, `x.e2e.ts` in any directory: Bun, Vitest, Jest, Playwright. */
@@ -3698,8 +3714,10 @@ function bisectRelease(io: Io, slug: string, batch: string, base: string, tasks:
 /**
  * A red release (#650) — what its fix is. A release task's PR into the batch is open — the fix is going (`fixing`):
  * wait for it, no bisect. Otherwise the guilty task: the release's only task, by the labels of the failed files'
- * decisions (`guiltyByLabels`), otherwise the bisect (`bisectRelease`) — `batch release`'s; the queue (`bisect` false)
- * names that command. Prints its lines.
+ * decisions (`guiltyByLabels`) — the files the failed jobs' logs name and those of `pr premerge`'s ❌ lines (#884: a
+ * spec-red test marked existing behavior against the batch, red on the default branch's code), otherwise the bisect
+ * (`bisectRelease`) — `batch release`'s, of a red check only: red only by pr premerge, every test is green on the
+ * machine; the queue (`bisect` false) names that command. Prints its lines.
  */
 function redRelease(io: Io, slug: string, batch: string, base: string, release: PrRef, prs: Recent, checks: ReleaseChecks, bisect: boolean): { fixing: PrRef | null; guilty: (Guilty & { issue: Issue }) | null } {
   const tasks = prTasks(release);
@@ -3711,12 +3729,19 @@ function redRelease(io: Io, slug: string, batch: string, base: string, release: 
   const issues = tasks.map((n) => loadIssue(io, slug, n));
   const named = (): Guilty | null => {
     if (issues.length < 2) return issues.length ? { number: tasks[0]!, why: "the release's only task" } : null;
-    const files = failedFilesOf(io, slug, checks.failed);
-    io.out(files.length ? `○ the failed checks' logs name ${files.join(", ")}` : `○ the failed checks' logs name no file`);
+    const ci = checks.state === "red";
+    const logs = ci ? failedFilesOf(io, slug, checks.failed) : [];
+    if (ci) io.out(logs.length ? `○ the failed checks' logs name ${logs.join(", ")}` : `○ the failed checks' logs name no file`);
+    // pr premerge red on the release's head (#884): the files of its ❌ lines — spec-red's tests, the merge's failures —
+    // go by the labels as the logs' files do
+    const premerge = checks.premerge ?? [];
+    if (checks.premerge) io.out(premerge.length ? `○ the ❌ lines of pr premerge ${release.number} name ${premerge.join(", ")}` : `○ the ❌ lines of pr premerge ${release.number} name no file`);
+    const files = [...new Set([...logs, ...premerge])];
     // a task's PRs merged into the batch — whose changed a failed test's section (#689)
     const merged = batchTasks(prs, batch);
     const prsOf = (n: number) => merged.filter((m) => m.tasks.includes(n)).map((m) => m.pr);
-    return guiltyByLabels(io, slug, release.sha, issues, files, prsOf) ?? (bisect ? bisectRelease(io, slug, batch, base, tasks, files, checks.red) : null);
+    // the bisect reproduces a red check of the CI on the machine; red only by pr premerge — nothing to reproduce (#884)
+    return guiltyByLabels(io, slug, release.sha, issues, files, prsOf) ?? (bisect && ci ? bisectRelease(io, slug, batch, base, tasks, logs, checks.red) : null);
   };
   const guilty = named();
   if (!guilty) return { fixing: null, guilty: null };
@@ -3727,13 +3752,14 @@ function redRelease(io: Io, slug: string, batch: string, base: string, release: 
 
 /**
  * The red release a task's fix is for (#650): the batch's release PR is open, has the task in its «Closes #N», and its
- * checks are red; otherwise null — the task's assignment is the batch's usual one.
+ * checks are red or `pr premerge` is red on its head (#884); otherwise null — the task's assignment is the batch's usual
+ * one. `premerge` — red by pr premerge: the cause is in its ❌ lines, not only in the checks' logs.
  */
-function fixOf(io: Io, slug: string, batch: string, number: number, prs = batchPrs(io, slug, batch)): { release: PrRef; red: string[] } | null {
+function fixOf(io: Io, slug: string, batch: string, number: number, prs = batchPrs(io, slug, batch)): { release: PrRef; red: string[]; ci: boolean; premerge: boolean } | null {
   const release = releasePrOf(prs, batch);
   if (release?.state !== "OPEN" || !prOfTask(release, number)) return null;
   const checks = releaseChecks(io, slug, release);
-  return checks.state === "red" ? { release, red: checks.red } : null;
+  return isRed(checks) ? { release, red: redNames(checks), ci: checks.state === "red", premerge: checks.premerge !== null } : null;
 }
 
 /**
@@ -3744,7 +3770,9 @@ function fixOf(io: Io, slug: string, batch: string, number: number, prs = batchP
  * and the owner (after the bisect). Here — only its text.
  */
 function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseChecks, r: ReturnType<typeof redRelease>, bisects: boolean): string[] {
-  const lead = `Next: the release PR #${release.number} https://github.com/${slug}/pull/${release.number} of ${batch} is red (${checks.red.join(", ")})`;
+  const lead = `Next: the release PR #${release.number} https://github.com/${slug}/pull/${release.number} of ${batch} is red (${redNames(checks).join(", ")})`;
+  /** Where the dispatcher reads the cause: the failed checks' logs, the ❌ lines of pr premerge (#884). */
+  const sources = [checks.state === "red" && `the failed checks' logs (gh pr checks ${release.number})`, checks.premerge && `the ❌ lines of pr premerge ${release.number}`].filter(Boolean).join(" and ");
   const again =
     `after its merge into ${batch} — the release's full run again on the same PR #${release.number}: batch release prints its steps; ` +
     `the other tasks of the batch wait — no new executors till the release's merge; ${SESSION_ARCHIVE}.`;
@@ -3763,10 +3791,10 @@ function fixSteps(slug: string, batch: string, release: PrRef, checks: ReleaseCh
       `${lead} — the guilty task: ${command} names it (the labels of the failed tests' decisions, otherwise a bisect by the task boundaries on the machine — a background command) and prints its fix; ${again}`,
     ],
     owner: () => [
-      `${lead} — the guilty task isn't named (the lines above say why): by the failed checks' logs (gh pr checks ${release.number}) the dispatcher names it or asks the owner, then its fix — task queue --assignment <N> to its executor; ${again}`,
+      `${lead} — the guilty task isn't named (the lines above say why): by ${sources} the dispatcher names it or asks the owner, then its fix — task queue --assignment <N> to its executor; ${again}`,
     ],
   };
-  return text[redFix({ fixing: r.fixing !== null, guilty: r.guilty !== null, bisects })]();
+  return text[redFix({ fixing: r.fixing !== null, guilty: r.guilty !== null, bisects, bisectable: checks.state === "red" })]();
 }
 
 /**
@@ -3800,15 +3828,16 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
   const yes = locale.autoProject(io.cwd ?? process.cwd()) ? "" : "the owner's «yes» (the project is without auto) — then ";
   const steps = (pr: number, tasks: number[]) =>
     `Next: the release PR ${link(pr)} — its checks: bash ${waitCi()} pr ${pr} as a background command; PASS — ${script} pr premerge ${pr}, code 0 — ${yes}gh pr merge ${pr} --rebase as a separate call. ` +
-    `FAIL — ${script} batch release --repo ${slug} again: it names the guilty task and prints its fix in the batch, the release PR stays open. ` +
+    `FAIL, or pr premerge ❌ (code 1 — the release is red by it) — ${script} batch release --repo ${slug} again: it names the guilty task and prints its fix in the batch, the release PR stays open. ` +
     `After the merge: ${script} batch release --repo ${slug} again — it removes the batch executors' worktrees and branches and prints the closing steps; ` +
     `the dispatcher goes on — task queue at once: it starts the next batch from the merged ${base} (a group — only from its tasks still open; nothing left — no new batch), and the live executors' PRs go into it (their pr premerge moves them); ` +
     `it stops — no queue: they go into ${base} with the full CI. Then ${closing(pr, tasks)}.`;
   const release = releasePrOf(prs, batch);
   const merged = batchTasks(prs, batch);
-  // the open release's checks: red (#650) — its guilty task fixes it in the batch, then the full run again on the same PR
+  // the open release's checks: red (#650), or pr premerge red on its head (#884) — its guilty task fixes it in the batch,
+  // then the full run again on the same PR
   const checks = release && !release.merged ? releaseChecks(io, slug, release) : null;
-  const run = releaseRun({ pr: release ? { merged: release.merged, red: checks?.state === "red" } : null, merged: merged.length });
+  const run = releaseRun({ pr: release ? { merged: release.merged, red: checks?.state === "red", premerge: Boolean(checks?.premerge) } : null, merged: merged.length });
   if (!run) throw new GhError(`nothing is merged into ${batch} — nothing to release`);
   /** The open release after its line: its title and body rebuilt by what is merged into the batch now (#819). */
   const rebuilt = (line: string) => {
@@ -3823,7 +3852,7 @@ export function cmdBatchRelease(io: Io, slug: string, named?: string): number {
       return opened && { pr: opened, tasks: tasksOf(merged) };
     },
     open: () => rebuilt(`= the release PR ${link(release!.number)} of ${batch} is open`),
-    red: () => rebuilt(`! the release PR ${link(release!.number)} of ${batch} is red: ${checks!.red.join(", ")}`),
+    red: () => rebuilt(`! the release PR ${link(release!.number)} of ${batch} is red: ${redNames(checks!).join(", ")}`),
     merged: () => {
       io.out(`○ ${batch} is released by PR ${link(release!.number)}`);
       // the batch executors' worktrees and branches go with the release (#698), as before the queue: a dispatcher that
@@ -4417,6 +4446,13 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { ses
     batch: batch ?? dispatched ?? "",
     release: fix?.release.number ?? "",
     checks: fix?.red.join(", ") ?? "",
+    // where the fix's cause is read (#884): the failed checks' logs, the ❌ lines of pr premerge on the release's head
+    cause: fix
+      ? [fix.ci && N.queue.fixCauseChecks, fix.premerge && N.queue.fixCausePremerge]
+          .filter((t): t is string => Boolean(t))
+          .map((t) => locale.fill(t, { release: fix.release.number }))
+          .join(", ")
+      : "",
     previous: fix && restart.length ? locale.fill(N.queue.fixPrevious, { branches: restart.map((b) => `\`${b}\``).join(", ") }) : "",
     mode: auto ? N.queue.modeAuto : N.queue.modeAsk,
   };
@@ -5578,25 +5614,35 @@ const STEP = {
 };
 
 /**
- * `pr premerge` passed on a PR's head (#842): `<config directory>/premerges/<owner>__<repo>__<PR>.json` — the head and the
- * time; `task next` names the merge while the head is the same and the base hasn't moved since, otherwise premerge again.
+ * `pr premerge`'s verdict on a PR's head (#842): `<config directory>/premerges/<owner>__<repo>__<PR>.json` — the head and
+ * the time; passed — `task next` names the merge while the head is the same and the base hasn't moved since, otherwise
+ * premerge again. ❌ (code 1, #884) — `red`, the files its lines name: a batch's release red by it is red
+ * (`releaseChecks`), its guilty task goes by them; another verdict — no mark, the next premerge decides.
  */
 const premergeFile = (io: Io, slug: string, pr: number) => path.join(configDir(io.env), "premerges", `${slug.replace("/", "__")}__${pr}.json`);
-function markPremerge(io: Io, slug: string, pr: number, head: string): void {
+interface PremergeMark {
+  head?: string;
+  at?: string;
+  /** ❌ on this head — the files its lines name; passed — none. */
+  red?: string[];
+}
+function markPremerge(io: Io, slug: string, pr: number, head: string, red?: string[]): void {
   const file = premergeFile(io, slug, pr);
   mkdirSync(path.dirname(file), { recursive: true });
   // the configuration directory may be a personal git checkout (ELVES_PRIVATE) — marks aren't committed into it
   writeFileSync(path.join(path.dirname(file), ".gitignore"), "*\n");
-  writeFileSync(file, `${JSON.stringify({ head, at: new Date().toISOString() })}\n`);
+  writeFileSync(file, `${JSON.stringify({ head, at: new Date().toISOString(), ...(red ? { red } : {}) })}\n`);
+}
+function premergeMarkOf(io: Io, slug: string, pr: number): PremergeMark {
+  try {
+    return JSON.parse(readFileSync(premergeFile(io, slug, pr), "utf8")) ?? {};
+  } catch {
+    return {};
+  }
 }
 function premergePassed(io: Io, slug: string, pr: { number: number; sha: string; base: string }): boolean {
-  let mark: { head?: string; at?: string } = {};
-  try {
-    mark = JSON.parse(readFileSync(premergeFile(io, slug, pr.number), "utf8"));
-  } catch {
-    return false;
-  }
-  if (!mark.head || !mark.at || mark.head !== pr.sha) return false;
+  const mark = premergeMarkOf(io, slug, pr.number);
+  if (!mark.head || !mark.at || mark.red || mark.head !== pr.sha) return false;
   try {
     const moved = restCall(io, ["api", `repos/${slug}/activity?ref=${encodeURIComponent(`refs/heads/${pr.base}`)}&per_page=1`])[0]?.timestamp ?? null;
     return !moved || Date.parse(moved) <= Date.parse(mark.at);
@@ -6688,12 +6734,13 @@ function bugNames(base: string, title: string, check: string): boolean {
  * one than the base: the dispatcher went on — its queue started it), without one — into the default branch with the
  * full CI, the task leaving the batch; then a rebase onto it — the batch's commits are there already, rebased, with
  * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null. The
- * open release red and the PR one of its task's (#650: the task branch or «Closes #N» — `prTasks`, the release's
- * «Closes #N») — the guilty task's fix: null, the PR is checked as usual; a live executor's PR (its task isn't in the
- * release) and any PR while the release is green or running — held. Held but the fix of red main (#889: it closes an
- * open «<base> is red…» bug — handed out into the batch before the release opened) — code 1, the PR moves into the
- * default branch: held, it would wait for the release, and the release for the bug's close; its hand-out is marked past
- * the batch (`markPastBatch`), the rebase takes only the task's commits — the batch isn't released.
+ * open release red — by its checks or by `pr premerge` on its head (#884) — and the PR one of its task's (#650: the task
+ * branch or «Closes #N» — `prTasks`, the release's «Closes #N») — the guilty task's fix: null, the PR is checked as
+ * usual; a live executor's PR (its task isn't in the release) and any PR while the release is green or running — held.
+ * Held but the fix of red main (#889: it closes an open «<base> is red…» bug — handed out into the batch before the
+ * release opened) — code 1, the PR moves into the default branch: held, it would wait for the release, and the release
+ * for the bug's close; its hand-out is marked past the batch (`markPastBatch`), the rebase takes only the task's
+ * commits — the batch isn't released.
  */
 function batchBase(io: Io, slug: string, number: number, pr: Any): number | null {
   const base: string = pr.base.ref;
@@ -6712,9 +6759,10 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   if (release.state === "OPEN") {
     const ofRelease = tasks.filter((n) => prOfTask(release, n));
     const checks = ofRelease.length ? releaseChecks(io, slug, release) : null;
-    if (checks?.state === "red") {
+    // red by its checks or by pr premerge on its head (#884): the release waits for this fix, not the fix for the release
+    if (checks && isRed(checks)) {
       io.out(
-        `○ ${base} is being released — PR #${release.number} into ${main} is red (${checks.red.join(", ")}), and PR #${number} is of its task ${ofRelease.map((n) => `#${n}`).join(", ")}: ` +
+        `○ ${base} is being released — PR #${release.number} into ${main} is red (${redNames(checks).join(", ")}), and PR #${number} is of its task ${ofRelease.map((n) => `#${n}`).join(", ")}: ` +
           `the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #${release.number}`,
       );
       return null;
@@ -6761,9 +6809,10 @@ const specRedScript = (io: Io) => io.env["ELVES_SPEC_RED"] ?? path.resolve(impor
 /**
  * Red on base (#844) before the merge: spec-red on the PR head against origin/<base> in the checkout — the added tests
  * run on the base code and must fail there, a test of existing behavior carries its mark. Its lines as they are; code
- * 0 — on, 1 — don't merge, its error — premerge's error: it couldn't check. No spec skill — an ○ line, not a hold.
+ * 0 — on, 1 — don't merge, its error — premerge's error: it couldn't check. No spec skill — an ○ line, not a hold. A
+ * batch's release (#884) — the fix isn't the release PR's: the guilty task fixes the test in the batch.
  */
-function redOnBase(io: Io, base: string, head: string, recheck: string): number {
+function redOnBase(io: Io, base: string, head: string, recheck: string, release = false): number {
   const script = specRedScript(io);
   if (!existsSync(script)) {
     io.out(`○ red on base isn't checked: the spec skill isn't installed (${script})`);
@@ -6773,7 +6822,8 @@ function redOnBase(io: Io, base: string, head: string, recheck: string): number 
   for (const l of `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim())) io.out(l);
   if (r.status === 0) return 0;
   if (r.status !== 1) throw new GhError(`red on base isn't checked: spec-red — code ${r.status} (above); ${recheck}`);
-  io.out(`❌ don't merge: an added test is green on the base code or its existing-behavior mark is wrong (above) — fix the test in the PR, push, ${recheck}`);
+  const fix = release ? "the release is red: its guilty task fixes the test in the batch (batch release names it), not in the release PR" : `fix the test in the PR, push, ${recheck}`;
+  io.out(`❌ don't merge: an added test is green on the base code or its existing-behavior mark is wrong (above) — ${fix}`);
   return 1;
 }
 
@@ -6802,21 +6852,45 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
   // the batch's release on red main (#886): its bug's executor past the batch, then premerge of the release again — its
   // «Closes #N» are the batch's tasks, not a task of the release's own
   if (v.code === MAIN_RED) return endWith(io, v.release ? STEP.mainRed("", `bun --no-env-file ${import.meta.path} pr premerge ${number}`, v.release) : STEP.mainRed("", again), 1);
+  // a batch's release red by premerge (#884): its mark makes the release red — the guilty task fixes it in the batch
+  if (v.code === 1 && v.release) {
+    const release = `bun --no-env-file ${import.meta.path} batch release --repo ${slug}`;
+    return endWith(io, { state: "", next: `${release} again — the release is red by pr premerge (its ❌ lines above): it names the guilty task and prints its fix in the batch, the release PR stays open`, who: "agent" }, 1);
+  }
   return endWith(io, { state: "", next: `${v.code === 2 ? "the reason above" : "what the ❌ line above names"}, then ${again}`, who: "agent" }, v.code === 2 ? 2 : 1);
+}
+
+/**
+ * The files `pr premerge`'s ❌ lines name (#884) — spec-red's (a test green on the base, a mark wrong there: the test
+ * file) and the merge's failed lines (a compiler error's file, a test file): a red release's guilty task goes by them,
+ * as by the failed jobs' logs.
+ */
+function premergeFiles(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (!line.startsWith("❌") && !FAILED_LINE.test(line)) continue;
+    const found = /^\s*(\S+?)\(\d+,\d+\): error TS\d+/.exec(line)?.[1] ?? TEST_FILE.exec(line)?.[1];
+    if (found && !out.includes(found)) out.push(found);
+  }
+  return out;
 }
 
 /** The verdict «the base is red by itself, not this PR» — `pr premerge` exits with 1 and the bug's wait (#842). */
 const MAIN_RED = 3;
 
 /**
- * `pr premerge`'s verdict (0 · 1 · 2 · `MAIN_RED`), the PR's base and task, the batch it releases (`releaseHead`);
- * passed — the mark `task next` names the merge by.
+ * `pr premerge`'s verdict (0 · 1 · 2 · `MAIN_RED`), the PR's base and task, the batch it releases (`releaseHead`); its
+ * mark (`markPremerge`): passed — the mark `task next` names the merge by; ❌ — the mark with the files its lines name
+ * (#884): a release red by it is red for the queue and `batch release`; another verdict — none, the head isn't decided.
  */
 function premergeOf(io: Io, slug: string, number: number): { code: number; base: string; task: number | null; release: string | null } {
   const pr = restCall(io, ["api", `repos/${slug}/pulls/${number}`]);
   if (pr.state !== "open") throw new GhError(`PR #${number} is not open — nothing to merge`);
-  const code = premergeVerdict(io, slug, number, pr);
+  const lines: string[] = [];
+  const code = premergeVerdict({ ...io, out: (l) => (lines.push(l), io.out(l)) }, slug, number, pr);
   if (code === 0) markPremerge(io, slug, number, pr.head.sha);
+  else if (code === 1) markPremerge(io, slug, number, pr.head.sha, premergeFiles(lines));
+  else rmSync(premergeFile(io, slug, number), { force: true });
   return { code, base: pr.base.ref, task: taskBranch(String(pr.head?.ref ?? ""))?.issue ?? closingInBody(pr.body ?? "")[0] ?? null, release: releaseHead(pr) };
 }
 
@@ -6864,7 +6938,7 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
   // «CI checked this merge» and «on the fresh origin/<batch>» below; a PR without files in tests/ adds no test
   if (change.files.some((f) => f.changeType !== "DELETED" && /(?:^|\/)tests\//.test(f.path))) {
     fetchPr();
-    const code = redOnBase(io, base, head, recheck);
+    const code = redOnBase(io, base, head, recheck, releaseHead(pr) !== null);
     if (code !== 0) return code;
   }
 
@@ -7454,8 +7528,8 @@ task pushes the dispatcher's batch branch batch/<YYYY-MM-DD>-<k> from a fresh or
 into it, merged after the checks before a commit and pr premerge: no CI wait (a PR into the batch runs no CI), no deploy, no epic refresh and no task close — the
 release's, the task closes with it; a task merged into it is = in the queue, a blocker merged into it doesn't hold.
 Nothing ready and every task of the batch merged into it — Next: names batch release, a task past the batch (a PR into
-the default branch) doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red —
-Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
+the default branch) doesn't hold it; its release PR open — ready tasks are held (○), no new executors; red (its
+checks, or pr premerge on its head) — Next: names its guilty task by the labels and the fix with its executor's prompt (otherwise batch release names it), the
 assignment of a task in a red release — the fix's (a new branch from the batch, the PR into it with Refs #N); released —
 a new batch with a ready task, a released batch branch without an open PR into it is deleted (+).
 --main — the owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
@@ -7503,9 +7577,10 @@ lack (+ lines; a PR not read — a ! line with pr labels); Next: — ci-wait, pr
 epic refresh — one per epic of the batch's tasks (task actualize with all of them), then task close of each task. The live
 executors' open PRs into the batch aren't in it: their pr premerge holds the merge till the release, then moves them to
 the next batch or the default branch. The release PR open — its title and body rebuilt by the PRs merged into the batch
-now (a red release's fix PR and the Closes #M of its body; the same — an = line), then its steps again; red — the guilty task (the release's only
-task, the labels of the decisions of the files the failed jobs' logs name, otherwise a bisect by the task boundaries on
-the machine: the head, the base, then log2 N runs of the project's test script on the failed test files) and its fix in
+now (a red release's fix PR and the Closes #M of its body; the same — an = line), then its steps again; red — by its
+checks or by pr premerge on its head (its mark, premerges/) — the guilty task (the release's only task, the labels of the
+decisions of the files the failed jobs' logs and pr premerge's ❌ lines name, otherwise — a red check — a bisect by the
+task boundaries on the machine: the head, the base, then log2 N runs of the project's test script on the failed test files) and its fix in
 the batch, then the full run again on the same PR; merged — the closing steps, for the tasks of its Closes and of the PRs
 merged into the batch. Nothing merged — a refusal; a rebase
 conflict — a ! line, code 1, the branch unchanged. Merged — before the closing steps the batch executors' worktrees go
@@ -7536,14 +7611,15 @@ for it, the Next line names its wait), 2 — couldn't check (the stack of the PR
 ELVES_TASK — the number of the PR's branch — for task-env up on the detached HEAD). A PR into a batch branch runs no
 CI, so no ci-wait before it: the head on a fresh origin/<batch> — code 0 without checks (the checks before a commit
 checked this tree), the batch moved on — the fast checks on the merge with it. The
-batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
-fix, checked as usual; a PR closing an open «<base> is red…» bug — code 1 and the move into the default branch, its
-hand-out marked past the batch (@main): the release waits for that bug; merged — code 1 and the move: into the
-dispatcher's next batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the
-base by their changes (git cherry) — code 1 and a rebase. The PR changes decisions whose labels its tasks or their
-epics lack (pr labels wasn't run) — code 1 and pr labels <N>, on every path to the merge. A PR with files in tests/ —
-red on base first, on every path too (spec-red of the spec skill): an added test green on the base code, or an
-existing-behavior mark on a test red there — code 1.
+batch's release PR open — code 1 and the wait for its close, but red (its checks, or pr premerge on its head) with the PR
+of one of its tasks — the guilty task's fix, checked as usual; a PR closing an open «<base> is red…» bug — code 1 and
+the move into the default branch, its hand-out marked past the batch (@main): the release waits for that bug; merged —
+code 1 and the move: into the dispatcher's next batch or, without one, the default branch, then a rebase onto it. The
+PR's commits already in the base by their changes (git cherry) — code 1 and a rebase. The PR changes decisions whose
+labels its tasks or their epics lack (pr labels wasn't run) — code 1 and pr labels <N>, on every path to the merge. A PR
+with files in tests/ — red on base first, on every path too (spec-red of the spec skill): an added test green on the
+base code, or an existing-behavior mark on a test red there — code 1. Code 1 leaves the mark with the files of its ❌
+lines: a batch's release with it is red — Next names batch release, its guilty task fixes it in the batch.
 
 Examples:
   github pr premerge 57`,

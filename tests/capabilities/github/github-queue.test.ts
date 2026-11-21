@@ -53,8 +53,10 @@ const task = (more: Partial<TaskFacts> = {}): TaskFacts => ({
 /** Пачка диспетчера без открытого выпуска; без пачек — `NONE`. */
 const batch = (more: Partial<BatchFacts> = {}): BatchFacts => ({ batch: BATCH, base: "main", release: null, ...more });
 const NONE: BatchFacts = { batch: null, base: "main", release: null };
-const RELEASE = { number: 80, red: false };
-const RED = { number: 80, red: true };
+const RELEASE = { number: 80, red: false, premerge: false };
+const RED = { number: 80, red: true, premerge: false };
+/** Чеки выпуска зелёные, а `pr premerge` на его голове — ❌ (#884). */
+const PREMERGE_RED = { number: 80, red: false, premerge: true };
 const handOut = { executor: "subagent", main: false } as const;
 const prInto = (base: string, number = 300) => ({ number, url: `https://github.com/acme/shop/pull/${number}`, base });
 const blocker = (more: Partial<TaskFacts["blockers"][number]> = {}) => ({ ref: "#42", open: true, inBatch: false, unclosed: false, ...more });
@@ -124,6 +126,11 @@ const CASES: Record<string, { name: string; before: Facts; after: Facts }> = {
     name: "проверки выпуска красные — его задачи в красном выпуске, он чинится в пачке, а не откатывается (#650)",
     before: [task({ handOut, inBatch: 300 }), batch({ release: RELEASE })],
     after: [task({ handOut, inBatch: 300 }), batch({ release: RED })],
+  },
+  "releaseOpen premergeRed": {
+    name: "CI выпуска зелёный, а pr premerge на его голове — ❌ (spec-red против main) — выпуск красный: мерж отказан, его чинит виновная задача в пачке, а не ожидание закрытия (#884)",
+    before: [task({ handOut, inBatch: 300 }), batch({ release: RELEASE })],
+    after: [task({ handOut, inBatch: 300 }), batch({ release: PREMERGE_RED })],
   },
   "releaseOpen releaseMerged": {
     name: "выпуск влит — его «Closes» закрыл задачи пачки, их хвост печатает batch release, строки в очереди нет (#649)",
@@ -322,6 +329,21 @@ describe("Сценарии очереди диспетчера на модели
     expect(entryOf(task({ handOut, inBatch: 300, openPr: prInto(BATCH, 310) }), red)).toMatchObject({ state: "prOpen", role: "holds" });
     expect(transition("prOpen", "fixMerged")).toBe("releaseOpen");
     expect(queueStep([entryOf(task({ handOut, inBatch: 310 }), batch({ release: RELEASE }))], batch({ release: RELEASE }))).toBe("releaseSteps");
+  });
+
+  /**
+   * Красный по одному `pr premerge` (#884): CI выпуска зелёный, а spec-red против main — ❌; виновную по файлу теста из
+   * строки ❌ называет `redRelease`, её PR в пачку пропускает `pr premerge` (тест «Выпуск пачки с зелёным CI и красным
+   * spec-red — красный выпуск: правка виновной задачи проходит в пачку» в github-task).
+   */
+  it("Выпуск, красный только по pr premerge, — красный: шаг очереди — починка, а не шаги открытого выпуска", () => {
+    const red = batch({ release: PREMERGE_RED });
+    const entries = [entryOf(task({ handOut, inBatch: 300 }), red), entryOf(task({ number: 50 }), red)];
+    expect(entries.map((e) => e.state)).toEqual(["releaseRed", "notReady"]);
+    expect(queueStep(entries, red)).toBe("fix");
+    expect(queueStep([entries[1]!], red)).toBe("fix");
+    // починка влита — голова выпуска сдвинулась, ❌ был у прежней: выпуск снова открыт, тот же PR
+    expect(entryOf(task({ handOut, inBatch: 310 }), batch({ release: RELEASE })).state).toBe("releaseOpen");
   });
 
   it("Worktree работающего исполнителя не убирается", () => {
