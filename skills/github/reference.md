@@ -1030,6 +1030,23 @@ in parentheses, in the reason and the bug title: a step without a test
 (install, network) has no decision label, the bug goes by the check and the
 step.
 
+A red `main` the PR fixes itself (#893) — a release whose task fixed what a
+scheduled check finds on `main`, or a regular PR: a bug on it would close only
+by this very merge, a circle. A red check of the last commit of `main` (not
+the script red on bare `origin/<base>`: the merge is red there too) green on
+the PR head (its check-runs, a host status — REST) is the PR's fix. Not on the
+head or skipped there (a scheduled job, a job for `main` only) — by the
+`paths` of its workflow's `push` and `pull_request` (the workflow run by the
+check-run's check suite, its file at `main`'s last commit; the patterns in
+order, `!` drops, as the branch filter): the PR changes a file they take — a
+fix. Every red check fixed — the line «this PR fixes red `<base>`: <check> is
+green on the head of PR …» or «… doesn't run on PR … — its workflow … runs for
+the paths …, and the PR changes …», the check goes on as usual; some — an `○`
+line per fixed one and «`main` is red» with the bug's wait for the rest. Red,
+running or cancelled on the head — not the fix, no line; not decided — a
+workflow without `paths` or not read, another app's check, a host status not
+on the head — an `○` line saying why, and the check counts as red.
+
 ### task resume
 
 A background wait (`ci-wait`) dies with the app's process,
