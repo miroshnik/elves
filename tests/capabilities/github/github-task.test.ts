@@ -5173,18 +5173,18 @@ describe("task queue убирает worktree исполнителей закры
    * субагентов сессии — `parentAgentId` без своего `worktreePath`, на любую глубину, — а работает он, пока пишется его
    * транскрипт.
    */
+  /** Субагент сессии-диспетчера в каталоге Claude Code `claude`: метаданные и транскрипт, записанный `minutes` минут назад. */
+  function subagentIn(claude: string, id: string, fields: Record<string, unknown>, minutes: number) {
+    const subagents = `projects/-work/${SESSION}/subagents`;
+    writeTree(claude, { [`${subagents}/agent-${id}.meta.json`]: JSON.stringify({ agentType: "general-purpose", ...fields }), [`${subagents}/agent-${id}.jsonl`]: "{}\n" });
+    const at = new Date(Date.now() - minutes * 60_000);
+    utimesSync(path.join(claude, subagents, `agent-${id}.jsonl`), at, at);
+  }
   function executorWithSubagents(d: ReturnType<typeof dispatcher>) {
     // исполнитель закрыл задачу: task close поставил его worktree на origin/main
     const executor = d.add("agent-a1");
     const claude = scratch();
-    const subagents = `projects/-work/${SESSION}/subagents`;
-    const meta = (fields: Record<string, unknown>) => JSON.stringify({ agentType: "general-purpose", ...fields });
-    /** Субагент сессии: метаданные и транскрипт, записанный `minutes` минут назад. */
-    const subagent = (id: string, fields: Record<string, unknown>, minutes: number) => {
-      writeTree(claude, { [`${subagents}/agent-${id}.meta.json`]: meta(fields), [`${subagents}/agent-${id}.jsonl`]: "{}\n" });
-      const at = new Date(Date.now() - minutes * 60_000);
-      utimesSync(path.join(claude, subagents, `agent-${id}.jsonl`), at, at);
-    };
+    const subagent = (id: string, fields: Record<string, unknown>, minutes: number) => subagentIn(claude, id, fields, minutes);
     subagent("a1", { worktreePath: executor, spawnDepth: 1 }, 0);
     return { executor, claude, subagent };
   }
@@ -5214,6 +5214,99 @@ describe("task queue убирает worktree исполнителей закры
     subagent("a9", { parentAgentId: "a1", worktreePath: path.join(d.work, ".claude/worktrees/agent-a9"), spawnDepth: 2 }, 0);
     expect(d.cleanupLines(d.queue(undefined, undefined, claude))).toEqual([`+ worktree ${executor} removed: clean, nothing outside origin/main`]);
     expect(d.worktrees()).toEqual([d.work]);
+  });
+
+  /**
+   * #899: Claude Code блокирует worktree агента с pid своего процесса — процесса приложения, а не агента: он жив всю
+   * сессию. Два исполнителя пачки ответили промежуточным «жду свою фоновую работу», итоговым — позже, и блокировку
+   * приложение не сняло: `lockHolds` видел живой pid, ни выпуск, ни очередь, ни `task close` их worktree не убрали, а
+   * `git branch -D` ветки задачи отказывал — на ней стоял worktree. Блокировка приложения устарела, когда задача
+   * исполнителя закрыта (по ветке задачи или по выдаче), worktree чистый и влитый, а транскрипт агента не писался 15
+   * минут: закрытая задача говорит, что работы больше нет, тишина транскрипта — что агент не пишет прямо сейчас.
+   */
+  const appLock = (id: string) => `claude agent agent-${id} (pid ${process.pid} start Sat Nov 21 10:10:30 2026)`;
+  const STALE = "the app's lock is stale — #47 closed, agent-a1's transcript quiet 20 min";
+  /** Исполнитель agent-a1 в метаданных сессии-диспетчера, его транскрипт записан `minutes` минут назад. */
+  const executorIn = (claude: string, worktreePath: string, minutes: number) => subagentIn(claude, "a1", { agentType: "elves:executor", worktreePath, spawnDepth: 1 }, minutes);
+  /** Worktree исполнителя пачки agent-a1 на ветке задачи, под блокировкой приложения; его транскрипт — `minutes` минут назад. */
+  function lockedByApp(d: ReturnType<typeof dispatcher>, minutes: number, opts = ["-b", "exec/fix/47-x"], from = "main") {
+    const executor = d.add("agent-a1", ["--lock", "--reason", appLock("a1"), ...opts], from);
+    const claude = scratch();
+    executorIn(claude, executor, minutes);
+    return { executor, claude };
+  }
+  const closed47 = () => {
+    const f = new FakeGitHub(REC);
+    f.closed(47);
+    return f;
+  };
+
+  it("worktree исполнителя закрытой задачи, заблокированный процессом приложения, чистый и влитый, без записи транскрипта агента 15 минут — очередь снимает блокировку и убирает его с веткой", () => {
+    const d = dispatcher();
+    const { executor, claude } = lockedByApp(d, 20);
+    expect(d.cleanupLines(d.queue(closed47(), undefined, claude))).toEqual([`+ worktree ${executor} removed with branch exec/fix/47-x: clean, nothing outside origin/main; ${STALE}`]);
+    expect(d.worktrees()).toEqual([d.work]);
+    expect(git(d.work, "branch", "--list", "exec/fix/47-x")).toBe("");
+  });
+
+  // задачу worktree без ветки задачи называет выдача: исполнитель позвал задание из этого worktree
+  it("worktree исполнителя без ветки задачи под блокировкой приложения: задача его выдачи закрыта, транскрипт затих — убирается", () => {
+    const d = dispatcher();
+    const { f, config, executor } = handedOutTo(d);
+    git(d.work, "worktree", "lock", "--reason", appLock("a1"), executor);
+    const claude = scratch();
+    executorIn(claude, executor, 20);
+    f.closed(47);
+    expect(d.cleanupLines(d.queue(f, config, claude))).toEqual([`+ worktree ${executor} removed with branch worktree-agent-a1: clean, nothing outside origin/main; ${STALE}`]);
+    expect(d.worktrees()).toEqual([d.work]);
+  });
+
+  // spec-existing #899: страховка от перекоррекции — живой агент под блокировкой приложения не тронут и до PR, и после
+  it("worktree, заблокированный процессом приложения, у агента которого транскрипт пишется — очередь его не трогает", () => {
+    const d = dispatcher();
+    const { executor, claude } = lockedByApp(d, 2);
+    expect(d.cleanupLines(d.queue(closed47(), undefined, claude))).toEqual([]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+    expect(git(d.work, "branch", "--list", "exec/fix/47-x")).toContain("exec/fix/47-x");
+  });
+
+  // без перегиба: живой pid приложения держит worktree открытой задачи, как бы давно ни писался транскрипт, и worktree
+  // агента, о транскрипте которого метаданных нет: тишину не по чему мерить
+  // spec-existing #899: страховка от перекоррекции — такую блокировку очередь держала и до PR
+  it("блокировка приложения держит worktree открытой задачи и worktree агента без метаданных о транскрипте", () => {
+    const d = dispatcher();
+    const { executor, claude } = lockedByApp(d, 30);
+    expect(d.cleanupLines(d.queue(new FakeGitHub(REC), undefined, claude))).toEqual([]);
+    expect(d.cleanupLines(d.queue(closed47(), undefined, scratch()))).toEqual([]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+  });
+
+  it("worktree, заблокированный процессом приложения, с изменениями вне коммита или невлитыми коммитами — остаётся, `○`-строка с причиной", () => {
+    const d = dispatcher();
+    const { executor, claude } = lockedByApp(d, 20);
+    writeTree(executor, { "draft.md": "черновик\n" });
+    expect(d.cleanupLines(d.queue(closed47(), undefined, claude))).toEqual([`○ worktree ${executor} left: 1 uncommitted file; ${STALE}`]);
+    d.commit(executor, "draft.md");
+    expect(d.cleanupLines(d.queue(closed47(), undefined, claude))).toEqual([`○ worktree ${executor} left: 1 commit not in origin/main; ${STALE}`]);
+    expect(d.worktrees()).toEqual([d.work, executor].sort());
+    // невлитая работа держит и блокировку: её снимают только перед удалением
+    expect(git(d.work, "worktree", "list", "--porcelain")).toContain(`locked ${appLock("a1")}`);
+  });
+
+  it("`task close` задачи, чей worktree исполнителя заблокирован процессом приложения, чистый и влитый, — убирает и worktree, и локальную ветку", () => {
+    const d = dispatcher();
+    // исполнитель кончил на ветке задачи fix/49-x, её PR влит в main
+    const { executor, claude } = lockedByApp(d, 20, [], "fix/49-x");
+    const f = new FakeGitHub(REC);
+    f.prs[77] = { files: [], closes: [49], head: "fix/49-x", base: "main", model: null, merged: true };
+    const r = task(f, ["close", "49"], REPO, { env: { ...inSession(scratch()).env, CLAUDE_CONFIG_DIR: claude }, run: noEst, cwd: d.work });
+    expect(r.code).toBe(0);
+    const out = r.out.split("\n");
+    expect(out).toContain(`+ worktree ${executor} removed with branch fix/49-x: clean, nothing outside origin/main; the app's lock is stale — #49 closed, agent-a1's transcript quiet 20 min`);
+    expect(out).toContain("+ remote branch fix/49-x deleted");
+    expect(out.filter((l) => l.startsWith("! "))).toEqual([]);
+    expect(d.worktrees()).toEqual([d.work]);
+    expect(git(d.work, "branch", "--list", "fix/49-x")).toBe("");
   });
 });
 

@@ -3942,6 +3942,20 @@ function openRelease(io: Io, slug: string, batch: string, base: string, prs: Rec
 /** A Claude Code agent's worktree (`isolation: "worktree"`): `<checkout>/.claude/worktrees/agent-<id>`, branch `worktree-agent-<id>`. */
 const AGENT_WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/]agent-[^\\/]+$/;
 const AGENT_BRANCH = /^worktree-agent-/;
+/** Claude Code's lock of an agent's worktree: `claude agent agent-<id> (pid N start …)` — N is the app's process (#899). */
+const APP_LOCK = /^claude agent \S+ \(pid \d+\b/;
+
+/** What `pruneAgentWorktrees` removes. */
+interface PruneScope {
+  /** An executor's worktree whose handed-out task is live — not touched (#533). */
+  kept: (dir: string) => boolean;
+  /** The task is closed and its tail over (#698): a task branch of it goes. */
+  closed: (task: number) => boolean;
+  /** The tasks handed out with the worktree — its executor's (#899: the app's lock of a closed one's is stale); none — []. */
+  tasksOf?: (dir: string) => number[];
+  /** Only the worktrees on these branches, loose branches not read — `task close`'s (#899); all — undefined. */
+  branches?: Set<string>;
+}
 
 interface Worktree {
   path: string;
@@ -3972,7 +3986,8 @@ function worktreeList(text: string): Worktree[] {
 /**
  * Whether a lock still holds: Claude Code locks a running agent's worktree — `claude agent agent-<id> (pid N start …)`
  * — and unlocks it when the agent finishes. Its process is gone (the app restarted, the agent died with it) — the lock
- * is stale. A lock without a pid is someone else's — it holds.
+ * is stale. A lock without a pid is someone else's — it holds. The pid is the app's, alive the whole session: a lock
+ * that outlived its agent — `pruneAgentWorktrees` (#899).
  */
 function lockHolds(reason: string): boolean {
   const pid = /\bpid (\d+)\b/.exec(reason)?.[1];
@@ -3996,12 +4011,12 @@ function pruneExecutors(io: Io, slug: string, handed: HandOut[], isOpen: (n: num
   const executors = handed.flatMap((h) => (h.worktree === null ? [] : [{ number: h.number, worktree: realPath(h.worktree) }]));
   // a task closed by its PR's merge, task close not run yet (#769): its executor waits for the deploy in that worktree
   const live = (n: number) => isOpen(n) || awaiting(n) !== null;
-  pruneAgentWorktrees(
-    io,
-    slug,
-    (dir) => executors.some((h) => h.worktree === realPath(dir) && live(h.number)),
-    (n) => !live(n),
-  );
+  const of = (dir: string) => executors.filter((h) => h.worktree === realPath(dir));
+  pruneAgentWorktrees(io, slug, {
+    kept: (dir) => of(dir).some((h) => live(h.number)),
+    closed: (n) => !live(n),
+    tasksOf: (dir) => of(dir).map((h) => h.number),
+  });
 }
 
 /**
@@ -4059,9 +4074,13 @@ function openOf(io: Io, slug: string): (n: number) => boolean {
  * an agent's worktree when it ends its answer — a question too — and doesn't lock it again when the agent is continued
  * with `SendMessage` after a restart) — not touched, no line. A worktree a subagent of its agent works in without one
  * of its own (`guestWhy`, #571: the executor answered, its epic refresh still ran in its directory) — left, a `○` line
- * naming the subagent. The directory isn't a checkout of the repository — nothing.
+ * naming the subagent. The app's lock that outlived its agent (`staleLock`, #899) doesn't hold: removed or left by
+ * the same rules, the line naming why the lock is stale. `branches` — only the worktrees on them, loose branches not
+ * read (`task close`: `git branch -D` refuses a branch a worktree is on). The directory isn't a checkout of the
+ * repository — nothing.
  */
-function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolean, closed: (task: number) => boolean = () => false): void {
+function pruneAgentWorktrees(io: Io, slug: string, scope: PruneScope): void {
+  const { kept, closed, tasksOf = () => [], branches } = scope;
   if (!checkoutOfRepo(io, originUrl(io), slug)) return;
   const listed = git(io, io.cwd, "worktree", "list", "--porcelain");
   if (listed.status !== 0) return;
@@ -4128,22 +4147,52 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
     const t = taskBranch(branch);
     return t !== null && closed(t.issue);
   };
-  /** A lock held by a live process — its reason; none or stale — null. */
-  const held = (w: Worktree) => (w.locked !== null && lockHolds(w.locked) ? w.locked : null);
+  // the subagents of this session and of the machine's other sessions with hand-outs: their executors' worktrees are
+  // here too — read once, when a worktree needs them
+  let agents: Map<string, Subagent> | null = null;
+  const agentsOf = () => (agents ??= subagentsOf(io, [io.env["CLAUDE_CODE_SESSION_ID"] ?? "", ...handOutFiles(io).map((h) => h.session)].filter(Boolean)));
+  /**
+   * The app's lock that outlived its agent (#899): Claude Code locks an agent's worktree with the pid of its own process
+   * — the app's, alive the whole session, — and two batch executors that answered «waiting on my background work»
+   * first, their result later, kept the lock past their end. Stale — every task of the worktree (its task branch's, its
+   * hand-outs') closed and the agent's transcript quiet `QUIET_MINUTES`: the task says no work is left, the quiet — that
+   * the agent isn't writing now; either alone is weaker. Why it's stale; it holds — null.
+   */
+  const staleLock = (w: Worktree): string | null => {
+    if (w.locked === null || !APP_LOCK.test(w.locked)) return null;
+    const own = w.branch === null ? undefined : taskBranch(w.branch)?.issue;
+    const tasks = [...new Set([...(own === undefined ? [] : [own]), ...tasksOf(w.path)])].sort((a, b) => a - b);
+    if (!tasks.length || !tasks.every(closed)) return null;
+    const id = agentIdOf(w.path)!;
+    const written = agentsOf().get(id)?.written ?? 0;
+    const minutes = Math.floor((Date.now() - written) / 60_000);
+    if (written === 0 || minutes < QUIET_MINUTES) return null;
+    return `the app's lock is stale — ${tasks.map((n) => `#${n}`).join(", ")} closed, agent-${id}'s transcript quiet ${minutes} min`;
+  };
+  /** The worktrees whose live process's lock is stale (`staleLock`) — why. */
+  const stale = new Map<string, string>();
+  /** A lock held by a live process — its reason; none, of a process gone or outlived its agent — null. */
+  const held = (w: Worktree) => {
+    if (w.locked === null || !lockHolds(w.locked)) return null;
+    const why = staleLock(w);
+    if (why === null) return w.locked;
+    stale.set(w.path, why);
+    return null;
+  };
   // a running agent (its lock) and a live hand-out's executor are passed silently; HEAD's move isn't read here: task
   // close itself detaches the worktree, a finished executor's HEAD moves last (the restart's check reads it — aliveWhy)
   const candidates = all
     .filter((w) => AGENT_WORKTREE.test(w.path) && w.path !== here && !w.prunable && (w.branch === null || AGENT_BRANCH.test(w.branch) || closedTaskBranch(w.branch)))
+    .filter((w) => branches === undefined || (w.branch !== null && branches.has(w.branch)))
     .filter((w) => worktreeRemovable(executorOf({ lock: held(w), guest: null, moved: null }).state, kept(w.path)))
     .sort((a, b) => a.path.localeCompare(b.path));
-  // the subagents of this session and of the machine's other sessions with hand-outs: their executors' worktrees are here too
-  const agents = candidates.length ? subagentsOf(io, [io.env["CLAUDE_CODE_SESSION_ID"] ?? "", ...handOutFiles(io).map((h) => h.session)].filter(Boolean)) : new Map<string, Subagent>();
   for (const w of candidates) {
-    const executor = executorOf({ lock: null, guest: guestWhy(agents, agentIdOf(w.path)!), moved: null });
+    const executor = executorOf({ lock: null, guest: guestWhy(agentsOf(), agentIdOf(w.path)!), moved: null });
     if (!worktreeRemovable(executor.state, false)) {
       io.out(`○ worktree ${w.path} left: ${executor.why}`);
       continue;
     }
+    const lock = stale.has(w.path) ? `; ${stale.get(w.path)}` : "";
     const status = git(io, w.path, "status", "--porcelain");
     if (status.status !== 0) {
       io.out(`! worktree ${w.path}: git status: ${why(status)}`);
@@ -4155,10 +4204,11 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
     const byPr = !dirty && cherry !== null ? mergedByPr(w.head) : null;
     const reasons = [dirty ? `${plural(dirty, "uncommitted file", "uncommitted files")}` : null, byPr ? null : cherry].filter((r): r is string => r !== null);
     if (reasons.length) {
-      io.out(`○ worktree ${w.path} left: ${reasons.join(", ")}`);
+      io.out(`○ worktree ${w.path} left: ${reasons.join(", ")}${lock}`);
       continue;
     }
-    // a stale lock: its process is gone, and a locked worktree isn't removed without double force — which would drop the dirty check too
+    // a stale lock: its process is gone or outlived its agent, and a locked worktree isn't removed without double force
+    // — which would drop the dirty check too
     if (w.locked !== null) git(io, io.cwd, "worktree", "unlock", w.path);
     const removed = git(io, io.cwd, "worktree", "remove", w.path);
     if (removed.status !== 0) {
@@ -4166,8 +4216,9 @@ function pruneAgentWorktrees(io: Io, slug: string, kept: (dir: string) => boolea
       continue;
     }
     const withBranch = w.branch !== null && deleteBranch(w.branch) ? ` with branch ${w.branch}` : "";
-    io.out(`+ worktree ${w.path} removed${withBranch}: clean, ${byPr ?? `nothing outside ${upstream}`}`);
+    io.out(`+ worktree ${w.path} removed${withBranch}: clean, ${byPr ?? `nothing outside ${upstream}`}${lock}`);
   }
+  if (branches !== undefined) return;
   // a branch checked out anywhere — a locked worktree's included — isn't loose
   const checkedOut = new Set(all.map((w) => w.branch).filter(Boolean));
   const loose = git(io, io.cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads/worktree-agent-*")
@@ -5122,7 +5173,7 @@ export function cmdTaskClose(io: Io, slug: string, number: number, o: { git: boo
         if (!live(b).length) continue;
         io.out(`○ batch branch ${b} kept: open PR ${live(b).map((p) => `#${p.number}`).join(", ")} into it — its executor moves it to the next batch or ${all.base} first (pr premerge says where); then the dispatcher's task queue deletes the branch`);
       }
-      cleanupBranches(io, number, [...shipped, ...ofTask].filter((p) => !live(p.head).length));
+      cleanupBranches(io, slug, number, [...shipped, ...ofTask].filter((p) => !live(p.head).length));
     }
   }
   // the marks of task finish and pr premerge (#842) — nothing is left to resume
@@ -5956,10 +6007,11 @@ function closeMilestone(io: Io, slug: string, issue: Issue, wasOpen: boolean): v
  * of each merged PR of the task — a task may have two, its PR and a follow-up fix to it (#473) — and the checkout's task
  * branch; the checkout moves off a removed branch to origin/<base> detached, the local and remote branches are deleted.
  * "Merged" — the PR is merged; a branch without a merged PR — `git cherry`: another merged PR of the task doesn't make
- * it merged. Not merged or someone else's — left alone. That the directory is the repository's checkout, the caller
- * checks.
+ * it merged. Not merged or someone else's — left alone. An agent's worktree on a merged branch — a dispatcher's
+ * executor's (#899: `git branch -D` refuses a branch a worktree is on) — goes first with its branch, by the queue's rule
+ * (`pruneAgentWorktrees`). That the directory is the repository's checkout, the caller checks.
  */
-function cleanupBranches(io: Io, number: number, prs: { head: string; base: string }[]): void {
+function cleanupBranches(io: Io, slug: string, number: number, prs: { head: string; base: string }[]): void {
   const current = git(io, io.cwd, "branch", "--show-current").stdout.trim();
   // a merged branch → the base it went into: each merged PR's head once
   const merged = new Map<string, string>();
@@ -5974,6 +6026,7 @@ function cleanupBranches(io: Io, number: number, prs: { head: string; base: stri
     else merged.set(loose, base);
   }
   if (!merged.size) return;
+  pruneAgentWorktrees(io, slug, { kept: () => false, closed: (n) => n === number, branches: new Set(merged.keys()) });
   for (const [branch, base] of merged) {
     if (current === branch) {
       const sw = git(io, io.cwd, "switch", "--detach", `origin/${base}`);
@@ -7513,7 +7566,8 @@ label's — from the latest «External blocker: …» comment). No board (GitHub
 branch */<N>-* on origin or a session pin on this machine. Marks the session as a dispatcher
 (dispatchers/<CLAUDE_CODE_SESSION_ID> in ~/.config/elves, its first line — the queue command): task status in it doesn't pin — the executors are subagents
 with the session's id; a session with a pinned task keeps it. Before the queue, in the repository's checkout —
-finished agents' worktrees (.claude/worktrees/agent-*, detached or on worktree-agent-*, not locked by a live process,
+finished agents' worktrees (.claude/worktrees/agent-*, detached or on worktree-agent-*, not locked by a live process —
+the app's lock outlives its agent: stale once its tasks are closed and its transcript quiet ${QUIET_MINUTES} min —,
 not an executor's whose handed-out task is open; on a task branch — when its task is closed): clean and merged (git
 cherry, or its HEAD in a merged PR of its closed task into the default branch or a released batch) — removed with the branch (+),
 otherwise left (○ with the reason), and so is one a subagent works in without a worktree of its own (its transcript
@@ -7558,8 +7612,8 @@ Examples:
   "task close": `github task close <N> [--no-git] [--repo owner/repo]
 
 After the PR merge and the deploy (or a close without a PR) in one call: the actual (est fact --write), Status Done, the
-epic and the milestone, the task's stacks taken down with their volumes (task-env down), the merged branches removed
-(--no-git — without git). The epic has other open tasks and no report of the refresh subagent on it («Refresh after
+epic and the milestone, the task's stacks taken down with their volumes (task-env down), the merged branches removed —
+an agent's worktree on one first, by task queue's rule (--no-git — without git). The epic has other open tasks and no report of the refresh subagent on it («Refresh after
 #N, result: …») — a refusal before any changes; so is a task merged only into a batch branch (batch/*): it closes with
 the batch's release — then the release PR is its merged PR, and the batch branch goes too, kept while a live executor's
 PR is into it; its refresh — one for the release's tasks of the epic, the report naming them («Refresh after #N, #M,
