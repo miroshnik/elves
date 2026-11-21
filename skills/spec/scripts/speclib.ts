@@ -720,10 +720,11 @@ const KIND = /^[xf]?(describe|it|test|suite|context)$/;
 const DESCRIBE_KINDS = new Set(["describe", "suite", "context"]);
 const MODS_OK = new Set([
   "skip", "only", "todo", "each", "for", "concurrent", "sequential", "fails",
-  "runIf", "skipIf", "serial", "parallel", "fixme", "fail", "shuffle",
+  "runIf", "skipIf", "if", "todoIf", "failing", "serial", "parallel", "fixme", "fail", "shuffle",
 ]);
-// modifiers with two calls: `it.each(table)(name, …)`, `it.each\`table\`(name, …)`, `it.skipIf(condition)(name, …)`
-const CURRIED = ["each", "for", "runIf", "skipIf"];
+// modifiers with two calls: `it.each(table)(name, …)`, `it.each\`table\`(name, …)`, `it.skipIf(condition)(name, …)`,
+// bun:test's `describe.if(condition)(name, …)` and `test.todoIf(condition)(name, …)`
+const CURRIED = ["each", "for", "runIf", "skipIf", "if", "todoIf"];
 
 /** The test call's kind by the name chain (`test.describe.serial` → describe); not a test — null. */
 function testCallee(n: unknown): { kind: string; curried: boolean } | null {
@@ -854,7 +855,7 @@ export function parseJs(file: string, source: string): Test[] {
 
 /**
  * Tests and prose of a source by AST. The name is a string known without running (a literal, a template without
- * substitutions), the call's first argument (for .each / .for / .runIf / .skipIf — of the second call), with a type
+ * substitutions), the call's first argument (for the two-call modifiers `CURRIED` — of the second call), with a type
  * argument `<…>` allowed anywhere; describe opens nesting for all of its arguments. A name that can't be computed goes
  * to `unnamed`, and the call isn't parsed further: the chain of its tests is unknown. JSDoc right before a call is its
  * prose; the file's first JSDoc followed by something other than a call (usually imports) is the file's prose. Harness
