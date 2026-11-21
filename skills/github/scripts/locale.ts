@@ -150,6 +150,11 @@ export interface Names {
      */
     bypass: string;
     /**
+     * A bug on red main past the batch (#886) in place of `bypass`: the queue's prompt while the release is open, not the
+     * owner's word — the release waits for its close, and a merge into the batch would wait for the release.
+     */
+    bypassRedMain: string;
+    /**
      * The fix of a red release (#650) in place of `batchLead` (`sessionFixLead` — of `sessionBatchLead`): the task merged
      * into the batch is guilty — a new task branch from the batch, the PR into it with «Refs #N», then the release's full
      * run again; `fixPrevious` — the task's earlier branches, rebase-merged into the batch already.

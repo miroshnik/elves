@@ -4140,6 +4140,43 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(held.out).toMatch(new RegExp(`^❌ don't merge: ${name} is being released — PR #302 into main: a merge into the batch now would change the release its CI checked\\. Wait for the release to close — bash \\S+wait-ci\\.sh issue 302 `));
   });
 
+  /**
+   * Круг #886: на последнем коммите main упала плановая проверка версий, `pr premerge` выпуска ждёт закрытия бага
+   * «main красный…», а очередь держала этот баг до мержа того же выпуска. Обход был руками: «мимо пачки» владельца и
+   * промпт с `--main`, собранный диспетчером, — у задержанной задачи строки промпта нет.
+   */
+  it("очередь при открытом выпуске выдаёт баг на красный main мимо пачки — промпт с --main, PR в main с полным CI", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    expect(release(f, work, config).code).toBe(0);
+    // баг, заведённый по строке pr premerge выпуска, и задача, пришедшая в группу после выпуска
+    const bug = createdIn(task(f, ["new", "--title", "main красный: чек deps"]));
+    const waiting = subtaskOf45(f, "Ждёт в очереди");
+    const queue = () => task(f, ["queue", "--tasks", `${waiting},${bug}`], REPO, { ...inSession(config), cwd: work, run: noEst }).out.split("\n");
+    const lines = queue();
+    const row = `+ #${bug} «main красный: чек deps» — a bug on red main: the release of ${name} (PR #301) waits for its close — past the batch (--main): its PR goes into main with the full CI`;
+    expect(lines).toContain(row);
+    expect(lines[lines.indexOf(row) + 1]).toMatch(new RegExp(`^  Задача #${bug} в ${REPO}: ты исполнитель сессии-диспетчера\\. Задание целиком печатает \`bun --no-env-file \\S+github\\.ts task queue --assignment ${bug} --main --repo ${REPO}\``));
+    expect(lines).toContain(`○ #${waiting} «GitHub · Ждёт в очереди» — ready, held: the release of ${name} is open (PR #301) — no new executors till its merge`);
+    expect(lines.at(-1)).toStartWith(
+      `Next: each bug on red main above — ${EXECUTOR_AGENT} now, past the batch: the indented line is its whole prompt (--main: its PR goes into main with the full CI, into ${name} its merge would wait for the release); ` +
+        `the release of ${name} — PR ${pull(301)} — waits for its close: pr premerge refuses the release while main is red; no other new executors till its merge, its steps — `,
+    );
+    // задание с --main из строки очереди: мимо пачки — по багу на красный main, а не по слову владельца
+    const assignment = task(f, ["queue", "--assignment", String(bug), "--main"], REPO, { ...inSession(config), cwd: work, run: noEst }).out.split("\n");
+    expect(assignment[0]).toContain("ветка от свежего origin/main, код и тесты, PR, зелёный CI, `pr premerge`, мерж, деплой, актуализация эпика");
+    expect(assignment[1]).toBe(
+      `- задача — баг на красный main и идёт мимо пачки диспетчера \`${name}\`: выпуск пачки ждёт её закрытия (\`pr premerge\` не вливает выпуск на красном main), а мерж в пачку ждал бы выпуска — ` +
+        `ветка задачи от свежего origin/main, а не от пачки, PR в ветку по умолчанию (не \`--base ${name}\`) с полным CI, деплой, актуализация эпика и \`task close\` — твои, как в проекте без пачек;`,
+    );
+    // выдан — в работе мимо пачки: шаг диспетчера — снова шаги выпуска, второго исполнителя бага нет
+    const after = queue();
+    expect(after.filter((l) => l.startsWith("+ #"))).toEqual([]);
+    expect(after).toContain(`= #${bug} «main красный: чек deps» — handed out to an executor of this session, past the batch ${name} (--main): its PR goes into main with the full CI — the release PR #301 waits for its close`);
+    expect(after.at(-1)).toStartWith(`Next: the release of ${name} is open — PR ${pull(301)}: no new executors till its merge, `);
+  });
+
   it("диспетчер продолжает — открытые PR задач в ветку пачки до её удаления уходят на новую ветку пачки", () => {
     const { work, f, config, name } = started();
     mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
