@@ -154,6 +154,9 @@ function fakeGh(
     releases = [],
     ref = "feat/7-x",
     files = [],
+    onHead = {},
+    headStatuses = [],
+    workflows = [],
   }: {
     suites?: string[];
     moved?: string | null;
@@ -172,8 +175,14 @@ function fakeGh(
     releases?: { number: number; state: "open" | "closed"; merged?: boolean; body?: string; checks?: Record<string, string> }[];
     /** Ветка PR — ветка задачи. */
     ref?: string;
-    /** Файлы PR (PrChange): по ним premerge решает, добавляет ли PR тесты (#844). */
+    /** Файлы PR (PrChange): по ним premerge решает, добавляет ли PR тесты (#844) и чинит ли красный main (#893). */
     files?: { path: string; changeType: string }[];
+    /** Чеки головы PR (check-runs GitHub Actions): имя → вывод; `in_progress` — ещё идёт. */
+    onHead?: Record<string, string>;
+    /** Статусы коммита головы PR (хостинг). */
+    headStatuses?: { context: string; state: string }[];
+    /** Воркфлоу прогонов последнего коммита main: check suite прогона, путь файла и его текст на этом коммите. */
+    workflows?: { suite: number; path: string; text: string }[];
   } = {},
 ) {
   const calls: string[] = [];
@@ -231,6 +240,22 @@ function fakeGh(
       return JSON.stringify({ total_count: items.length, items });
     }
     if (url.startsWith(`repos/${SLUG}/commits/${head}/check-suites`)) return JSON.stringify({ total_count: suites.length, check_suites: suites.map((t, i) => ({ id: i + 1, created_at: t })) });
+    // чеки и статусы головы PR, воркфлоу прогона main по его check suite и файл воркфлоу на последнем коммите main
+    if (url.startsWith(`repos/${SLUG}/commits/${head}/check-runs`)) {
+      const runs = Object.entries(onHead).map(([name, conclusion], i) => ({ id: 700 + i, name, status: conclusion === "in_progress" ? "in_progress" : "completed", conclusion: conclusion === "in_progress" ? null : conclusion, app: { id: 15368 } }));
+      return JSON.stringify({ total_count: runs.length, check_runs: runs });
+    }
+    if (url === `repos/${SLUG}/commits/${head}/status`) return JSON.stringify({ sha: head, state: "pending", statuses: headStatuses });
+    const bySuite = /^repos\/[^/]+\/[^/]+\/actions\/runs\?check_suite_id=(\d+)(?:&|$)/.exec(url);
+    if (bySuite) {
+      const runs = workflows.filter((w) => w.suite === Number(bySuite[1])).map((w) => ({ id: 3000 + w.suite, path: w.path, event: "schedule", check_suite_id: w.suite }));
+      return JSON.stringify({ total_count: runs.length, workflow_runs: runs });
+    }
+    const content = new RegExp(`^repos/${SLUG}/contents/(.+)\\?ref=${MAIN_SHA}$`).exec(url);
+    if (content) {
+      const w = workflows.find((x) => x.path === content[1]!.split("/").map(decodeURIComponent).join("/"));
+      return JSON.stringify(w ? { path: w.path, encoding: "base64", content: Buffer.from(w.text).toString("base64") } : { message: "Not Found", status: "404" });
+    }
     if (url.startsWith(`repos/${SLUG}/activity?`)) {
       if (activity) return JSON.stringify({ message: activity, status: "404" });
       return JSON.stringify(moved ? [{ id: 1, ref: "refs/heads/main", timestamp: moved, activity_type: "pr_merge" }] : []);
@@ -853,6 +878,71 @@ describe("pr premerge: красный main чинит PR задачи, чей к
     // открытый баг по чеку — его и ждут
     const found = premerge(fakeGh(p.head, { main: red, bugs: [{ number: 41, title: "main красный: чек CI (шаг Install zsh)" }] }).gh, p.work);
     expect(found.out).toContain("bug on red main — #41 «main красный: чек CI (шаг Install zsh)»: wait for it to close");
+  });
+});
+
+/**
+ * Красный main, который чинит сам PR (#893): выпуск пачки отвечал ⛔ «main is red, not this PR» на плановой проверке
+ * версий, красной на main, — отставание, которое чинит задача из этой же пачки, а баг на красный main закрыл бы только
+ * мерж этого выпуска — круг. Проверка, красная на последнем коммите main, зелёная на голове PR — PR её чинит. На PR она
+ * не идёт (джоб по расписанию, только для main) — решают `paths` её воркфлоу у `push` и `pull_request` (вопрос 1): PR
+ * меняет такой файл — чинит; без `paths` — ⛔, как прежде, и строка, почему не решено.
+ */
+describe("pr premerge: красный main чинит сам PR", () => {
+  const ACTIONS = { id: 15368 };
+  const main: MainChecks = { runs: [{ id: 55, name: "deps", conclusion: "failure", app: ACTIONS }] };
+
+  it("`pr premerge` PR, на чьей голове зелёная проверка, красная на последнем коммите main, не отвечает ⛔: PR чинит красный main", () => {
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    const at = `the head of PR #${PR} (${p.head.slice(0, 7)})`;
+    const r = premerge(fakeGh(p.head, { main, onHead: { deps: "success", tests: "success" } }).gh, p.work);
+    expect(r.out).toContain(`○ main is red — check deps of the last commit of main (c0ffee1); this PR fixes red main: deps is green on ${at} — checking the PR as usual`);
+    expect(r.out).not.toContain(MAIN_RED);
+    expect(r.code).toBe(0);
+    expect(r.last).toStartWith(`✅ merge: main hasn't moved since the CI of PR #${PR}`);
+    // выпуск пачки — так же: его голову проверил полный CI
+    const release = premerge(fakeGh(p.head, { main, onHead: { deps: "success" }, ref: "batch/2026-11-21-1", body: "Closes #47\n" }).gh, p.work);
+    expect(release.out).toContain(`this PR fixes red main: deps is green on ${at}`);
+    expect(release.code).toBe(0);
+    // красная и на голове — не его починка: ⛔, как прежде
+    const red = premerge(fakeGh(p.head, { main, onHead: { deps: "failure" } }).gh, p.work);
+    expect(red.code).toBe(1);
+    expect(red.next).toStartWith(MAIN_RED_NEXT);
+    expect(red.out).not.toContain("this PR fixes");
+    expect(red.last).toBe(MAIN_RED);
+    // красных несколько: зелёная на голове — его, баг ждут только на остальные
+    const two: MainChecks = { runs: [...main.runs!, { id: 56, name: "deploy", conclusion: "failure", app: ACTIONS }] };
+    const part = premerge(fakeGh(p.head, { main: two, onHead: { deps: "success", deploy: "failure" } }).gh, p.work);
+    expect(part.out).toContain(`○ deps is green on ${at}: this PR fixes it — main stays red by the rest`);
+    expect(part.out).toContain(`--title "main красный: чек deploy"`);
+    expect(part.code).toBe(1);
+    expect(part.last).toBe(MAIN_RED);
+  });
+
+  it("pr premerge решает по paths воркфлоу проверки, которой на PR нет: PR меняет такой файл — чинит красный main, воркфлоу без paths — ⛔ и строка, почему не решено", () => {
+    const WF = ".github/workflows/deps.yml";
+    const on = (push: string) => `on:\n  schedule:\n    - cron: "0 6 * * *"\n${push}jobs:\n  deps:\n    runs-on: ubuntu-latest\n    steps: [{ run: "true" }]\n`;
+    const workflows = [{ suite: 50, path: WF, text: on(`  push:\n    branches: [main]\n    paths: ["package.json", "skills/**", "!skills/**/*.md"]\n`) }];
+    const changed = (...paths: string[]) => paths.map((x) => ({ path: x, changeType: "MODIFIED" }));
+    const p = project({ pr: { "uses.txt": "a\n" } });
+    // на голове PR её нет или джоб пропущен по условию — она на PR не идёт
+    for (const onHead of [{ tests: "success" }, { deps: "skipped" }] as Record<string, string>[]) {
+      const fixes = premerge(fakeGh(p.head, { main, workflows, onHead, files: changed("README.md", "package.json") }).gh, p.work);
+      expect(fixes.out).toContain(
+        `○ main is red — check deps of the last commit of main (c0ffee1); this PR fixes red main: deps doesn't run on PR #${PR} — its workflow ${WF} runs for the paths package.json, skills/**, !skills/**/*.md, and the PR changes package.json — checking the PR as usual`,
+      );
+      expect(fixes.code).toBe(0);
+    }
+    // PR не меняет файлов воркфлоу — отрицание снимает взятое: не его починка
+    const other = premerge(fakeGh(p.head, { main, workflows, files: changed("README.md", "skills/a/SKILL.md") }).gh, p.work);
+    expect(other.out).not.toContain("this PR fixes");
+    expect(other.code).toBe(1);
+    expect(other.last).toBe(MAIN_RED);
+    // без paths — по файлам не решить: ⛔ и строка, почему
+    const bare = premerge(fakeGh(p.head, { main, workflows: [{ suite: 50, path: WF, text: on("") }], files: changed("package.json") }).gh, p.work);
+    expect(bare.out).toContain(`○ deps doesn't run on PR #${PR}, and its workflow ${WF} has no paths for push or pull_request — whether the PR fixes it isn't decided: counted as red main`);
+    expect(bare.code).toBe(1);
+    expect(bare.last).toBe(MAIN_RED);
   });
 });
 
