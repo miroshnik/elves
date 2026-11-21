@@ -22,11 +22,12 @@ export type ExecutorState = (typeof EXECUTOR_STATES)[number];
 export type Actor = "dispatcher" | "executor" | "GitHub" | "owner";
 
 /**
- * The dispatcher's step after a queue — `Next:`, the first of these its tasks call for: the fix of a red release, the
- * open release's steps, executors for the ready tasks, the wait for the executors of the batch, the batch's release,
- * the wait for those past the batch, nothing left.
+ * The dispatcher's step after a queue — `Next:`, the first of these its tasks call for: an executor past the batch for a
+ * bug on red main the open release waits for (#886), the fix of a red release, the open release's steps, executors for
+ * the ready tasks, the wait for the executors of the batch, the batch's release, the wait for those past the batch,
+ * nothing left.
  */
-export const STEPS = ["fix", "releaseSteps", "handOut", "wait", "release", "waitPast", "empty"] as const;
+export const STEPS = ["handOutPast", "fix", "releaseSteps", "handOut", "wait", "release", "waitPast", "empty"] as const;
 export type Step = (typeof STEPS)[number];
 
 /** A transition of a task: from a state by an event to a state; `step` — the dispatcher's `Next:` while the task waits for it. */
@@ -125,6 +126,11 @@ export interface TaskFacts {
    * latest comment of a labeled task, and a task in work, blocked or Done isn't read for it.
    */
   external: (() => string) | null;
+  /**
+   * A bug about the red default branch — the title «<base> is red…» in a dictionary language, as `pr premerge` finds it
+   * (#886): an open release's premerge waits for its close, and its merge into the batch would wait for that release.
+   */
+  mainRed: boolean;
 }
 
 /**
@@ -176,7 +182,9 @@ export function entryOf(f: TaskFacts, b: BatchFacts): Entry {
   ].filter(Boolean);
   if (!work.length && f.handOut?.executor === "session") work.push("handed out to an app executor session of this session (start_session) — the end of each of its turns comes as the app's note");
   else if (!work.length && f.handOut) work.push("handed out to an executor of this session");
-  if (b.batch !== null && f.handOut?.main && f.inBatch === null) work.push(`past the batch ${b.batch} (--main): its PR goes into ${b.base} with the full CI — the release doesn't wait for it`);
+  // a bug on red main past the batch: the release doesn't hold it, its premerge waits for it (#886)
+  const waits = f.mainRed && b.release !== null ? `the release PR #${b.release.number} waits for its close` : "the release doesn't wait for it";
+  if (b.batch !== null && f.handOut?.main && f.inBatch === null) work.push(`past the batch ${b.batch} (--main): its PR goes into ${b.base} with the full CI — ${waits}`);
   if (work.length) {
     const state: QueueState = closer !== null ? "released" : f.openPr !== null ? "prOpen" : f.inBatch !== null ? (b.release === null ? "inBatch" : b.release.red ? "releaseRed" : "releaseOpen") : "handedOut";
     return entry(state, "=", work.join(", "), roleOf(f, b));
@@ -185,8 +193,11 @@ export function entryOf(f: TaskFacts, b: BatchFacts): Entry {
   if (f.done !== null) return entry("notReady", "○", `${f.done}, but the task is open`);
   if (blockers.length) return entry("notReady", "○", `blocked by ${blockers.join(", ")}`);
   if (f.external !== null) return entry("notReady", "○", f.external());
-  if (b.release !== null) return entry("notReady", "○", `ready, held: the release of ${b.batch} is open (PR #${b.release.number}) — no new executors till its merge`);
-  return entry("ready", "+");
+  if (b.release === null) return entry("ready", "+");
+  // a bug on red main (#886): the release's premerge waits for its close, and held — or merged into the batch — it would
+  // wait for the release: a circle; past the batch it goes into the default branch with the full CI
+  if (f.mainRed) return entry("ready", "+", `a bug on red ${b.base}: the release of ${b.batch} (PR #${b.release.number}) waits for its close — past the batch (--main): its PR goes into ${b.base} with the full CI`, "past");
+  return entry("notReady", "○", `ready, held: the release of ${b.batch} is open (PR #${b.release.number}) — no new executors till its merge`);
 }
 
 /**
@@ -204,10 +215,14 @@ function roleOf(f: TaskFacts, b: BatchFacts): Role {
 /** A state's step for the dispatcher — of its first transition with one (`TRANSITIONS`); none — null. */
 export const stateStep = (s: QueueState): Step | null => TRANSITIONS.find((t) => t.from === s && t.step)?.step ?? null;
 
-/** An entry's step: its state's; the wait for a task past the batch — after the release (`waitPast`); no line — none. */
+/**
+ * An entry's step: its state's; for a task past the batch — the wait after the release (`waitPast`), the hand-out before
+ * the release's steps (`handOutPast`: the release waits for it, #886); no line — none.
+ */
 export function stepOf(e: Entry): Step | null {
   const step = e.mark === null ? null : stateStep(e.state);
-  return step === "wait" && e.role === "past" ? "waitPast" : step;
+  if (e.role !== "past") return step;
+  return step === "wait" ? "waitPast" : step === "handOut" ? "handOutPast" : step;
 }
 
 /**

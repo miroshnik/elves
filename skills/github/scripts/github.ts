@@ -3088,14 +3088,17 @@ function holdsOf(io: Io, slug: string, number: number, blockers: Blocker[], labe
  */
 const EXECUTOR_AGENT = 'the plugin\'s agent elves:executor (Agent with subagent_type: "elves:executor" — its own worktree, in the background)';
 
-/** The executor's prompt: the task first (`est` links the subagent's work by it), the whole assignment — from the script. */
-function executorPrompt(slug: string, number: number, epic: number | null): string {
+/**
+ * The executor's prompt: the task first (`est` links the subagent's work by it), the whole assignment — from the script;
+ * `main` — past the batch (`--main`): a bug on red main the open release waits for (#886).
+ */
+function executorPrompt(slug: string, number: number, epic: number | null, main = false): string {
   return locale.fill(N.queue.prompt, {
     task: N.subagentPrompt.task,
     number,
     repo: slug,
     epic: epic === null ? "" : locale.fill(N.queue.epic, { epicWord: N.subagentPrompt.epic, epic }),
-    command: `bun --no-env-file ${import.meta.path} task queue --assignment ${number} --repo ${slug}`,
+    command: `bun --no-env-file ${import.meta.path} task queue --assignment ${number}${main ? " --main" : ""} --repo ${slug}`,
   });
 }
 
@@ -3160,7 +3163,8 @@ function batchPrOf(recent: Recent, batch: string): (number: number, linked?: Iss
  * (`dispatcherBatch`), its line in the marker: a task merged into it is `=` till the release, a blocker merged into it
  * doesn't hold. The batch's release (#649): nothing ready and every task of the batch merged into it — `Next:` names
  * `batch release`, a task past the batch (a PR into the default branch — #696) doesn't hold it;
- * its PR open — ready tasks are held (`○`), no new executors till its merge; red (#650) — `Next:`
+ * its PR open — ready tasks are held (`○`), no new executors till its merge, but a bug on red main its premerge waits
+ * for (#886) — `+` past the batch, its prompt with `--main`, its hand-out the first step; red (#650) — `Next:`
  * names its guilty task by the labels and the fix (`redRelease`, `fixSteps`), the bisect — `batch release`'s. Before the queue —
  * finished agents' worktrees (`pruneAgentWorktrees`) but those of executors whose handed-out tasks are open and those
  * a subagent still works in. The last line names archiving finished executor sessions (`SESSION_ARCHIVE`); outside auto
@@ -3266,16 +3270,17 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
       pastBatch: pastBatch(i),
       blockers: i.blockers.map(blocker),
       external: external ? () => externalBlocker(io, slug, i.number, external) : null,
+      mainRed: open && !epic && isMainRedBug(i.title, recent.base),
     };
     entries.push({ i, e: entryOf(f, batchFacts()) });
   }
-  const readyOf = () => entries.filter((x) => x.e.state === "ready").map((x) => x.i);
+  const readyOf = () => entries.filter((x) => x.e.state === "ready");
   // a new batch only with a task to hand out (#787): nothing is merged into it yet — the entries read the same
   if (dispatched.start) {
     if (readyOf().length) batch = dispatched.start();
     else io.out(`○ no new batch branch: nothing ready to hand out — a queue with a ready task starts it`);
   }
-  const ready = readyOf().sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.number - b.number);
+  const ready = readyOf().sort((a, b) => priorityRank(a.i.priority) - priorityRank(b.i.priority) || a.i.number - b.i.number);
   const line = ({ i, e }: (typeof entries)[number]) => `${e.mark} #${i.number} ${q(i.title)} — ${e.why}`;
   const running = entries.filter((x) => x.e.mark === "=").map(line);
   const waiting = entries.filter((x) => x.e.mark === "○").map(line);
@@ -3298,9 +3303,10 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const group = o.tasks !== undefined ? `tasks ${numbers.map((n) => `#${n}`).join(", ")}` : null;
   const scope = [o.epic !== undefined ? `epic #${o.epic}` : group ?? "open tasks", want && `type ${q(want)}`, o.priority?.length && `Priority ${o.priority.join("|")}`].filter(Boolean).join(", ");
   io.out(`Queue ${slug} (${scope}): ready ${ready.length}, ${q(N.status.inProgress)} ${running.length}, not ready ${waiting.length}`);
-  for (const i of ready) {
-    io.out(`+ #${i.number} ${q(i.title)}${org ? ` (${i.priority ?? DEFAULT_PRIORITY})` : ""}`);
-    io.out(`  ${executorPrompt(slug, i.number, i.parent?.number ?? null)}`);
+  // a ready task past the batch — a bug on red main the open release waits for (#886): its line says so, its prompt — --main
+  for (const { i, e } of ready) {
+    io.out(`+ #${i.number} ${q(i.title)}${org ? ` (${i.priority ?? DEFAULT_PRIORITY})` : ""}${e.why ? ` — ${e.why}` : ""}`);
+    io.out(`  ${executorPrompt(slug, i.number, i.parent?.number ?? null, e.role === "past")}`);
   }
   for (const line of running) io.out(line);
   for (const line of waiting) io.out(line);
@@ -3313,6 +3319,14 @@ export function cmdTaskQueue(io: Io, slug: string, o: QueueFilter): number {
   const wait = () => [`Next: no ready tasks — wait for the executors' answers; after each — task queue again${ask}; ${SESSION_ARCHIVE}${now}.`];
   // the dispatcher's step — the model's (queue.ts: the first step the tasks' states call for by the transitions table)
   const next: Record<QueueNext, () => string[]> = {
+    // a bug on red main while the release is open (#886): the release waits for its close — its executor past the batch
+    // first; the release's own steps (red — its fix) batch release prints; the queue again only after an answer: the
+    // hand-out is the executor's first call, till then the bug is still ready
+    handOutPast: () => [
+      `Next: each bug on red ${recent.base} above — ${EXECUTOR_AGENT} now, past the batch: the indented line is its whole prompt (--main: its PR goes into ${recent.base} with the full CI, into ${batch} its merge would wait for the release); ` +
+        `the release of ${batch} — PR #${releasing} https://github.com/${slug}/pull/${releasing} — waits for its close: pr premerge refuses the release while ${recent.base} is red; ` +
+        `no other new executors till its merge, its steps — ${releaseCommand} prints them; after each executor's answer — task queue again${ask}; ${SESSION_ARCHIVE}.`,
+    ],
     // a red release (#650): its guilty task by the labels — the fix; the bisect is batch release's, the queue names it
     fix: () => fixSteps(slug, batch!, release!, checks!, redRelease(io, slug, batch!, recent.base, release!, recent, checks!, false), false),
     releaseSteps: () => [
@@ -3688,8 +3702,8 @@ function redRelease(io: Io, slug: string, batch: string, base: string, release: 
  * The red release a task's fix is for (#650): the batch's release PR is open, has the task in its «Closes #N», and its
  * checks are red; otherwise null — the task's assignment is the batch's usual one.
  */
-function fixOf(io: Io, slug: string, batch: string, number: number): { release: PrRef; red: string[] } | null {
-  const release = releasePrOf(batchPrs(io, slug, batch), batch);
+function fixOf(io: Io, slug: string, batch: string, number: number, prs = batchPrs(io, slug, batch)): { release: PrRef; red: string[] } | null {
+  const release = releasePrOf(prs, batch);
   if (release?.state !== "OPEN" || !prOfTask(release, number)) return null;
   const checks = releaseChecks(io, slug, release);
   return checks.state === "red" ? { release, red: checks.red } : null;
@@ -4317,7 +4331,9 @@ function taskBranchesHere(io: Io, slug: string, number: number): string[] {
  * `main` — past the dispatcher's batch (#697, the owner's word): the plain lead with the `bypass` line — the branch from
  * origin/<base>, the PR into it with the full CI, the deploy, the refresh and `task close`; the hand-out marked
  * (`MAIN_HANDOUT`) — a restart keeps the way, `task finish` opens the PR into the default branch, the queue names the task
- * «past the batch» and its release doesn't wait for it; a task of a red release refuses it — its fix is the batch's.
+ * «past the batch» and its release doesn't wait for it; a task of a red release refuses it — its fix is the batch's. A
+ * bug on red main gets `--main` from the queue's prompt while the release is open (#886): its own bypass line — the
+ * release waits for its close, a merge into the batch would wait for the release.
  */
 export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { session?: boolean; main?: boolean } = {}): number {
   const issue = loadIssue(io, slug, number);
@@ -4338,8 +4354,10 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { ses
   // past the batch (#697): the owner's word, or the task's earlier hand-out with it — a restart keeps the way
   const main = dispatched !== null && (Boolean(o.main) || handedPastBatch(io, slug, number));
   const batch = main ? null : dispatched;
+  // the batch's PRs, its release's among them: the red release's fix and the default branch of a bug on red main
+  const prs = dispatched === null ? null : batchPrs(io, slug, dispatched);
   // the batch's release is red and the task is in it (#650): its fix goes into the batch — not past it
-  const fix = dispatched === null ? null : fixOf(io, slug, dispatched, number);
+  const fix = dispatched === null ? null : fixOf(io, slug, dispatched, number, prs!);
   if (fix && main) throw new GhError(`#${number} is in the red release PR #${fix.release.number} of ${dispatched}: its fix goes into the batch, and --main takes it past the batch — the assignment without --main`);
   if (file && !(own?.slug === slug && own.number === number)) {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -4383,7 +4401,8 @@ export function cmdTaskAssignment(io: Io, slug: string, number: number, o: { ses
   // the leads take the task with `task start --branch` (#709), a restart — `--resume` (the `resume` line); the fix's
   // leads keep `task status --branch`: the new branch is cut beside the task's merged one, which task start stops on
   const sessionLead = fix ? N.queue.sessionFixLead : batch ? N.queue.sessionBatchLead : N.queue.sessionLead;
-  const bypass = main ? [N.queue.bypass] : [];
+  // past the batch as a bug on red main (#886): the queue's prompt, not the owner's word — the release waits for its close
+  const bypass = main ? [prs && isMainRedBug(issue.title, prs.base) ? N.queue.bypassRedMain : N.queue.bypass] : [];
   const lines = o.session
     ? [sessionLead, ...bypass, ...resume, N.queue.sessionIs, N.queue.sessionName, batch ? N.queue.batchWait : N.queue.sessionWait, N.queue.repeats, N.queue.sessionFound, N.queue.sessionQuestion, N.queue.sessionEnd]
     : [
@@ -5503,7 +5522,14 @@ const STEP = {
     const merge = `gh pr merge ${pr} --rebase — a separate call, no cd or pipeline (the owner's permission rule matches it); then ${then}`;
     return auto ? { state, next: merge, who: "agent" } : { state, next: `the «yes» to the merge of PR #${pr} (the project is without auto), then ${merge}`, who: "owner" };
   },
-  mainRed: (state: string, again: string): NextStep => ({ state, next: `the close of the bug on the red base — its wait above (wait-ci.sh issue <N>, a background command), then ${again}`, who: "agent" }),
+  /** `release` — the batch of a release PR (#886): its bug's executor goes past the batch first. */
+  mainRed: (state: string, again: string, release: string | null = null): NextStep => ({
+    state,
+    next:
+      (release ? `the bug's executor past the batch — task queue with the bug in its group prints its prompt with --main (into ${release} its merge would wait for this release); then ` : "") +
+      `the close of the bug on the red base — its wait above (wait-ci.sh issue <N>, a background command), then ${again}`,
+    who: "agent",
+  }),
   release: (state: string, batch: string): NextStep => ({
     state,
     next: `the release of ${batch} (batch release): the CI, the deploy, the epic refresh and task close are the release's — nothing more for the task`,
@@ -6483,18 +6509,20 @@ function guiltyTasksOf(io: Io, slug: string, sha: string): { number: number; sha
  */
 const mainRedPrefixes = (base: string) => [...new Set([N, ...locale.everyNames()].map((n) => locale.fill(n.mainRed.title, { base })))];
 
+/** A bug about the red default branch by its title (`mainRedPrefixes`): `pr premerge` waits for it, the queue reads it (#886). */
+const isMainRedBug = (title: string, base: string) => mainRedPrefixes(base).some((p) => title.startsWith(p));
+
 /**
  * Open bugs about a red default branch — the title "<base> is red…" in any dictionary language (a search for each),
  * by number: the search lags, and a duplicate happens.
  */
 function mainBugsOf(io: Io, slug: string, base: string): { number: number; title: string }[] {
-  const prefixes = mainRedPrefixes(base);
   const found = new Map<number, Any>();
-  for (const prefix of prefixes) {
+  for (const prefix of mainRedPrefixes(base)) {
     const q = `repo:${slug} is:issue is:open in:title "${prefix}"`;
     for (const i of restCall(io, ["api", `search/issues?q=${encodeURIComponent(q)}&per_page=20`]).items ?? []) found.set(i.number, i);
   }
-  return [...found.values()].filter((i) => !i.pull_request && prefixes.some((p) => String(i.title).startsWith(p))).sort((a, b) => a.number - b.number);
+  return [...found.values()].filter((i) => !i.pull_request && isMainRedBug(String(i.title), base)).sort((a, b) => a.number - b.number);
 }
 
 /**
@@ -6602,20 +6630,31 @@ export function cmdPrPremerge(io: Io, slug: string, number: number): number {
     const then = v.task ? `${again}${isBatchBranch(v.base) ? "" : " — in the background: it waits for the deploy"}` : "the deploy wait and task close of its tasks";
     return endWith(io, STEP.merge("", number, locale.autoProject(io.cwd ?? process.cwd()), then), 0);
   }
-  if (v.code === MAIN_RED) return endWith(io, STEP.mainRed("", again), 1);
+  // the batch's release on red main (#886): its bug's executor past the batch, then premerge of the release again — its
+  // «Closes #N» are the batch's tasks, not a task of the release's own
+  if (v.code === MAIN_RED) return endWith(io, v.release ? STEP.mainRed("", `bun --no-env-file ${import.meta.path} pr premerge ${number}`, v.release) : STEP.mainRed("", again), 1);
   return endWith(io, { state: "", next: `${v.code === 2 ? "the reason above" : "what the ❌ line above names"}, then ${again}`, who: "agent" }, v.code === 2 ? 2 : 1);
 }
 
 /** The verdict «the base is red by itself, not this PR» — `pr premerge` exits with 1 and the bug's wait (#842). */
 const MAIN_RED = 3;
 
-/** `pr premerge`'s verdict (0 · 1 · 2 · `MAIN_RED`), the PR's base and task; passed — the mark `task next` names the merge by. */
-function premergeOf(io: Io, slug: string, number: number): { code: number; base: string; task: number | null } {
+/**
+ * `pr premerge`'s verdict (0 · 1 · 2 · `MAIN_RED`), the PR's base and task, the batch it releases (`releaseHead`);
+ * passed — the mark `task next` names the merge by.
+ */
+function premergeOf(io: Io, slug: string, number: number): { code: number; base: string; task: number | null; release: string | null } {
   const pr = restCall(io, ["api", `repos/${slug}/pulls/${number}`]);
   if (pr.state !== "open") throw new GhError(`PR #${number} is not open — nothing to merge`);
   const code = premergeVerdict(io, slug, number, pr);
   if (code === 0) markPremerge(io, slug, number, pr.head.sha);
-  return { code, base: pr.base.ref, task: taskBranch(String(pr.head?.ref ?? ""))?.issue ?? closingInBody(pr.body ?? "")[0] ?? null };
+  return { code, base: pr.base.ref, task: taskBranch(String(pr.head?.ref ?? ""))?.issue ?? closingInBody(pr.body ?? "")[0] ?? null, release: releaseHead(pr) };
+}
+
+/** The batch a PR releases — its head a batch branch, its base not one (#649); another PR — null. REST's PR. */
+function releaseHead(pr: Any): string | null {
+  const head = String(pr.head?.ref ?? "");
+  return isBatchBranch(head) && !isBatchBranch(String(pr.base?.ref ?? "")) ? head : null;
 }
 
 function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number {
@@ -6704,6 +6743,14 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
         ? "find an open one on the failed test or step or file one (label — the failed test's decision; a step without a test — install, network — is named by the check and the step, no decision label)"
         : "find an open one on the failed test or file one (label — the failed test's decision)";
       io.out(`no bug on red ${base} about ${say(unnamed)} — ${label} and ask the owner whether to queue it: bun --no-env-file ${import.meta.path} task new --type ${N.issueTypes.bug}${priority} --title ${JSON.stringify(title)}; ${wait("<N>")}`);
+    }
+    // the batch's release (#886): the bug merged into the batch would wait for this very release — it goes past the batch
+    const release = releaseHead(pr);
+    if (release) {
+      io.out(
+        `○ PR #${number} is the release of ${release}: the bug on red ${base} goes past the batch — the dispatcher's task queue (the bug in its group) hands it out with --main, ` +
+          `its PR into ${base} with the full CI: into ${release} its merge would wait for this release`,
+      );
     }
     io.out(`⛔ don't merge: ${base} is red, not this PR — don't fix it in your PR`);
     return MAIN_RED;

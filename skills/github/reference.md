@@ -997,6 +997,14 @@ in the body) is a fix, without matching the check: the same breakage is named
 by a script one time and by a CI check another; a red `main` doesn't stop it
 (an `○` line), its red merge is code `1`, as usual.
 
+The batch's release on red `main` (#886) — a PR whose head is a batch branch:
+the same «`main` is red» and the bug's wait, and an `○` line more — the bug
+goes past the batch: the dispatcher's `task queue` with the bug in its group
+(`--tasks …,<N>`) hands it out with `--main`, its PR into the default branch
+with the full CI; merged into the batch it would wait for this very release.
+`Next:` — that hand-out first, then the bug's wait and `pr premerge <R>` again
+(not `task finish` of a task in the release's `Closes`).
+
 A task's own regression (#699) has no «`<base>` is red…» bug: the bug is the
 reopened task, and its fix is a PR that closes it. So a PR whose `Closes #N`
 names a task of the red push — `Refs #N` or `Closes #N` in the commits of the
@@ -1095,8 +1103,8 @@ hand-out, code 1: the answer «waits for the previous executor».
 
 | State | The queue reads it by | Line |
 |---|---|---|
-| `notReady` | an epic; Status Done while open; a blocker that holds — open and not merged into this batch (another repository's — `owner/repo#N`), or closed by its PR's merge before its `task close`; the `external blocker` label (the reason — the latest `External blocker: …` comment); ready while the batch's release is open — held | `○` with the reason |
-| `ready` | open, not an epic, not in work, nothing holds it | `+` with the prompt; by `Priority`, then the number |
+| `notReady` | an epic; Status Done while open; a blocker that holds — open and not merged into this batch (another repository's — `owner/repo#N`), or closed by its PR's merge before its `task close`; the `external blocker` label (the reason — the latest `External blocker: …` comment); ready while the batch's release is open — held, but a bug on red main | `○` with the reason |
+| `ready` | open, not an epic, not in work, nothing holds it; a bug on red main (the title «`<base>` is red…» in a dictionary language) while the release is open — past the batch: the release's `pr premerge` waits for its close | `+` with the prompt; by `Priority`, then the number; past the batch — the reason after the title, the prompt with `--main` |
 | `handedOut` | handed out to an executor of this session (a subagent, an app session), or In progress (the board, or by the facts: the task branch on origin, a session pin) without a PR | `=` |
 | `prOpen` | an open PR — linked, or by the task branch or `Closes #N` among the recent PRs | `=` with the PR's link |
 | `inBatch` | its PR merged into the batch branch, no open PR — GitHub links a PR to a task only by a merge into the default branch, so the queue finds it by the branch or `Closes #N` | `=` till the release |
@@ -1166,6 +1174,7 @@ whatever the group.
 
 | Step | When | The dispatcher |
 |---|---|---|
+| `handOutPast` | a bug on red main is ready while the release is open | its executor at once, past the batch, with the printed prompt (`--main`); then the release's steps — `batch release` prints them; no other new executors |
 | `fix` | the release PR is red | the guilty task's fix (`batch release` below): its executor with the printed prompt; not named by the labels — `batch release` names it |
 | `releaseSteps` | the release PR is open | its steps — `batch release` prints them; no new executors till its merge, the live executors' PRs wait for it |
 | `handOut` | a task is ready | each — a background executor while fewer than the machine's run |
@@ -1284,8 +1293,12 @@ and a task PR into the batch runs no CI (`skills/spec/ci.md`, "Batches").
   it with the full CI, the deploy, the refresh and `task close`; the hand-out
   keeps `@main` (a restart keeps the way, `task finish` opens the PR into the
   default branch), the release doesn't wait for it; a task of a red release
-  refuses `--main` — its fix is the batch's. A session outside the dispatcher
-  (one task, a hotfix) — into the default branch.
+  refuses `--main` — its fix is the batch's. A bug on red main while the
+  release is open goes past the batch without the owner's word (#886): the
+  release's `pr premerge` waits for its close, and its merge into the batch
+  would wait for the release — the queue prints its prompt with `--main`, the
+  assignment names that reason instead of the owner's word. A session outside
+  the dispatcher (one task, a hotfix) — into the default branch.
 
 ### batch release
 
