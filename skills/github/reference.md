@@ -1283,7 +1283,13 @@ batch its merged release PR shipped (a release rewrites the task's commits past
 `git cherry`). Removed with its branch — a `+` line; uncommitted changes,
 unmerged commits or a subagent at work in it — left, an `○` line with the
 reason; a `worktree-agent-*` branch without a worktree — the same by its
-commits. A session's worktree is never touched. The dispatcher doesn't remove
+commits. Claude Code's lock carries the app's pid, alive the whole session
+(#899): a lock that outlived its agent — an executor whose interim answer said
+it waits for its own background work, its result later — doesn't hold once every task of
+the worktree (its task branch's, its hand-outs') is closed and the agent's
+transcript is quiet 15 minutes; the `+` or `○` line names why it is stale, an
+open task or no transcript metadata — it holds. A session's worktree is never
+touched. The dispatcher doesn't remove
 an executor's worktree itself (`git worktree remove` after a clean `git
 status`): a subagent without a worktree of its own leaves no trace in `git
 status`, and its directory would go from under it.
@@ -1588,8 +1594,10 @@ merging — full rules" below: the branch of every merged PR of the task —
 linked or found by the branch and "Closes #N", as above: a follow-up fix to a
 merged PR is the same task, and GitHub doesn't link it — and the checkout's
 task branch; the checkout moves off a removed branch to `origin/<base>`
-detached, the local and remote branches are deleted; a branch without a
-merged PR is merged only by `git cherry`; not merged or someone else's — an
+detached, the local and remote branches are deleted — an agent's worktree on
+one (a dispatcher's executor: `git branch -D` refuses a branch a worktree is
+on) goes first with it, by the rule of "Executors' worktrees"; a branch
+without a merged PR is merged only by `git cherry`; not merged or someone else's — an
 `○` line, nothing is touched. After a batch's release (#649) the release PR
 is the task's merged PR — `Closes #N` of its body links it: its head, the
 batch branch, goes — while a live executor's PR is into it, kept, an `○` line
