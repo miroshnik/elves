@@ -4213,6 +4213,45 @@ describe("Выпуск пачки — один PR в main", () => {
     expect(remoteBatches(work)).toEqual([next]);
   });
 
+  /**
+   * Круг с другого входа (#889, после #886): баг на красный main выдан в пачку, пока выпуска не было, а выпуск открылся,
+   * пока его исполнитель работал. PR бага в пачку ждал выпуска, а выпуск — закрытия бага: «Closes» выпуска его не
+   * называет, и влить его в пачку выпуск не может.
+   */
+  it("PR бага на красный main в пачку при открытом выпуске уходит в main, а не ждёт выпуска", () => {
+    const { work, f, config, name } = started();
+    mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
+    f.prs[300] = batchPr(47, "feat/47-export", name);
+    // main покраснел, пока пачка собиралась: баг выдан исполнителю пачки, его PR — в пачку
+    f.mainChecks = { deploy: "FAILURE" };
+    const bug = subtaskOf45(f, "Красный деплой");
+    f.issue(bug).title = "main красный: чек deploy";
+    const assignment = () => task(f, ["queue", "--assignment", String(bug)], REPO, { ...inSession(config), cwd: work, run: noEst }).out.split("\n");
+    expect(assignment()[0]).toContain(`ветка от свежего origin/${name}`);
+    f.status(bug, "В работе");
+    f.prs[301] = { ...batchPr(bug, `exec/fix/${bug}-deploy`, name), merged: false };
+    // выпуск открылся, пока исполнитель бага работал
+    expect(release(f, work, config).code).toBe(0);
+    const moved = premergeIn(f, work, config, 301);
+    expect(moved.code).toBe(1);
+    expect(moved.out.split("\n")).toEqual([
+      `+ #${bug}: the hand-out goes past the batch ${name} now (@main) — task finish, a restart and task queue lead it into main, not as a task of the release`,
+      `❌ don't merge: ${name} is being released — PR #302 into main, and PR #301 closes bug #${bug} «main красный: чек deploy» on red main, whose close the release waits for: held, the bug would wait for the release — ` +
+        `the PR moves to main: gh pr edit 301 --base main, then git fetch origin main, git rebase --onto origin/main origin/${name} (only the task's commits: the batch's go with its release), git push --force-with-lease, ` +
+        `ci-wait, pr premerge 301 again; into main the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${path.resolve(import.meta.dir, "../../../skills/ci-wait/scripts/wait-ci.sh")} merged 301), the epic refresh and task close ${bug}, as outside a batch`,
+    ]);
+    // worktree исполнителя — как его называет git: путь без симлинков
+    const top = realpathSync(work);
+    expect(readFileSync(`${marker(config)}.tasks`, "utf8")).toBe(`${REPO}#${bug} ${top}\n${REPO}#${bug} ${top} @main\n`);
+    // помечено один раз: premerge снова — без второй строки
+    premergeIn(f, work, config, 301);
+    expect(readFileSync(`${marker(config)}.tasks`, "utf8").split("\n").filter((l) => l.endsWith("@main"))).toHaveLength(1);
+    // перезапуск исполнителя — мимо пачки, как с --main; очередь — «мимо пачки»: выпуск ждёт закрытия бага, а не его мержа в пачку
+    expect(assignment()[1]).toStartWith(`- задача — баг на красный main и идёт мимо пачки диспетчера \`${name}\``);
+    f.prs[301]!.base = "main";
+    expect(headLines(queueIn(f, work, config).out)).toContain(`= #${bug} «main красный: чек deploy» — «В работе», open PR ${pull(301)}, past the batch ${name} (--main): its PR goes into main with the full CI — the release PR #302 waits for its close`);
+  });
+
   it("после мержа выпуска и деплоя task close закрывает каждую задачу пачки, ветка пачки и ветки её задач удаляются", () => {
     const { work, f, config, name } = started();
     mergeIntoBatch(work, name, "feat/47-export", "export.txt", "feat(github): экспорт");
