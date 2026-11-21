@@ -6412,13 +6412,14 @@ export const SPEC_PUBLISH = /^(?:.+ \/ )?spec-publish$/;
  * (a batch branch pushed at the tip of main) isn't the base's — `foreign`, with the branch; a suite without
  * `head_branch` counts as the base's. A red run that started after every cancelled run of its suite had finished —
  * an aggregate (`ci-ok` with `if: always()`) of a superseded run — isn't red either: `aggregates`; a job that failed
- * while its siblings were cancelled (fail-fast) started before them and stays red.
+ * while its siblings were cancelled (fail-fast) started before them and stays red. `runs` — the red check-run of each
+ * red name that is one (the rest are statuses): whether the PR fixes it reads its app and check suite (`prFixes`).
  */
 function redChecksOf(
   io: Io,
   slug: string,
   base: string,
-): { sha: string; names: string[]; publish: string[]; steps: Map<string, string>; foreign: { name: string; branch: string }[]; aggregates: string[] } {
+): { sha: string; names: string[]; publish: string[]; steps: Map<string, string>; foreign: { name: string; branch: string }[]; aggregates: string[]; runs: Map<string, Any> } {
   const ref = encodeURIComponent(base);
   const status = restCall(io, ["api", `repos/${slug}/commits/${ref}/status`]);
   const sha = String(status.sha ?? "");
@@ -6460,7 +6461,126 @@ function redChecksOf(
     const step = failedStepOf(io, slug, r.id);
     if (step) steps.set(r.name, step);
   }
-  return { sha, names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)), steps, foreign, aggregates };
+  const runs = new Map(reds.filter((r) => !aggregates.includes(r.name)).map((r) => [r.name as string, r]));
+  return { sha, names: red.filter((n) => !SPEC_PUBLISH.test(n)), publish: red.filter((n) => SPEC_PUBLISH.test(n)), steps, foreign, aggregates, runs };
+}
+
+/**
+ * A file taken by a workflow's `paths` (#893) — GitHub's filter pattern cheat sheet, as `prRun` of the installer reads
+ * branches: in order, `!` at the start drops what the patterns before it took, a later positive one takes it back; `*`
+ * — anything but `/`, `**` — anything; `?`, `+` and `[…]` — as in a regex. A pattern that isn't a regex takes nothing.
+ */
+function pathsTake(patterns: string[], file: string): boolean {
+  let taken = false;
+  for (const p of patterns) {
+    const negated = p.startsWith("!");
+    let re: RegExp;
+    try {
+      re = new RegExp(`^${(negated ? p.slice(1) : p).replace(/[.^$(){}|\\]/g, "\\$&").replace(/\*\*?/g, (m) => (m === "**" ? ".*" : "[^/]*"))}$`);
+    } catch {
+      continue;
+    }
+    if (re.test(file)) taken = !negated;
+  }
+  return taken;
+}
+
+/** The `paths` of a workflow's `push` and `pull_request` (`on:` of its YAML), together; neither has them — null. */
+function workflowPaths(on: unknown): string[] | null {
+  if (!on || typeof on !== "object" || Array.isArray(on)) return null;
+  let out: string[] | null = null;
+  for (const event of ["push", "pull_request"]) {
+    const filter = (on as Record<string, unknown>)[event];
+    if (!filter || typeof filter !== "object" || Array.isArray(filter) || !Object.hasOwn(filter, "paths")) continue;
+    out = [...(out ?? []), ...[(filter as Record<string, unknown>)["paths"]].flat().filter((x): x is string => typeof x === "string")];
+  }
+  return out;
+}
+
+/**
+ * The red checks of the base's last commit (`sha`) the PR fixes itself (#893): a check green on its head — fixed; a
+ * check not on the head or skipped there (a scheduled job, a job for the default branch only) — by the `paths` of its
+ * workflow's `push` and `pull_request` (question 1 of #893): the PR changes a file they take — fixed. Red, running or
+ * cancelled on the head — not fixed, no line. Not decided — a GitHub Actions check-run whose workflow has no `paths`
+ * or isn't read, another app's check, a host status not on the head — a line in `notes`: it stays red. The workflow —
+ * its run by the check suite (REST), its file at `sha`. `fixed` — name → how.
+ */
+function prFixes(io: Io, slug: string, number: number, head: string, files: string[], sha: string, base: string, names: string[], runs: Map<string, Any>): { fixed: Map<string, string>; notes: string[] } {
+  const fixed = new Map<string, string>();
+  const notes: string[] = [];
+  const at = `the head of PR #${number} (${head.slice(0, 7)})`;
+  const green = (name: string) => `${name} is green on the head of PR #${number} (${head.slice(0, 7)})`;
+  const undecided =(name: string, why: string) => notes.push(`○ ${name} doesn't run on PR #${number}, and ${why} — whether the PR fixes it isn't decided: counted as red ${base}`);
+  const read = <T,>(f: () => T): T | string => {
+    try {
+      return f();
+    } catch (e) {
+      if (!(e instanceof GhError)) throw e;
+      return e.message;
+    }
+  };
+  const onHead = read(() => {
+    const latest = new Map<string, Any>();
+    for (const r of restCall(io, ["api", `repos/${slug}/commits/${head}/check-runs?per_page=100`]).check_runs ?? []) if (!latest.has(r.name) || latest.get(r.name).id < r.id) latest.set(r.name, r);
+    return latest;
+  });
+  if (typeof onHead === "string") {
+    notes.push(`○ checks of ${at} not read (${onHead}) — whether the PR fixes red ${base} is unknown`);
+    return { fixed, notes };
+  }
+  let statuses: Map<string, string> | string | null = null;
+  const workflows = new Map<number, { path: string; paths: string[] | null } | string>();
+  const workflowOf = (suite: number) => {
+    if (!workflows.has(suite)) {
+      workflows.set(
+        suite,
+        read(() => {
+          const run = (restCall(io, ["api", `repos/${slug}/actions/runs?check_suite_id=${suite}&per_page=1`]).workflow_runs ?? [])[0];
+          if (!run?.path) throw new GhError(`no workflow run of check suite ${suite}`);
+          const file = String(run.path);
+          const got = restCall(io, ["api", `repos/${slug}/contents/${file.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`]);
+          let wf: Any;
+          try {
+            wf = Bun.YAML.parse(Buffer.from(String(got.content ?? ""), "base64").toString("utf8"));
+          } catch {
+            throw new GhError(`${file} doesn't parse`);
+          }
+          return { path: file, paths: workflowPaths(wf?.on) };
+        }),
+      );
+    }
+    return workflows.get(suite)!;
+  };
+  for (const name of names) {
+    const run = runs.get(name);
+    if (!run) {
+      // a host status: green on the head — fixed; no paths to read without a workflow
+      statuses ??= read(() => new Map<string, string>((restCall(io, ["api", `repos/${slug}/commits/${head}/status`]).statuses ?? []).map((s: Any) => [String(s.context), String(s.state)])));
+      const state = typeof statuses === "string" ? undefined : statuses.get(name);
+      if (state === "success") fixed.set(name, green(name));
+      else if (state === undefined) undecided(name, typeof statuses === "string" ? `the statuses of its head aren't read (${statuses})` : "it is a host status, not a GitHub Actions check — no workflow paths");
+      continue;
+    }
+    const h = onHead.get(name);
+    if (h?.status === "completed" && h.conclusion === "success") {
+      fixed.set(name, green(name));
+      continue;
+    }
+    if (h && !(h.status === "completed" && h.conclusion === "skipped")) continue;
+    if (run.app?.id !== ACTIONS_APP || run.check_suite?.id === undefined) {
+      undecided(name, "it isn't a GitHub Actions check — no workflow paths");
+      continue;
+    }
+    const wf = workflowOf(run.check_suite.id);
+    if (typeof wf === "string") undecided(name, `its workflow isn't read (${wf})`);
+    else if (!wf.paths) undecided(name, `its workflow ${wf.path} has no paths for push or pull_request`);
+    else {
+      const taken = files.filter((f) => pathsTake(wf.paths!, f));
+      const more = taken.length > 3 ? ` and ${taken.length - 3} more` : "";
+      if (taken.length) fixed.set(name, `${name} doesn't run on PR #${number} — its workflow ${wf.path} runs for the paths ${wf.paths.join(", ")}, and the PR changes ${taken.slice(0, 3).join(", ")}${more}`);
+    }
+  }
+  return { fixed, notes };
 }
 
 /** The first failed step of a GitHub Actions job (its check-run id is the job's); not read — null, the bug goes by the check. */
@@ -6614,7 +6734,8 @@ function redOnBase(io: Io, base: string, head: string, recheck: string): number 
  * the fast checks (`typecheck`, then `test:spec`, as in CI); didn't move — the CI checked exactly this merge. GitHub
  * doesn't keep what the CI checked (the merge-ref is rebuilt), so by time: the head's earliest check suite against the
  * last event of the default branch (REST: the GraphQL quota is shared by all sessions). The unknown is checked. A red
- * main isn't this PR: a red check on main's last commit or a merge red by the same thing as bare main. Code 0 —
+ * main isn't this PR: a red check on main's last commit or a merge red by the same thing as bare main — unless the PR
+ * fixes it (its bug, its guilty task, the red checks themselves — `prFixes`, #893). Code 0 —
  * merge, 1 — don't merge (the PR breaks it), 3 — main is red. A PR into a batch branch runs no CI (#676) and the batch
  * branch none either: what was checked is the head itself — the executor's checks before a commit; so by git, not by
  * time: the head on a fresh origin/<batch> — merge, the batch moved on past it — the fast checks on the merge, as for a
@@ -6701,10 +6822,18 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
 
   /**
    * A red main: don't merge and don't fix it in your PR — one bug for everyone, the others wait for it to close.
-   * `red` — the failed checks (or the script), `what` — how to name them in the bug title. A PR that closes this bug is
-   * the fix: null, the check goes as usual.
+   * `red` — the failed checks (or the script), `what` — how to name them in the bug title, `say` — in the lines. A PR
+   * that closes this bug is the fix: null, the check goes as usual. `fixes` — the red checks the PR fixes itself
+   * (`prFixes`, #893): all of them — null too; some — the bug is waited for the rest.
    */
-  const mainRed = (lead: string, why: string, sha: string, red: string[], what: (names: string[]) => string, say = what, stepped = false): number | null => {
+  const mainRed = (
+    lead: string,
+    why: string,
+    sha: string,
+    red: string[],
+    what: (names: string[]) => string,
+    { say = what, stepped = false, fixes }: { say?: (names: string[]) => string; stepped?: boolean; fixes?: (names: string[]) => { fixed: Map<string, string>; notes: string[] } } = {},
+  ): number | null => {
     let bugs: { number: number; title: string }[] = [];
     try {
       bugs = mainBugsOf(io, slug, base);
@@ -6727,15 +6856,25 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
       io.out(`○ ${base} is red — ${why}; this PR fixes red ${base}: it closes #${guilty.number}, whose commit ${guilty.sha.slice(0, 7)} made it red — checking the PR as usual`);
       return null;
     }
+    // the PR fixes the red checks itself (#893): a release's own task fixed what made main red, and a bug on it could
+    // close only by this very merge — a circle
+    const own = fixes?.(red);
+    if (own && own.fixed.size === red.length) {
+      io.out(`○ ${base} is red — ${why}; this PR fixes red ${base}: ${[...own.fixed.values()].join("; ")} — checking the PR as usual`);
+      return null;
+    }
     io.out(lead);
+    for (const l of own?.notes ?? []) io.out(l);
+    for (const how of own?.fixed.values() ?? []) io.out(`○ ${how}: this PR fixes it — ${base} stays red by the rest`);
+    const open = red.filter((n) => !own?.fixed.has(n));
     // wait for a bug whose title names the failed check (unlike the fix above): a bug about another check won't make
     // main green
-    const named = (b: { title: string }) => red.some((n) => bugNames(base, b.title, n));
+    const named = (b: { title: string }) => open.some((n) => bugNames(base, b.title, n));
     for (const b of bugs.filter((b) => !named(b))) io.out(`○ #${b.number} «${b.title}» — about another check: don't wait`);
     const wait = (n: string) => `wait for it to close — bash ${waitCi()} issue ${n} as a background command, then pr premerge ${number} again`;
     const bug = bugs.find(named);
     if (bug) io.out(`bug on red ${base} — #${bug.number} «${bug.title}»: ${wait(String(bug.number))}`);
-    const unnamed = red.filter((n) => !bugs.some((b) => bugNames(base, b.title, n)));
+    const unnamed = open.filter((n) => !bugs.some((b) => bugNames(base, b.title, n)));
     if (unnamed.length) {
       const priority = pr.base?.repo?.owner?.type === "Organization" ? " --priority Urgent" : "";
       const title = `${locale.fill(N.mainRed.title, { base })}: ${what(unnamed)}`;
@@ -6778,7 +6917,9 @@ function premergeVerdict(io: Io, slug: string, number: number, pr: Any): number 
         const titled = (names: string[]) => locale.fill(names.length > 1 ? N.mainRed.checks : N.mainRed.check, { names: names.map((n) => stepOf(n, (name) => locale.fill(N.mainRed.step, { name }))).join(", ") });
         const said = (names: string[]) => checks(names.map((n) => stepOf(n, (name) => `step ${name}`)));
         const why = `${said(red.names)} of the last commit of ${base} (${red.sha.slice(0, 7)})`;
-        const code = mainRed(`${base} is red: ${why}`, why, red.sha, red.names, titled, said, red.steps.size > 0);
+        const files = change.files.map((f) => f.path);
+        const fixes = (names: string[]) => prFixes(io, slug, number, head, files, red.sha, base, names, red.runs);
+        const code = mainRed(`${base} is red: ${why}`, why, red.sha, red.names, titled, { say: said, stepped: red.steps.size > 0, fixes });
         if (code !== null) return code;
       }
     } catch (e) {
