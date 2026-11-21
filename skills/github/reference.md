@@ -894,7 +894,10 @@ and its lines are printed as they are: an added test green there, or an
 existing-behavior mark on a test red there — `❌`, code 1, the test is fixed
 in the PR (a batch's release — in the batch by its guilty task: the release is
 red, `Next:` — `batch release`, "batch release" below); spec-red's error —
-code 2. On every path to the merge: before
+code 2. A PR into a batch — with the second base `--also origin/<main>`, its
+release's base (#892): a test green on the batch and red on `main` checks the
+batch's change and goes without the existing-behavior mark, a mark on it —
+`❌`. On every path to the merge: before
 "CI checked this merge" and before "on the fresh `origin/<batch>`". No
 spec skill — an `○` line. Details — `skills/spec/reference.md`, "spec-red".
 
