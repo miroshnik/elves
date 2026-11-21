@@ -16,7 +16,9 @@ const MERGE = "9b1e3f7c2d4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c";
 const CI = ".github/workflows/ci.yml";
 
 // `gh` — внешний край, подменяется он: ответы — массивы JSON в <вид>.json, по одному на вызов, последний
-// повторяется; строка — ошибка gh (текст в stderr, код 1), как «API rate limit exceeded»; нет файла — `{}`.
+// повторяется; строка — ошибка gh (текст в stderr, код 1), как «API rate limit exceeded»; `{ __stdout: "<текст>" }` —
+// этот текст в stdout с кодом 0; нет файла — `{}`. Ответ, как у настоящего gh, не кончается переводом строки; файл hint
+// — подсказка, которую gh печатает в stderr рядом с успешным ответом.
 // Пути вызовов `gh api` пишутся в calls; `{owner}/{repo}` в них, как у настоящего gh, — из GH_REPO, если он задан.
 // GraphQL (`gh pr checks`, `gh pr view`) — ошибка: скрипт ходит по REST.
 const FAKE_GH = `#!/usr/bin/env bash
@@ -42,7 +44,10 @@ if [ -n "$GH_REPO" ]; then sed "s#{owner}/{repo}#$GH_REPO#g" <<<"$2"; else echo 
 n=$(cat "$FAKE_GH/$kind.n" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_GH/$kind.n"
 r=$(jq -c --argjson n "$n" '.[$n] // .[-1]' "$FAKE_GH/$kind.json")
 if [[ "$r" == '"'* ]]; then jq -r . <<<"$r" >&2; exit 1; fi
-printf '%s\\n' "$r"
+raw=$(jq -r 'objects | .__stdout // empty' <<<"$r")
+printf '%s' "\${raw:-$r}"
+[ -f "$FAKE_GH/hint" ] && cat "$FAKE_GH/hint" >&2
+exit 0
 `;
 
 /**
@@ -407,6 +412,55 @@ describe("Разовый сбой API до начала опроса — пов�
     write("rules", ["gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)"]);
     const r = waitPr([{ runs: [ok("tests")] }]);
     expect([r.code, r.result]).toEqual([0, "PASS (1 checks)"]);
+  });
+});
+
+/**
+ * gh 2.105 печатает в stderr каждого успешного `gh api …/pulls/<N>` подсказку о `gh event listen` (#887), а ответ API
+ * не кончается переводом строки: `2>&1` клеил её к JSON в одну строку, и каждый jq над PR печатал «jq: parse error:
+ * Invalid numeric literal at line 1, column <длина JSON + 5>» — по три на опрос, сотни строк за 18 минут ожидания, между
+ * ними терялись строки состояния. Итог выходил верным только потому, что jq успевал отдать первое значение.
+ */
+describe("Ожидание разбирает только ответ API, а не stderr gh", () => {
+  const HINT = [
+    "hint: if you need to wait for this pull request to be reviewed, merged, or closed before continuing, use this instead of polling:",
+    "    gh event listen --resource https://github.com/o/r/pull/1 --event com.github.pull_request.state.changed.v1",
+    "  - See `gh event listen --help` for other event types.",
+    "",
+  ].join("\n");
+
+  it("подсказка gh в stderr рядом с ответом API не ломает ожидание чеков", () => {
+    writeFileSync(path.join(sb.dir, "hint"), HINT);
+    // подсказка — у каждого вызова, и у чтения обязательных чеков и workflow: склеенный ответ не должен стереть их молча
+    write("rules", [[{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "tests" }] } }]]);
+    workflow("on: pull_request\n");
+    const preview = status("preview", "success");
+    const r = waitPr([{ statuses: [preview] }, { statuses: [preview], runs: [ok("tests")], workflowRuns: [wfRun("success")] }]);
+    expect([r.code, r.result]).toEqual([0, "PASS (2 checks)"]);
+    expect(lines(r.stdout)).toEqual([
+      expect.stringMatching(/ pr#1@4270c1c: 1\/1 done; missing required: tests; no run of workflow: \.github\/workflows\/ci\.yml$/),
+      expect.stringMatching(/ pr#1@4270c1c: 2\/2 done$/),
+      "RESULT: PASS (2 checks)",
+    ]);
+    expect(lines(r.stderr)).toEqual([
+      expect.stringMatching(/^\d\d:\d\d:\d\d required on main: tests$/),
+      expect.stringMatching(/^\d\d:\d\d:\d\d workflows due on PR: \.github\/workflows\/ci\.yml$/),
+    ]);
+  });
+
+  it("ответ API, который не разобрался, — одна строка с причиной, а не ошибка jq на каждом опросе", () => {
+    const page = "<html><body><h1>502 Bad Gateway</h1></body></html>";
+    write("pull", [{ __stdout: page }, { head: { sha: HEAD }, base: { ref: "main" }, mergeable: true }]);
+    writeChecks([{ runs: [ok("tests")] }]);
+    const r = ciWait(["pr", "1"]);
+    expect([r.code, r.result]).toEqual([0, "PASS (1 checks)"]);
+    expect(lines(r.stderr)).toEqual([expect.stringMatching(/ pr#1: gh error \(1\): response of gh api repos\/\{owner\}\/\{repo\}\/pulls\/1 is not JSON: <html>/)]);
+    // не разбирается ни один ответ — ERROR с той же причиной, как у пяти сбоев gh подряд
+    write("pull", [{ __stdout: page }]);
+    const broken = ciWait(["pr", "1"]);
+    expect(broken.code).toBe(3);
+    expect(broken.result).toStartWith(`ERROR gh: response of gh api repos/{owner}/{repo}/pulls/1 is not JSON: ${page}`);
+    expect(`${broken.stdout}${broken.stderr}`).not.toContain("jq:");
   });
 });
 

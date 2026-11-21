@@ -20,7 +20,8 @@
 # after five in a row; "not found" — only on 404/422.
 #
 # Output: stdout — a state line only when the state changes ("<time> +<elapsed> <what>: 3/5 done; waiting: …")
-#         and the final line "RESULT: PASS|FAIL|TIMEOUT|ERROR …"; stderr — gh errors and notes.
+#         and the final line "RESULT: PASS|FAIL|TIMEOUT|ERROR …"; stderr — gh errors and notes (gh's own stderr of a call
+#         that succeeded — not shown, see api).
 # Exit:  0 PASS · 1 FAIL · 2 TIMEOUT · 3 ERROR or a wrong call. The outcome is the exit code.
 set -uo pipefail
 
@@ -98,6 +99,29 @@ sandbox_refusal() {
     "${BASH_REMATCH[1]}" "$(printf ' %q' "$self" "${call[@]}")"
 }
 
+# api <path> [gh api options]: the response on stdout; code 1 — a gh failure, its stderr text instead (HTTP 404, a rate
+# limit, x509 — what absent, rate_limited and sandbox_refusal read). gh's stderr stays apart from the response (#887):
+# gh 2.105 prints to the stderr of every `gh api …/pulls/<N>` that succeeded a hint about `gh event listen`, the response
+# has no final newline, and `2>&1` stuck the hint to the JSON on the same line — every jq over the PR printed «parse
+# error: Invalid numeric literal», three per poll. The stderr of a call that succeeded isn't shown: the hint is about
+# polling, not the checks, and its nine lines on every poll buried the state lines. A response that isn't one JSON
+# value — code 1 naming the call and the response's start: one poll-error line, not a jq error on every poll.
+gh_err=$(mktemp "${TMPDIR:-/tmp}/wait-ci.XXXXXX") || finish "ERROR mktemp failed" 3
+trap 'rm -f "$gh_err"' EXIT
+api() {
+  local body start
+  if ! body=$(gh api "$@" 2>"$gh_err"); then
+    if [ -s "$gh_err" ]; then cat "$gh_err"; else printf '%s' "$body"; fi
+    return 1
+  fi
+  if ! jq -en '[inputs] | length == 1' <<<"$body" >/dev/null 2>&1; then
+    start=${body:0:120}
+    printf 'response of gh api %s is not JSON: %s' "$1" "${start//$'\n'/ }"
+    return 1
+  fi
+  printf '%s' "$body"
+}
+
 # checks <sha>: the commit's checks into $out — a JSON array {name, bucket}; bucket as in `gh pr checks`:
 # pending | pass | fail | cancel | skipping; paths of the workflows that produced a run at the SHA — into $ran. Code 1 — a gh
 # error, the text in $out.
@@ -130,9 +154,9 @@ ran='[]'
 # check-runs aren't the branch's checks. A run without head_branch and checks of other apps — counted.
 checks() {
   local statuses runs wruns
-  statuses=$(gh api "repos/{owner}/{repo}/commits/$1/status" 2>&1) || { out=$statuses; return 1; }
-  runs=$(gh api "repos/{owner}/{repo}/commits/$1/check-runs?per_page=100" 2>&1) || { out=$runs; return 1; }
-  wruns=$(gh api "repos/{owner}/{repo}/actions/runs?head_sha=$1&per_page=100" 2>&1) || { out=$wruns; return 1; }
+  statuses=$(api "repos/{owner}/{repo}/commits/$1/status") || { out=$statuses; return 1; }
+  runs=$(api "repos/{owner}/{repo}/commits/$1/check-runs?per_page=100") || { out=$runs; return 1; }
+  wruns=$(api "repos/{owner}/{repo}/actions/runs?head_sha=$1&per_page=100") || { out=$wruns; return 1; }
   wruns=$(jq -c --arg b "${2:-}" '(.workflow_runs // []) as $all
     | [$all[] | select($b != "" and .head_branch != null and .head_branch != $b)] as $other
     | .workflow_runs = ($all - $other) | .foreign = [$other[].check_suite_id]' <<<"$wruns")
@@ -152,7 +176,7 @@ checks() {
             | { name: "workflow \(if .name == .path then "not parsed" else "failed without jobs" end): \(.path) \(.html_url)",
                 bucket: "fail" }
           end ]
-    | if $ctx != "" then map(select(.name == $ctx)) else map(select(.name | test($publish) | not)) end' 2>&1)
+    | if $ctx != "" then map(select(.name == $ctx)) else map(select(.name | test($publish) | not)) end' 2>&1) || return 1
 }
 
 # required: names of the base branch's required checks — a ruleset and classic protection. No rules
@@ -162,8 +186,8 @@ required='[]'; required_loaded=""
 absent() { [[ "$1" == *"HTTP 403"* || "$1" == *"HTTP 404"* ]] && ! rate_limited "$1"; }
 load_required() {
   local rules branch
-  rules=$(gh api "repos/{owner}/{repo}/rules/branches/$1" 2>&1) || { absent "$rules" || { out=$rules; return 1; }; rules='[]'; }
-  branch=$(gh api "repos/{owner}/{repo}/branches/$1" 2>&1) || { absent "$branch" || { out=$branch; return 1; }; branch='{}'; }
+  rules=$(api "repos/{owner}/{repo}/rules/branches/$1") || { absent "$rules" || { out=$rules; return 1; }; rules='[]'; }
+  branch=$(api "repos/{owner}/{repo}/branches/$1") || { absent "$branch" || { out=$branch; return 1; }; branch='{}'; }
   required=$(jq -nc --argjson r "$rules" --argjson b "$branch" '
     [ ($r | arrays | .[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context),
       ($b | objects | .protection.required_status_checks // {} | select(.enforcement_level != "off") | (.contexts // [])[]) ]
@@ -213,7 +237,7 @@ pr_expects() {  # stdin — a workflow as JSON (null — not parsed); code 0 —
 load_expected() {  # <sha> <base>
   local list path raw doc exp='[]'
   if [ -z "$workflows" ]; then
-    list=$(gh api "repos/{owner}/{repo}/actions/workflows?per_page=100" 2>&1) || { absent "$list" || { out=$list; return 1; }; list='{}'; }
+    list=$(api "repos/{owner}/{repo}/actions/workflows?per_page=100") || { absent "$list" || { out=$list; return 1; }; list='{}'; }
     workflows=$(jq -c '[(.workflows // [])[] | select(.state == "active" and (.path | startswith(".github/workflows/"))) | .path]' <<<"$list")
   fi
   if [ "$workflows" != '[]' ] && ! command -v bun >/dev/null; then
@@ -221,7 +245,7 @@ load_expected() {  # <sha> <base>
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    raw=$(gh api "repos/{owner}/{repo}/contents/$path?ref=$1" 2>&1) || { [[ "$raw" == *"HTTP 404"* ]] && continue; out=$raw; return 1; }
+    raw=$(api "repos/{owner}/{repo}/contents/$path?ref=$1") || { [[ "$raw" == *"HTTP 404"* ]] && continue; out=$raw; return 1; }
     # not parsed — null; bun itself failing is a poll error, not "not parsed": retry
     doc=$(jq -r '.content // "" | gsub("\n"; "") | @base64d' <<<"$raw" | bun -e '
       const t = await Bun.stdin.text();
@@ -242,7 +266,7 @@ case "$mode" in
     label="pr#$target"; conflict_head=""
     poll() {
       local pull base mergeable
-      pull=$(gh api "repos/{owner}/{repo}/pulls/$target" 2>&1) || {
+      pull=$(api "repos/{owner}/{repo}/pulls/$target") || {
         out=$pull; [[ "$pull" == *"HTTP 404"* ]] && { out="PR #$target not found: $pull"; return 2; }; return 1; }
       base=$(jq -r .base.ref <<<"$pull")
       # the head — on every poll: a new push changes the SHA, we must wait for the checks of the current one
@@ -272,7 +296,7 @@ case "$mode" in
       # for a nonexistent SHA the API silently returns an empty status — the commit is checked before the checks. "Not
       # found" — only 422 "No commit found" or 404; another failure is a poll error: a one-off API failure is not an outcome
       if [ -z "$commit_found" ]; then
-        commit=$(gh api "repos/{owner}/{repo}/commits/$target" --jq .sha 2>&1) || {
+        commit=$(api "repos/{owner}/{repo}/commits/$target" --jq '{sha}') || {
           out=$commit; [[ "$commit" == *"HTTP 422"* || "$commit" == *"HTTP 404"* ]] && { out="commit $target not found in repository: $commit"; return 2; }; return 1; }
         commit_found=1
       fi
@@ -286,7 +310,7 @@ case "$mode" in
     poll() {
       local pull
       if [ -z "$merge_sha" ]; then
-        pull=$(gh api "repos/{owner}/{repo}/pulls/$target" 2>&1) || {
+        pull=$(api "repos/{owner}/{repo}/pulls/$target") || {
           out=$pull; [[ "$pull" == *"HTTP 404"* ]] && { out="PR #$target not found: $pull"; return 2; }; return 1; }
         [ "$(jq -r .merged <<<"$pull")" == true ] || { out="PR #$target not merged (state $(jq -r .state <<<"$pull")) — nothing to wait for"; return 2; }
         # the SHA of our own merge — from the PR: with parallel merges git rev-parse origin/main returns someone else's commit
@@ -303,7 +327,7 @@ case "$mode" in
     label="issue#$target"
     poll() {
       local issue
-      issue=$(gh api "repos/{owner}/{repo}/issues/$target" 2>&1) || {
+      issue=$(api "repos/{owner}/{repo}/issues/$target") || {
         out=$issue; [[ "$issue" == *"HTTP 404"* ]] && { out="issue #$target not found: $issue"; return 2; }; return 1; }
       # closed — the outcome is known right away: a repeated poll, as for checks, is needed for late-registering checks, not for an issue
       [ "$(jq -r .state <<<"$issue")" == closed ] && finish "PASS issue #$target closed ($(jq -r '.state_reason // "closed"' <<<"$issue"))" 0
