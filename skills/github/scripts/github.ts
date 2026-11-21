@@ -1908,7 +1908,8 @@ const isDispatcher = (io: Io) => {
  * An app executor session's (`--assignment N --session`, #624) — `SESSION_HANDOUT` in its place: the dispatcher printed
  * its prompt, the app makes the session's worktree later.
  * A task past the batch (`--assignment N --main`, #697) — `MAIN_HANDOUT` as the line's last word: its PR goes into the
- * default branch, the queue names it so and the batch's release doesn't wait for it.
+ * default branch, the queue names it so and the batch's release doesn't wait for it; the fix of red main handed out into
+ * the batch before its release opened — the same mark, a line `pr premerge` appends (#889, `markPastBatch`).
  */
 const handedOutFile = (io: Io) => {
   const file = dispatcherFile(io);
@@ -1936,11 +1937,14 @@ function handedOut(io: Io, slug: string): HandOut[] {
   return file ? handOutsIn(file, slug) : [];
 }
 
-/** The repository's hand-outs in a `<session id>.tasks` file; no file — none. */
+/**
+ * The repository's hand-outs in a `<session id>.tasks` file; no file — none. A task's line past the batch — the mark
+ * of each of its lines: `pr premerge` appends it to a hand-out of the batch (#889, `markPastBatch`).
+ */
 function handOutsIn(file: string, slug: string): HandOut[] {
   if (!existsSync(file)) return [];
   const lines = readFileSync(file, "utf8").split("\n").map((l) => l.trim());
-  return lines
+  const all = lines
     .filter((l) => l.startsWith(`${slug}#`))
     .map((l) => {
       const [number, ...rest] = l.slice(slug.length + 1).split(" ");
@@ -1950,6 +1954,29 @@ function handOutsIn(file: string, slug: string): HandOut[] {
       return { number: Number(number), worktree: executor === "subagent" ? worktree || null : null, executor, main };
     })
     .filter((h) => Number.isInteger(h.number) && h.number > 0);
+  const past = new Set(all.filter((h) => h.main).map((h) => h.number));
+  return all.map((h) => ({ ...h, main: past.has(h.number) }));
+}
+
+/**
+ * The hand-outs of `numbers` this dispatcher gave into its batch, marked past it (#889): the task's last line again with
+ * `MAIN_HANDOUT` — appended, not rewritten: executors append to the file in parallel. Then `task finish`, a restart and
+ * the queue lead the task into the default branch, as `--main`'s. Not handed out here or marked already — nothing. The
+ * numbers marked.
+ */
+function markPastBatch(io: Io, slug: string, numbers: number[]): number[] {
+  const file = handedOutFile(io);
+  if (!file) return [];
+  const handed = handOutsIn(file, slug);
+  const marked: number[] = [];
+  for (const n of numbers) {
+    const last = handed.filter((h) => h.number === n).at(-1);
+    if (!last || last.main) continue;
+    const where = last.executor === "session" ? SESSION_HANDOUT : (last.worktree ?? "");
+    appendFileSync(file, `${slug}#${n}${where ? ` ${where}` : ""} ${MAIN_HANDOUT}\n`);
+    marked.push(n);
+  }
+  return marked;
 }
 
 /**
@@ -6543,7 +6570,10 @@ function bugNames(base: string, title: string, check: string): boolean {
  * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null. The
  * open release red and the PR one of its task's (#650: the task branch or «Closes #N» — `prTasks`, the release's
  * «Closes #N») — the guilty task's fix: null, the PR is checked as usual; a live executor's PR (its task isn't in the
- * release) and any PR while the release is green or running — held.
+ * release) and any PR while the release is green or running — held. Held but the fix of red main (#889: it closes an
+ * open «<base> is red…» bug — handed out into the batch before the release opened) — code 1, the PR moves into the
+ * default branch: held, it would wait for the release, and the release for the bug's close; its hand-out is marked past
+ * the batch (`markPastBatch`), the rebase takes only the task's commits — the batch isn't released.
  */
 function batchBase(io: Io, slug: string, number: number, pr: Any): number | null {
   const base: string = pr.base.ref;
@@ -6552,8 +6582,15 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   const rows: Any[] = restCall(io, ["api", `repos/${slug}/pulls?state=all&head=${encodeURIComponent(`${owner}:${base}`)}&per_page=10`]) ?? [];
   const release = releaseOf(rows, base, main);
   if (!release) return null;
+  const tasks = prTasks(pr);
+  /** The move to `target` — the base, the rebase, the push and what follows: a PR into a batch runs no CI (#676), into the default branch — the full CI. */
+  const move = (target: string, rebase: string) =>
+    `the PR moves to ${target}: gh pr edit ${number} --base ${target}, then git fetch origin ${target}, ${rebase}, git push --force-with-lease, ` +
+    (target === main
+      ? `ci-wait, pr premerge ${number} again; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}), the epic refresh and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
+      : `pr premerge ${number} again; in the batch ${target} the task waits for its release, as before: no CI wait, no deploy wait, no epic refresh and no task close`);
   if (release.state === "OPEN") {
-    const ofRelease = prTasks(pr).filter((n) => prOfTask(release, n));
+    const ofRelease = tasks.filter((n) => prOfTask(release, n));
     const checks = ofRelease.length ? releaseChecks(io, slug, release) : null;
     if (checks?.state === "red") {
       io.out(
@@ -6561,6 +6598,26 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
           `the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #${release.number}`,
       );
       return null;
+    }
+    const closes = closingInBody(pr.body ?? "");
+    let bug: { number: number; title: string } | undefined;
+    if (closes.length) {
+      try {
+        bug = mainBugsOf(io, slug, main).find((b) => closes.includes(b.number));
+      } catch (e) {
+        if (!(e instanceof GhError)) throw e;
+        io.out(`○ open bug on red ${main} not found by search: ${e.message} — the PR is held as a task of the batch`);
+      }
+    }
+    if (bug) {
+      for (const n of markPastBatch(io, slug, tasks)) {
+        io.out(`+ #${n}: the hand-out goes past the batch ${base} now (${MAIN_HANDOUT}) — task finish, a restart and task queue lead it into ${main}, not as a task of the release`);
+      }
+      io.out(
+        `❌ don't merge: ${base} is being released — PR #${release.number} into ${main}, and PR #${number} closes bug #${bug.number} «${bug.title}» on red ${main}, whose close the release waits for: ` +
+          `held, the bug would wait for the release — ${move(main, `git rebase --onto origin/${main} origin/${base} (only the task's commits: the batch's go with its release)`)}`,
+      );
+      return 1;
     }
     io.out(
       `❌ don't merge: ${base} is being released — PR #${release.number} into ${main}: a merge into the batch now would change the release its CI checked. ` +
@@ -6571,16 +6628,7 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   }
   const next = batchOf(io, slug);
   const target = next && next !== base ? next : main;
-  const tasks = prTasks(pr);
-  // a PR into a batch runs no CI (#676): into the next batch — no ci-wait, into the default branch — the full CI
-  const after =
-    target === main
-      ? `ci-wait, pr premerge ${number} again; into ${main} the task leaves the batch: the full CI, after the merge — the deploy wait (bash ${waitCi()} merged ${number}), the epic refresh and task close ${tasks.length ? tasks.join(", ") : "<N>"}, as outside a batch`
-      : `pr premerge ${number} again; in the batch ${target} the task waits for its release, as before: no CI wait, no deploy wait, no epic refresh and no task close`;
-  io.out(
-    `❌ don't merge: ${base} is released by PR #${release.number} — the PR moves to ${target}: gh pr edit ${number} --base ${target}, ` +
-      `then git fetch origin ${target}, git rebase origin/${target} (the batch's commits are in it already — the rebase drops them), git push --force-with-lease, ${after}`,
-  );
+  io.out(`❌ don't merge: ${base} is released by PR #${release.number} — ${move(target, `git rebase origin/${target} (the batch's commits are in it already — the rebase drops them)`)}`);
   return 1;
 }
 
@@ -7272,7 +7320,8 @@ a new batch with a ready task, a released batch branch without an open PR into i
 --main — the owner's word «past the batch»: the assignment as in a project without batches (the branch from origin/<base>, the PR
 into it with the full CI, the deploy, the epic refresh, task close), the hand-out marked — a restart keeps it, task
 finish opens the PR into the default branch, the queue's = line says «past the batch» and the release doesn't wait for
-it; a task of a red release refuses it.
+it; a task of a red release refuses it. The same mark comes from pr premerge for the fix of red main handed out into the
+batch before its release opened.
 --tasks N,M,… — the dispatcher's group, the owner's chosen tasks (kept in the marker's queue command): only they are handed out, the batch's release —
 once they are merged; after it a new batch — only from the group's tasks still open; nothing left — no new batch, the
 last line says so. Tasks created meanwhile (by executors, the epic refresh) join only by the owner's word: task queue
@@ -7347,12 +7396,13 @@ ELVES_TASK — the number of the PR's branch — for task-env up on the detached
 CI, so no ci-wait before it: the head on a fresh origin/<batch> — code 0 without checks (the checks before a commit
 checked this tree), the batch moved on — the fast checks on the merge with it. The
 batch's release PR open — code 1 and the wait for its close, but red with the PR of one of its tasks — the guilty task's
-fix, checked as usual; merged — code 1 and the move: into the dispatcher's next
-batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the base by their
-changes (git cherry) — code 1 and a rebase. The PR changes decisions whose labels its tasks or their epics lack (pr
-labels wasn't run) — code 1 and pr labels <N>, on every path to the merge. A PR with files in tests/ — red on base
-first, on every path too (spec-red of the spec skill): an added test green on the base code, or an existing-behavior
-mark on a test red there — code 1.
+fix, checked as usual; a PR closing an open «<base> is red…» bug — code 1 and the move into the default branch, its
+hand-out marked past the batch (@main): the release waits for that bug; merged — code 1 and the move: into the
+dispatcher's next batch or, without one, the default branch, then a rebase onto it. The PR's commits already in the
+base by their changes (git cherry) — code 1 and a rebase. The PR changes decisions whose labels its tasks or their
+epics lack (pr labels wasn't run) — code 1 and pr labels <N>, on every path to the merge. A PR with files in tests/ —
+red on base first, on every path too (spec-red of the spec skill): an added test green on the base code, or an
+existing-behavior mark on a test red there — code 1.
 
 Examples:
   github pr premerge 57`,

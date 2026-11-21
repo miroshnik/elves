@@ -939,7 +939,17 @@ now would change what the release's CI checked. Open and red with the PR of
 one of its tasks (the task branch or `Closes #N` — the release's `Closes #N`)
 — the guilty task's fix (#650): an `○` line, the check goes on as usual; a
 live executor's PR (its task isn't in the release) and any PR while the
-release is green or running — held, as above. Merged — code `1` and the
+release is green or running — held, as above. Held, but it closes an open
+«`<base>` is red…» bug (#889: handed out into the batch before the release
+opened) — code `1` and the move into the default branch: held, the bug would
+wait for the release, and the release for the bug's close ("Red main"); a
+rebase of the task's commits only (`git rebase --onto origin/<main>
+origin/<batch>` — the batch isn't released), `push --force-with-lease`,
+`ci-wait`, `premerge` again, and the task leaves the batch, as below; its
+hand-out in this session gets the mark `@main` (a line appended to
+`<marker>.tasks`), so `task finish`, a restart and `task queue` lead it on
+into the default branch, as `--main`'s, not as a task of the release.
+Merged — code `1` and the
 move: `gh pr edit <N> --base <T>`, a rebase onto `origin/<T>` (the batch's
 commits are there already, rebased, with other SHAs — GitHub's rebase merge
 would replay them), `push --force-with-lease`, `premerge` again (into the
@@ -1003,7 +1013,10 @@ goes past the batch: the dispatcher's `task queue` with the bug in its group
 (`--tasks …,<N>`) hands it out with `--main`, its PR into the default branch
 with the full CI; merged into the batch it would wait for this very release.
 `Next:` — that hand-out first, then the bug's wait and `pr premerge <R>` again
-(not `task finish` of a task in the release's `Closes`).
+(not `task finish` of a task in the release's `Closes`). A bug handed out into
+the batch before the release opened (#889) — its PR into the batch doesn't
+wait for the release either: `pr premerge` moves it into the default branch
+and marks its hand-out `@main` ("pr premerge", a PR into a batch branch).
 
 A task's own regression (#699) has no «`<base>` is red…» bug: the bug is the
 reopened task, and its fix is a PR that closes it. So a PR whose `Closes #N`
@@ -1297,8 +1310,11 @@ and a task PR into the batch runs no CI (`skills/spec/ci.md`, "Batches").
   release is open goes past the batch without the owner's word (#886): the
   release's `pr premerge` waits for its close, and its merge into the batch
   would wait for the release — the queue prints its prompt with `--main`, the
-  assignment names that reason instead of the owner's word. A session outside
-  the dispatcher (one task, a hotfix) — into the default branch.
+  assignment names that reason instead of the owner's word. Handed out into
+  the batch before its release opened, its PR gets the same way from `pr
+  premerge` — the move into the default branch and `@main` (#889, "pr
+  premerge"). A session outside the dispatcher (one task, a hotfix) — into the
+  default branch.
 
 ### batch release
 
