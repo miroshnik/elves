@@ -161,6 +161,9 @@ export interface Names {
      */
     fixLead: string;
     fixPrevious: string;
+    /** The fix's cause (`{cause}` of the fix leads): the failed checks' logs, the ❌ lines of `pr premerge` (#884) — joined. */
+    fixCauseChecks: string;
+    fixCausePremerge: string;
     sessionFixLead: string;
     /** The assignment refused: the task's previous executor or its subagent is alive (#565). */
     alive: string;

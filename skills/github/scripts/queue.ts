@@ -56,6 +56,7 @@ export const TRANSITIONS: readonly Transition[] = [
   { from: "prOpen", event: "fixMerged", to: "releaseOpen", by: "executor" },
   { from: "inBatch", event: "releaseOpened", to: "releaseOpen", by: "dispatcher", step: "release" },
   { from: "releaseOpen", event: "checksRed", to: "releaseRed", by: "GitHub", step: "releaseSteps" },
+  { from: "releaseOpen", event: "premergeRed", to: "releaseRed", by: "dispatcher" },
   { from: "releaseOpen", event: "releaseMerged", to: "released", by: "dispatcher" },
   { from: "releaseRed", event: "fixOpened", to: "prOpen", by: "executor", step: "fix" },
   { from: "releaseRed", event: "fixMerged", to: "releaseOpen", by: "executor" },
@@ -148,9 +149,15 @@ export interface BatchFacts {
   batch: string | null;
   /** The default branch. */
   base: string;
-  /** The batch's release PR while it is open, its checks red or not; none open — null. */
-  release: { number: number; red: boolean } | null;
+  /**
+   * The batch's release PR while it is open: its checks red or not, `pr premerge` red on its head or not (#884: CI green,
+   * spec-red of a test marked existing behavior against the batch — red on the default branch's code); none open — null.
+   */
+  release: { number: number; red: boolean; premerge: boolean } | null;
 }
+
+/** The release is red (#650, #884): by its checks or by `pr premerge` on its head — either refuses the merge, its fix is the batch's. */
+export const releaseIsRed = (r: { red: boolean; premerge: boolean }) => r.red || r.premerge;
 
 /** A task in work for the batch's release: a live executor of the batch holds it, one merged into it is settled, one past it doesn't hold. */
 export type Role = "holds" | "settled" | "past";
@@ -186,7 +193,7 @@ export function entryOf(f: TaskFacts, b: BatchFacts): Entry {
   const waits = f.mainRed && b.release !== null ? `the release PR #${b.release.number} waits for its close` : "the release doesn't wait for it";
   if (b.batch !== null && f.handOut?.main && f.inBatch === null) work.push(`past the batch ${b.batch} (--main): its PR goes into ${b.base} with the full CI — ${waits}`);
   if (work.length) {
-    const state: QueueState = closer !== null ? "released" : f.openPr !== null ? "prOpen" : f.inBatch !== null ? (b.release === null ? "inBatch" : b.release.red ? "releaseRed" : "releaseOpen") : "handedOut";
+    const state: QueueState = closer !== null ? "released" : f.openPr !== null ? "prOpen" : f.inBatch !== null ? (b.release === null ? "inBatch" : releaseIsRed(b.release) ? "releaseRed" : "releaseOpen") : "handedOut";
     return entry(state, "=", work.join(", "), roleOf(f, b));
   }
   const blockers = holdingBlockers(f.blockers);
@@ -230,7 +237,7 @@ export function stepOf(e: Entry): Step | null {
  * (red — the fix; otherwise its steps): a release isn't a task of the queue, a group without its tasks sees it too.
  */
 export function queueStep(entries: Entry[], b: BatchFacts): Step {
-  const release: Step | null = b.release === null ? null : stateStep(b.release.red ? "releaseRed" : "releaseOpen");
+  const release: Step | null = b.release === null ? null : stateStep(releaseIsRed(b.release) ? "releaseRed" : "releaseOpen");
   const steps = [...entries.map(stepOf), release];
   return STEPS.find((s) => steps.includes(s)) ?? "empty";
 }
@@ -289,6 +296,7 @@ export interface ReleaseTransition {
 export const RELEASE_TRANSITIONS: readonly ReleaseTransition[] = [
   { from: "none", event: "opened", to: "open", by: "batch release" },
   { from: "open", event: "checksRed", to: "red", by: "GitHub" },
+  { from: "open", event: "premergeRed", to: "red", by: "dispatcher" },
   { from: "open", event: "merged", to: "merged", by: "dispatcher", step: "checks" },
   { from: "red", event: "fixMerged", to: "open", by: "executor", step: "fix" },
   { from: "merged", event: "nextBatch", to: "none", by: "dispatcher", step: "close" },
@@ -299,9 +307,12 @@ export function releaseTransition(from: ReleaseState, event: string): ReleaseSta
   return RELEASE_TRANSITIONS.find((t) => t.from === from && t.event === event)?.to ?? null;
 }
 
-/** What `batch release` knows of the release: its PR — merged, or open with its checks red or not; none — null. */
+/**
+ * What `batch release` knows of the release: its PR — merged, or open with its checks red or not and `pr premerge` red
+ * on its head or not; none — null.
+ */
 export interface ReleaseFacts {
-  pr: { merged: boolean; red: boolean } | null;
+  pr: { merged: boolean; red: boolean; premerge: boolean } | null;
   /** The PRs with tasks merged into the batch branch: none — nothing to release. */
   merged: number;
 }
@@ -309,7 +320,7 @@ export interface ReleaseFacts {
 /** The release's state by its facts. */
 export function releaseStateOf(f: ReleaseFacts): ReleaseState {
   if (f.pr === null) return "none";
-  return f.pr.merged ? "merged" : f.pr.red ? "red" : "open";
+  return f.pr.merged ? "merged" : releaseIsRed(f.pr) ? "red" : "open";
 }
 
 /** A release state's step — of its first transition with one (`RELEASE_TRANSITIONS`); none — null. */
@@ -329,8 +340,9 @@ export function releaseRun(f: ReleaseFacts): { from: ReleaseState; to: ReleaseSt
 
 /**
  * The fix of a red release, the first that holds: a fix PR of its task open into the batch — wait for it; the guilty
- * task named — its fix; not named by the labels — `batch release` names it by the bisect; not named after the bisect —
- * the dispatcher by the failed checks' logs, or the owner.
+ * task named — its fix; not named by the labels — `batch release` names it by the bisect; not named after the bisect,
+ * or red only by `pr premerge` (#884: nothing to bisect — the machine reproduces a check, and every check is green) —
+ * the dispatcher by the failed checks' logs and the ❌ lines of `pr premerge`, or the owner.
  */
 export const FIXES = ["wait", "guilty", "bisect", "owner"] as const;
 export type Fix = (typeof FIXES)[number];
@@ -343,11 +355,13 @@ export interface FixFacts {
   guilty: boolean;
   /** The caller bisects — `batch release`; the queue names the guilty task by the labels only. */
   bisects: boolean;
+  /** A check of the release's CI is red — the bisect reproduces it on the machine; red only by `pr premerge` — none (#884). */
+  bisectable: boolean;
 }
 
 /** The fix of a red release by its facts (`FIXES`). */
 export function redFix(f: FixFacts): Fix {
   if (f.fixing) return "wait";
   if (f.guilty) return "guilty";
-  return f.bisects ? "owner" : "bisect";
+  return f.bisects || !f.bisectable ? "owner" : "bisect";
 }
