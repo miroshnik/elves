@@ -5,7 +5,7 @@
  * counted as coverage that caught no breakage. Here it is a mechanism: `github pr premerge` runs it once per PR, before
  * the merge.
  *
- *   bun spec-red.ts [--base origin/main] [--head HEAD] [--root DIR]
+ *   bun spec-red.ts [--base origin/main] [--also REF] [--head HEAD] [--root DIR]
  *
  * The added tests — spec-diff's `added` by static parsing: a harness test only a run names isn't in it (an invariant
  * has its own violator), nor a renamed or moved one. The base — the merge-base of `--base` and the head. In a temporary
@@ -17,6 +17,12 @@
  * A test of existing behavior (a migrated spec, a test «from code» by a decision's trace) — a mark in a comment right
  * before its `it` or its `describe`: `// spec-existing #N: reason`. It must be green on the base; red — ❌ «the mark
  * isn't needed» (a ratchet). A mark without the number or the reason, or not before a test — ❌.
+ *
+ * The second base `--also` (#892) — a PR into a batch: the base is the batch, its release's base is main, and a test of
+ * the behavior another task of the batch brought is green on the batch, red on main. The added tests green on the base
+ * run on the code of `--also` too (its merge-base with the head; the same commit — no second run): red there without
+ * the mark — ✅, the test checks what the base adds to it; with the mark — ❌ «the mark isn't needed» against it, the
+ * release would be red by it; green there too — the verdict as without the second base.
  *
  * The runner — by the file's import (`bun:test`, `vitest`, `@jest/globals`), otherwise by the project's dependencies
  * (Vitest, Jest), otherwise bun test in a Bun project. e2e (Playwright — the app runs from the task's stack, not from
@@ -41,19 +47,20 @@ import { addedTests } from "./spec-diff.ts";
 import * as L from "./speclib.ts";
 import type { Existing, Test } from "./speclib.ts";
 
-const USAGE = "spec-red [--base origin/main] [--head HEAD] [--root DIR]";
+const USAGE = "spec-red [--base origin/main] [--also REF] [--head HEAD] [--root DIR]";
 /** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 Red on base: the tests the head adds (spec-diff, statically) run on the base code — a temporary worktree at the
 merge-base with the head's tests/ — and must fail there; green — ❌ with the test's name. A test of existing behavior
 carries a mark before its it or describe, // spec-existing #N: reason, and must be green there; red — ❌, the mark isn't
-needed. Runners: bun test, Vitest, Jest; e2e — not checked. Code 0 — every checked test passes, 1 — there is a ❌, 2 — a
-call error or the run didn't finish.
+needed. --also REF — a second base, a batch's release base: an added test green on the base runs on its code too; red
+there — it checks what the base adds to REF: passes without the mark, with the mark — ❌. Runners: bun test, Vitest, Jest;
+e2e — not checked. Code 0 — every checked test passes, 1 — there is a ❌, 2 — a call error or the run didn't finish.
 
 Examples:
   spec-red
-  spec-red --base origin/batch/2026-11-16-1 --head 1a2b3c4`;
+  spec-red --base origin/batch/2026-11-16-1 --also origin/main --head 1a2b3c4`;
 
 /** A run of the base longer than this is a hang, not a slow test: the run is stopped, code 2. */
 const RUN_TIMEOUT_MS = 10 * 60_000;
@@ -181,7 +188,7 @@ export type Outcome = { kind: "red"; loaded: boolean } | { kind: "green" } | { k
  * checked; no record — its file isn't in the report at all and the run failed: the file didn't load, red; otherwise
  * the test didn't run under its static name — not checked.
  */
-export function outcomesOf(tests: Test[], reported: Test[], status: number | null): Outcome[] {
+export function outcomesOf(tests: Test[], reported: Test[], status: number | null, where = "base"): Outcome[] {
   const files = new Set(reported.map((t) => t.path));
   return tests.map((t): Outcome => {
     const found = reported.filter((r) => sameTest(r, t));
@@ -189,7 +196,7 @@ export function outcomesOf(tests: Test[], reported: Test[], status: number | nul
       const s = found.map((r) => r.status).reduce(L.combineStatus);
       if (s === "failed") return { kind: "red", loaded: true };
       if (s === "passed") return { kind: "green" };
-      return { kind: "unchecked", why: `${s} on base` };
+      return { kind: "unchecked", why: `${s} on ${where}` };
     }
     if (!files.has(t.path) && status !== 0) return { kind: "red", loaded: false };
     return { kind: "unchecked", why: "not in the run under this name (computed at run time?)" };
@@ -197,6 +204,76 @@ export function outcomesOf(tests: Test[], reported: Test[], status: number | nul
 }
 
 const markAt = (t: Test, m: Existing) => `${t.path}:${m.line}`;
+
+/** A checkout: its git top, the root's path in it (a workspace package) and the head. */
+interface Checkout {
+  top: string;
+  prefix: string;
+  head: string;
+}
+
+/**
+ * The tests on the code of `base` with the head's `tests/`, in a temporary worktree: each run test's outcome and the ○
+ * lines of the files not run. `where` — the base's name in the lines: «base» or the second base's ref.
+ */
+function runOn(c: Checkout, base: string, tests: Test[], where: string): { results: Map<Test, Outcome>; unchecked: string[] } {
+  const files = [...new Set(tests.map((t) => t.path))].sort();
+  const the = where === "base" ? "the base" : where;
+  const results = new Map<Test, Outcome>();
+  const unchecked: string[] = [];
+  const io: Io = {
+    gh: () => {
+      throw new Error("spec-red: gh isn't needed");
+    },
+    out: (l) => console.log(l),
+    err: (l) => console.error(l),
+    env: process.env,
+    cwd: c.top,
+  };
+  inTempWorktree(io, `${PREFIX}-${process.pid}`, base, (dir) => {
+    git(["restore", `--source=${c.head}`, "--worktree", "--", c.prefix ? `${c.prefix}/${L.TESTS}` : L.TESTS], dir);
+    const root = path.join(dir, c.prefix);
+    // dependencies by the lockfile of the root, in a workspace — of the git top
+    const installIn = projectCommands(root).install ? root : dir;
+    const install = projectCommands(installIn).install;
+    const deps = depsOf(root);
+    const manager = packageManager(root).name;
+    const byRunner = new Map<Runner | null, string[]>();
+    for (const f of files) {
+      const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), deps, manager);
+      byRunner.set(r, [...(byRunner.get(r) ?? []), f]);
+    }
+    for (const f of byRunner.get("playwright") ?? []) unchecked.push(`○ ${f}: e2e — not checked on ${where} (the app runs from the task's stack, not from the base code)`);
+    for (const f of byRunner.get(null) ?? []) unchecked.push(`○ ${f}: the runner isn't recognized (no bun:test, vitest or @jest/globals import, no Vitest or Jest in package.json) — not checked`);
+    const runnable = ([...byRunner] as [Runner | null, string[]][]).filter((e): e is [Exclude<Runner, "playwright">, string[]] => e[0] !== null && e[0] !== "playwright");
+    if (!runnable.length) return;
+    if (install) {
+      const r = run(install, installIn);
+      if (r.status !== 0) throw new Failure(`installing dependencies on ${the} failed (${install.join(" ")}):\n${tail(r.out)}`);
+    }
+    const reports = mkdtempSync(path.join(os.tmpdir(), "elves-red-report-"));
+    try {
+      for (const [runner, group] of runnable) {
+        const ofGroup = tests.filter((t) => group.includes(t.path));
+        const report = path.join(reports, `${runner}.${runner === "bun" ? "xml" : "json"}`);
+        const cmd = commandOf(runner, group, namePattern(ofGroup), report, (name) => binOf(name, root, dir));
+        if (!cmd) {
+          for (const f of group) unchecked.push(`○ ${f}: ${runner} isn't installed on ${the} (node_modules/.bin/${runner}) — not checked`);
+          continue;
+        }
+        const r = run(cmd, root);
+        let reported: Test[] = [];
+        if (existsSync(report)) reported = L.loadReport(report, root);
+        // no test ran — no file loaded: bun test writes no report then, and its summary is there, red
+        else if (r.status === 0 || summaryOf(r.out)?.passed !== 0) throw new Failure(`${runner} wrote no report — the run on ${the} didn't finish (code ${r.status}):\n${tail(r.out)}`);
+        outcomesOf(ofGroup, reported, r.status, where).forEach((o, i) => results.set(ofGroup[i]!, o));
+      }
+    } finally {
+      rmSync(reports, { recursive: true, force: true });
+    }
+  });
+  return { results, unchecked };
+}
 
 export async function main(argv: string[]): Promise<number> {
   let opts;
@@ -206,6 +283,7 @@ export async function main(argv: string[]): Promise<number> {
       options: {
         base: { type: "string", default: "origin/main" },
         head: { type: "string", default: "HEAD" },
+        also: { type: "string" },
         root: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -249,65 +327,30 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
 
-    const results = new Map<Test, Outcome>();
-    const unchecked: string[] = [];
-    const io: Io = {
-      gh: () => {
-        throw new Error("spec-red: gh isn't needed");
-      },
-      out: (l) => console.log(l),
-      err: (l) => console.error(l),
-      env: process.env,
-      cwd: top,
-    };
-    inTempWorktree(io, `${PREFIX}-${process.pid}`, base, (dir) => {
-      git(["restore", `--source=${head}`, "--worktree", "--", rel(L.TESTS)], dir);
-      const root = path.join(dir, prefix);
-      // dependencies by the lockfile of the root, in a workspace — of the git top
-      const installIn = projectCommands(root).install ? root : dir;
-      const install = projectCommands(installIn).install;
-      const deps = depsOf(root);
-      const manager = packageManager(root).name;
-      const byRunner = new Map<Runner | null, string[]>();
-      for (const f of files) {
-        const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), deps, manager);
-        byRunner.set(r, [...(byRunner.get(r) ?? []), f]);
-      }
-      for (const f of byRunner.get("playwright") ?? []) unchecked.push(`○ ${f}: e2e — not checked on base (the app runs from the task's stack, not from the base code)`);
-      for (const f of byRunner.get(null) ?? []) unchecked.push(`○ ${f}: the runner isn't recognized (no bun:test, vitest or @jest/globals import, no Vitest or Jest in package.json) — not checked`);
-      const runnable = ([...byRunner] as [Runner | null, string[]][]).filter((e): e is [Exclude<Runner, "playwright">, string[]] => e[0] !== null && e[0] !== "playwright");
-      if (!runnable.length) return;
-      if (install) {
-        const r = run(install, installIn);
-        if (r.status !== 0) throw new Failure(`installing dependencies on the base failed (${install.join(" ")}):\n${tail(r.out)}`);
-      }
-      const reports = mkdtempSync(path.join(os.tmpdir(), "elves-red-report-"));
-      try {
-        for (const [runner, group] of runnable) {
-          const tests = added.filter((t) => group.includes(t.path));
-          const report = path.join(reports, `${runner}.${runner === "bun" ? "xml" : "json"}`);
-          const cmd = commandOf(runner, group, namePattern(tests), report, (name) => binOf(name, root, dir));
-          if (!cmd) {
-            for (const f of group) unchecked.push(`○ ${f}: ${runner} isn't installed on the base (node_modules/.bin/${runner}) — not checked`);
-            continue;
-          }
-          const r = run(cmd, root);
-          let reported: Test[] = [];
-          if (existsSync(report)) reported = L.loadReport(report, root);
-          // no test ran — no file loaded: bun test writes no report then, and its summary is there, red
-          else if (r.status === 0 || summaryOf(r.out)?.passed !== 0) throw new Failure(`${runner} wrote no report — the run on the base didn't finish (code ${r.status}):\n${tail(r.out)}`);
-          outcomesOf(tests, reported, r.status).forEach((o, i) => results.set(tests[i]!, o));
-        }
-      } finally {
-        rmSync(reports, { recursive: true, force: true });
-      }
-    });
+    const checkout: Checkout = { top, prefix, head };
+    const { results, unchecked } = runOn(checkout, base, added, "base");
+    // the second base (#892): the tests green on the base run on its code too — a PR into a batch, the release's base
+    const green = [...results].filter(([, o]) => o.kind === "green").map(([t]) => t);
+    let also = new Map<Test, Outcome>();
+    const second = v.also && green.length ? git(["merge-base", v.also, head], top).trim() : base;
+    if (v.also && second !== base) {
+      console.log(`spec-red: ${green.length} added ${green.length > 1 ? "tests" : "test"} green on base — on the code of ${v.also} too, ${second.slice(0, 7)} (merge-base with ${v.also})`);
+      const r = runOn(checkout, second, green, v.also);
+      also = r.results;
+      unchecked.push(...r.unchecked);
+    }
 
     let red = 0;
     let existing = 0;
+    let ahead = 0;
     for (const [t, o] of results) {
       const mark = t.existing;
+      const there = also.get(t);
+      if (there?.kind === "unchecked") unchecked.push(`○ ${there.why} — not checked: ${nameOf(t)}`);
       if (o.kind === "unchecked") unchecked.push(`○ ${o.why} — not checked: ${nameOf(t)}`);
+      else if (o.kind === "green" && there?.kind === "red" && mark)
+        bad.push(`❌ red on ${v.also}, yet marked existing behavior (${markAt(t, mark)}) — against ${v.also} the mark isn't needed: the release adds the behavior, remove it: ${nameOf(t)}`);
+      else if (o.kind === "green" && there?.kind === "red") ahead++;
       else if (o.kind === "green" && mark) existing++;
       else if (o.kind === "green")
         bad.push(`❌ green on base: ${nameOf(t)} — it doesn't check the PR's change: make it fail without the PR's code, or mark existing behavior right before its it or describe: // spec-existing #N: reason`);
@@ -316,6 +359,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     for (const l of [...unchecked, ...bad]) console.log(l);
     if (red) console.log(`✅ ${red} added ${red > 1 ? "tests are" : "test is"} red on base`);
+    if (ahead) console.log(`✅ ${ahead} added ${ahead > 1 ? "tests" : "test"} green on base ${ahead > 1 ? "are" : "is"} red on ${v.also} — ${ahead > 1 ? "they check" : "it checks"} what the base adds to ${v.also}`);
     if (existing) console.log(`✅ ${existing} existing-behavior ${existing > 1 ? "tests are" : "test is"} green on base`);
     console.log(`spec-red: ${bad.length ? `${bad.length} ❌` : "every checked test passes"}${unchecked.length ? `, ${unchecked.length} not checked` : ""}`);
     return bad.length ? 1 : 0;

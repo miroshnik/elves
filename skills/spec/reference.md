@@ -494,6 +494,17 @@ with files in `tests/`, on every path to the merge (`skills/ci-wait/reference.md
   exception's. Such a test must be green on the base; red — ❌ «the mark
   isn't needed» (a ratchet). A mark without the number or the reason, or
   not before a test — ❌.
+- **The second base** — `--also <ref>` (#892): a PR into a batch is checked
+  against the batch, its release against `main`, and a test of the behavior
+  another task of the batch brought is green on the batch and red on `main`.
+  `pr premerge` passes `--also origin/<main>` for a PR into a batch; the added
+  tests green on the base run on the code of `--also` too (its merge-base
+  with the head; the same commit as the base's — no second run). Red there
+  without the mark — ✅, the test checks what the base adds to `main`; with
+  the mark — ❌ «the mark isn't needed» against `main`: the release would be
+  red by it. Green there too — the verdict as without the second base. The
+  mark on a PR into a batch so means the behavior is in `main` already — what
+  the release checks.
 - **Interruption** — a signal to the run's process group (Ctrl-C, a closed
   session) stops the runner, and the worktree is removed; a run killed
   without that chance (kill -9) left its worktree — the next run removes it

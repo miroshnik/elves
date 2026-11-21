@@ -118,6 +118,47 @@ describe("Тест существующего поведения — отмет�
 });
 
 /**
+ * PR в пачку проверяется против пачки, её выпуск — против main (#892). Тест поведения, которое в пачку принесла другая
+ * её задача, против пачки зелёный, на коде main — красный: пометка spec-existing у него неверна против main и всплыла бы
+ * только на выпуске. Вторая база `--also` — main: на ней идут только добавленные тесты, зелёные против пачки.
+ */
+describe("Вторая база: пометка spec-existing на PR в пачку сверяется с main", () => {
+  const BATCH = "batch/2026-11-21-1";
+  /** Пачка от main: задача А починила сложение; ветка задачи Б — от пачки, в ней только её тест. */
+  function batchTask(body: string) {
+    repo.git("switch", "-q", "-c", BATCH, "main");
+    repo.commit(FIX, "task A");
+    repo.git("switch", "-q", "-c", "feat/2-sum-test");
+    repo.commit({ [SUM_TEST]: testFile(body) }, "task B");
+    return runScript("spec-red", ["--base", BATCH, "--also", "main"], dir);
+  }
+
+  it("Добавленный тест, зелёный против пачки и красный на коде main, без пометки проходит, а с пометкой — ошибка: поведение добавляет выпуск", () => {
+    const plain = batchTask('describe("сумма", () => {\n  it("складывает два числа", () => expect(sum(1, 2)).toBe(3));\n});');
+    expect(plain.stdout).toContain("✅ 1 added test green on base is red on main — it checks what the base adds to main");
+    expect(plain.stdout).toContain("spec-red: every checked test passes");
+    expect(plain.code).toBe(0);
+    expect(worktrees()).toHaveLength(1);
+
+    repo.commit({ [SUM_TEST]: testFile('describe("сумма", () => {\n  // spec-existing #12: сложение принесла задача пачки\n  it("складывает два числа", () => expect(sum(1, 2)).toBe(3));\n});') }, "mark");
+    const marked = runScript("spec-red", ["--base", BATCH, "--also", "main"], dir);
+    expect(marked.code).toBe(1);
+    expect(marked.stdout).toContain(`❌ red on main, yet marked existing behavior (${SUM_TEST}:5) — against main the mark isn't needed: the release adds the behavior, remove it: ${SUM_TEST}: сумма › складывает два числа`);
+  });
+
+  it("Добавленный тест, зелёный и против пачки, и на коде main, без пометки — ошибка green on base, с пометкой проходит", () => {
+    const plain = batchTask('it("ноль и ноль — ноль", () => expect(sum(0, 0)).toBe(0));');
+    expect(plain.code).toBe(1);
+    expect(plain.stdout).toContain(`❌ green on base: ${SUM_TEST}: ноль и ноль — ноль — it doesn't check the PR's change`);
+
+    repo.commit({ [SUM_TEST]: testFile('// spec-existing #12: ноль и ноль давали ноль и до пачки\nit("ноль и ноль — ноль", () => expect(sum(0, 0)).toBe(0));') }, "mark");
+    const marked = runScript("spec-red", ["--base", BATCH, "--also", "main"], dir);
+    expect(marked.stdout).toContain("✅ 1 existing-behavior test is green on base");
+    expect(marked.code).toBe(0);
+  });
+});
+
+/**
  * Прогон, оборванный сигналом группе: добавленный тест пишет свой pid и ждёт, пока его не убьют. Файл pid — в `.git`
  * чекаута: вне коммитов и уходит с каталогом теста.
  */
