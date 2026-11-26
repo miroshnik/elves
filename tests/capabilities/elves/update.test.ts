@@ -930,6 +930,123 @@ describe("check проекта держит стек Bun: менеджер па�
   });
 });
 
+// строки встроенных инструментов Bun (эпик #906): правило канона, замена и страница — из строки таблицы справки docs/bun.md
+const BUILTIN_RULE = "Elves projects use Bun's built-in tools, not the packages they replace (~/.agents/elves/docs/bun.md)";
+const BUILTIN = (file: string, name: string, section: string, builtin: string, docs: string) =>
+  `  ❌ ${file}: ${name} in ${section} — Bun has it built in: ${builtin} (${docs}); ${BUILTIN_RULE}; moving to it is a task of its own in the project, not an edit in this session, then remove ${name}\n`;
+const NEXT_KEEPS = (file: string, name: string, section: string, builtin: string, docs: string) =>
+  `  ○ ${file}: ${name} in ${section} — Bun has it built in: ${builtin} (${docs}), but the package depends on next: Next.js's server runs under Node, its dependencies stay\n`;
+const SQL = ["Bun.sql", "https://bun.com/docs/runtime/sql"] as const;
+const REDIS = ["Bun.redis", "https://bun.com/docs/runtime/redis"] as const;
+const ENV = ["reading .env files", "https://bun.com/docs/runtime/environment-variables"] as const;
+// строки вывода check с правилом встроенных инструментов — ❌ и ○
+const builtinLines = (stdout: string) => stdout.split("\n").filter((l) => l.includes("Bun has it built in")).map((l) => l + "\n");
+
+/**
+ * Таблица замен справки `docs/bun.md` — строки `` | `pkg`, `pkg` | замена | [страница](url) | ``. Разбор теста, а не
+ * установщика: тест сверяет вывод check с таблицей справки — у проверки и справки одна таблица. Читается в тесте, а не
+ * при загрузке файла: на базе без справки файл грузится, и остальные тесты идут.
+ */
+function replacements() {
+  const md = readFileSync(path.join(REPO, "docs/bun.md"), "utf8");
+  return md
+    .split("\n")
+    .filter((l) => l.startsWith("| `"))
+    .map((l) => {
+      const [packages = "", builtin = "", docs = ""] = l.split("|").slice(1, 4).map((c) => c.trim());
+      return { packages: [...packages.matchAll(/`([^`]+)`/g)].map((m) => m[1]!), builtin: builtin.replaceAll("`", ""), docs: /\]\((https:[^)]+)\)/.exec(docs)?.[1] ?? "" };
+    });
+}
+
+/**
+ * Проект на Bun пользуется встроенными инструментами Bun — `Bun.sql`, `Bun.s3`, `Bun.redis` и прочими, — а не пакетами,
+ * которые они заменяют (эпик #906, п. 1 и 4 дизайна). Держит это `check` по таблице замен справки `docs/bun.md`:
+ * зависимость из таблицы — строка `❌` и код 1, переход — задача проекта, как переезд на Bun. Исключение — Next.js: его
+ * сервер идёт под Node, встроенных инструментов Bun там нет.
+ */
+describe("check проекта держит встроенные инструменты Bun вместо пакетов, которые они заменяют", () => {
+  it("`elves check` проекта с зависимостью, которую заменяет встроенный инструмент Bun, — строка ❌ с пакетом, заменой и шагом: задача проекта на переход, а не правка в текущей сессии", () => {
+    writePkg({ packageManager: "bun@1.4.3", workspaces: ["packages/*"], dependencies: { pg: "^8.16.0", zod: "^4.1.0" }, devDependencies: { dotenv: "^17.2.0" } });
+    writeTree(sb.proj, { "packages/api/package.json": JSON.stringify({ name: "@x/api", dependencies: { ioredis: "^5.8.0" }, optionalDependencies: { "@aws-sdk/client-s3": "^3.900.0" } }) });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    const before = snapshot(sb.proj);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(builtinLines(r.stdout)).toEqual([
+      BUILTIN("package.json", "pg", "dependencies", ...SQL),
+      BUILTIN("package.json", "dotenv", "devDependencies", ...ENV),
+      BUILTIN("packages/api/package.json", "@aws-sdk/client-s3", "optionalDependencies", "Bun.s3", "https://bun.com/docs/runtime/s3"),
+      BUILTIN("packages/api/package.json", "ioredis", "dependencies", ...REDIS),
+    ]);
+    expect(r.stdout).toEndWith(MODE_ASK);
+    expect(snapshot(sb.proj)).toEqual(before);
+  });
+
+  it("Таблица замен — одна на проверку и справку, по документации Bun: например `pg`, `postgres`, `mysql2` → `Bun.sql`; `better-sqlite3` → `bun:sqlite`; `@aws-sdk/client-s3` → `Bun.s3`; `ioredis`, `redis` → `Bun.redis`; `dotenv` → чтение `.env` самим Bun; каждая строка таблицы — со ссылкой на страницу документации", () => {
+    // справка — правило Claude Code, которое грузится с package.json: агент видит таблицу, когда добавляет зависимость
+    expect(readFileSync(path.join(REPO, "docs/bun.md"), "utf8")).toStartWith('---\npaths:\n  - "**/package.json"\n---\n');
+    const rows = replacements();
+    const all = rows.flatMap((r) => r.packages);
+    expect(Object.fromEntries(rows.flatMap((r) => r.packages.map((p) => [p, r.builtin])))).toMatchObject({
+      pg: "Bun.sql",
+      postgres: "Bun.sql",
+      mysql2: "Bun.sql",
+      "better-sqlite3": "bun:sqlite",
+      "@aws-sdk/client-s3": "Bun.s3",
+      ioredis: "Bun.redis",
+      redis: "Bun.redis",
+      dotenv: "reading .env files",
+    });
+    // пакет — в одной строке, у каждой строки — замена и страница документации Bun
+    expect(new Set(all).size).toBe(all.length);
+    for (const row of rows) {
+      expect(row.packages.length).toBeGreaterThan(0);
+      expect(row.builtin).not.toBe("");
+      expect(row.docs).toMatch(/^https:\/\/bun\.com\/docs\/[a-z]/);
+    }
+    // check читает ту же таблицу: каждый её пакет — строка ❌ с заменой и страницей своей строки, в порядке таблицы
+    writePkg({ dependencies: Object.fromEntries(all.map((p) => [p, "^1.0.0"])) });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(builtinLines(r.stdout)).toEqual(rows.flatMap((row) => row.packages.map((p) => BUILTIN("package.json", p, "dependencies", row.builtin, row.docs))));
+  });
+
+  it("Пакет проекта с `next` в зависимостях — исключение: его замены — строка ○ с причиной, без ❌", () => {
+    const web = { name: "@x/web", dependencies: { next: "^16.0.0", pg: "^8.16.0", ioredis: "^5.8.0" }, devDependencies: { dotenv: "^17.2.0" } };
+    // только пакет Next.js — строки ○, check проходит
+    writePkg({ workspaces: ["packages/*"] });
+    writeTree(sb.proj, { "packages/web/package.json": JSON.stringify(web) });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toStartWith("Elves in the project: up to date (");
+    const keeps = [
+      NEXT_KEEPS("packages/web/package.json", "pg", "dependencies", ...SQL),
+      NEXT_KEEPS("packages/web/package.json", "ioredis", "dependencies", ...REDIS),
+      NEXT_KEEPS("packages/web/package.json", "dotenv", "devDependencies", ...ENV),
+    ];
+    expect(builtinLines(r.stdout)).toEqual(keeps);
+    expect(r.stdout).not.toContain("❌");
+    // исключение — пакета с next, а не проекта: тот же pg в корне без next — ❌
+    fresh();
+    writePkg({ workspaces: ["packages/*"], dependencies: { pg: "^8.16.0" } });
+    writeTree(sb.proj, { "packages/web/package.json": JSON.stringify(web) });
+    const both = elves(sb, ["check"]);
+    expect(both.code).toBe(1);
+    expect(builtinLines(both.stdout)).toEqual([BUILTIN("package.json", "pg", "dependencies", ...SQL), ...keeps]);
+  });
+
+  // spec-existing #909: проект без пакетов таблицы и до проверки проходил check без строк — тест держит, что она его не задевает
+  it("Проект без таких зависимостей — ни одной такой строки", () => {
+    // похожие имена — не пакеты таблицы: типы, обёртки, другие клиенты; пакет Next.js без них — тоже без строк
+    writePkg({ workspaces: ["packages/*"], dependencies: { zod: "^4.1.0", "pg-boss": "^11.0.0", "@upstash/redis": "^1.35.0", "@aws-sdk/client-dynamodb": "^3.900.0" }, devDependencies: { "@types/pg": "^8.15.0" } });
+    writeTree(sb.proj, { "packages/web/package.json": JSON.stringify({ name: "@x/web", dependencies: { next: "^16.0.0", react: "^19.2.0" } }) });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+  });
+});
+
 describe("Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart", () => {
   beforeEach(() => mkdirSync(path.join(sb.home, ".claude")));
 

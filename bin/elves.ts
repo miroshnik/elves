@@ -62,10 +62,11 @@
  * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them; a project with
  * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`); a project not on Bun — the
  * `packageManager` field or a lockfile of another manager — or with Vitest or Jest in its dependencies — `❌` lines too,
- * and `install` refuses a project not on Bun before any change (`bunStack`, epic #906). The project's checks — the
- * `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the machine queue, the slot skill
- * (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue variables to tasks, it warns
- * with a ready-made line (`turboEnv`).
+ * and `install` refuses a project not on Bun before any change (`bunStack`, epic #906); so is a dependency a Bun
+ * built-in replaces, by the table of the reference docs/bun.md (`bunBuiltins`), a Next.js package's — `○`. The
+ * project's checks — the `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the
+ * machine queue, the slot skill (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue
+ * variables to tasks, it warns with a ready-made line (`turboEnv`).
  *
  * A copy on the machine without `--link` and a project's package version follow Elves releases — tags vYYYY.MM.DD — not
  * main: the bunx package from main is only a launcher — it finds the latest release and restarts from it by SHA
@@ -1884,7 +1885,10 @@ interface Result {
   absent?: boolean;
   behind?: boolean;
   ignored?: boolean;
-  /** The project isn't on Bun or depends on another test runner (`bunStack`): update won't fix it. */
+  /**
+   * The project isn't on Bun, depends on another test runner or a package a Bun built-in replaces (`bunStack`): update
+   * won't fix it.
+   */
   stack?: boolean;
   compose?: boolean;
   spec?: boolean;
@@ -1924,6 +1928,32 @@ const BUN_RULE = "Elves is for projects on Bun (the canon's stack: Claude Code, 
 const FOREIGN_RUNNERS = ["vitest", "jest"];
 /** The dependency sections of a package.json. */
 const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+/** The reference of Bun's built-in tools: its table of replacements is the one `check` reads (`bunBuiltins`). */
+const BUILTINS_DOC = "docs/bun.md";
+/** The rule the built-in lines name (epic #906, design 1): the reference on the machine, where the canon is. */
+const BUILTIN_RULE = `Elves projects use Bun's built-in tools, not the packages they replace (~/${CANON}/${BUILTINS_DOC})`;
+
+/**
+ * The table of Bun's built-in tools in the reference `docs/bun.md` of this Elves (`SRC`): a row
+ * `` | `pkg`, `pkg` | built-in | [page](url) | `` — the packages, what replaces them and Bun's page on it, in the table's
+ * order. One table for the check and the reference: the agent gets it as a rule with package.json, `check` reads it
+ * here. A row without packages or a page — the header, the separator — isn't a replacement; no reference — none.
+ */
+function bunBuiltins(src: string): { packages: string[]; builtin: string; docs: string }[] {
+  let md: string;
+  try {
+    md = readFileSync(path.join(src, BUILTINS_DOC), "utf8");
+  } catch {
+    return [];
+  }
+  return md.split("\n").flatMap((line) => {
+    const cells = /^\|(.*)\|[ \t]*$/.exec(line)?.[1]!.split("|").map((c) => c.trim());
+    if (!cells || cells.length < 3) return [];
+    const packages = [...cells[0]!.matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
+    const docs = /\]\((https:\/\/[^)\s]+)\)/.exec(cells[2]!)?.[1];
+    return packages.length && docs ? [{ packages, builtin: cells[1]!.replaceAll("`", ""), docs }] : [];
+  });
+}
 
 /**
  * The project's package.json files: tracked and the untracked git doesn't ignore, outside `node_modules` (a workspace
@@ -1947,13 +1977,20 @@ function packageFiles(root: string): string[] {
  * (`packageFiles`) — the runner is `bun test`. No field isn't a mismatch: `bun init` doesn't write it, the lockfiles
  * tell. No package.json — no JS stack to hold, no lines. `notBun` — the field and lockfile lines: `install` refuses
  * with them before any change; a runner doesn't stop it — the project is on Bun, its tests move in a task.
+ * A package of the table of Bun's built-in tools (`bunBuiltins`) in the dependencies of any package.json — a `❌` line
+ * with the package, its replacement and Bun's page (design 1), `install` goes on as with a runner; a package.json with
+ * `next` in its dependencies keeps them — `notes`, `○` lines with the reason, not a mismatch: Next.js's server runs under
+ * Node, where the built-ins don't exist (design 2).
  */
-function bunStack(root: string): { lines: string[]; notBun: string[] } {
+function bunStack(root: string): { lines: string[]; notBun: string[]; notes: string[] } {
   const pm = packageManager(root);
   const step = `"packageManager": "bun@${Bun.version}", bun install`;
   const manager = pm.field !== null && !/^bun(?:@|$)/.test(pm.field) ? [`  ❌ package.json: the project isn't on Bun — "packageManager": ${JSON.stringify(pm.field)}; ${BUN_RULE}; move it to Bun: ${step}`] : [];
   const lockfiles = pm.foreign.map((f) => `  ❌ ${f}: another package manager's lockfile — ${BUN_RULE}; bun install moves its versions into Bun's lockfile, then remove ${f}`);
+  const builtins = bunBuiltins(SRC);
   const runners: string[] = [];
+  const replaced: string[] = [];
+  const notes: string[] = [];
   for (const file of packageFiles(root)) {
     let pkg: Record<string, unknown>;
     try {
@@ -1961,13 +1998,24 @@ function bunStack(root: string): { lines: string[]; notBun: string[] } {
     } catch {
       continue; // gone from the checkout or not JSON — no dependencies to read
     }
+    const sectionOf = (name: string) => DEPENDENCY_SECTIONS.find((s) => asObject(pkg[s])?.[name] !== undefined);
     for (const name of FOREIGN_RUNNERS) {
-      const section = DEPENDENCY_SECTIONS.find((s) => asObject(pkg[s])?.[name] !== undefined);
+      const section = sectionOf(name);
       if (section) runners.push(`  ❌ ${file}: ${name} in ${section} — ${BUN_RULE}; the tests run with bun test: move them to bun:test, remove ${name}`);
+    }
+    const next = sectionOf("next") !== undefined;
+    for (const { packages, builtin, docs } of builtins) {
+      for (const name of packages) {
+        const section = sectionOf(name);
+        if (!section) continue;
+        const what = `${file}: ${name} in ${section} — Bun has it built in: ${builtin} (${docs})`;
+        if (next) notes.push(`  ○ ${what}, but the package depends on next: Next.js's server runs under Node, its dependencies stay`);
+        else replaced.push(`  ❌ ${what}; ${BUILTIN_RULE}; moving to it is a task of its own in the project, not an edit in this session, then remove ${name}`);
+      }
     }
   }
   const notBun = [...manager, ...lockfiles];
-  return { lines: [...notBun, ...runners], notBun };
+  return { lines: [...notBun, ...runners, ...replaced], notBun, notes };
 }
 
 /**
@@ -2193,9 +2241,10 @@ function check(global: boolean): Result {
   const batch = global ? { lines: [], missing: false } : batchCi(root);
   // the manifest outside git — a mismatch update's commit line fixes
   const untracked = global ? { lines: [], missing: false } : manifestGit(root);
-  // a project not on Bun or with another test runner — a mismatch update doesn't fix either
-  const stack = global ? { lines: [], notBun: [] } : bunStack(root);
-  const project = [...stack.lines, ...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...mode];
+  // a project not on Bun, with another test runner or a package Bun's built-in replaces — a mismatch update doesn't fix
+  // either; a Next.js package's replacements — ○ lines
+  const stack = global ? { lines: [], notBun: [], notes: [] } : bunStack(root);
+  const project = [...stack.lines, ...stack.notes, ...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
   const ignored = changes.filter((c) => c.op === "❌");
   if (!stale.length && !ignored.length) {

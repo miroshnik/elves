@@ -10,7 +10,7 @@ You need `git` and [Bun](https://bun.sh) ≥ 1.2 — the installer (`bunx`) and 
 
 `install -g` puts the canon and the Elves plugin for Claude Code — skills, hooks, the executor agent — and the `elves` command on `PATH` (another agent — `docs/other-agents.md`); a global package does the same — `bun add -g @miroshnik/elves && elves install -g`. `install` in a project runs from the root of a git repository; the package version, the manifest, the shim and the `AGENTS.md` block are committed with the project. The fallback — straight from GitHub, any command: `bunx github:miroshnik/elves <command>` (section "Releases and the up-to-date check").
 
-`check` exits 0 — up to date, 1 — behind (in a project also: git ignores flow files, the compose file breaks task isolation, standards or architecture without a `test:spec` script), 2 — can't check; it changes nothing. `update` brings the flow to the latest release. Without `-g` — the same for the project.
+`check` exits 0 — up to date, 1 — behind (in a project also: git ignores flow files, the compose file breaks task isolation, standards or architecture without a `test:spec` script, the project isn't on Bun or depends on a package a Bun built-in replaces — `docs/bun.md`), 2 — can't check; it changes nothing. `update` brings the flow to the latest release. Without `-g` — the same for the project.
 
 ## Claude Code: the session hook and the agent's sandbox
 

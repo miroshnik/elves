@@ -27,7 +27,7 @@ describe("Справка docs/ для агента — правило Claude Cod
       { item: "docs/other-agents.md", reason: "инструкция для агента не Claude Code (#848): у него нет ~/.claude/rules, путь к ней печатает установщик" },
       { item: "docs/prompt-cache.md", reason: "шаг владельца: команду печатает check -g, документ объясняет человеку цену выбора" },
     ],
-    includes: ["docs/testing.md", "docs/ci-concurrency.md", "docs/parallel-checkouts.md"],
+    includes: ["docs/testing.md", "docs/ci-concurrency.md", "docs/parallel-checkouts.md", "docs/bun.md"],
   });
 
   it("paths: — список шаблонов во frontmatter; без frontmatter или списка шаблонов нет", () => {

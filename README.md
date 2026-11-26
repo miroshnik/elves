@@ -138,6 +138,7 @@ A reference for the agent is a Claude Code rule with `paths:`: `install -g` link
 - [`docs/testing.md`](docs/testing.md) — with tests and runner configs: what runs before a commit and what in CI, a run's result by the runner's summary, e2e without flakes, UI state by the DOM.
 - [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — with workflows: CI for parallel tasks, parallel branches, a non-cancellable `main`, a deploy queue.
 - [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — with compose and env files: parallel worktrees, shared ports, databases and `.git/config`.
+- [`docs/bun.md`](docs/bun.md) — with `package.json`: Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest; `elves check` reads its table, Next.js is the exception.
 
 For people:
 
