@@ -57,7 +57,7 @@ skill directory: the project's package version is pinned for CI.
 
 | Moment | Action |
 |---|---|
-| Before a PR | 1. a test run with a report (`bun test` — JUnit; don't run e2e: for the names `playwright test --list --reporter=json > .spec-playwright.json` is enough); 2. `spec-doc --strict` with both reports — the tree and the main files are in order (`docs/spec` is in `.gitignore`, not committed); 3. `spec-diff --scenarios <task body>` → the `## Spec (tests)` section (in the project language) with the scenario check, into the PR body |
+| Before a PR | 1. a test run with a report (`bun test` — JUnit; don't run e2e: for the names `bun --bun playwright test --list --reporter=json > .spec-playwright.json` is enough); 2. `spec-doc --strict` with both reports — the tree and the main files are in order (`docs/spec` is in `.gitignore`, not committed); 3. `spec-diff --scenarios <task body>` → the `## Spec (tests)` section (in the project language) with the scenario check, into the PR body |
 | In CI on a PR | shards — `spec-shard` (`ci.md`); run → `spec-doc --strict` (section "spec-doc"); `spec-diff` into the summary |
 | In CI after a merge, if the project publishes | a run on `main` → `spec-doc` → `spec-publish`; without CI on `main` — `docs/spec` from the PR run's artifact and `spec-publish --source <merge SHA>` (`ci.md`). The `spec` branch = the built `docs/spec`, the script verifies it after the push |
 | Read a project's spec | the `tests/` tree: `<topic>.md`, `<section>.md` and the test names; the `spec` branch, if the project publishes it — `git fetch origin spec && git show origin/spec:README.md` |
@@ -78,8 +78,8 @@ runners are these two: a Vitest or Jest JSON report is an unknown format.
 | Runner | Command |
 |---|---|
 | `bun test` | `bun test --reporter=junit --reporter-outfile=.spec-report.xml` — JUnit with nested `testsuite` per describe |
-| Playwright | `PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-playwright.json playwright test --reporter=json` |
-| Playwright without a run (before a PR) | `playwright test --list --reporter=json > .spec-playwright.json` — the tree and names without browsers, tests show as skipped: for `spec-doc --strict` and `spec-diff`, not for publishing |
+| Playwright (under Bun, `docs/bun.md`) | `PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-playwright.json bun --bun playwright test --reporter=json` |
+| Playwright without a run (before a PR) | `bun --bun playwright test --list --reporter=json > .spec-playwright.json` — the tree and names without browsers, tests show as skipped: for `spec-doc --strict` and `spec-diff`, not for publishing |
 
 Reports are temporary files, in `.gitignore`; a report from CI with someone
 else's absolute paths works. Shards: bun test's JUnit reports go to

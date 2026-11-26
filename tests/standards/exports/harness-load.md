@@ -16,13 +16,18 @@ CommonJS-загрузки своими средствами — не тот за
 без транспиляции раннера. В проекте с `"type": "commonjs"` он счёл бы ESM-модули копии скилла CommonJS, поэтому у
 скиллов `spec` и `github` свой `scripts/package.json` с `"type": "module"`; проверка — `node` во временном проекте.
 
+Раннер e2e стека — Playwright под Bun, `bun --bun playwright test` (#917, `docs/bun.md`): своего загрузчика Playwright
+там не ставит, спеки пакета `"type": "module"` Bun грузит сам и типы снимает тоже сам. Проверка — тот же настоящий
+Playwright под Bun, с копией скиллов и с пакетом.
+
 ## Из пакета `@miroshnik/elves`
 
 Проект без копии флоу берёт те же модули из пакета в devDependencies (#556), а из `node_modules` TypeScript не
 грузится: Node не снимает там типы (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), Playwright файлы
 `node_modules` не транспилирует. Поэтому пакет несёт сборку для Node: при публикации `elves pack` собирает модули из
 `exports` в `dist/` (`bun build`, общие куски — язык и парсер — один раз), и `exports` ведёт раннер по условию: `types`
-и `bun` — на исходник `.ts` (typecheck проекта и bun test), `default` — на `dist/*.js` (Node, Playwright).
+и `bun` — на исходник `.ts` (typecheck проекта, bun test, Playwright под Bun), `default` — на `dist/*.js` (Node,
+Playwright под Node).
 Сборка — библиотека, не точка входа: `import.meta.main` в ней ложно, иначе модуль `github` запускал бы свою
 командную строку при импорте. Сборка идёт на машине CI, а работает у проекта: путь машины сборки в ней вёл бы в
 никуда — так `__filename` репортёра knip (`knip-hints.cjs`) сборщик заменял строкой, и `deadCode` под Node звал knip
