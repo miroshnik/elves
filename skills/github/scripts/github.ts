@@ -3516,7 +3516,7 @@ function releaseChecks(io: Io, slug: string, release: PrRef): ReleaseChecks {
   return { state: "red", red, failed: [...latest.values()], premerge };
 }
 
-/** A test file's path — `x.test.ts`, `x.spec.tsx`, `x.e2e.ts` in any directory: Bun, Vitest, Jest, Playwright. */
+/** A test file's path — `x.test.ts`, `x.spec.tsx`, `x.e2e.ts` in any directory: bun test, Playwright. */
 const TEST_FILE = /((?:[\w.@-]+\/)*[\w.@-]+\.(?:test|spec|e2e)\.[cm]?[jt]sx?)\b/;
 const isTestFile = (p: string) => new RegExp(`^${TEST_FILE.source}$`).test(p);
 
@@ -3524,8 +3524,8 @@ const isTestFile = (p: string) => new RegExp(`^${TEST_FILE.source}$`).test(p);
 const ANSI = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[@-Z\\-_]/g;
 
 /**
- * The files a failed job's log names (#650): a failed test's file — in its failure line (Vitest, Jest, Playwright) or in
- * the file header above it (Bun: `tests/…/x.test.ts:`), a compiler error's file — `a.ts(3,5): error TS…` (a `bun check`
+ * The files a failed job's log names (#650): a failed test's file — in its failure line (Playwright) or in the file
+ * header above it (bun test: `tests/…/x.test.ts:`), a compiler error's file — `a.ts(3,5): error TS…` (a `bun check`
  * block too, `asTsc`); failure lines — `FAILED_LINE`, as on the merge. Paths — the checkout's: the runner's workspace
  * prefix (`…/work/<repo>/<repo>/`), the log's timestamps and terminal escape sequences (`ANSI`: colors, erasing, OSC
  * links — #774) are cut.
@@ -6403,10 +6403,10 @@ export const specRoots = (dir: string) => SPEC_ROOTS.filter((d) => statSync(path
 const MERGE_REF_SLACK_MS = 60_000;
 const INSTALL: Record<PackageManager["name"], string[]> = { bun: ["bun", "install", "--frozen-lockfile"], pnpm: ["pnpm", "install", "--frozen-lockfile"], yarn: ["yarn", "install", "--frozen-lockfile"], npm: ["npm", "ci"] };
 /**
- * Failure lines: a test — bun `(fail)`, Vitest `FAIL` and `×`, Jest `●`, Playwright `✘`; a compiler error —
- * `error TS2304:`.
+ * Failure lines: a test — bun `(fail)`, Playwright `✘`; a compiler error — `error TS2304:`. The project's runners are
+ * these two (epic #906): Vitest's `FAIL` and `×`, Jest's `●` aren't failure lines.
  */
-const FAILED_LINE = /^\s*(\(fail\)|FAIL\s|×|✗|✘|●\s)|\berror TS\d+:/;
+const FAILED_LINE = /^\s*(\(fail\)|✗|✘)|\berror TS\d+:/;
 /**
  * A `bun check` error under an agent (`CLAUDECODE=1`) — a block `<error file="a.ts" line="3" column="5" code="TS2304">`
  * with the text on the next line; it is brought to a tsc line without a TTY, `a.ts(3,5): error TS2304: …`.
@@ -6430,8 +6430,8 @@ export interface PackageManager {
 }
 
 /**
- * The project's package manager in dir — the one answer of the flow: `pr premerge` (`projectCommands`), the slot
- * wrapper and the `test:spec` runner of the project's `check` (bin/elves.ts) take it here,
+ * The project's package manager in dir — the one answer of the flow: `pr premerge` (`projectCommands`) and the slot
+ * wrapper (bin/elves.ts, the install and the project's `check` lines) take it here,
  * `tests/standards/scripts/package-manager`. The manager — `packageManager` in package.json, otherwise the lockfile in the
  * order below, otherwise `.yarnrc.yml` — Yarn, otherwise npm. Yarn 2+ — `yarn@2+` in `packageManager`, Yarn by the
  * files — with `.yarnrc.yml`: `packageManager` decides the version too. The stack of an Elves project is Bun (epic
@@ -6520,15 +6520,15 @@ function checkTree(io: Io, dir: string, steps: { script: string; args?: string[]
 
 const tail = (r: RunResult, n = 20) => `${r.stdout}\n${r.stderr}`.split("\n").filter((l) => l.trim()).slice(-n);
 /**
- * A failure line without the run time (bun `[1.2ms]`, Vitest `12ms`) and the compiler error position (`a.ts(3,5):` —
+ * A failure line without the run time (bun `[1.2ms]`) and the compiler error position (`a.ts(3,5):` —
  * tsc without a TTY; a PR edit higher up in the file shifts it) — one failure on the merge and on main.
  */
-const failure = (l: string) => l.trim().replace(/\s*\[[\d.]+\s*m?s\]$/, "").replace(/\s+[\d.]+\s*m?s$/, "").replace(/^(\S+?)\(\d+,\d+\)(?=:)/, "$1");
+const failure = (l: string) => l.trim().replace(/\s*\[[\d.]+\s*m?s\]$/, "").replace(/^(\S+?)\(\d+,\d+\)(?=:)/, "$1");
 
 /**
  * Waiting for the bug to close — the ci-wait script next to it (`../ci-wait`: the project copy, `~/.agents/skills` and
  * the clone are laid out this way). A function, not a value at load: `import.meta.dir` is Bun's, and a project's test
- * loads this module from the package under Node and Vitest too (`exports` of the Elves package.json).
+ * loads this module from the package under Node too (`exports` of the Elves package.json).
  */
 const waitCi = () => path.resolve(import.meta.dir, "../../ci-wait/scripts/wait-ci.sh");
 // a red check outcome: cancelled (a rerun, a new commit) and waiting for a human's decision aren't red
