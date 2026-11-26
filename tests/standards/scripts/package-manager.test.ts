@@ -144,8 +144,8 @@ describe("Менеджер пакетов проекта отвечает одн
   });
 });
 
-describe("Менеджер пакетов у premerge, обёртки slot и раннера test:spec у check — ответ packageManager", () => {
-  it("premerge, обёртка slot и раннер test:spec у check берут менеджер пакетов у неё: packageManager pnpm и забытые bun.lock и .yarnrc.yml — premerge зовёт pnpm, обёртка slot — через шим slot.sh, check не предлагает bun test", () => {
+describe("Менеджер пакетов у premerge и обёртки slot у check — ответ packageManager", () => {
+  it("premerge и обёртка slot у check берут менеджер пакетов у неё: packageManager pnpm и забытые bun.lock и .yarnrc.yml — premerge зовёт pnpm, обёртка slot — через шим slot.sh", () => {
     const sb = sandbox();
     try {
       const pkg = (fields: Record<string, unknown>) => JSON.stringify({ name: "x", private: true, ...fields, scripts: { lint: "eslint ." } }, null, 2) + "\n";
@@ -160,8 +160,8 @@ describe("Менеджер пакетов у premerge, обёртки slot и р
       const scripts = JSON.parse(readFileSync(path.join(sb.proj, "package.json"), "utf8")).scripts;
       expect(scripts.lint).toBe(". .agents/slot.sh && eslint .");
       const check = elves(sb, ["check"]);
-      expect(check.stdout).toContain(`"test:spec": ${JSON.stringify(". .agents/slot.sh && vitest run tests/standards")}`);
-      expect(check.stdout).not.toContain("bun test");
+      // раннер test:spec — bun test у любого менеджера (эпик #906); обёртка — шим slot.sh, а не shell Yarn 2+
+      expect(check.stdout).toContain(`"test:spec": ${JSON.stringify(". .agents/slot.sh && bun test tests/standards")}`);
       expect(projectCommands(sb.proj).run("test:spec").join(" ")).toBe("pnpm run test:spec");
     } finally {
       sb.cleanup();
