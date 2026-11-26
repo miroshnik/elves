@@ -23,7 +23,7 @@ Which check for what:
 
 A deterministic check is runner tests: they are in the report, and so in
 `docs/spec` and in `spec-diff`. The harness doesn't depend on the runner — you
-pass it the runner's `it` (Vitest, Jest, bun test, `node:test`). Import it from
+pass it the runner's `it` (bun test, Playwright `test`, `node:test`). Import it from
 the project's package: `@miroshnik/elves/spec/harness` (the model —
 `@miroshnik/elves/spec/architecture`, the ESLint fragment —
 `@miroshnik/elves/spec/eslint-config`); a runner on Node takes the package's
@@ -38,17 +38,17 @@ build, Bun and the type checker — its TypeScript source.
   doesn't accept the flag: tests are excluded from it, and when it extends the
   checking config, it turns off both the flag and `noEmit`.
 - A project on `module: commonjs` under TypeScript 5.x without
-  `esModuleInterop` can't import the harness: `import path from "node:path"` is
-  TS1259, and with a runner that transpiles to CommonJS (ts-jest), `path` is
-  `undefined`. Tests with the harness go under a tsconfig with
-  `esModuleInterop` or `module: nodenext`; TypeScript 6+ always enables
-  `esModuleInterop`.
+  `esModuleInterop` can't type-check the harness: `import path from
+  "node:path"` is TS1259; `bun test` and Playwright run it without the flag
+  too (Playwright — as CommonJS, without `"type": "module"`). Tests with the
+  harness go under a tsconfig with `esModuleInterop` or `module: nodenext`;
+  TypeScript 6+ always enables `esModuleInterop`.
 
 **Standards and architecture run once — `test:spec`.** They are static checks
 over the code: no app, browser or database, the same result in any job and
 environment. One run per CI run is enough: the `test:spec` script in a fast job
-of its own; `test` excludes them with the runner's own filter (Vitest
-`--exclude`, Jest `--testPathIgnorePatterns`), the e2e run doesn't take them —
+of its own; `test` excludes them with the runner's own filter
+(`bun test --path-ignore-patterns`), the e2e run doesn't take them —
 Playwright's `testDir` holds the browser tests only (a standard that itself
 needs a browser is one of them and runs there, once). Measured in a project
 where they ran inside the unit and e2e jobs: about 14% of the unit time and
@@ -62,7 +62,7 @@ writes an audit record", "every route checks a permission") is checked on every
 element of a registry taken from the code, not on a single example:
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { invariant } from "@miroshnik/elves/spec/harness";
 
 const mutations = await listMutations(); // from the code: router, schema, files — not a handwritten list
@@ -116,7 +116,7 @@ through an adapter: `eslintLinter()` takes the project's ESLint and
 file at that path.
 
 ```ts
-import { describe, it } from "vitest";
+import { describe, it } from "bun:test";
 import { eslintLinter, examples } from "@miroshnik/elves/spec/harness";
 
 describe("the domain doesn't write to the console", () => {
@@ -248,7 +248,7 @@ A fragment is `eslint.ts`, `eslint.mts` (ESM even in a project without
   standard:
 
   ```ts
-  import { it } from "vitest";
+  import { it } from "bun:test";
   import { lintExceptions } from "@miroshnik/elves/spec/harness";
 
   lintExceptions(it, { root: process.cwd(), dirs: ["src"] });
@@ -334,34 +334,42 @@ claimed behavior").
   in `.gitignore`).
 - *A call counts if the test made it:* the test is on the call's stack or is
   passed along the causal chain (an e2e fixture that sends the request; a
-  request header — the NestJS recipe below). Vitest's
-  `expect.getState().testPath` in a wrapper is no substitute for the stack: it's
-  the test running *now*, and it also gets credited with calls from a timer, a
-  background job, cron or a queue that fired during the test — the entry point
-  comes out "called" without claimed behavior. `testPath` works where the test
-  itself takes it — in a request helper.
+  request header — the NestJS recipe below). The test running *now* in a
+  wrapper is no substitute for the stack: it also gets credited with calls
+  from a timer, a background job, cron or a queue that fired during the test —
+  the entry point comes out "called" without claimed behavior.
 - *A directory per runner, reset at the start of a run:* logs pile up from run
   to run, and a deleted test keeps "calling" the entry point. A runner writes to
   its own directory and wipes it before the tests — the harness's
-  `resetJournal()` in globalSetup (bun test — in `preload`): it wipes the
-  `*.jsonl` files of the `SPEC_JOURNAL` directory and leaves subdirectories —
-  other runners' logs — alone; `spec-claims` reads the directory with its
-  subdirectories.
+  `resetJournal()` (bun test — in `preload`, Playwright — in `globalSetup`): it
+  wipes the `*.jsonl` files of the `SPEC_JOURNAL` directory and leaves
+  subdirectories — other runners' logs — alone; `spec-claims` reads the
+  directory with its subdirectories. Under `bun test --parallel` a preload runs
+  before every file in every worker and wipes the logs of the files before it
+  (measured on Bun 1.4.5: one log of six survived): there the `test` script
+  wipes the directory before the runner, the preload only sets `SPEC_JOURNAL`.
+
+  ```toml
+  # bunfig.toml
+  [test]
+  preload = ["./tests/setup/journal.ts"]
+  ```
 
   ```ts
-  // vitest.config.ts; Playwright — the same in playwright.config.ts with ".spec-journal/e2e"
-  process.env.SPEC_JOURNAL ??= ".spec-journal/unit"; // before the workers: they inherit the environment
-  export default defineConfig({ test: { globalSetup: ["tests/setup/journal.ts"] } });
-
-  // tests/setup/journal.ts — once per run, before the tests
+  // tests/setup/journal.ts — before the tests
   import { resetJournal } from "@miroshnik/elves/spec/harness";
-  export default () => resetJournal();
+  process.env.SPEC_JOURNAL ??= ".spec-journal/unit";
+  resetJournal(); // under --parallel — not here: the script runs rm -f .spec-journal/unit/*.jsonl before bun test
+
+  // playwright.config.ts — before the workers: they inherit the environment
+  process.env.SPEC_JOURNAL ??= ".spec-journal/e2e";
+  export default defineConfig({ globalSetup: "./tests/setup/journal-e2e.ts" }); // its default export calls resetJournal()
   ```
 - *Log in Next.js:* the entry points are `page.tsx` exports, `route.ts` methods
   and the exports of `"use server"` modules.
-  - Vitest — a Vite plugin in the test build wraps them with a `journal` call (a
-    page — by file path, a route — `<method> <path>`, an action —
-    `<file>#<export>`).
+  - bun test — a Bun plugin (`Bun.plugin` with `onLoad`) in `preload` wraps
+    them with a `journal` call (a page — by file path, a route — `<method>
+    <path>`, an action — `<file>#<export>`).
   - e2e — a Playwright fixture records the browser's requests: navigating to a
     page and an RSC request (`RSC: 1`) — a page, a prefetch
     (`Next-Router-Prefetch`) — not, `/api/…` — a route by method, a POST with the
@@ -375,12 +383,14 @@ claimed behavior").
   `@nestjs/schedule` jobs (`@Cron()`, `@Interval()`).
   - The wrapper is on the method itself, not an interceptor: tests call a
     resolver both directly and over HTTP, and an interceptor sees only the
-    latter. The test build's setup (`setupFiles`, before the modules are
+    latter. The test setup (`preload` in `bunfig.toml`, before the modules are
     imported) replaces `Reflect.decorate`: after the decorators, a method with
     entry-point metadata is replaced with a wrapper that calls `journal`.
-    `Reflect.decorate` is called by an SWC or tsc build (`unplugin-swc` for
-    Vitest — Nest requires it anyway for `emitDecoratorMetadata`); esbuild
-    doesn't call it.
+    `Reflect.decorate` is called by an SWC or tsc build and by Bun (`bun test`,
+    `bun run`; no plugin, `emitDecoratorMetadata` included) with
+    `experimentalDecorators` in the tsconfig of its cwd: a tsconfig only next to
+    the file isn't read, and the decorator compiles as a standard one, without
+    `Reflect.decorate` (measured on Bun 1.4.5); esbuild doesn't call it.
 
     ```ts
     const decorate = Reflect.decorate.bind(Reflect) as (...a: unknown[]) => PropertyDescriptor | undefined;
@@ -405,13 +415,14 @@ claimed behavior").
     (`@nestjs/graphql`), the job name (`@nestjs/schedule`); not an entry point —
     `null`.
   - Over HTTP there is no test on the stack: the request helper in the tests sets
-    a header with `expect.getState().testPath` (the helper is called from the
-    test), and the test app's middleware puts it into `AsyncLocalStorage`
+    a header with the harness's `testFileIn(new Error().stack ?? "",
+    process.cwd())` (the helper is called from the test — the test is on its
+    stack), and the test app's middleware puts it into `AsyncLocalStorage`
     (`requestTest`) for the duration of the request. A timer and cron that a
     request didn't start get no context and, without a test on the stack, don't
     count.
   - The registry uses the same metadata through the same `entryId`, otherwise the
-    format diverges: the test build (SWC), after importing the app module, walks
+    format diverges: the test build, after importing the app module, walks
     the wrapped methods and writes JSON, which `spec-claims --entries` reads —
     Node without a build won't load Nest decorators.
 - *Log of an SPA with a client-side router* (TanStack Router, React Router on
@@ -491,7 +502,7 @@ that no entry point reaches is dead code: knip finds it by the import graph
 (knip's entry points come from its config in the project).
 
 ```ts
-import { describe, it } from "vitest";
+import { describe, it } from "bun:test";
 import { deadCode, exceptionsIn } from "@miroshnik/elves/spec/harness";
 
 const exceptions = exceptionsIn(); // the folder's exceptions/<finding>.json: { "item": "export:src/math.ts#factorial", … }
@@ -533,7 +544,7 @@ skill's reporter `knip-hints.cjs` prints them as the second line of output;
 `hints: false` — no check.
 
 **Running knip** — when the tests are registered, not in the first test: on a
-monorepo knip takes longer than a test timeout (5 s in Vitest). Without
+monorepo knip takes longer than a test timeout (5 s in bun test). Without
 `report`, the project's
 `node_modules/.bin/knip --reporter json --reporter <skill>/knip-hints.cjs` is
 run (plus `args`); `report` is ready output of the same command (`knip --reporter
@@ -663,8 +674,9 @@ globalThis.fetch = guard;
 afterEach(() => guard.check());
 ```
 
-The guard is the network under the mocks (`vi.spyOn`, `vi.stubGlobal`, MSW
-`server.listen()` are installed on top and answer first): only what isn't mocked
+The guard is the network under the mocks (`spyOn` from `bun:test`, a `mock()`
+assigned to `globalThis.fetch`, MSW `server.listen()` are installed on top and
+answer first): only what isn't mocked
 reaches it. It lets out to the network only loopback and the `allow` hosts
 (`networkGuard(model, fetch, { allow: ["db"] })` — a CI service, an integration
 test's sandbox); a request to a declared external system fails with the host and

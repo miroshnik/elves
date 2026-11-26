@@ -58,7 +58,7 @@ no decision claims is dead and is deleted.
   section's story starts with the root's main file, then the packages' main
   files by package name, then the other files. `<topic>.md`, `<section>.md`
   and `exceptions/` — at the topic root. Runners are launched from the
-  repository root (Vitest or Jest `projects`, `-c` with the package's config): the harness counts
+  repository root (Playwright `projects`, `-c` with the package's config): the harness counts
   element paths from cwd; it reads `exceptions/` relative to the test file
   and `fileOf` from the project root, and the exception path in the hint is
   from the repository root, even with the runner in the package directory.
