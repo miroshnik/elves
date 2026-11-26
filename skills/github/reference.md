@@ -908,12 +908,9 @@ nothing is built. Moved — the PR head (fetched by its SHA, not by
 `refs/pull/<N>/head`: GitHub creates that ref up to minutes late, #505) merged
 with a fresh `origin/<base>` in a temporary worktree (`git merge`, like
 GitHub's merge-ref; the worktree is always removed), dependencies by the
-merge's lockfile (the manager — `packageManager`, otherwise the lockfile,
-otherwise `.yarnrc.yml` — Yarn, otherwise npm,
-`tests/standards/scripts/package-manager`; the install —
-`bun install --frozen-lockfile`, `pnpm install --frozen-lockfile`,
-`yarn install --frozen-lockfile`, `npm ci`; no lockfile — no install) and the
-project's fast checks — the `package.json` scripts that exist, in CI order
+merge's Bun lockfile (`bun install --frozen-lockfile`; no `bun.lock` — no
+install; the manager is Bun, `tests/standards/scripts/package-manager`) and the
+project's fast checks (`bun run <script>`) — the `package.json` scripts that exist, in CI order
 until the first red: `typecheck` (a semantic conflict of two PRs: one removed a
 function, the other calls it — seconds, #292), then `test:spec` — standards and
 architecture, where two green PRs break ("registry + invariant"), not the

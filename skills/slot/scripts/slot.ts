@@ -49,7 +49,7 @@ slot --capacity
 slot --log
 slot --measure '<command>' [copies]
 
-Runs the command through sh, the arguments appended to its end, as with npm run; waits while the machine's slots are
+Runs the command through sh, the arguments appended to its end, as with bun run; waits while the machine's slots are
 taken by heavy runs, then runs with ELVES_SLOT_CPUS — its share of half of the cores. --for — takes a slot for the shell
 <PID> of a package.json script, held until the shell exits, and prints the export of ELVES_SLOT, ELVES_SLOT_CPUS for
 it — the project's shim runs it: ". .agents/slot.sh && <command>". --capacity — the machine's capacity as one JSON line:
@@ -271,7 +271,7 @@ function holder(t: Ticket) {
 }
 
 /**
- * The command of the package.json script that sourced the shim, for whoever waits for its slot: npm and bun give the
+ * The command of the package.json script that sourced the shim, for whoever waits for its slot: bun run gives the
  * script's text in npm_lifecycle_script — without the shim's prefix (`. .agents/slot.sh &&`, a copy's slot.sh of an
  * earlier install) it is the command; otherwise the script's name.
  */

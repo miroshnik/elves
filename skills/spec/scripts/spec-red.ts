@@ -120,11 +120,11 @@ function removeStale(top: string): void {
   if (removed) spawnSync("git", ["worktree", "prune"], { cwd: top });
 }
 
-/** The file's runner: its import, otherwise e2e by the name, bun test in a Bun project; none — null. */
-export function runnerOf(file: string, source: string, manager: string): Runner | null {
+/** The file's runner: its import, otherwise e2e by the name, bun test in a project on Bun (`bun`); none — null. */
+export function runnerOf(file: string, source: string, bun: boolean): Runner | null {
   for (const [re, runner] of IMPORTS) if (re.test(source)) return runner;
   if (/\.e2e\.[cm]?[jt]sx?$/.test(file)) return "playwright";
-  return manager === "bun" ? "bun" : null;
+  return bun ? "bun" : null;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -213,10 +213,10 @@ function runOn(c: Checkout, base: string, tests: Test[], where: string): { resul
     // dependencies by the lockfile of the root, in a workspace — of the git top
     const installIn = projectCommands(root).install ? root : dir;
     const install = projectCommands(installIn).install;
-    const manager = packageManager(root).name;
+    const bun = packageManager(root).bun;
     const byRunner = new Map<Runner | null, string[]>();
     for (const f of files) {
-      const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), manager);
+      const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), bun);
       byRunner.set(r, [...(byRunner.get(r) ?? []), f]);
     }
     for (const f of byRunner.get("playwright") ?? []) unchecked.push(`○ ${f}: e2e — not checked on ${where} (the app runs from the task's stack, not from the base code)`);

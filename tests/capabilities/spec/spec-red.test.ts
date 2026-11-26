@@ -200,11 +200,11 @@ describe("Прогон на базе идёт во временном worktree �
  */
 describe("Раннер добавленных тестов — тот, что у проекта", () => {
   it("bun test гоняет только файлы добавленных тестов по их полным именам; e2e и файл другого раннера не проверяются", () => {
-    expect(runnerOf("tests/a.test.ts", 'import { it } from "bun:test";', "npm")).toBe("bun");
-    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", "bun")).toBe("bun");
-    expect(runnerOf("tests/a.e2e.ts", 'import { test } from "../lib/fixtures";', "bun")).toBe("playwright");
-    expect(runnerOf("tests/a.test.ts", 'import { it } from "vitest";', "pnpm")).toBeNull();
-    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", "npm")).toBeNull();
+    expect(runnerOf("tests/a.test.ts", 'import { it } from "bun:test";', false)).toBe("bun");
+    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", true)).toBe("bun");
+    expect(runnerOf("tests/a.e2e.ts", 'import { test } from "../lib/fixtures";', true)).toBe("playwright");
+    expect(runnerOf("tests/a.test.ts", 'import { it } from "vitest";', false)).toBeNull();
+    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", false)).toBeNull();
 
     const tests = [makeTest("tests/a.test.ts", ["сумма (целых)"], "1 + 2 = 3"), makeTest("tests/a.test.ts", [], "верхний")];
     const pattern = namePattern(tests);

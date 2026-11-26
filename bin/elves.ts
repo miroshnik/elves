@@ -6,7 +6,7 @@
  *
  *   bunx @miroshnik/elves install                      — into the project: the git root (or the current directory)
  *   bunx @miroshnik/elves install -g                   — machine-wide: the canon and the Elves plugin
- *   elves install -g                                   — the same from the npm package (npm i -g @miroshnik/elves);
+ *   elves install -g                                   — the same from the npm package (bun add -g @miroshnik/elves);
  *                                                        install -g puts the elves command on PATH (`installCommand`)
  *   bun <Elves clone>/bin/elves.ts install -g --link   — from a clone: symlinks to the clone, edits show at once
  *   bunx @miroshnik/elves check [-g]                   — is the install behind: 0 — no, 1 — yes, 2 — can't tell
@@ -30,7 +30,7 @@
  * reference with `paths:` when the agent works with a matching file (`pathRules`, #846) — and the Elves plugin (#860):
  * one link `~/.claude/skills/elves` to it, which Claude Code loads as `elves@skills-dir` — the skills `elves:<name>`,
  * the hooks of `hooks/hooks.json` (SessionStart, PreToolUse) and the executor agent; `~/.agents/skills/<name>` — links
- * into its skills, the path of the Agent Skills standard (as `npx skills`) the owner's rules and printed commands name.
+ * into its skills, the path of the Agent Skills standard (as `bunx skills`) the owner's rules and printed commands name.
  * Elves is for Claude Code (#848): other agents' rule files aren't written, the ones
  * a previous version wrote go (`oldAgentRules`); another agent — docs/other-agents.md. A
  * project is thin (#552): no copy of the flow, the repository holds only `@miroshnik/elves` in devDependencies
@@ -95,7 +95,7 @@ import { fileURLToPath } from "node:url";
 import { readyCommand, sandboxLine, sandboxRefusal } from "../skills/github/scripts/command.ts";
 import { packageManager, specRoots } from "../skills/github/scripts/github.ts";
 import locale from "../skills/github/scripts/locale.ts";
-import { PACKAGE_BUNX, PACKAGE_RUN, packageRun } from "../skills/spec/scripts/package-run.ts";
+import { PACKAGE_BUNX, PACKAGE_RUN } from "../skills/spec/scripts/package-run.ts";
 import { machineCapacity } from "../skills/slot/scripts/slot.ts";
 import { COMPOSE_FILES, proxyName } from "../skills/task-env/scripts/task-env.ts";
 
@@ -192,14 +192,13 @@ const HELP: Record<string, string> = {
 elves install -g [--link]
 
 The flow of the latest Elves release into the project (the git root or the current directory), thin — without a copy:
-${PACKAGE} of the release in devDependencies of package.json (the project's package manager installs it, the lockfile
+${PACKAGE} of the release in devDependencies of package.json (bun install installs it, the lockfile
 changes too), .agents/elves.json, the machine queue's shim .agents/slot.sh, a block in AGENTS.md linking to the canon
 on the machine and .worktreeinclude with .env*.local (Claude Code copies them into a new worktree); without auto —
 permissions.ask in .claude/settings.json for git commit, git push and gh pr merge: Claude Code asks the owner itself,
 with auto the rules go; the cloud session's SessionStart hook a previous version put into .claude/settings.json goes,
 your own settings and hooks stay; the package.json checks (lint, typecheck, test, test:*) go through the shim, the skills' scripts —
-${PACKAGE_RUN} <script>, without the project's env files; on Yarn 2+, which runs the .ts bin by Node, both go through
-the package of the project's version — ${PACKAGE_BUNX} <script>.
+${PACKAGE_RUN} <script>, without the project's env files.
 In a terminal asks whether the agent does tasks entirely by itself — answers by recommendation, commit, push,
 fixing CI, merge on green checks (auto in .agents/elves.json, default — no); without a terminal — the --auto or
 --no-auto flag, without the flag the previous answer stays; with auto prints the Claude Code permission rule for the
@@ -219,7 +218,7 @@ the first directory of PATH inside the home directory that can be written: with 
 bin/elves.ts, otherwise a shim to the machine's release (bunx ${PACKAGE}@<version>); someone else's elves there stays
 (!), no such directory — no command, check -g names how to add one. Other agents' rule files a previous version wrote
 (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md and others) go — only its own symlinks into the canon; another agent —
-docs/other-agents.md. From the npm package (npm i -g / bun add -g ${PACKAGE}) — the release of its version, without
+docs/other-agents.md. From the npm package (bun add -g ${PACKAGE}) — the release of its version, without
 the network. --link — from an Elves clone: ~/.agents/elves and the plugin link lead into the clone instead of a copy,
 edits show up immediately. With Claude Code's prompt cache TTL not chosen or cleanupPeriodDays under 365 — the lines
 check -g prints, with the owner's command (docs/prompt-cache.md): install sets nothing in ~/.claude/settings.json.
@@ -338,19 +337,12 @@ function helpText(s: Script, args: string[]): string {
 const synopses = (s: Script) => (typeof s.HELP === "string" ? [s.HELP] : Object.values(s.HELP)).map((h) => h.split("\n\n")[0]!);
 
 /**
- * The package's script in the current project — the form of its package.json: on Yarn 2+ through bunx (`packageRun`).
- * The root — by `.git` up from the current directory, without git: help runs no external commands
- * (tests/standards/scripts/cli-help).
- */
-const projectRun = () => packageRun(packageManager(locale.projectRoot(process.cwd())).berry);
-
-/**
  * A script's help under the elves name: its synopsis and example lines start with the package's script in the project
- * (`projectRun`: `PACKAGE_RUN <command>`, on Yarn 2+ — `PACKAGE_BUNX <command>`) — the agent copies an example as is:
- * the form of package.json and CI and the project's version, while bare `elves` in the agent's shell is the machine's
- * global package, if it's on PATH at all (tests/standards/scripts/no-env-file).
+ * (`PACKAGE_RUN <command>`) — the agent copies an example as is: the form of package.json and CI and the project's
+ * version, while bare `elves` in the agent's shell is the machine's global package, if it's on PATH at all
+ * (tests/standards/scripts/no-env-file).
  */
-const underElves = (cmd: string, text: string, run = projectRun()) => text.replace(new RegExp(`^( *)${cmd}(?= |$)`, "gm"), `$1${run} ${cmd}`).trimEnd();
+const underElves = (cmd: string, text: string) => text.replace(new RegExp(`^( *)${cmd}(?= |$)`, "gm"), `$1${PACKAGE_RUN} ${cmd}`).trimEnd();
 
 /** `elves <script> …`: the script's help or its `main` with the arguments; the exit code is the script's. */
 async function runScript(cmd: string, args: string[]): Promise<number> {
@@ -363,8 +355,7 @@ async function runScript(cmd: string, args: string[]): Promise<number> {
 /** `elves --help`: the synopsis of each command, the scripts' too, and how to run it. */
 async function overview() {
   const synopsis = (h: string) => h.split("\n\n")[0]!.replace(/^/gm, "  ");
-  const run = projectRun();
-  const scripts = await Promise.all(Object.keys(SCRIPTS).map(async (cmd) => synopses(await loadScript(cmd)).map((h) => underElves(cmd, h, run))));
+  const scripts = await Promise.all(Object.keys(SCRIPTS).map(async (cmd) => synopses(await loadScript(cmd)).map((h) => underElves(cmd, h))));
   return [
     "elves — the rules and skills of the Elves flow: install, check, update, release, pack; skill scripts at a project's version",
     "",
@@ -372,7 +363,7 @@ async function overview() {
     ...scripts.flat().map(synopsis),
     "",
     "elves <command> --help — the command's details and examples",
-    `Run: ${RUN} <command>; in a project with ${PACKAGE} in devDependencies — ${run} <command>`,
+    `Run: ${RUN} <command>; in a project with ${PACKAGE} in devDependencies — ${PACKAGE_RUN} <command>`,
     "A Claude Code cloud session (CLAUDE_CODE_REMOTE=true) — every command refuses with one line, code 2: the flow runs in a local session",
   ].join("\n");
 }
@@ -822,7 +813,7 @@ function pluginLink(src: string, home: string, linkMode: boolean) {
  * this release's skill as `elves:<name>`, with the link Claude Code would have both; a skill this release doesn't have
  * the plugin doesn't give either — its reason is that of its `.agents/skills/<name>` (`installSkills`). The agent
  * retells these lines to the user as what changed. Someone else's link or directory stays, and so does a link of a
- * skill that isn't Elves' (`npx skills` links its skills the same way).
+ * skill that isn't Elves' (`bunx skills` links its skills the same way).
  */
 function oldSkillLinks(home: string, before: string[], skills: string[]) {
   const dir = path.join(home, ".claude/skills");
@@ -862,27 +853,19 @@ const SLOT_SHIM_TEXT = [
 /** A package.json script wrapped in slot: `. SLOT_SHIM && <command>`. */
 const SLOT_WRAPPED = /^\. \.agents\/slot\.sh && ([^]*)$/;
 /**
- * A script wrapped with the command a string argument — the package's slot on Yarn 2+: `PACKAGE_BUNX slot`, before
- * #608 — `elves slot`, which Yarn 2+ ran by Node; tools that read package.json scripts (knip) don't see the command.
+ * A wrapper of a previous install — the command a string argument of slot: `PACKAGE_BUNX slot` of a project on Yarn 2+
+ * (#608, until #910), before it — `elves slot`; tools that read package.json scripts (knip) don't see the command.
  */
 const SLOT_STRING = new RegExp(String.raw`^(?:elves|${locale.escapeRe(PACKAGE_BUNX)}) slot '((?:[^']|'\\'')*)'$`);
 /** The script's own command, without the slot wrapper of any install. */
 const unslot = (cmd: string) => SLOT_WRAPPED.exec(cmd)?.[1] ?? SLOT_STRING.exec(cmd)?.[1]?.replaceAll("'\\''", "'") ?? cmd;
 /**
- * Yarn 2+ runs package.json scripts in its own shell (`@yarnpkg/shell`) — without `.`, `eval` and `export`, the shim
- * can't be sourced there: the command stays a string argument of the package's slot, hidden from knip, but in the
- * queue. The package there — `PACKAGE_BUNX`: Yarn 2+ runs a `.ts` bin by Node, past its shebang, with any `nodeLinker`,
- * and with PnP there is no `node_modules` (#608). Yarn 2+ or not — the project's package manager by `packageManager` of
- * the github skill (tests/standards/scripts/package-manager).
- */
-const yarnShell = (root: string) => packageManager(root).berry;
-/**
  * Check scripts that go through the machine queue: `lint`, `typecheck`, `test`, `test:*`. Not `build` — hosting and
  * Docker run it, where the shim or the package may be missing; not watch — long-running, it would hold a slot for long.
  */
 const slotted = (name: string) => /^(?:lint|typecheck|test)$|^test:/.test(name) && !name.includes("watch");
-/** A package.json script's command through the machine queue: `. SLOT_SHIM && <command>`, on Yarn 2+ — `PACKAGE_BUNX slot '<command>'`. */
-const slotWrap = (yarn: boolean) => (cmd: string) => (yarn ? `${PACKAGE_BUNX} slot '${cmd.replaceAll("'", "'\\''")}'` : `. ${SLOT_SHIM} && ${cmd}`);
+/** A package.json script's command through the machine queue: `. SLOT_SHIM && <command>` — `bun run` sources the shim in its shell. */
+const slotWrap = (cmd: string) => `. ${SLOT_SHIM} && ${cmd}`;
 
 /** The shim — the same text in every project: a missing or stale one is written. */
 function slotShim(root: string) {
@@ -902,8 +885,8 @@ function slotShim(root: string) {
  * sources the shim: it holds the slot and gets the queue variables, the command stays a plain command of the script —
  * knip sees its binary, and `bun test` gives knip the test files and `preload` as entries; the command gets exactly the
  * environment it would without the wrapper, no env files of Bun. A wrapper of a previous install — the command a string
- * argument of slot (`SLOT_STRING`), hidden from knip — is rewritten; on Yarn 2+ the string is the wrapper
- * (`yarnShell`). The indentation and the trailing newline stay as they were.
+ * argument of slot (`SLOT_STRING`), hidden from knip — is rewritten. The indentation and the trailing newline stay as
+ * they were.
  */
 function packageScripts(root: string) {
   const file = path.join(root, "package.json");
@@ -917,19 +900,17 @@ function packageScripts(root: string) {
   }
   const scripts = pkg.scripts;
   if (!scripts || typeof scripts !== "object") return;
-  const yarn = yarnShell(root);
-  const wrap = slotWrap(yarn);
   const outside: string[] = [];
   const previous: string[] = [];
   let hidden = false;
   for (const [name, cmd] of Object.entries(scripts)) {
     if (typeof cmd !== "string" || !slotted(name)) continue;
     const inner = unslot(cmd);
-    const want = wrap(inner);
+    const want = slotWrap(inner);
     if (cmd === want) continue;
     scripts[name] = want;
     if (inner === cmd) outside.push(name);
-    else previous.push(name), (hidden ||= SLOT_STRING.test(cmd) && !yarn);
+    else previous.push(name), (hidden ||= SLOT_STRING.test(cmd));
   }
   if (!outside.length && !previous.length) return;
   if (dry) {
@@ -951,7 +932,7 @@ function packageScripts(root: string) {
  */
 const SLOT_ENV = ["ELVES_SLOT", "ELVES_SLOT_CPUS"];
 /**
- * The command calls turbo — `turbo run test`, `turbo test`, `npx turbo …` — but not the `--turbo` flag and not the
+ * The command calls turbo — `turbo run test`, `turbo test`, `bunx turbo …` — but not the `--turbo` flag and not the
  * `turbo.json` path.
  */
 const TURBO = /(?:^|[\s;&|(])turbo(?=\s|$)/;
@@ -1030,7 +1011,7 @@ function composeOutsideQueue(root: string) {
   if (!scripts || typeof scripts !== "object") return;
   const names = Object.entries(scripts).flatMap(([name, cmd]) => (typeof cmd === "string" && unslot(cmd) === cmd && COMPOSE_UP.test(cmd) ? [name] : []));
   if (!names.length) return;
-  const text = `${names.join(", ")} — ${names.length > 1 ? "bring" : "brings"} a stack up with docker compose up outside the machine queue (slot): its start chokes neighbors' runs — bring it up with \`${packageRun(yarnShell(root))} task-env up\`, it waits for the queue until the containers are healthy`;
+  const text = `${names.join(", ")} — ${names.length > 1 ? "bring" : "brings"} a stack up with docker compose up outside the machine queue (slot): its start chokes neighbors' runs — bring it up with \`${PACKAGE_RUN} task-env up\`, it waits for the queue until the containers are healthy`;
   if (dry) change("!", path.join(root, "package.json"), { note: text });
   else warn(`package.json — ${text}`);
 }
@@ -1539,16 +1520,16 @@ function projectManifest(root: string, auto: boolean, language: string) {
   }
 }
 
-/** How long the project's package manager may install the dependencies: a big project with a cold cache — minutes. */
+/** How long `bun install` may install the dependencies: a big project with a cold cache — minutes. */
 const PM_TIMEOUT = 600_000;
 
 /**
  * The project's version of the package — PACKAGE of this release (`ownVersion`) in devDependencies of package.json, an
  * exact version (#558, question 1): the harness and the skills' scripts of its tests and CI. The edit keeps the
- * indentation and the key order, a new key goes to its alphabetical place; in dependencies it stays there. Then the
- * project's package manager (`packageManager` of the github skill) installs it and updates its lockfile; without a
- * lockfile — only package.json and a line with the command: the install doesn't create a lockfile the project doesn't
- * keep. The manager failed (no network, an agent's sandbox) — a warning with the command: package.json is right, the
+ * indentation and the key order, a new key goes to its alphabetical place; in dependencies it stays there. Then
+ * `bun install` installs it and updates Bun's lockfile (`packageManager` of the github skill); without one — only
+ * package.json and a line with the command: the install doesn't create a lockfile the project doesn't keep. `bun install`
+ * failed (no network, an agent's sandbox) — a warning with the command: package.json is right, the
  * lockfile follows it. No package.json — nothing to pin: no scripts or tests on JS. No version (a clone, the launcher
  * from main without releases) — the dependency stays as is, a missing one is a warning (#558, question 5).
  */
@@ -1580,9 +1561,9 @@ function packageDependency(root: string, version: string | null) {
   writeFileSync(file, JSON.stringify(pkg, null, indent) + (text.endsWith("\n") ? "\n" : ""));
   touch("package.json");
   const pm = packageManager(root);
-  const cmd = `${pm.name} install`;
+  const cmd = "bun install";
   if (!pm.lockfile) return note(`package.json — ${PACKAGE} ${was}${version}; no lockfile — install the dependencies: ${cmd}`);
-  const r = spawnSync(pm.name, ["install"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: PM_TIMEOUT });
+  const r = spawnSync("bun", ["install"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: PM_TIMEOUT });
   if (r.error || r.status !== 0) {
     const why = r.error ? r.error.message : (`${r.stderr}\n${r.stdout}`.split("\n").find((l) => /error/i.test(l)) ?? `exit code ${r.status ?? r.signal}`).trim();
     return warn(`package.json — ${PACKAGE} ${was}${version}, but ${pm.lockfile} isn't updated: ${cmd} — ${why}; run it yourself`);
@@ -1594,7 +1575,7 @@ function packageDependency(root: string, version: string | null) {
 /**
  * The project's thin flow (#552): the manifest, the shim, the AGENTS.md block, the ask rules of a project without auto
  * and `.worktreeinclude` (#840), the package.json scripts, the package version and the `.gitignore` exceptions; the
- * cloud session's hook of a previous version goes (`oldCloudHook`); the package manager runs after every package.json
+ * cloud session's hook of a previous version goes (`oldCloudHook`); `bun install` runs after every package.json
  * edit. auto and language — the project's mode and language; only `install` sets them (a flag or a question in the
  * terminal), `update` and `check` go with the manifest's previous value.
  */
@@ -1772,7 +1753,7 @@ function installCommand(src: string, home: string, linkMode: boolean) {
     note(`${shown(dst)} — ${COMMAND_NOTE}: ${linkMode ? `→ ${target}` : (/^exec (.*) "\$@"$/m.exec(text)?.[1] ?? "")}`);
   }
   const dirs = pathDirs();
-  // `node_modules/.bin` in the process's PATH is the package manager's (bunx, npx, a script), not the terminal's (#642)
+  // `node_modules/.bin` in the process's PATH is the package manager's (bunx, a script), not the terminal's (#642)
   const first = dirs.slice(0, dirs.indexOf(dir)).filter((d) => !/(?:^|\/)node_modules\/\.bin$/.test(d)).map((d) => path.join(d, COMMAND)).find(runnable);
   if (first) say(first, `comes first on PATH: elves runs it, not ${shown(dst)} — remove it or put ${shown(dir)} before ${shown(path.dirname(first))} in PATH`);
 }
@@ -1989,7 +1970,7 @@ function packageFiles(root: string): string[] {
  * The project's stack (epic #906, design 4): Elves is for projects on Bun, and this check holds it, not the text. A
  * mismatch the project fixes in a task of its own, `update` doesn't: `❌` lines, as the compose file and `test:spec`.
  * `packageManager` of another manager — the project isn't on Bun; a lockfile of another manager — each by its file;
- * both — the answer of `packageManager` of the github skill (the field and the lockfiles are its,
+ * both — the answer of `packageManager` of the github skill, Bun or not Bun (the field and the lockfiles are its,
  * tests/standards/scripts/package-manager). `vitest` or `jest` in the dependencies of any package.json of the project
  * (`packageFiles`) — the runner is `bun test`. No field isn't a mismatch: `bun init` doesn't write it, the lockfiles
  * tell. No package.json — no JS stack to hold, no lines. `notBun` — the field and lockfile lines: `install` refuses
@@ -2005,7 +1986,7 @@ function packageFiles(root: string): string[] {
 function bunStack(root: string): { lines: string[]; notBun: string[]; notes: string[] } {
   const pm = packageManager(root);
   const step = `"packageManager": "bun@${Bun.version}", bun install`;
-  const manager = pm.field !== null && !/^bun(?:@|$)/.test(pm.field) ? [`  ❌ package.json: the project isn't on Bun — "packageManager": ${JSON.stringify(pm.field)}; ${BUN_RULE}; move it to Bun: ${step}`] : [];
+  const manager = pm.field ? [`  ❌ package.json: the project isn't on Bun — "packageManager": ${JSON.stringify(pm.field)}; ${BUN_RULE}; move it to Bun: ${step}`] : [];
   const lockfiles = pm.foreign.map((f) => `  ❌ ${f}: another package manager's lockfile — ${BUN_RULE}; bun install moves its versions into Bun's lockfile, then remove ${f}`);
   const builtins = bunBuiltins(SRC);
   const runners: string[] = [];
@@ -2076,16 +2057,13 @@ function specScript(root: string): { lines: string[]; missing: boolean } {
   }
   if (!roots.length) return { lines: [], missing: false };
   const test = typeof pkg.scripts?.test === "string" ? unslot(pkg.scripts.test) : undefined;
-  const pm = packageManager(root);
   const byTest = test !== undefined && BUN_TEST.re.test(test);
-  // the install wraps checks in the shim
-  const wrap = slotWrap(pm.berry);
   // the roots test runs too — they would run twice, in test and in test:spec
   const twice = test === undefined ? [] : roots.filter((dir) => !test.includes(dir));
   // a filter goes to a single runner call only: after `&&` or a pipe it would reach another command
-  const filtered = test !== undefined && byTest && twice.length && !/[;&|<>`$()]/.test(test) ? `"test": ${JSON.stringify(wrap([test, ...twice.map(BUN_TEST.exclude)].join(" ")))}` : undefined;
+  const filtered = test !== undefined && byTest && twice.length && !/[;&|<>`$()]/.test(test) ? `"test": ${JSON.stringify(slotWrap([test, ...twice.map(BUN_TEST.exclude)].join(" ")))}` : undefined;
   if (pkg.scripts?.["test:spec"]) return { lines: filtered ? [`  ○ package.json: test repeats test:spec — runs ${twice.join(", ")} a second time; put in "scripts": ${filtered}`] : [], missing: false };
-  const spec = `"test:spec": ${JSON.stringify(wrap([BUN_TEST.spec, ...roots].join(" ")))}`;
+  const spec = `"test:spec": ${JSON.stringify(slotWrap([BUN_TEST.spec, ...roots].join(" ")))}`;
   const lead = `  ❌ package.json: no test:spec script — pr premerge doesn't run ${roots.join(", ")} on the merge with a moved main`;
   if (!twice.length) return { lines: [`${lead}; add to "scripts": ${spec}`], missing: true };
   if (!filtered) return { lines: [`${lead}; add to "scripts": ${spec}; exclude ${twice.join(", ")} from test with the runner's filter — they don't run twice`], missing: true };

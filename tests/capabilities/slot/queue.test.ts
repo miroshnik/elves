@@ -23,7 +23,7 @@ const PATIENCE = 30_000;
 
 let dir: string;
 let cleanup: () => void;
-/** `node_modules/.bin` проекта: там `elves` пакета, `npm run` и `bun run` дают его скрипту на PATH. */
+/** `node_modules/.bin` проекта: там `elves` пакета, `bun run` даёт его скрипту на PATH. */
 let bin: string;
 let config: string;
 let tmp: string;
@@ -115,9 +115,9 @@ interface Queued {
 const slot = (args: string[]): [string, string[]] => (sandboxed ? unprivileged("bun", [SLOT, ...args]) : ["bun", [SLOT, ...args]]);
 /** `slot` фоном: своя группа процессов — тест убивает её целиком. */
 const start = (args: string[], extra: Record<string, string> = {}) => track(spawn(...slot(args), { cwd: dir, env: envOf(extra), detached: true }));
-/** Окружение скрипта package.json: `node_modules/.bin` проекта первым на PATH, как у `npm run`. */
+/** Окружение скрипта package.json: `node_modules/.bin` проекта первым на PATH, как у `bun run`. */
 const scriptEnv = (extra: Record<string, string> = {}) => envOf({ PATH: `${bin}${path.delimiter}${process.env.PATH}`, ...extra });
-/** Скрипт package.json фоном: shell, как у `npm run`, подключает шим и идёт командой. */
+/** Скрипт package.json фоном: shell, как у `bun run`, подключает шим и идёт командой. */
 const startScript = (cmd: string, extra: Record<string, string> = {}) => track(spawn("sh", ["-c", SCRIPT + cmd], { cwd: dir, env: scriptEnv(extra), detached: true }));
 
 function track(proc: ChildProcess): Queued {
@@ -227,7 +227,7 @@ describe("Команда в слоте — как без него, с долей
     expect(r.stdout.trim()).toBe(String(Math.max(1, Math.floor(os.availableParallelism() / 4))));
   });
 
-  it("аргументы дописываются в конец команды, как у npm run", () => {
+  it("аргументы дописываются в конец команды, как у bun run", () => {
     const r = run(["printf '%s|'", "a b", "it's", "$HOME"]);
     expect(exitOf(r)).toBe(0);
     expect(r.stdout).toBe("a b|it's|$HOME|");
@@ -238,9 +238,9 @@ describe("Команда в слоте — как без него, с долей
   });
 
   /**
-   * `elves slot '<команда>'` — прямой вызов из `node_modules/.bin` (#556) и обёртка скрипта на Yarn 2+ (#558): команда
-   * идёт в процессе `elves`, и Bun, подгрузи он env-файлы рабочего каталога, отдал бы их ключи команде. Шебанг bin
-   * запускает Bun с `--no-env-file` (tests/standards/scripts/no-env-file, #592).
+   * `elves slot '<команда>'` — прямой вызов из `node_modules/.bin` (#556): команда идёт в процессе `elves`, и Bun,
+   * подгрузи он env-файлы рабочего каталога, отдал бы их ключи команде. Шебанг bin запускает Bun с `--no-env-file`
+   * (tests/standards/scripts/no-env-file, #592).
    */
   it("elves slot '<команда>' из node_modules/.bin не отдаёт команде ключи env-файлов рабочего каталога", () => {
     writeFileSync(path.join(dir, ".env"), "ELVES_DOTENV=dotenv\n");

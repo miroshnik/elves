@@ -18,22 +18,18 @@ Node-проекте `.env.local` часто несёт прод-ключи из 
 - в документах флоу — `AGENTS.md`, `claude/CLAUDE.md`, `README.md`, `package.json`, `docs/*.md`, `*.md` скиллов —
   `bun <путь>/scripts/<скрипт>.ts`, которую агент копирует как есть;
 - там же — скрипт пакета под `bun`: `bun --no-env-file node_modules/.bin/elves <скрипт>`, в `package.json` и CI
-  одинаково (#596). `bun` читает bin сам, мимо его шебанга, и без флага подгрузит env-файлы каталога. На Yarn 2+ — пакет
-  через bunx, `bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)" <скрипт>`, и
-  обёртка очереди — его `slot '<команда>'` (#608): bin `.ts` Yarn 2+ запускает Node-ом, мимо шебанга, при любом
-  `nodeLinker`, а с PnP `node_modules` нет;
+  одинаково (#596). `bun` читает bin сам, мимо его шебанга, и без флага подгрузит env-файлы каталога;
 - шебанг bin пакета — через `sh`: `#!/bin/sh` и вторая строка `':' //; exec bun --no-env-file "$0" "$@"` — для `sh`
   запуск Bun с флагом, для TypeScript строка-выражение и комментарий. Голый `elves`, `node_modules/.bin/elves`, скрипт
-  `package.json` у npm, pnpm, Bun и Yarn 1 и `bunx` — с ним и обёртка Yarn 2+ — идут через него, без env-файлов
-  (#592); Yarn 2+ сам запускает bin мимо шебанга — Node-ом, и bin не запускается вовсе (#608). Не
+  `package.json` под `bun run` и `bunx` идут через него, без env-файлов (#592). Не
   `#!/usr/bin/env bun` — Bun подгрузил бы их, и `elves slot '<команда>'` отдал бы ключи команде; не
   `#!/usr/bin/env -S bun --no-env-file` — `env -S` есть не везде (busybox), bin там не запустился бы вовсе;
 - в коде скриптов скиллов и установщика — команда, которую скрипт печатает (`bun ${…}`, `bun .agents/skills/…`), и
   дочерний процесс `bun` (`spawn("bun", […])`, `process.execPath`);
 - там же — скрипт пакета под `bun` в строках кода: подсказка, справка скрипта под именем `elves` и обзор
-  `elves --help` (#602). Строка запуска — константы `PACKAGE_RUN` и `PACKAGE_BUNX`
-  (`skills/spec/scripts/package-run.ts`) у установщика и справки: `bun --no-env-file node_modules/.bin/elves
-  <скрипт>`, на Yarn 2+ — пакет через bunx (#608): справка — по `packageManager` проекта. Справку агент копирует как есть: форма та же, что в `package.json` и CI, и версия — пакета
+  `elves --help` (#602). Строка запуска — константа `PACKAGE_RUN` (`skills/spec/scripts/package-run.ts`) у
+  установщика и справки: `bun --no-env-file node_modules/.bin/elves <скрипт>`; до #910 на Yarn 2+ справка называла пакет
+  через bunx (#608). Справку агент копирует как есть: форма та же, что в `package.json` и CI, и версия — пакета
   проекта, а голый `elves` в shell агента — глобальный пакет машины, если он вообще в PATH. Строки — литералы и шаблоны с `${…}`;
   комментарий и регулярное выражение — не вывод.
 
@@ -43,15 +39,19 @@ Node-проекте `.env.local` часто несёт прод-ключи из 
 
 `env = false` в `bunfig.toml` корня проекта отключает env-файлы любому `bun` в нём: Bun-проект перестал бы
 подгружать `.env.test` в собственном `bun test` и `.env` в `bun run dev`. Флаг снимает только то, что добавлял сам
-вызов скрипта флоу. `bun run <скрипт>` и `npm run` env-файлы скрипту `package.json` не передают (Bun 1.4.3).
+вызов скрипта флоу. `bun run <скрипт>` env-файлы скрипту `package.json` не передаёт (Bun 1.4.3).
 
 ## Вне охвата
 
 `bunx` (`bunx @miroshnik/elves …`, запасной путь `bunx github:miroshnik/elves …`, хук `SessionStart`, джобы CI без
-зависимостей проекта — `bunx @miroshnik/elves@<версия> spec-…`, `ci.md` скилла spec, #559; скрипты и обёртка очереди
-проекта на Yarn 2+, #608) флаг не принимает — ни `bunx --no-env-file`, ни `bun --no-env-file x` (Bun 1.4.3), — но
-запускает bin его шебангом: env-файлы снимает шебанг (#592; из скрипта Yarn 4 ключ `.env.local` до команды не доходит —
-tests/capabilities/elves/install).
+зависимостей проекта — `bunx @miroshnik/elves@<версия> spec-…`, `ci.md` скилла spec, #559) флаг не принимает — ни
+`bunx --no-env-file`, ни `bun --no-env-file x` (Bun 1.4.3), — но запускает bin его шебангом: env-файлы снимает шебанг
+(#592).
+
+`bun install` проекта — установка ставит пакет флоу и обновляет lockfile Bun, `premerge` и `spec-red` ставят зависимости
+слияния и базы — идёт без флага, как у человека в терминале: Bun подгружает env-файлы и в `bun install` (замер Bun
+1.4.5: `postinstall` видит ключ `.env`, с `--no-env-file` — нет), а токен приватного реестра в `bunfig.toml` может
+браться оттуда — с флагом установка такого проекта упала бы. Это команда проекта, а не скрипт флоу.
 
 `elves slot --for $$` шима очереди `.agents/slot.sh`: `elves` только печатает переменные очереди, а команда идёт в
 shell скрипта, без env-файлов Bun.

@@ -12,7 +12,7 @@
  * it) — failed; a green summary with a code other than 0 — failed too: something broke outside the tests. `lint` and
  * `typecheck` have no summary — their code is the result. A missing script — an `○` line, not a failure.
  *
- * The scripts run by the project's package manager (`projectCommands` of the github skill — the one answer of the flow,
+ * The scripts run by `bun run` (`projectCommands` of the github skill — the one answer of the flow,
  * tests/standards/scripts/package-manager), from the git root. The details of a failed check — its output without the lines of
  * passed tests, the last DETAIL lines, and the file with the whole output.
  *
@@ -25,7 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { packageManager, projectCommands } from "../../github/scripts/github.ts";
+import { projectCommands } from "../../github/scripts/github.ts";
 import locale from "../../github/scripts/locale.ts";
 
 const USAGE = "precommit [--base <ref>]";
@@ -109,12 +109,8 @@ export function verdict(tests: boolean, code: number | string, output: string): 
   return { ok: true, text: counts };
 }
 
-/** The script's command with its arguments: npm passes them after `--`, the other managers — as is. */
-function command(root: string, check: Check): string[] {
-  const run = projectCommands(root).run(check.script);
-  if (!check.args.length) return run;
-  return packageManager(root).name === "npm" ? [...run, "--", ...check.args] : [...run, ...check.args];
-}
+/** The script's command with its arguments — `bun run` passes them on as is. */
+const command = (root: string, check: Check): string[] => [...projectCommands(root).run(check.script), ...check.args];
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
@@ -141,12 +137,12 @@ function runCheck(root: string, check: Check): Promise<Outcome> {
 
 /**
  * The details of a failed check: its output without the lines of passed or skipped tests and without the package
- * manager's echo of the script's command (`$ …` of bun run, `> app@1.0.0 test` of npm), the last DETAIL lines.
+ * manager's echo of the script's command (`$ …` of bun run), the last DETAIL lines.
  */
 export function detailsOf(output: string): string[] {
   const lines = plain(output)
     .split("\n")
-    .filter((l) => !/^\s*(?:\(pass\)|\(skip\)|\(todo\)|✓|√|ok \d)|^\$ |^> \S+@\S* /.test(l));
+    .filter((l) => !/^\s*(?:\(pass\)|\(skip\)|\(todo\)|✓|√|ok \d)|^\$ /.test(l));
   while (lines.length && !lines.at(-1)!.trim()) lines.pop();
   return lines.length > DETAIL ? [`… ${lines.length - DETAIL} lines above — in the file`, ...lines.slice(-DETAIL)] : lines;
 }
