@@ -465,27 +465,21 @@ describe("Проверки проекта идут очередью машины
    * Yarn 2+ выполняет скрипты своим shell (`@yarnpkg/shell`): в нём нет `.`, `eval` и `export`, и подключить шим нечем.
    * Там команда остаётся строкой у slot пакета — knip её не видит, но проверки идут очередью. Пакет — через bunx
    * (`PACKAGE_BUNX`): bin `.ts` Yarn 2+ запускает Node-ом, мимо шебанга, а с PnP `node_modules` нет (#608); обёртка
-   * до #608 — `elves slot` — переписывается. Вживую, настоящим Yarn, — install.slow.test.ts.
+   * до #608 — `elves slot` — переписывается. Вживую, настоящим Yarn, — install.slow.test.ts. Yarn 2+ здесь — по
+   * `.yarnrc.yml`: проект, который объявляет Yarn в `packageManager`, — не на Bun, и `install` в него отказывает (#907).
    */
   it("в проекте на Yarn 2+ скрипты пакета — через bunx, команда проверки — строкой у его slot: bin .ts Yarn запускает Node-ом, шим его shell не подключает", () => {
     const yarnSlot = (cmd: string) => `${PACKAGE_BUNX} slot '${cmd}'`;
-    const markers: [Record<string, string>, string?][] = [[{ ".yarnrc.yml": "nodeLinker: node-modules\n" }], [{}, "yarn@4.9.1"]];
-    for (const [files, packageManager] of markers) {
-      rmSync(path.join(proj, ".yarnrc.yml"), { force: true });
-      const specDoc = `${PACKAGE_BUNX} spec-doc .spec-report.xml`;
-      writeTree(proj, { ...files, "package.json": JSON.stringify({ packageManager, scripts: { test: "vitest run", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
-      install();
-      expect(scripts()).toEqual({
-        test: yarnSlot("vitest run"),
-        lint: yarnSlot("eslint ."),
-        "test:e2e": yarnSlot("playwright test"),
-        "spec:doc": `${PACKAGE_BUNX} spec-doc .spec-report.xml`,
-      });
-      expect(elves(sb, ["check"]).code).toBe(0);
-    }
-    writeTree(proj, { "package.json": JSON.stringify({ packageManager: "yarn@1.22.22", scripts: { test: "vitest run" } }) });
+    const specDoc = `${PACKAGE_BUNX} spec-doc .spec-report.xml`;
+    writeTree(proj, { ".yarnrc.yml": "nodeLinker: node-modules\n", "package.json": JSON.stringify({ scripts: { test: "vitest run", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
     install();
-    expect(scripts()).toEqual({ test: slot("vitest run") });
+    expect(scripts()).toEqual({
+      test: yarnSlot("vitest run"),
+      lint: yarnSlot("eslint ."),
+      "test:e2e": yarnSlot("playwright test"),
+      "spec:doc": `${PACKAGE_BUNX} spec-doc .spec-report.xml`,
+    });
+    expect(elves(sb, ["check"]).code).toBe(0);
   });
 
   it("check называет обёртку прошлой установки несоответствием, update переписывает её", () => {
