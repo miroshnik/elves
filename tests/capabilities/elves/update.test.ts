@@ -522,15 +522,15 @@ const PUT_PAIR = (spec: string, test: string) => `put in "scripts" — test with
  */
 describe("check проекта со стандартами или архитектурой требует скрипт test:spec — быструю проверку pr premerge", () => {
   it("проект со стандартами без скрипта test:spec — check называет нарушение и строку для package.json", () => {
-    writePkg({ scripts: { test: "vitest run" } });
+    writePkg({ scripts: { test: "bun test" } });
     elves(sb, ["install"]);
     decision("tests/standards/naming");
     const before = snapshot(sb.proj);
     const r = elves(sb, ["check"]);
     expect(r.code).toBe(1);
     expect(r.stdout).toContain("in the project: up to date");
-    const spec = inSlot("vitest run tests/standards");
-    const test = inSlot("vitest run --exclude 'tests/standards/**'");
+    const spec = inSlot("bun test tests/standards");
+    const test = inSlot("bun test --path-ignore-patterns='tests/standards/**'");
     expect(r.stdout).toContain(NO_TEST_SPEC("tests/standards") + PUT_PAIR(spec, test));
     expect(r.stdout).toEndWith(MODE_ASK);
     expect(snapshot(sb.proj)).toEqual(before);
@@ -542,17 +542,17 @@ describe("check проекта со стандартами или архитек
     expect(fixed.stdout).not.toContain("test:spec");
   });
 
-  it("test:spec — раннер команды test, без неё — по зависимостям: vitest, jest, bun test в проекте на Bun, без раннера — vitest; по корням спеки, что есть", () => {
+  // тесты проекта — bun test (эпик #906): раннер test:spec не выбирается ни по test, ни по зависимостям
+  it("test:spec — bun test по корням спеки, что есть, какой бы раннер ни был в test и в зависимостях", () => {
     elves(sb, ["install"]);
     const cases: [fields: Record<string, unknown>, roots: string[], files: string[], cmd: string][] = [
-      [{ devDependencies: { jest: "^30.0.0" } }, ["tests/architecture/layers"], [], "jest tests/architecture"],
+      [{ devDependencies: { jest: "^30.0.0" } }, ["tests/architecture/layers"], [], "bun test tests/architecture"],
       [{ packageManager: "bun@1.4.3" }, ["tests/standards/naming", "tests/architecture/layers"], [], "bun test tests/standards tests/architecture"],
       [{}, ["tests/standards/naming"], ["bun.lock"], "bun test tests/standards"],
-      [{ devDependencies: { vitest: "^4.0.0" } }, ["tests/standards/naming"], ["bun.lock"], "vitest run tests/standards"],
-      [{}, ["tests/standards/naming"], [], "vitest run tests/standards"],
-      // раннер команды test — сильнее зависимостей
-      [{ devDependencies: { vitest: "^4.0.0" }, scripts: { test: inSlot("jest --ci") } }, ["tests/standards/naming"], [], "jest tests/standards"],
-      [{ devDependencies: { jest: "^30.0.0" }, scripts: { test: inSlot("bun test") } }, ["tests/standards/naming"], [], "bun test tests/standards"],
+      [{ devDependencies: { vitest: "^4.0.0" } }, ["tests/standards/naming"], ["bun.lock"], "bun test tests/standards"],
+      [{}, ["tests/standards/naming"], [], "bun test tests/standards"],
+      [{ devDependencies: { vitest: "^4.0.0" }, scripts: { test: inSlot("jest --ci") } }, ["tests/standards/naming"], [], "bun test tests/standards"],
+      [{ devDependencies: { jest: "^30.0.0" }, scripts: { test: inSlot("vitest run") } }, ["tests/standards/naming"], [], "bun test tests/standards"],
     ];
     for (const [fields, roots, files, cmd] of cases) {
       rmSync(path.join(sb.proj, "tests"), { recursive: true, force: true });
@@ -575,19 +575,20 @@ describe("check проекта со стандартами или архитек
   it("рядом со строкой test:spec — исключение тех же корней из test фильтром раннера: стандарты не идут дважды", () => {
     elves(sb, ["install"]);
     decision("tests/standards/naming");
-    const cases: [deps: Record<string, string>, test: string | undefined, line: string][] = [
-      [{ vitest: "^4.0.0" }, "vitest run", PUT_PAIR(inSlot("vitest run tests/standards"), inSlot("vitest run --exclude 'tests/standards/**'"))],
-      [{ jest: "^30.0.0" }, "jest --ci", PUT_PAIR(inSlot("jest tests/standards"), inSlot("jest --ci --testPathIgnorePatterns=tests/standards/"))],
+    const words = `${ADD_SPEC(inSlot("bun test tests/standards")).trimEnd()}; exclude tests/standards from test with the runner's filter — they don't run twice\n`;
+    const cases: [test: string | undefined, line: string][] = [
+      ["bun test", PUT_PAIR(inSlot("bun test tests/standards"), inSlot("bun test --path-ignore-patterns='tests/standards/**'"))],
       // фильтр медленного уровня остаётся, исключение корней — следом
-      [{}, "bun test --path-ignore-patterns='**/*.slow.test.ts'", PUT_PAIR(inSlot("bun test tests/standards"), inSlot("bun test --path-ignore-patterns='**/*.slow.test.ts' --path-ignore-patterns='tests/standards/**'"))],
+      ["bun test --path-ignore-patterns='**/*.slow.test.ts'", PUT_PAIR(inSlot("bun test tests/standards"), inSlot("bun test --path-ignore-patterns='**/*.slow.test.ts' --path-ignore-patterns='tests/standards/**'"))],
       // test корни уже не гоняет или его нет — одна строка test:spec
-      [{ vitest: "^4.0.0" }, "vitest run --exclude 'tests/standards/**'", ADD_SPEC(inSlot("vitest run tests/standards"))],
-      [{ vitest: "^4.0.0" }, undefined, ADD_SPEC(inSlot("vitest run tests/standards"))],
-      // test — не вызов раннера: фильтр не к чему дописать — словами
-      [{ vitest: "^4.0.0" }, "turbo run test", `${ADD_SPEC(inSlot("vitest run tests/standards")).trimEnd()}; exclude tests/standards from test with the runner's filter — they don't run twice\n`],
+      ["bun test --path-ignore-patterns='tests/standards/**'", ADD_SPEC(inSlot("bun test tests/standards"))],
+      [undefined, ADD_SPEC(inSlot("bun test tests/standards"))],
+      // test — не вызов bun test: фильтр не к чему дописать — словами
+      ["turbo run test", words],
+      ["vitest run", words],
     ];
-    for (const [deps, test, line] of cases) {
-      writePkg({ devDependencies: deps, ...(test === undefined ? {} : { scripts: { test: inSlot(test) } }) });
+    for (const [test, line] of cases) {
+      writePkg(test === undefined ? {} : { scripts: { test: inSlot(test) } });
       const r = elves(sb, ["check"]);
       expect(r.code).toBe(1);
       expect(r.stdout).toContain(NO_TEST_SPEC("tests/standards") + line);
@@ -595,7 +596,7 @@ describe("check проекта со стандартами или архитек
   });
 
   it("проект без стандартов и архитектуры — check не требует test:spec", () => {
-    writePkg({ scripts: { test: "vitest run" } });
+    writePkg({ scripts: { test: "bun test" } });
     elves(sb, ["install"]);
     decision("tests/capabilities/export");
     const r = elves(sb, ["check"]);
@@ -617,29 +618,24 @@ describe("check проекта с test:spec называет test, которы�
     elves(sb, ["install"]);
     decision("tests/standards/naming");
   });
-  const withSpec = (test: string, deps: Record<string, string> = {}) =>
-    writePkg({ devDependencies: deps, scripts: { "test:spec": inSlot("vitest run tests/standards tests/architecture"), test: inSlot(test) } });
+  const withSpec = (test: string) => writePkg({ scripts: { "test:spec": inSlot("bun test tests/standards tests/architecture"), test: inSlot(test) } });
 
   it("проект с test:spec, test — одиночный вызов раннера без корней спеки — check выводит строку ○ с готовой строкой test без них", () => {
     decision("tests/architecture/layers");
-    withSpec("vitest run");
+    withSpec("bun test");
     const before = snapshot(sb.proj);
     const r = elves(sb, ["check"]);
-    expect(r.stdout).toContain(REPEATS("tests/standards, tests/architecture", inSlot("vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'")));
+    expect(r.stdout).toContain(REPEATS("tests/standards, tests/architecture", inSlot("bun test --path-ignore-patterns='tests/standards/**' --path-ignore-patterns='tests/architecture/**'")));
     expect(snapshot(sb.proj)).toEqual(before);
-    // раннер под менеджером пакетов — тот же одиночный вызов
-    withSpec("pnpm exec vitest run");
-    expect(elves(sb, ["check"]).stdout).toContain(REPEATS("tests/standards, tests/architecture", inSlot("pnpm exec vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'")));
   });
 
   it("готовая строка test дописывает исключение к фильтру, который в test уже есть, и остаётся под обёрткой slot", () => {
-    const cases: [deps: Record<string, string>, test: string, line: string][] = [
-      [{ vitest: "^4.0.0" }, "vitest run --exclude '**/*.slow.test.ts'", inSlot("vitest run --exclude '**/*.slow.test.ts' --exclude 'tests/standards/**'")],
-      [{ jest: "^30.0.0" }, "jest --ci", inSlot("jest --ci --testPathIgnorePatterns=tests/standards/")],
-      [{}, "bun test --path-ignore-patterns='**/*.slow.test.ts'", inSlot("bun test --path-ignore-patterns='**/*.slow.test.ts' --path-ignore-patterns='tests/standards/**'")],
+    const cases: [test: string, line: string][] = [
+      ["bun test --path-ignore-patterns='**/*.slow.test.ts'", inSlot("bun test --path-ignore-patterns='**/*.slow.test.ts' --path-ignore-patterns='tests/standards/**'")],
+      ["bun test --timeout=10000", inSlot("bun test --timeout=10000 --path-ignore-patterns='tests/standards/**'")],
     ];
-    for (const [deps, test, line] of cases) {
-      withSpec(test, deps);
+    for (const [test, line] of cases) {
+      withSpec(test);
       expect(elves(sb, ["check"]).stdout).toContain(REPEATS("tests/standards", line));
     }
   });
@@ -647,14 +643,14 @@ describe("check проекта с test:spec называет test, которы�
   it("test называет все корни спеки — строки нет", () => {
     decision("tests/architecture/layers");
     // называет один корень из двух — строка о другом
-    withSpec("vitest run --exclude 'tests/standards/**'");
-    expect(elves(sb, ["check"]).stdout).toContain(REPEATS("tests/architecture", inSlot("vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'")));
-    withSpec("vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'");
+    withSpec("bun test --path-ignore-patterns='tests/standards/**'");
+    expect(elves(sb, ["check"]).stdout).toContain(REPEATS("tests/architecture", inSlot("bun test --path-ignore-patterns='tests/standards/**' --path-ignore-patterns='tests/architecture/**'")));
+    withSpec("bun test --path-ignore-patterns='tests/standards/**' --path-ignore-patterns='tests/architecture/**'");
     expect(elves(sb, ["check"]).stdout).not.toContain("○");
   });
 
-  it("test не одиночный вызов раннера — turbo или цепочка команд — check молчит", () => {
-    for (const test of ["turbo run test", "vitest run && tsc --noEmit", "vitest run | tee vitest.log"]) {
+  it("test не одиночный вызов bun test — turbo, цепочка команд или другой раннер — check молчит", () => {
+    for (const test of ["turbo run test", "bun test && tsc --noEmit", "bun test | tee test.log", "vitest run"]) {
       withSpec(test);
       const r = elves(sb, ["check"]);
       expect(r.code).toBe(0);
@@ -663,11 +659,11 @@ describe("check проекта с test:spec называет test, которы�
   });
 
   it("строка ○ о повторе стандартов не меняет код выхода check", () => {
-    withSpec("vitest run");
+    withSpec("bun test");
     const r = elves(sb, ["check"]);
     expect(r.code).toBe(0);
     expect(r.stdout).toStartWith("Elves in the project: up to date");
-    expect(r.stdout).toEndWith(REPEATS("tests/standards", inSlot("vitest run --exclude 'tests/standards/**'")) + MODE_ASK);
+    expect(r.stdout).toEndWith(REPEATS("tests/standards", inSlot("bun test --path-ignore-patterns='tests/standards/**'")) + MODE_ASK);
   });
 });
 
@@ -1907,16 +1903,16 @@ describe("В начале сессии Claude Code проверка идёт с�
 
   it("вывод хука называет нехватку test:spec и что её добавление — отдельная задача проекта; со скриптом подсказки нет", () => {
     elves(sb, ["install", "-g"]);
-    writePkg({ devDependencies: { vitest: "^4.0.0" } });
+    writePkg({});
     elves(sb, ["install"]);
     bunxServes(base.bin);
     decision("tests/standards/naming");
     const r = runHook();
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(NO_TEST_SPEC("tests/standards") + ADD_SPEC(inSlot("vitest run tests/standards")));
+    expect(r.stdout).toContain(NO_TEST_SPEC("tests/standards") + ADD_SPEC(inSlot("bun test tests/standards")));
     expect(r.stdout).toContain("No test:spec script — pr premerge doesn't run standards and architecture on the merge; the ❌ line names the package.json scripts; adding them is a task of its own in the project.");
     expect(r.stdout).not.toContain("Behind —");
-    writePkg({ devDependencies: { vitest: "^4.0.0" }, scripts: { "test:spec": inSlot("vitest run tests/standards") } });
+    writePkg({ scripts: { "test:spec": inSlot("bun test tests/standards") } });
     expect(runHook().stdout).not.toContain("test:spec");
   });
 
