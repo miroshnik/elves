@@ -1,5 +1,4 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
@@ -7,7 +6,7 @@ import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import { invariant, source } from "../../../skills/spec/scripts/harness.ts";
 import type { SourceFile } from "../../../skills/spec/scripts/harness.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
+import { committedFiles, gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -28,15 +27,10 @@ const FLOW = ["AGENTS.md", "claude", "docs", "skills", "bin", "README.md", "pack
 const KEPT = { file: "bin/elves.ts", line: 'const RENAME_LINKS = [".config/ai-dev", ".claude/est"];' };
 
 /**
- * Файлы флоу от корня, по порядку, — те, что попадают в коммит: отслеживаемые git и новые, кроме игнорируемых git.
- * Обход каталога читал бы и сгенерированное: страницы `docs/spec` после локального `spec:doc` называют старое имя в
- * названиях тестов, а в CI их ещё нет (#579). Отслеживаемый файл, удалённый из рабочей копии, — уже не файл флоу.
+ * Файлы флоу от корня, по порядку, — те, что попадают в коммит: страницы `docs/spec` после локального `spec:doc`
+ * называют старое имя в названиях тестов, а в CI их ещё нет (#579).
  */
-function flowFiles(root = ROOT): string[] {
-  const r = spawnSync("git", ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...FLOW], { encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`git ls-files в ${root} — ${String(r.stderr).trim() || r.error}`);
-  return [...new Set(r.stdout.split("\0").filter(Boolean))].filter((f) => existsSync(path.join(root, f))).sort();
-}
+const flowFiles = (root = ROOT): string[] => committedFiles(root, FLOW);
 
 /** Старое имя в файле — `файл:строка — строка`, в пути — `файл (путь файла)`; строка KEPT не в счёт. */
 function found(f: SourceFile): string[] {
