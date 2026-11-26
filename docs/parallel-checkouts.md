@@ -39,8 +39,8 @@ e2e run in its own Docker Compose stack — a copy of the project's compose
 file, the `task-env` skill:
 
 ```bash
-bun --no-env-file <skill dir>/scripts/task-env.ts up                           # the task's stack by the branch, its addresses
-bun --no-env-file <skill dir>/scripts/task-env.ts e2e -- npx playwright test   # the e2e stack anew, the run with its addresses
+bun --no-env-file <skill dir>/scripts/task-env.ts up                                 # the task's stack by the branch, its addresses
+bun --no-env-file <skill dir>/scripts/task-env.ts e2e -- bun --bun playwright test   # the e2e stack anew, the run with its addresses
 ```
 
 - **The stack** — Compose project `<project>-<N>` by the number from the
@@ -156,7 +156,7 @@ The task's app lives at `http://web.<N>.<project>.localhost`, not at
 ## Runner config: the e2e stack's address
 
 ```ts
-// playwright.config.ts — `task-env e2e -- npx playwright test` gives the e2e stack's address;
+// playwright.config.ts — `task-env e2e -- bun --bun playwright test` gives the e2e stack's address;
 // without it (CI, a run not through task-env) everything stays as before
 import { defineConfig } from '@playwright/test';
 

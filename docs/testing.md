@@ -94,9 +94,12 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   - `test` in full — when the change touches what every test depends on and
     no import shows: the runner config, its global setup (`preload` in
     `bunfig.toml`, Playwright `globalSetup`), the lock file;
-  - e2e — the changed specs (Playwright `--only-changed=origin/main
-    --pass-with-no-tests`): it follows the specs' own imports (fixtures, page
-    objects), not the app code the browser opens; the rest — CI;
+  - e2e — the changed specs (`bun --bun playwright test
+    --only-changed=origin/main --pass-with-no-tests`): under Bun Playwright
+    registers no loader hooks and doesn't see a spec's imports, so a changed
+    fixture or page object — a run by path of the specs that import it
+    (`grep -rl <file> e2e`); the app code the browser opens it doesn't see
+    either; the rest — CI;
   - `test:slow` — when the change touches what it checks (below).
 
   **One command runs the set:** `bun --no-env-file node_modules/.bin/elves
@@ -134,7 +137,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
 
   ```bash
   cp -R test-results "$TMPDIR/e2e-<task>-$(date +%H%M%S)"
-  npx playwright show-trace "$TMPDIR"/e2e-<task>-*/<test>/trace.zip
+  bunx playwright show-trace "$TMPDIR"/e2e-<task>-*/<test>/trace.zip
   ```
 - **A build and a run against it — not in parallel.** The build directory
   (section "Framework: three questions") is shared: rebuilding under a running
@@ -181,6 +184,10 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
 
 ## e2e
 
+- **The runner — under Bun.** `bun --bun playwright test`, the package of
+  the specs — `"type": "module"`: the config, fixtures and factories get
+  Bun's built-ins (`Bun.sql`, `.env`) instead of `pg` and `dotenv`; why and
+  what `elves check` holds — `docs/bun.md`.
 - **Against a production build, not the dev server.** In the task's e2e
   stack the app is a service of the compose file, and for e2e it serves the
   production build (table below) — a profile or a build target by a variable
