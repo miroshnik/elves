@@ -152,6 +152,7 @@ function fakeGh(
     owner = "User",
     base = "main",
     releases = [],
+    intoBatch = [],
     ref = "feat/7-x",
     files = [],
     onHead = {},
@@ -170,9 +171,11 @@ function fakeGh(
     base?: string;
     /**
      * PR с базой PR головой — выпуск пачки (`?head=владелец:ветка`): номер, открыт ли, влит ли, тело с «Closes #N» его
-     * задач и чеки его головы (`rsha<номер>`): имя → вывод check-run.
+     * задач, чеки его головы (`rsha<номер>`): имя → вывод check-run, и время открытия.
      */
-    releases?: { number: number; state: "open" | "closed"; merged?: boolean; body?: string; checks?: Record<string, string> }[];
+    releases?: { number: number; state: "open" | "closed"; merged?: boolean; body?: string; checks?: Record<string, string>; opened?: string }[];
+    /** PR, влитые в базу PR — ветку пачки (`?state=closed&base=…`): ветка задачи, тело и время мержа. */
+    intoBatch?: { number: number; ref: string; body?: string; merged: string }[];
     /** Ветка PR — ветка задачи. */
     ref?: string;
     /** Файлы PR (PrChange): по ним premerge решает, добавляет ли PR тесты (#844) и чинит ли красный main (#893). */
@@ -207,8 +210,20 @@ function fakeGh(
     }
     if (url === `repos/${SLUG}/pulls/${PR}`) return JSON.stringify({ id: 1, number: PR, state, merged: state !== "open", body, head: { sha: head, ref }, base: { ref: base, repo: { default_branch: "main", owner: { type: owner } } } });
     if (url.startsWith(`repos/${SLUG}/pulls?`)) {
-      const want = new URLSearchParams(url.split("?")[1]).get("head");
-      const row = (r: (typeof releases)[number]) => ({ number: r.number, state: r.state, merged_at: r.merged ? "2026-10-02T11:00:00Z" : null, body: r.body ?? "", head: { ref: base, sha: `rsha${r.number}` }, base: { ref: "main" } });
+      const query = new URLSearchParams(url.split("?")[1]);
+      const want = query.get("head");
+      if (query.get("base") === base && query.get("state") === "closed") {
+        return JSON.stringify(intoBatch.map((p) => ({ number: p.number, state: "closed", merged_at: p.merged, body: p.body ?? "", head: { ref: p.ref, sha: `isha${p.number}` }, base: { ref: base } })));
+      }
+      const row = (r: (typeof releases)[number]) => ({
+        number: r.number,
+        state: r.state,
+        created_at: r.opened ?? "2026-10-02T10:30:00Z",
+        merged_at: r.merged ? "2026-10-02T11:00:00Z" : null,
+        body: r.body ?? "",
+        head: { ref: base, sha: `rsha${r.number}` },
+        base: { ref: "main" },
+      });
       return JSON.stringify(want === `miroshnik:${base}` ? releases.map(row) : []);
     }
     const release = releases.find((r) => url.startsWith(`repos/${SLUG}/commits/rsha${r.number}/`));
@@ -1216,6 +1231,37 @@ describe("Красный выпуск чинится в пачке", () => {
       const held = premerge(fakeGh(p.head, { base: BATCH, body: "Refs #61", ref: "fix/61-red-release", releases: [{ ...RED, checks }] }).gh, p.work);
       expect(held.code).toBe(1);
       expect(held.out).toStartWith(`❌ don't merge: ${BATCH} is being released — PR #9 into main: `);
+    }
+  });
+
+  /**
+   * Виновных у красного выпуска две (#902), их починки идут параллельно: первая влита — голова выпуска сдвинулась, полный
+   * прогон на ней идёт, выпуск не красный. Вторую `pr premerge` держал до закрытия выпуска, а выпуск без неё не позеленеет
+   * — тупик: её вливали вопреки отказу.
+   */
+  it("pr premerge пропускает в пачку PR второй починки красного выпуска, пока полный прогон идёт заново после влитой первой, а PR задачи не из выпуска держит", () => {
+    const p = project({ pr: { "uses.txt": "b\n" }, base: BATCH });
+    // выпуск открыт в 10:30; починка #62 влита в пачку в 11:10 — прогон на сдвинутой голове ещё идёт
+    const rerun = { ...RED, opened: "2026-10-02T10:30:00Z", checks: { tests: "in_progress" } };
+    const fixed = [{ number: 11, ref: "exec/fix/62-red-release", body: "Refs #62", merged: "2026-10-02T11:10:00Z" }];
+    const fix61 = { base: BATCH, body: "Refs #61", ref: "exec/fix/61-red-release", suites: [] };
+    const second = premerge(fakeGh(p.head, { ...fix61, releases: [rerun], intoBatch: fixed }).gh, p.work);
+    expect(second.code).toBe(0);
+    expect(second.out.split("\n")).toEqual([
+      `○ ${BATCH} is being released — PR #9 into main runs again after its fix PR #11 merged into the batch, and PR #${PR} is of its task #61: ` +
+        `the red release's fixes go into the batch in parallel — checking the PR as usual; after its merge the release's full run goes again on PR #9`,
+      `✅ merge: PR #${PR} is on the fresh origin/${BATCH} (${p.git("rev-parse", `origin/${BATCH}`).slice(0, 7)}) — a PR into the batch runs no CI: the checks before a commit checked this tree`,
+    ]);
+    // задача не из выпуска и при прогоне заново ждёт выпуска — её место в следующей пачке
+    const live = premerge(fakeGh(p.head, { base: BATCH, body: "Closes #70", ref: "exec/feat/70-live", releases: [rerun], intoBatch: fixed }).gh, p.work);
+    expect(live.code).toBe(1);
+    expect(live.out).toStartWith(`❌ don't merge: ${BATCH} is being released — PR #9 into main: a merge into the batch now would change the release its CI checked. `);
+    // влитое до открытия выпуска — не починка: первый прогон держит и PR задачи выпуска; прогон после починки зелёный — тоже
+    const first = premerge(fakeGh(p.head, { ...fix61, releases: [rerun], intoBatch: [{ ...fixed[0]!, merged: "2026-10-02T10:00:00Z" }] }).gh, p.work);
+    const green = premerge(fakeGh(p.head, { ...fix61, releases: [{ ...rerun, checks: { tests: "success" } }], intoBatch: fixed }).gh, p.work);
+    for (const held of [first, green]) {
+      expect(held.code).toBe(1);
+      expect(held.out).toStartWith(`❌ don't merge: ${BATCH} is being released — PR #9 into main: a merge into the batch now would change the release its CI checked. `);
     }
   });
 });
