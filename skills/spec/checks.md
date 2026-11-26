@@ -506,7 +506,8 @@ Tests by kind — «no files without a consumer», «no exports without a consum
 «no imports of unlisted packages», «no unresolved imports» and the knip 6 kinds —
 «no enum members without a consumer»,
 «no namespace members without a consumer», «no duplicate exports»,
-«no calls to unlisted binaries»,
+«no calls to unlisted binaries» (`jq` isn't one: the package's command in
+scripts and CI steps calls it, a utility of the machine and the GitHub runner),
 «no unused catalog entries»,
 «no references to missing catalog entries» — failing with the
 list of findings. «all knip findings are of known kinds» fails on a kind the harness doesn't know (new in knip, `cycles`
