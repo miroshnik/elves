@@ -68,7 +68,7 @@ each with its share of cores: the time of one run at each count and the slots fo
 the time grows by half; run it on an idle machine. Exit code — 1 if a copy failed.
 
 Examples:
-  slot 'vitest run'
+  slot 'bun test'
   slot 'bun test' tests/standards
   slot --capacity
   slot --log

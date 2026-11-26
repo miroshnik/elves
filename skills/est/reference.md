@@ -62,7 +62,7 @@ queue — and up to `--gap` (30 min) otherwise: a longer pause outside a wait is
 the machine asleep mid-call or a background process killed days later. Wait
 calls by command (heredoc text isn't a command): `wait-ci pr|status` and `gh pr
 checks --watch` — CI; `wait-ci merged|issue` — after the merge and the deploy;
-`typecheck`, `lint`, `test*`, `e2e` as package scripts, `vitest`, `jest`,
+`typecheck`, `lint`, `test*`, `e2e` as package scripts, `bun test`,
 `tsc`, `eslint`, `playwright test` and a command under `slot` — checks, of them
 the slot queue (`slot: waited …` in the output; a background command's — from
 its output file while it exists). A moment inside calls of two kinds goes to

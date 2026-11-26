@@ -1267,9 +1267,9 @@ export const WAIT_KINDS = ["ci", "merged", "checks"] as const;
 const WAIT_CI_RE = /wait-ci(?:\.sh)?['"]?\s+(pr|status|merged|issue)\b/;
 const GH_WATCH_RE = /\bgh\s+pr\s+checks\b[^;&|\n]*--watch\b/;
 // local checks: typecheck, lint, test* and e2e as package scripts (options of the package manager before the name —
-// `pnpm --filter web test`), the runners themselves, a command under slot (its script with a quoted command, slot.sh
-// sourced) — reading slot's files isn't a check
-const CHECKS_RE = /(?:^|[\s;&|(])(?:(?:bun|npm|pnpm|yarn)(?:\s+--?[\w-]+(?:[= ][^\s;&|-][^\s;&|]*)?){0,3}\s+(?:run\s+)?(?:typecheck|lint|test(?::[\w.-]+)?|e2e(?::[\w.-]+)?)(?![\w:-])|(?:npx\s+|bunx\s+)?(?:vitest|jest|tsc|eslint)(?![\w.-])|playwright\s+test\b|(?:\.|source)\s+\S*\/slot\.sh\b|slot\s+['"])|\/slot\.ts['"]?\s+['"]/;
+// `pnpm --filter web test`), the tools themselves (`bun test` — the package script form above; no Vitest or Jest, epic
+// #906), a command under slot (its script with a quoted command, slot.sh sourced) — reading slot's files isn't a check
+const CHECKS_RE = /(?:^|[\s;&|(])(?:(?:bun|npm|pnpm|yarn)(?:\s+--?[\w-]+(?:[= ][^\s;&|-][^\s;&|]*)?){0,3}\s+(?:run\s+)?(?:typecheck|lint|test(?::[\w.-]+)?|e2e(?::[\w.-]+)?)(?![\w:-])|(?:npx\s+|bunx\s+)?(?:tsc|eslint)(?![\w.-])|playwright\s+test\b|(?:\.|source)\s+\S*\/slot\.sh\b|slot\s+['"])|\/slot\.ts['"]?\s+['"]/;
 
 /** The command without heredoc bodies: a file written by `cat <<EOF` or a `python3 - <<EOF` script isn't run by the shell. */
 function withoutHeredocs(cmd: string): string {
