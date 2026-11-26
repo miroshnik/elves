@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { configGet, deadCode, dotenvNames, ENV_SERVICE, envNamesIn, envNamesInCode, envVars } from "../../../skills/spec/scripts/harness.ts";
 import type { It } from "../../../skills/spec/scripts/harness.ts";
+import { PACKAGE_BUNX } from "../../../skills/spec/scripts/package-run.ts";
 import { exitOf, SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { SCRIPTS, tmpDir, writeTree } from "../../lib/spec.ts";
 
@@ -13,6 +14,8 @@ setDefaultTimeout(SPAWN_TIMEOUT);
 
 // типы проверяет `bun check`; типы Node — из devDependencies Elves: во временном каталоге фикстуры своего node_modules нет
 const TYPES = path.join(path.dirname(createRequire(import.meta.url).resolve("@types/node/package.json")), "..");
+// настоящий knip — из devDependencies Elves, как его бин кладёт менеджер пакетов проекта
+const KNIP = path.join(path.dirname(createRequire(import.meta.url).resolve("knip/package.json")), "bin/knip.js");
 
 // `it` раннера подменяется сборщиком: харнесс только регистрирует тесты, запускать их — дело раннера
 async function outcomes(register: (it: It) => void): Promise<Record<string, string>> {
@@ -215,6 +218,35 @@ describe("Код, до которого не доходит ни одна точ
     expect(r["нет экспортов-дублей"]).toBe("✗ src/color.ts#sum = add");
     expect(r["нет вызовов неустановленных бинарников"]).toBe("✗ package.json#tsx");
     expect(r["нет лишних записей каталога пакетов"]).toBe("✗ package.json#react");
+  });
+
+  /**
+   * Версию пакета шаг CI скилла и скрипт проекта на Yarn 2+ берут через `jq` (`PACKAGE_BUNX`) — утилиту машины и
+   * раннера GitHub, а не пакет проекта. knip 6.48 увидел команды и внутри `$(…)` шагов workflow, а `jq` в его списке
+   * глобальных бинарников нет: тест краснел в каждом проекте с шаблонами workflow скилла, пока проект не гасил его своим
+   * `ignoreBinaries` (#903).
+   */
+  it("jq команды пакета в шаге workflow и скрипте package.json — не вызов неустановленного бинарника, другой бинарник там же — находка", async () => {
+    writeTree(dir, {
+      ".knip.json": knip([
+        { file: ".github/workflows/spec.yml", binaries: [{ name: "jq" }, { name: "yq" }] },
+        { file: "package.json", binaries: [{ name: "jq" }] },
+      ]),
+    });
+    const r = await outcomes((it) => deadCode(it, { root: dir, report: ".knip.json" }));
+    expect(r["нет вызовов неустановленных бинарников"]).toBe("✗ .github/workflows/spec.yml#yq");
+  });
+
+  // настоящий knip: утилиты, которые харнесс не считает, держатся за текст команды пакета, а не за отчёт, написанный руками
+  it("knip проекта со скриптом и шагом workflow на команде пакета — «нет вызовов неустановленных бинарников» зелёный", async () => {
+    writeTree(dir, {
+      "package.json": JSON.stringify({ name: "app", private: true, scripts: { test: `${PACKAGE_BUNX} slot 'bun test'` } }),
+      ".github/workflows/spec.yml": ["on: push", "jobs:", "  spec:", "    runs-on: ubuntu-latest", "    steps:", `      - run: ${PACKAGE_BUNX} spec-publish`, ""].join("\n"),
+    });
+    mkdirSync(path.join(dir, "node_modules/.bin"), { recursive: true });
+    symlinkSync(KNIP, path.join(dir, "node_modules/.bin/knip"));
+    const r = await outcomes((it) => deadCode(it, { root: dir }));
+    expect(r["нет вызовов неустановленных бинарников"]).toBe("✓");
   });
 });
 

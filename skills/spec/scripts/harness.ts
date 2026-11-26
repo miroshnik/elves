@@ -22,6 +22,7 @@ import locale from "../../github/scripts/locale.ts";
 import type { Names } from "../../github/scripts/locale.ts";
 import type { Model } from "./architecture.ts";
 import knipHints from "./knip-hints.cjs";
+import { PACKAGE_TOOLS } from "./package-run.ts";
 import { commentsOf, decisionFolder, EXCEPTIONS_DIR, exceptionFile, stringsOf } from "./speclib.ts";
 
 /**
@@ -1075,6 +1076,8 @@ function knipFindings(report: KnipReport): KnipFindings {
     for (const [, kind, keys] of KNIP) {
       for (const k of keys) {
         for (const item of (issue[k] as (KnipItem | KnipItem[])[] | undefined) ?? []) {
+          // jq of the package's own command (PACKAGE_BUNX) in a script or a workflow step — the machine's utility
+          if (kind === "binary" && !Array.isArray(item) && PACKAGE_TOOLS.includes(item.name)) continue;
           const shown = knipShown(kind, file, item);
           kinds.get(kind)!.set(`${kind}:${shown}`, shown);
         }
