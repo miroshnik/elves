@@ -511,7 +511,8 @@ interface Parsed {
  * `lib/index.js` (a single file without `require`) without the last line `//# sourceMappingURL` — there's no map next
  * to it; types — `vendor/babel-parser.d.cts`, the license next to it. The
  * skill's scripts have no dependencies, the `spec-diff` job in the project's CI installs no packages. To update —
- * `npm pack @babel/parser`: its `lib/index.js` and `LICENSE` go here, the version — into this comment. Our own lexer
+ * `bun add --no-save @babel/parser` in an empty directory: its `lib/index.js` and `LICENSE` go here, the version —
+ * into this comment. Our own lexer
  * guessed where a regex, a template, a comment and a type argument were, and silently lost tests (#267, #269, #271,
  * #275); TypeScript syntax is wider than any guess (#277).
  *

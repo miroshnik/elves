@@ -162,18 +162,19 @@ describe("Модель архитектуры проверяется кодом:
       "packages/new/package.json": "{}",
       "packages/new/src/index.ts": "export const n = 1;\n",
     });
-    writeTree(path.join(dir, "pnpm"), {
-      "pnpm-workspace.yaml": 'packages:\n  - "apps/*"\n  - \'packages/**\'\n  - "!**/fixtures/**"\ncatalog:\n  react: ^19\n',
+    // workspaces Bun — объект с packages и каталогом рядом
+    writeTree(path.join(dir, "deep"), {
+      "package.json": JSON.stringify({ workspaces: { packages: ["./apps/*", "packages/**/", "!**/fixtures/**"], catalog: { react: "^19" } } }),
       "apps/api/package.json": "{}",
       "packages/group/inner/package.json": "{}",
       "packages/ui/package.json": "{}",
       "packages/ui/fixtures/demo/package.json": "{}",
       "packages/ui/node_modules/dep/package.json": "{}",
     });
-    writeTree(path.join(dir, "yarn"), { "package.json": JSON.stringify({ workspaces: { packages: ["libs/*"] } }), "libs/core/package.json": "{}" });
+    writeTree(path.join(dir, "object"), { "package.json": JSON.stringify({ workspaces: { packages: ["libs/*"] } }), "libs/core/package.json": "{}" });
     expect(workspacePackages(dir)).toEqual(["apps/web", "packages/new", "packages/tsconfig", "packages/ui"]);
-    expect(workspacePackages(path.join(dir, "pnpm"))).toEqual(["apps/api", "packages/group/inner", "packages/ui"]);
-    expect(workspacePackages(path.join(dir, "yarn"))).toEqual(["libs/core"]);
+    expect(workspacePackages(path.join(dir, "deep"))).toEqual(["apps/api", "packages/group/inner", "packages/ui"]);
+    expect(workspacePackages(path.join(dir, "object"))).toEqual(["libs/core"]);
     expect(workspacePackages(path.join(dir, "apps"))).toEqual([]);
 
     const ws: Model = {

@@ -227,7 +227,7 @@ A fragment is `eslint.ts`, `eslint.mts` (ESM even in a project without
   (`//`, `/*`, a block's `*`, `#`, `--`, `<!--`): in JS/TS — only in comments,
   not in strings; the format in the middle of prose isn't a mark (`marksIn`).
   JSON has no comments — there the mark is the value of the top-level key `"//"`
-  (an npm convention), a string or a list of strings:
+  (a `package.json` convention), a string or a list of strings:
   `"//": "spec-outside(modules): shared ESLint config — a development
   tool"`; another key or a nested `"//"` isn't a mark, JSONC
   (`tsconfig.json`) takes a regular comment. The tests are the same:
@@ -294,8 +294,8 @@ export default {
   package not allowed for the module — red),
   «<module> uses allowed package <package>» (not imported — red: the model
   diverged from the code). In a monorepo —
-  «workspace package <path> is in the code roots» for every package from `workspaces` (`package.json`) and
-  `pnpm-workspace.yaml` that has code: `roots` are written by hand, and a new
+  «workspace package <path> is in the code roots» for every package from `workspaces` (`package.json`) that has
+  code: `roots` are written by hand, and a new
   package outside them would escape the check entirely (a root inside a package
   — `apps/web/src` — covers the package). An alias specific to each app is a
   list of paths: `"@/": ["apps/web/src/", "apps/admin/src/"]`; the prefix
@@ -528,7 +528,7 @@ with `--cycles`): a finding doesn't disappear silently.
 dependency and a binary from scripts — the workspace's `package.json`
 (`dependency:packages/a/package.json#lodash`), for an unlisted package — the
 file with the import (`unlisted:packages/a/src/x.ts#zod`), for a catalog — its
-file and the catalog name (`catalog:pnpm-workspace.yaml#default.vue`,
+file and the catalog name (`catalog:package.json#default.vue`,
 `catalogReference:packages/a/package.json#react18.react`); for a file —
 `file:src/legacy.ts`. An exception in one workspace doesn't hide the same
 package in another. An exception is a key with a task: green while knip finds
@@ -596,8 +596,8 @@ envVars(it, { root: process.cwd(), declared, readers: [configGet, /\bsecret\(\s*
 **Monorepo — `apps` instead of `declared`.** A workspace package reads the
 environment of the app whose build it ends up in: its reads belong to every app
 that has it in `dependencies`, transitively (`devDependencies` don't get into
-the build). Packages — `workspaces` of the root `package.json` and
-`pnpm-workspace.yaml` (`!` — exclude); `dirs` — from each package's directory,
+the build). Packages — `workspaces` of the root `package.json` (`!` —
+exclude); `dirs` — from each package's directory,
 an app has its own `dirs`. An element is `<app>/<VAR>`: tests
 «api/DATABASE_URL is declared», exception keys and `outside` are
 the same:
