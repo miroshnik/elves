@@ -36,11 +36,12 @@ interface StepItem {
 }
 
 /**
- * Установка пакетов из сети: системный менеджер (`apt-get update`, `brew install`), менеджер проекта (`bun install`,
- * `npm ci`), `pip install`, `playwright install` — он ставит браузеры, с `--with-deps` и пакеты apt.
+ * Установка пакетов из сети: системный менеджер (`apt-get update`, `brew install`), менеджер проекта — Bun
+ * (`bun install`, `bun ci`; npm, pnpm и Yarn флоу не ставит — эпик #906), `pip install`, `playwright install` — он
+ * ставит браузеры, с `--with-deps` и пакеты apt.
  */
 const INSTALL =
-  /\b(?:apt-get|apt|dnf|yum|apk|zypper|brew|choco|snap)\s+(?:-\S+\s+)*(?:install|update|upgrade|add)\b|\b(?:bun|npm|pnpm|yarn)\s+(?:install|i|ci|add)\b|\bpip3?\s+install\b|\bplaywright\s+install\b/;
+  /\b(?:apt-get|apt|dnf|yum|apk|zypper|brew|choco|snap)\s+(?:-\S+\s+)*(?:install|update|upgrade|add)\b|\bbun\s+(?:install|i|ci|add)\b|\bpip3?\s+install\b|\bplaywright\s+install\b/;
 
 /**
  * Job документа YAML; якоря раскрыты — шаг под псевдонимом стоит в своей job целиком. Фрагмент — список шагов, без
@@ -127,8 +128,8 @@ describe("Шаг, который ставит пакеты из сети, огр
     includes: [
       `${CI} jobs.tests «zsh»`,
       `${CI} jobs.tests «bun install --frozen-lockfile»`,
-      `${SPEC_CI} jobs.unit «pnpm install --frozen-lockfile»`,
-      `${SPEC_CI} jobs.e2e «pnpm exec playwright install --with-deps»`,
+      `${SPEC_CI} jobs.unit «bun install --frozen-lockfile»`,
+      `${SPEC_CI} jobs.e2e «bunx playwright install --with-deps»`,
     ],
   });
 
@@ -139,7 +140,7 @@ describe("Шаг, который ставит пакеты из сети, огр
     });
 
     it("установка — системным менеджером с опциями до команды, менеджером проекта, pip и playwright", () => {
-      const runs = ["sudo apt-get -qq update", "apt install -y zsh", "brew install zsh", "npm ci", "npm i -g bun@latest", "pnpm install --frozen-lockfile", "pip3 install -r req.txt", "pnpm exec playwright install --with-deps"];
+      const runs = ["sudo apt-get -qq update", "apt install -y zsh", "brew install zsh", "bun ci", "bun i", "bun add -g @miroshnik/elves", "bun install --frozen-lockfile", "pip3 install -r req.txt", "bunx playwright install --with-deps"];
       expect(runs.filter((r) => !INSTALL.test(r))).toEqual([]);
     });
 
@@ -158,15 +159,15 @@ describe("Шаг, который ставит пакеты из сети, огр
 
     it("фрагмент в Markdown — блок ```yaml; список шагов без jobs: — шаги без job, заглушка job без тела — не job", () => {
       const md =
-        "# CI\n\n```yaml\n      - run: pnpm install\n```\n\n```yaml\njobs:\n  unit:\n    # … шаги как выше\n  e2e:\n    steps:\n      - run: pnpm install\n```\n";
-      expect(installSteps("docs/x.md", md).map((s) => s.key)).toEqual(["docs/x.md steps «pnpm install»", "docs/x.md jobs.e2e «pnpm install»"]);
+        "# CI\n\n```yaml\n      - run: bun install\n```\n\n```yaml\njobs:\n  unit:\n    # … шаги как выше\n  e2e:\n    steps:\n      - run: bun install\n```\n";
+      expect(installSteps("docs/x.md", md).map((s) => s.key)).toEqual(["docs/x.md steps «bun install»", "docs/x.md jobs.e2e «bun install»"]);
       expect(jobItems("docs/x.md", md).map((j) => j.key)).toEqual(["docs/x.md jobs.e2e"]);
-      expect(stepViolation(installSteps("docs/x.md", md)[0]!)).toStartWith("docs/x.md steps: шаг «pnpm install» ставит пакеты из сети без своего timeout-minutes");
+      expect(stepViolation(installSteps("docs/x.md", md)[0]!)).toStartWith("docs/x.md steps: шаг «bun install» ставит пакеты из сети без своего timeout-minutes");
     });
 
     it("одинаковые шаги одного файла в разных блоках различает номер", () => {
-      const job = "```yaml\njobs:\n  unit:\n    steps:\n      - run: pnpm install\n```\n";
-      expect(installSteps("docs/x.md", job + "\n" + job).map((s) => s.key)).toEqual(["docs/x.md jobs.unit «pnpm install»", "docs/x.md jobs.unit «pnpm install» (2)"]);
+      const job = "```yaml\njobs:\n  unit:\n    steps:\n      - run: bun install\n```\n";
+      expect(installSteps("docs/x.md", job + "\n" + job).map((s) => s.key)).toEqual(["docs/x.md jobs.unit «bun install»", "docs/x.md jobs.unit «bun install» (2)"]);
     });
 
     it("предел — минут больше нуля или выражение; ноль и текст — не предел", () => {

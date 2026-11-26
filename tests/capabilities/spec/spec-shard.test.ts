@@ -420,13 +420,19 @@ function shardStep(job: "unit" | "e2e"): string {
   return runs.find((r) => SHARD_CALL.test(r))!;
 }
 
-// pnpm — заглушка: листинг Playwright отдаёт готовый список, запуск раннера пишет в runs аргументы, по строке на каждый
-const FAKE_PNPM = `#!/usr/bin/env bash
-if [[ " $* " == *" --list "* ]]; then
-  [ -z "$PLAYWRIGHT_JSON_OUTPUT_NAME" ] || cp "$FAKE_PNPM/list.json" "$PLAYWRIGHT_JSON_OUTPUT_NAME"
+// bun — заглушка раннеров: листинг Playwright (`bun --bun playwright test --list`) отдаёт готовый список, запуск
+// Playwright и скрипта test проекта (`bun run test …`) пишет в runs аргументы, по строке на каждый; остальное — spec-run
+// и spec-shard пакета (`bun --no-env-file node_modules/.bin/elves …`) — идёт настоящему bun
+const FAKE_BUN = `#!/usr/bin/env bash
+if [ "$1 $2" = "--bun playwright" ] && [[ " $* " == *" --list "* ]]; then
+  [ -z "$PLAYWRIGHT_JSON_OUTPUT_NAME" ] || cp "$FAKE_BIN/list.json" "$PLAYWRIGHT_JSON_OUTPUT_NAME"
   exit 0
 fi
-printf '%s\\n' "$@" > "$FAKE_PNPM/runs"
+if [ "$1 $2" = "--bun playwright" ] || [ "$1 $2" = "run test" ]; then
+  printf '%s\\n' "$@" > "$FAKE_BIN/runs"
+  exit 0
+fi
+exec "${process.execPath}" "$@"
 `;
 
 /**
@@ -441,7 +447,7 @@ function runStep(step: string, k: number, n: number, runs: string, bin = path.jo
     symlinkSync(path.join(REPO, "bin/elves.ts"), elves);
   }
   const script = step.replaceAll("${{ matrix.shard }}", String(k)).replaceAll("${{ strategy.job-total }}", String(n));
-  const env = { ...process.env, PATH: `${bin}:${path.dirname(process.execPath)}:${process.env.PATH}`, FAKE_PNPM: bin };
+  const env = { ...process.env, PATH: `${bin}:${path.dirname(process.execPath)}:${process.env.PATH}`, FAKE_BIN: bin };
   // bash -e — оболочка шага run в GitHub Actions
   const r = spawnSync("bash", ["-e", "-c", script], { cwd: dir, encoding: "utf8", env });
   expect([exitOf(r), r.stderr.includes("spec-shard: ")]).toEqual([0, true]);
@@ -451,32 +457,32 @@ function runStep(step: string, k: number, n: number, runs: string, bin = path.jo
   return args;
 }
 
-/** Шаг шарда джоба шаблона с заглушкой pnpm: её листинг Playwright — `listing`. */
-function pnpmStep(job: "unit" | "e2e", k: number, n: number, listing: unknown = {}): string[] | null {
+/** Шаг шарда джоба шаблона с заглушкой bun: её листинг Playwright — `listing`. */
+function bunStep(job: "unit" | "e2e", k: number, n: number, listing: unknown = {}): string[] | null {
   const bin = path.join(dir, "bin");
   mkdirSync(bin, { recursive: true });
-  writeTree(bin, { pnpm: FAKE_PNPM, "list.json": JSON.stringify(listing) });
-  chmodSync(path.join(bin, "pnpm"), 0o755);
+  writeTree(bin, { bun: FAKE_BUN, "list.json": JSON.stringify(listing) });
+  chmodSync(path.join(bin, "bun"), 0o755);
   return runStep(shardStep(job), k, n, path.join(bin, "runs"), bin);
 }
 
 describe("Шаблон CI передаёт раннеру файлы шарда, а не --shard", () => {
   it("шаг шарда Playwright передаёт раннеру фильтры spec-shard", () => {
     const listing = { config: { rootDir: `${realpathSync(dir)}/e2e` }, suites: [{ file: "a.spec.ts", specs: [] }, { file: "b.spec.ts", specs: [] }] };
-    const got = [1, 2].map((k) => pnpmStep("e2e", k, 2, listing));
-    const run = (filter: string) => ["exec", "playwright", "test", filter, "--reporter=dot,blob"];
+    const got = [1, 2].map((k) => bunStep("e2e", k, 2, listing));
+    const run = (filter: string) => ["--bun", "playwright", "test", filter, "--reporter=dot,blob"];
     expect(got).toEqual([run("/(^|\\/)e2e\\/a\\.spec\\.ts$/"), run("/(^|\\/)e2e\\/b\\.spec\\.ts$/")]);
   });
 
   it("шаг шарда bun test передаёт раннеру пути spec-shard из списка git; шард без файлов раннер не запускает", () => {
-    // список — файлы теста в git, стандарты и не тесты — мимо; скрипт test проекта — через заглушку pnpm
+    // список — файлы теста в git, стандарты и не тесты — мимо; скрипт test проекта — через заглушку bun
     const files = [`${LIGHT}/a b.test.ts`, `${LIGHT}/c.test.ts`, "tests/standards/naming/naming.test.ts", `${LIGHT}/fixtures.ts`];
     writeTree(dir, Object.fromEntries(files.map((f) => [f, ""])));
     for (const args of [["init", "-q"], ["add", "-A"]]) expect([args[0], exitOf(spawnSync("git", args, { cwd: dir, encoding: "utf8" }))]).toEqual([args[0], 0]);
-    const got = [1, 2, 3].map((k) => pnpmStep("unit", k, 3));
+    const got = [1, 2, 3].map((k) => bunStep("unit", k, 3));
     const flags = (k: number) => ["--reporter=junit", `--reporter-outfile=.spec-report-${k}.xml`];
     // путь с пробелом — один аргумент
-    expect(got).toEqual([["test", `./${LIGHT}/a b.test.ts`, ...flags(1)], ["test", `./${LIGHT}/c.test.ts`, ...flags(2)], null]);
+    expect(got).toEqual([["run", "test", `./${LIGHT}/a b.test.ts`, ...flags(1)], ["run", "test", `./${LIGHT}/c.test.ts`, ...flags(2)], null]);
   });
 
   // шард, разложенный по числу рядом с шардами по длительностям, теряет файлы так же, как шарды с разными источниками
