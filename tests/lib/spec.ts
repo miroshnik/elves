@@ -102,6 +102,17 @@ export function tmpDir(): { dir: string; cleanup: () => void } {
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
+/**
+ * Файлы репозитория `root` по путям `paths` — пути от корня, по порядку, — те, что попадают в коммит: отслеживаемые
+ * git и новые, кроме игнорируемых git. Обход каталога читал бы и сгенерированное: страницы `docs/spec` после
+ * локального `spec:doc`, которых в CI ещё нет (#579). Отслеживаемый файл, удалённый из рабочей копии, — уже не файл.
+ */
+export function committedFiles(root: string, paths: string[]): string[] {
+  const r = spawnSync("git", ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...paths], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`git ls-files в ${root} — ${String(r.stderr).trim() || r.error}`);
+  return [...new Set(r.stdout.split("\0").filter(Boolean))].filter((f) => existsSync(path.join(root, f))).sort();
+}
+
 export function writeTree(root: string, files: Record<string, string>): void {
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(root, rel);

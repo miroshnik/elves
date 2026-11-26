@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
@@ -9,7 +9,7 @@ import type { Io } from "../../../skills/github/scripts/github.ts";
 import { asOrg, epicInProgress, FakeGitHub, SIGNATURE } from "../../lib/fake-github.ts";
 import type { Recording } from "../../lib/fake-github.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { githubOrigin, gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
+import { committedFiles, githubOrigin, gitRepo, tmpDir, writeTree } from "../../lib/spec.ts";
 
 // модель архитектуры скилл читает отдельным процессом bun
 setDefaultTimeout(SPAWN_TIMEOUT);
@@ -5473,15 +5473,11 @@ describe("Исполнитель диспетчера — субагент ил�
 const ROOT = path.resolve(import.meta.dir, "../../..");
 /** Текст файла клона в одну строку: фраза канона, перенесённая по строкам, ищется целиком. */
 const flowText = (file: string) => readFileSync(path.join(ROOT, file), "utf8").replace(/\s+/g, " ");
-/** Файлы флоу — корневые документы и всё в каталогах канона, скиллов и установщика — пути от корня клона. */
-const flowFiles = () =>
-  ["AGENTS.md", "README.md", "claude", "docs", "skills", "bin"].flatMap((p) =>
-    statSync(path.join(ROOT, p)).isDirectory()
-      ? readdirSync(path.join(ROOT, p), { recursive: true, withFileTypes: true })
-          .filter((e) => e.isFile())
-          .map((e) => path.relative(ROOT, path.join(e.parentPath, e.name)))
-      : [p],
-  );
+/**
+ * Файлы флоу — корневые документы и всё в каталогах канона, скиллов и установщика — пути от корня клона, те, что
+ * попадают в коммит: страницы `docs/spec` после локального `spec:doc` называют фразы из названий тестов.
+ */
+const flowFiles = () => committedFiles(ROOT, ["AGENTS.md", "README.md", "claude", "docs", "skills", "bin"]);
 
 /**
  * Другую задачу сессия отдавала карточкой новой сессии: её запускал владелец кликом, и сессия о ней больше не знала
