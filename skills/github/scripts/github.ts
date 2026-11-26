@@ -6423,6 +6423,10 @@ export interface PackageManager {
   lockfile: string | null;
   /** The version `packageManager` declares (`bun@1.4.3` — `1.4.3`); no field or no version — null. */
   version: string | null;
+  /** The `packageManager` field as written (`pnpm@10.1.0`); no field — null: the project's `check` names one not of Bun. */
+  field: string | null;
+  /** Lockfiles of the other managers in dir, in the order below: the project's `check` names each, `install` refuses. */
+  foreign: string[];
 }
 
 /**
@@ -6430,10 +6434,11 @@ export interface PackageManager {
  * wrapper and the `test:spec` runner of the project's `check` (bin/elves.ts) take it here,
  * `tests/standards/scripts/package-manager`. The manager — `packageManager` in package.json, otherwise the lockfile in the
  * order below, otherwise `.yarnrc.yml` — Yarn, otherwise npm. Yarn 2+ — `yarn@2+` in `packageManager`, Yarn by the
- * files — with `.yarnrc.yml`: `packageManager` decides the version too.
+ * files — with `.yarnrc.yml`: `packageManager` decides the version too. The stack of an Elves project is Bun (epic
+ * #906): the field as written and the other managers' lockfiles are the answer too — the project's `check` names them.
  */
 export function packageManager(dir: string): PackageManager {
-  const lockfiles = [["bun.lock", "bun"], ["bun.lockb", "bun"], ["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["package-lock.json", "npm"]] as const;
+  const lockfiles = [["bun.lock", "bun"], ["bun.lockb", "bun"], ["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["npm-shrinkwrap.json", "npm"], ["package-lock.json", "npm"]] as const;
   const has = (file: string) => existsSync(path.join(dir, file));
   let field = "";
   try {
@@ -6446,7 +6451,8 @@ export function packageManager(dir: string): PackageManager {
   const yarnrc = has(".yarnrc.yml");
   const name = (declared?.[1] as PackageManager["name"] | undefined) ?? found[0]?.[1] ?? (yarnrc ? "yarn" : "npm");
   const berry = name === "yarn" && (declared ? Number(declared[3]) >= 2 : yarnrc);
-  return { name, berry, lockfile: (found.find(([, pm]) => pm === name) ?? found[0])?.[0] ?? null, version: declared?.[2] || null };
+  const foreign = found.filter(([, pm]) => pm !== "bun").map(([file]) => file);
+  return { name, berry, lockfile: (found.find(([, pm]) => pm === name) ?? found[0])?.[0] ?? null, version: declared?.[2] || null, field: field || null, foreign };
 }
 
 /**

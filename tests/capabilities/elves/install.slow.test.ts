@@ -66,15 +66,23 @@ const env = () => {
 
 /**
  * Проект на Yarn 4: пакет версии VERSION в devDependencies, `.yarnrc.yml` с `nodeLinker` и реестром — фейковым, кеш
- * Yarn — в проекте; ключ в `.env.local` — его не должна увидеть ни одна команда скрипта.
+ * Yarn — в проекте; ключ в `.env.local` — его не должна увидеть ни одна команда скрипта. Yarn 2+ до установки флоу — по
+ * `.yarnrc.yml`: в проект, который объявил другой менеджер, `install` отказывает — он не на Bun (#907); объявляет
+ * Yarn проект после неё (`declareYarn`).
  */
 function yarnProject(linker: "pnp" | "node-modules", scripts: Record<string, string>) {
   writeTree(sb.proj, {
-    "package.json": JSON.stringify({ name: "probe", private: true, packageManager: YARN, devDependencies: { "@miroshnik/elves": VERSION }, scripts }, null, 2) + "\n",
+    "package.json": JSON.stringify({ name: "probe", private: true, devDependencies: { "@miroshnik/elves": VERSION }, scripts }, null, 2) + "\n",
     ".yarnrc.yml": [`nodeLinker: ${linker}`, `npmRegistryServer: "${registry.url.replace(/\/$/, "")}"`, 'unsafeHttpWhitelist: ["127.0.0.1"]', "enableGlobalCache: false", "enableTelemetry: false", ""].join("\n"),
     ".env.local": "ELVES_LEAK=prod-key\n",
-    "yarn.lock": "",
   });
+}
+
+/** Yarn 4 в `packageManager` и пустой `yarn.lock`: по ним corepack ставит Yarn, а Yarn — зависимости проекта. */
+function declareYarn() {
+  const file = path.join(sb.proj, "package.json");
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), packageManager: YARN }, null, 2) + "\n");
+  writeFileSync(path.join(sb.proj, "yarn.lock"), "");
 }
 
 /** `yarn <args>` через corepack в проекте песочницы. */
@@ -101,12 +109,13 @@ describe("Тонкий проект на Yarn 2+: скрипт пакета и �
       yarnProject(linker, { test: PROBE });
       expect(elves(sb, ["install", "--no-auto", "--lang", "en"]).code).toBe(0);
       expect(scripts().test).toBe(`${PACKAGE_BUNX} slot '${PROBE}'`);
+      declareYarn();
       const installed = yarn("install");
       expect(installed.code, installed.out).toBe(0);
       expect(existsSync(path.join(sb.proj, "node_modules"))).toBe(linker === "node-modules");
       const r = yarn("test");
       expect({ linker, code: r.code, slot: IN_SLOT.test(r.out) }, r.out).toEqual({ linker, code: 0, slot: true });
-      for (const f of ["node_modules", ".pnp.cjs", ".pnp.loader.mjs", ".yarn", ".agents", "AGENTS.md"]) rmSync(path.join(sb.proj, f), { recursive: true, force: true });
+      for (const f of ["node_modules", ".pnp.cjs", ".pnp.loader.mjs", ".yarn", "yarn.lock", ".agents", "AGENTS.md"]) rmSync(path.join(sb.proj, f), { recursive: true, force: true });
     }
   });
 
@@ -116,6 +125,7 @@ describe("Тонкий проект на Yarn 2+: скрипт пакета и �
     yarnProject("pnp", { "spec:break": script, lint: `elves slot '${PROBE}'` });
     expect(elves(sb, ["install", "--no-auto", "--lang", "en"]).code).toBe(0);
     expect(scripts()).toEqual({ "spec:break": `${PACKAGE_BUNX} spec-break --help`, lint: `${PACKAGE_BUNX} slot '${PROBE}'` });
+    declareYarn();
     // проверка со скриптом пакета внутри: строка команды в одинарных кавычках — `'\''` в shell Yarn
     const pkg = JSON.parse(readFileSync(path.join(sb.proj, "package.json"), "utf8"));
     writeFileSync(path.join(sb.proj, "package.json"), JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, lint: `elves slot '${PROBE}'`, "test:spec": `elves slot '${script.replaceAll("'", "'\\''")}'` } }, null, 2) + "\n");

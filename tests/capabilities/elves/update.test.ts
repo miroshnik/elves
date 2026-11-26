@@ -522,7 +522,7 @@ const PUT_PAIR = (spec: string, test: string) => `put in "scripts" — test with
  */
 describe("check проекта со стандартами или архитектурой требует скрипт test:spec — быструю проверку pr premerge", () => {
   it("проект со стандартами без скрипта test:spec — check называет нарушение и строку для package.json", () => {
-    writePkg({ devDependencies: { vitest: "^4.0.0" }, scripts: { test: "vitest run" } });
+    writePkg({ scripts: { test: "vitest run" } });
     elves(sb, ["install"]);
     decision("tests/standards/naming");
     const before = snapshot(sb.proj);
@@ -617,7 +617,7 @@ describe("check проекта с test:spec называет test, которы�
     elves(sb, ["install"]);
     decision("tests/standards/naming");
   });
-  const withSpec = (test: string, deps: Record<string, string> = { vitest: "^4.0.0" }) =>
+  const withSpec = (test: string, deps: Record<string, string> = {}) =>
     writePkg({ devDependencies: deps, scripts: { "test:spec": inSlot("vitest run tests/standards tests/architecture"), test: inSlot(test) } });
 
   it("проект с test:spec, test — одиночный вызов раннера без корней спеки — check выводит строку ○ с готовой строкой test без них", () => {
@@ -822,6 +822,111 @@ describe("check клона Elves с пачками сверяет CI, как в 
     ci(ANY_PR);
     editManifest(clone, { batch: undefined });
     expect(check()).toMatchObject({ code: 0, stdout: ABSENT + MODE_ASK });
+  });
+});
+
+// строки стека проекта (эпик #906): правило канона — Эльфы для проектов на Bun; шаг — поле packageManager Bun этого прогона
+const BUN_RULE = "Elves is for projects on Bun (the canon's stack: Claude Code, Bun, GitHub)";
+const NOT_BUN = (field: string) =>
+  `  ❌ package.json: the project isn't on Bun — "packageManager": ${JSON.stringify(field)}; ${BUN_RULE}; move it to Bun: "packageManager": "bun@${Bun.version}", bun install\n`;
+const FOREIGN_LOCKFILE = (file: string) => `  ❌ ${file}: another package manager's lockfile — ${BUN_RULE}; bun install moves its versions into Bun's lockfile, then remove ${file}\n`;
+const FOREIGN_RUNNER = (file: string, name: string, section: string) =>
+  `  ❌ ${file}: ${name} in ${section} — ${BUN_RULE}; the tests run with bun test: move them to bun:test, remove ${name}\n`;
+const LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"];
+// проект с чистого листа: package.json, lockfile и пакеты workspace прошлого случая убраны, флоу на месте
+const fresh = () => {
+  for (const f of ["package.json", "bun.lock", "packages", "node_modules", ...LOCKFILES]) rmSync(path.join(sb.proj, f), { recursive: true, force: true });
+};
+
+/**
+ * Эльфы написаны, проверены и запускаются под одним стеком — Claude Code, Bun, GitHub (эпик #906): менеджер пакетов
+ * проекта и его раннер тестов — Bun. Держит это `check`, а не текст README: проект на npm, pnpm или Yarn и с Vitest или
+ * Jest проходил его молча, а `install` ставил флоу в такой проект. Несоответствие — строка `❌` и код 1, как compose-файл
+ * и `test:spec`: переезд — задача проекта, `update` его не делает; `install` в проект не на Bun отказывает до изменений
+ * теми же строками.
+ */
+describe("check проекта держит стек Bun: менеджер пакетов, lockfile и раннер тестов", () => {
+  it("`elves check` проекта, у которого `packageManager` в `package.json` не `bun@…`, — строка ❌ «проект не на Bun» с правилом канона и шагом", () => {
+    elves(sb, ["install"]);
+    for (const field of ["pnpm@10.1.0", "yarn@4.9.1", "npm@11.6.2"]) {
+      writePkg({ packageManager: field });
+      const before = snapshot(sb.proj);
+      const r = elves(sb, ["check"]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain(NOT_BUN(field));
+      expect(r.stdout).toEndWith(MODE_ASK);
+      expect(snapshot(sb.proj)).toEqual(before);
+    }
+  });
+
+  it("`elves check` проекта с лок-файлом другого менеджера (`package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`) — строка ❌ с файлом", () => {
+    elves(sb, ["install"]);
+    for (const file of LOCKFILES) {
+      fresh();
+      // и без поля packageManager, и рядом с полем Bun — lockfile другого менеджера
+      for (const fields of [{}, { packageManager: "bun@1.4.3" }]) {
+        writePkg(fields);
+        writeTree(sb.proj, { [file]: "{}\n" });
+        const r = elves(sb, ["check"]);
+        expect(r.code).toBe(1);
+        expect(r.stdout).toContain(FOREIGN_LOCKFILE(file));
+        expect(r.stdout).not.toContain("the project isn't on Bun");
+      }
+    }
+  });
+
+  it("`elves check` проекта с `vitest` или `jest` в зависимостях любого `package.json` проекта — строка ❌ с пакетом и заменой — `bun test`", () => {
+    elves(sb, ["install"]);
+    writePkg({ packageManager: "bun@1.4.3", workspaces: ["packages/*"], devDependencies: { vitest: "^4.0.0" } });
+    writeTree(sb.proj, {
+      "bun.lock": "{}\n",
+      "packages/web/package.json": JSON.stringify({ name: "@x/web", dependencies: { jest: "^30.0.0" } }),
+      "packages/api/package.json": JSON.stringify({ name: "@x/api", peerDependencies: { vitest: "^4.0.0" }, optionalDependencies: { jest: "^30.0.0" } }),
+      // установленный пакет и каталог, который git проекта игнорирует, — не пакеты проекта
+      "node_modules/vitest/package.json": JSON.stringify({ name: "vitest", dependencies: { jest: "^30.0.0" } }),
+      "dist/package.json": JSON.stringify({ devDependencies: { vitest: "^4.0.0" } }),
+      ".gitignore": "dist/\n",
+    });
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    const lines = r.stdout.split("\n").filter((l) => l.includes(BUN_RULE));
+    expect(lines.map((l) => l + "\n")).toEqual([
+      FOREIGN_RUNNER("package.json", "vitest", "devDependencies"),
+      FOREIGN_RUNNER("packages/api/package.json", "vitest", "peerDependencies"),
+      FOREIGN_RUNNER("packages/api/package.json", "jest", "optionalDependencies"),
+      FOREIGN_RUNNER("packages/web/package.json", "jest", "dependencies"),
+    ]);
+  });
+
+  it("`elves install` в проект не на Bun — отказ до изменений (код 2) с той же причиной", () => {
+    const cases: [fields: Record<string, unknown>, files: Record<string, string>, lines: string[]][] = [
+      [{ packageManager: "pnpm@10.1.0" }, {}, [NOT_BUN("pnpm@10.1.0")]],
+      [{}, { "yarn.lock": "" }, [FOREIGN_LOCKFILE("yarn.lock")]],
+      [{ packageManager: "npm@11.6.2" }, { "package-lock.json": "{}\n" }, [NOT_BUN("npm@11.6.2"), FOREIGN_LOCKFILE("package-lock.json")]],
+    ];
+    for (const [fields, files, lines] of cases) {
+      fresh();
+      writePkg(fields);
+      writeTree(sb.proj, files);
+      const before = snapshot(sb.proj);
+      const r = elves(sb, ["install", "--no-auto", "--lang", "en"]);
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("install: the project isn't on Bun — nothing is installed");
+      expect(r.stderr).toEndWith(lines.join(""));
+      expect(snapshot(sb.proj)).toEqual(before);
+    }
+  });
+
+  // spec-existing #907: проект на Bun и до проверки стека проходил check без строк — тест держит, что она его не задевает
+  it("Проект на Bun без чужих лок-файлов и раннеров — ни одной такой строки", () => {
+    // поле packageManager Bun и проект `bun init`, у которого поля нет, — по lockfile Bun
+    for (const fields of [{ packageManager: "bun@1.4.3" }, {}]) {
+      fresh();
+      writePkg({ ...fields, workspaces: ["packages/*"], devDependencies: { "@types/bun": "^1.4.2", "@playwright/test": "^1.63.0" } });
+      writeTree(sb.proj, { "bun.lock": "{}\n", "packages/web/package.json": JSON.stringify({ name: "@x/web", devDependencies: { "@types/bun": "^1.4.2" } }) });
+      expect(elves(sb, ["install"]).code).toBe(0);
+      expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+    }
   });
 });
 
@@ -1696,6 +1801,20 @@ describe("В начале сессии Claude Code проверка идёт с�
     expect(r.stdout).not.toContain("Behind —");
     writePkg({ devDependencies: { vitest: "^4.0.0" }, scripts: { "test:spec": inSlot("vitest run tests/standards") } });
     expect(runHook().stdout).not.toContain("test:spec");
+  });
+
+  /** Переезд на Bun — не текущая задача сессии: в начале сессии задачи ещё нет, а «одна сессия — одна задача». */
+  it("вывод хука называет проект не на Bun и что переезд — отдельная задача проекта; у проекта на Bun подсказки нет", () => {
+    elves(sb, ["install", "-g"]);
+    elves(sb, ["install"]);
+    bunxServes(base.bin);
+    writePkg({ packageManager: "pnpm@10.1.0" });
+    const r = runHook();
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(NOT_BUN("pnpm@10.1.0"));
+    expect(r.stdout).toContain("The project's stack isn't Bun's — each ❌ line names the file and the step; moving it to Bun is a task of its own in the project.");
+    writePkg({ packageManager: "bun@1.4.3" });
+    expect(runHook().stdout).not.toContain("isn't Bun's");
   });
 
   /**
