@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "
 
 import { isStatement } from "../../../skills/spec/scripts/speclib.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { runScript, setLanguage, tmpDir, vitestReport, writeTree } from "../../lib/spec.ts";
+import { runScript, setLanguage, tmpDir, junitReport, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -22,8 +22,8 @@ const WARN = "spec-doc: warning: the name isn't a statement in the project langu
 
 function doc(names: [string[], string][], ...args: string[]) {
   writeTree(dir, { "tests/capabilities/billing/billing.md": "Биллинг.\n" });
-  writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [MAIN]: names }));
-  return runScript("spec-doc", ["r.json", "--root", dir, ...args], dir);
+  writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [MAIN]: names }));
+  return runScript("spec-doc", ["r.xml", "--root", dir, ...args], dir);
 }
 
 /**
@@ -43,8 +43,8 @@ describe("Название, которое не утверждение, — пр
 
   it("тест вне дерева по-прежнему даёт spec-doc --strict код 1", () => {
     writeTree(dir, { "tests/capabilities/billing/billing.md": "Биллинг.\n" });
-    writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [MAIN]: [[["Счета"], "returns 201"]], "src/sum.test.ts": [[["sum"], "складывает"]] }));
-    const r = runScript("spec-doc", ["r.json", "--root", dir, "--stdout", "--strict"], dir);
+    writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [MAIN]: [[["Счета"], "returns 201"]], "src/sum.test.ts": [[["sum"], "складывает"]] }));
+    const r = runScript("spec-doc", ["r.xml", "--root", dir, "--stdout", "--strict"], dir);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("spec-doc: outside the tree: src/sum.test.ts (1 test)");
     expect(r.stderr).toContain(`${WARN} (ru): «returns 201» (${MAIN})`);

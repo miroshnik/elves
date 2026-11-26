@@ -154,10 +154,10 @@ describe("Названия берутся из исходников парсер
     expect(codeOnly(src, "src/view.tsx")).toBe('const v = <a href="//x">// текст</a>;\nconst t = `${        1}`;\n');
   });
 
-  it("xit / xdescribe / fit Jest и suite / context Mocha", () => {
-    const src = `xdescribe("выкл", () => { fit("фокус", () => {}); xit("пропуск", () => {}); });
+  it("xit / xdescribe bun:test и suite / context Mocha", () => {
+    const src = `xdescribe("выкл", () => { xtest("пропуск теста", () => {}); xit("пропуск", () => {}); });
     suite("набор", () => { context("контекст", () => { it("пример", () => {}); }); });`;
-    expect(names(src)).toEqual(["выкл › фокус", "выкл › пропуск", "набор › контекст › пример"]);
+    expect(names(src)).toEqual(["выкл › пропуск теста", "выкл › пропуск", "набор › контекст › пример"]);
   });
 
   // обратная кавычка в регулярке открывала шаблонную строку до следующей — тесты файла пропадали молча (#267)

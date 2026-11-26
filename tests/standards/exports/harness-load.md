@@ -1,9 +1,10 @@
-Харнесс и модель архитектуры скилла `spec` импортирует тест проекта любым раннером — и тем, что грузит TypeScript как
-CommonJS: Playwright и Jest в проекте без `"type": "module"`.
+Харнесс и модель архитектуры скилла `spec` импортирует тест проекта любым его раннером — bun test и Playwright, и тем,
+что грузит TypeScript как CommonJS: Playwright в проекте без `"type": "module"`. Раннеры проекта — эти два (эпик
+#906): загрузку под Vitest и Jest флоу не держит.
 
 Такой раннер переписывает `import` в `require` и исполняет модуль как скрипт CommonJS, где `import.meta` и `await` на
 верхнем уровне — синтаксическая ошибка. Вся цепочка модулей, которую тянет `harness.ts`, падает на загрузке, и раннер
-не находит ни одного теста; Vitest, Bun и `tsc` грузят те же файлы как ESM и остаются зелёными, так что поломку видно
+не находит ни одного теста; Bun и `tsc` грузят те же файлы как ESM и остаются зелёными, так что поломку видно
 только в e2e проекта (#303).
 
 Поэтому в модулях, которые импортирует тест проекта (`harness.ts`, `architecture.ts`, `speclib.ts`), нет
@@ -18,10 +19,10 @@ CommonJS-загрузки своими средствами — не тот за
 ## Из пакета `@miroshnik/elves`
 
 Проект без копии флоу берёт те же модули из пакета в devDependencies (#556), а из `node_modules` TypeScript не
-грузится: Node не снимает там типы (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), Playwright и Jest файлы
-`node_modules` не транспилируют. Поэтому пакет несёт сборку для Node: при публикации `elves pack` собирает модули из
+грузится: Node не снимает там типы (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), Playwright файлы
+`node_modules` не транспилирует. Поэтому пакет несёт сборку для Node: при публикации `elves pack` собирает модули из
 `exports` в `dist/` (`bun build`, общие куски — язык и парсер — один раз), и `exports` ведёт раннер по условию: `types`
-и `bun` — на исходник `.ts` (typecheck проекта и bun test), `default` — на `dist/*.js` (Node, Playwright, Jest).
+и `bun` — на исходник `.ts` (typecheck проекта и bun test), `default` — на `dist/*.js` (Node, Playwright).
 Сборка — библиотека, не точка входа: `import.meta.main` в ней ложно, иначе модуль `github` запускал бы свою
 командную строку при импорте. Сборка идёт на машине CI, а работает у проекта: путь машины сборки в ней вёл бы в
 никуда — так `__filename` репортёра knip (`knip-hints.cjs`) сборщик заменял строкой, и `deadCode` под Node звал knip

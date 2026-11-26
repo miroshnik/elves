@@ -36,7 +36,7 @@ What ends up in `docs/spec/` (the generated text is in the project language):
   collapsed block `<details><summary>✅ 12 tests</summary>` (**what checks
   it**), with lines `- ✅ name` inside. A skipped one —
   `⏭️ … — skipped: <reason>` (the reason comes from the Playwright
-  annotation; Vitest and `bun test` don't put the reason into the report), a
+  annotation; `bun test` doesn't put the reason into the report), a
   failing one —
   `❌ … — failing`, `📝 … — todo`; if there are such, the counter is in the
   block's line (`❌ 12 tests, 1 skipped, 1 failing`), and the block is
@@ -124,7 +124,7 @@ first day of the month; a manual invoice is an exception for one-off services.
 
 ```ts
 // tests/capabilities/billing/billing.test.ts — the main file of the billing folder
-import { describe, it } from "vitest";
+import { describe, it } from "bun:test";
 
 /** A partial month is charged in proportion to its days. */
 describe("An invoice is issued by itself on the first day of the month", () => { … });
@@ -381,25 +381,22 @@ instead of splitting by count next to shards split by durations.
 ## spec-shard — CI shards by durations
 
 A runner's `--shard` doesn't look at time: Playwright cuts the suite in a row
-by the count of tests in path order, Vitest — files by the hash of the path.
-The heavy tests of one folder land in one shard, the PR waits for it, the
-others stand idle. `spec-shard --shard k/n --runner vitest|playwright|bun
---list <file> --report <file>…` prints shard k's filters, one per line; the
-CI step (`ci.md`, "Shards by durations") passes them to the runner instead of
-`--shard`.
+by the count of tests in path order. The heavy tests of one folder land in one
+shard, the PR waits for it, the others stand idle. `spec-shard --shard k/n
+--runner bun|playwright --list <file> --report <file>…` prints shard k's
+filters, one per line; the CI step (`ci.md`, "Shards by durations") passes
+them to the runner instead of `--shard`. The runners are the project's —
+`bun` (bun test) and `playwright` (e2e); another one (`vitest`, `jest`) — a
+call error, code 2, the line names bun test.
 
-- **The list** — the runner's own: `vitest list --filesOnly --json=<file>`
-  (`[{ file }]`, absolute paths), `playwright test --list --reporter=json`
-  (file suites relative to `config.rootDir`) or one path per line — bun test
-  lists nothing without a run, its list is `git ls-files` (`ci.md`, "A
-  project on bun test"). Absolute paths become relative to the root
-  (`--root`, default — the current directory: the runner reads the filters
-  from it).
-- **Durations** — the reports `spec-doc` reads: Vitest/Jest — the file's
-  `endTime - startTime` (hooks between tests count), without them — the sum
-  of its tests; Playwright — the sum of all results of the file's tests (each
-  project and retry takes a worker's time); `bun test` JUnit — the file
-  suite's `time`. A report's path goes to the listed file it ends with: a
+- **The list** — `playwright test --list --reporter=json` (file suites
+  relative to `config.rootDir`) or one path per line — bun test lists
+  nothing without a run, its list is `git ls-files` (`ci.md`, "Shards by
+  durations"). Absolute paths become relative to the root (`--root`,
+  default — the current directory: the runner reads the filters from it).
+- **Durations** — the reports `spec-doc` reads: `bun test` JUnit — the file
+  suite's `time`; Playwright — the sum of all results of the file's tests
+  (each project and retry takes a worker's time). A report's path goes to the listed file it ends with: a
   report from another machine (the CI artifact) works without a common
   root. A file in several reports — the longest. A missing report file isn't
   an error (the artifact may be gone); no durations — every file weighs the
@@ -409,19 +406,14 @@ CI step (`ci.md`, "Shards by durations") passes them to the runner instead of
   shard; ties — by path (the sort is stable, the list is sorted). The same
   inputs give the same shards in every job of the matrix: each job computes
   its own shard, and the shards must agree.
-- **Filters.** Vitest takes a file whose path relative to its project's root
-  contains the filter (or the filter's path relative to that root),
-  case-insensitively (`filterFiles` in `vitest/node`) — the filter is the
-  path. Playwright tests a regular expression against the absolute path —
-  the filter is `/(^|\/)<escaped path>$/`: a dot stays a dot, and the path
-  ends where the file does. bun test takes a file whose path from the
+- **Filters.** Playwright tests a regular expression against the absolute
+  path — the filter is `/(^|\/)<escaped path>$/`: a dot stays a dot, and the
+  path ends where the file does. bun test takes a file whose path from the
   current directory contains the filter, case-sensitively, but a filter
   with `./` — as the file's path, only that file: the filter is
-  `./<path>`. A filter that still takes another file
-  (`tests/a.test.ts` in `packages/web/tests/a.test.ts`; for Vitest — inside
-  any directory common to both paths: the project root isn't known) — both
-  go into one shard, a stderr line names them: the shard's filters take
-  exactly its files. The guard — a real Playwright run over the shards'
+  `./<path>`. A Playwright filter that still takes another file
+  (`e2e/a.spec.ts` ends `e2e/sub/e2e/a.spec.ts`) — both go into one shard, a
+  stderr line names them: the shard's filters take exactly its files. The guard — a real Playwright run over the shards'
   filters: every file once, in its shard.
 - **Playwright dependencies** (a login project before the tests) aren't cut
   by filters: the runner adds dependency projects without them — the login
@@ -433,8 +425,7 @@ CI step (`ci.md`, "Shards by durations") passes them to the runner instead of
   (`fullyParallel`); with filters the file's tests spread over the shard's
   workers.
 - Rejected: a durations file in the repository — it goes stale and needs
-  commits; Vitest's `sequencer.shard` hook — a module in the project's
-  config, and Playwright has no such hook; Playwright's `--test-list` (an
+  commits; a runner's sharding hook — Playwright has none; Playwright's `--test-list` (an
   exact list) and bun test's `--shard` with `--timings` (its own durations
   file) — one mechanism and one source of durations for all runners.
 - Codes: 0 — the shard is printed, 2 — a call error (arguments, the list or
@@ -477,12 +468,11 @@ with files in `tests/`, on every path to the merge (`skills/ci-wait/reference.md
   github skill) with the head's `tests/` tree: the tests and their helpers
   are the PR's, the code is the base's; dependencies by the base's lockfile.
 - **The run** — only the added tests' files, filtered by the tests' full
-  names (describes and the name joined by a space), into a report: bun test
-  (JUnit), Vitest or Jest from the project's `node_modules/.bin` (JSON). The
-  runner — by the file's import (`bun:test`, `vitest`, `@jest/globals`),
-  otherwise by the project's dependencies, otherwise bun test in a Bun
-  project. e2e (Playwright: the app runs from the task's stack, not from the
-  base code) and a runner not recognized — ○ lines, not checked.
+  names (describes and the name joined by a space), into a bun test JUnit
+  report. The runner — bun test: the `bun:test` import, otherwise a test of a
+  Bun project. e2e (Playwright: the app runs from the task's stack, not from
+  the base code) and a file of another runner (the project's tests are bun
+  test and Playwright, epic #906) — ○ lines, not checked.
 - **The verdict** — an added test must be red: failed, or its file didn't
   load (it imports what the PR adds; bun test writes no report when no file
   loaded — its summary decides). Green — ❌ with its name: it doesn't check
@@ -528,8 +518,8 @@ in `devDependencies`, its version committed with the project. The scripts run
 under Bun — the flow's only runtime, a Node project included (in CI — the
 `oven-sh/setup-bun@v2` step, `ci.md`). The modules the project's tests and
 config import — `@miroshnik/elves/spec/harness`, `…/spec/architecture`,
-`…/spec/eslint-config` — load under the project's own runner (Vitest, Jest,
-Playwright, ESLint on Node) from the package's build, Bun and the type checker
+`…/spec/eslint-config` — load under the project's own runner (Playwright,
+ESLint and `node --test` on Node) from the package's build, Bun and the type checker
 take the TypeScript source: only `node:` APIs and erasable TypeScript, no
 `import.meta` and no top-level `await` (tests/standards/exports/harness-load). The
 agent before a PR and CI call the same project `spec:doc` / `spec:diff` at
@@ -554,15 +544,15 @@ the project's CI" below.
    project's dependencies — `bunx @miroshnik/elves@<version> spec-…` (`ci.md`).
    Reports — those the project has:
    ```json
-   "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.json .spec-playwright.json .spec-claims.xml --strict",
+   "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report*.xml .spec-playwright.json .spec-claims.xml --strict",
    "spec:diff": "bun --no-env-file node_modules/.bin/elves spec-diff",
    "spec:claims": "bun --no-env-file node_modules/.bin/elves spec-claims --entries tests/standards/entry-points/entries.ts"
    ```
    Standards and architecture run once — the `test:spec` script, a fast CI job
    of its own; `test` excludes them, e2e doesn't run them (`checks.md`):
    ```json
-   "test": "vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'",
-   "test:spec": "vitest run tests/standards tests/architecture"
+   "test": "bun test --path-ignore-patterns='tests/standards/**' --path-ignore-patterns='tests/architecture/**'",
+   "test:spec": "bun test tests/standards tests/architecture"
    ```
    `github pr premerge` runs `test:spec` before a merge on the merge with a
    fresh `main` (after `typecheck`, if there is one); the flow's `check`
@@ -572,8 +562,7 @@ the project's CI" below.
    that `test`.
    Before `spec:doc` locally — a full run with reports (`SKILL.md`, "Reports for
    spec-doc"). In `.gitignore`: `docs/spec/`, `.spec-*.json`, `.spec-*.xml`,
-   `.spec-meta/`, `.spec-journal/`, `vitest-blob/`, `blob-report/`,
-   `playwright-blob/`.
+   `.spec-meta/`, `.spec-journal/`, `blob-report/`, `playwright-blob/`.
 3. **`docs/spec/` isn't committed to `main`; publishing it to the `spec`
    branch is optional:** it is a derived copy of the tests, and in `main` parallel PRs
    would conflict in its pages and table of contents. The reviewer sees the
@@ -581,10 +570,11 @@ the project's CI" below.
    test's JSDoc diff. Switching a project where `docs/spec` is already in
    `main`: `git rm -r --cached docs/spec`, a line in `.gitignore`, CI steps —
    item 4 and `ci.md`.
-4. **CI.** Shards write blob reports, a separate `spec` job after all shards
-   merges them with the runners' own tools (`vitest --merge-reports`,
-   `playwright merge-reports` — all Playwright projects in one report) and
-   builds `docs/spec` with `--strict`; a project that publishes hands it on
+4. **CI.** bun test shards write a JUnit report each, Playwright's — blob
+   reports; a separate `spec` job after all shards merges Playwright's with
+   its own tool (`playwright merge-reports` — all Playwright projects in one
+   report), takes the JUnit reports as they are and builds `docs/spec` with
+   `--strict`; a project that publishes hands it on
    `main` as an artifact to the `spec-publish` job — only that job has a write
    token (`contents: write`), and it doesn't install the project's
    dependencies (`ci.md`, "Publishing the documentation — optional"). A
@@ -593,7 +583,7 @@ the project's CI" below.
    test failed — `spec` doesn't run: there is no point building documentation
    from a red run. `spec-diff` is its own light job: it needs git history and
    Bun, not tests, so the section is in the summary even with red tests. A
-   fragment for pnpm (in `package.json` — `packageManager`), Vitest in 3
+   fragment for pnpm (in `package.json` — `packageManager`), bun test in 3
    shards, Playwright in 2; concurrency per `docs/ci-concurrency.md` — the
    workflow fragment is in `ci.md` next to this file.
    All CI on the PR, no tests on `main` — publishing on a PR merge from its
@@ -625,7 +615,7 @@ the project's CI" below.
   `for`, `concurrent`, `serial`, `fixme`, `fails`, `failing`…): `test.step`,
   `test.use`, `beforeEach` are not tests. A file the parser couldn't parse — a
   line in stderr with the error location.
-- Vitest and `bun test` reports don't contain the skip reason — keep it in the
+- `bun test` reports don't contain the skip reason — keep it in the
   test name or in a comment next to it (rule: `skip` without a reason and an
   issue number is a lint error).
 - The scanner knows the prose of `it.each` and `describe.each` under the name
@@ -638,11 +628,12 @@ the project's CI" below.
 
 ## Report formats
 
-- Vitest and Jest JSON are one format (`testResults[].assertionResults[]`);
-  Playwright JSON has its own tree `suites → specs → tests` with projects and
-  annotations (the `skip` reason exists only there). The format is detected by
+- Two formats — the project's runners: Playwright JSON has its own tree
+  `suites → specs → tests` with projects and annotations (the `skip` reason
+  exists only there), bun test — JUnit XML (below). The format is detected by
   the file's content, not its extension; several reports are merged by test
-  key.
+  key. Vitest and Jest JSON (`testResults[]`) is an unknown format — exit
+  code 2: the project's tests are bun test and Playwright (epic #906).
 - `bun test` has no JSON report but produces JUnit XML (`--reporter=junit`):
   a file is a `testsuite` with `name = file`, a describe is a nested
   `testsuite` with a `file` attribute, a test is a `testcase`; `<skipped/>` —
@@ -657,9 +648,10 @@ the project's CI" below.
   and Bun (issue #27, question 1).
 - Reports are temporary files, in `.gitignore`. A report from CI with someone
   else's absolute paths works: the path is normalized by the `/tests/`
-  segment. The runner itself merges shards (blob reports → one JSON); don't
-  pass shard reports separately — Playwright splits a file between shards, and
-  the order of tests in a file would depend on the order of the reports (the
+  segment. Playwright merges its shards itself (blob reports → one JSON);
+  don't pass its shard reports separately — it splits a file between shards,
+  and the order of tests in a file would depend on the order of the reports;
+  bun test's shard reports go as they are — a file is in one shard (the
   "Wiring into the project's CI" section below).
 
 ## spec-diff: static parsing, not two reports
@@ -678,8 +670,8 @@ the project's CI" below.
   (`scripts/vendor/babel-parser.cjs` — the package's `lib/index.js`: one file
   without `require`, the MIT license next to it, types —
   `babel-parser.d.cts`). `speclib.ts` takes it with a static `import`, without
-  `import.meta`: Playwright and Jest in a project without `"type": "module"`
-  load the harness as CommonJS (#303). The home-grown lexer guessed where a
+  `import.meta`: Playwright in a project without `"type": "module"` loads
+  the harness as CommonJS (#303). The home-grown lexer guessed where a
   regex was and where a division, where a template, a comment and a type
   argument, and on a mistake silently lost the file's tests (#267, #269, #271,
   #275): TypeScript syntax is wider than any guess (#277). Rejected: the
@@ -689,8 +681,8 @@ the project's CI" below.
   binary; the parser as a project devDependency — the `spec-diff` job in the
   project's CI would install dependencies, and its whole point is being light.
   To update — `npm pack @babel/parser`: `lib/index.js` without the last
-  `//# sourceMappingURL` line (there is no map next to it — Vitest looks for it
-  and prints an error) → `vendor/babel-parser.cjs`, `LICENSE` →
+  `//# sourceMappingURL` line (there is no map next to it) →
+  `vendor/babel-parser.cjs`, `LICENSE` →
   `vendor/babel-parser.LICENSE`, the version — in a comment in `speclib.ts`.
 - Plugins — by extension: `.ts` without JSX (`<T>x` is a type cast), `.tsx`
   and JS — with JSX, an unknown file (`codeOnly(text)`) — TypeScript, then
@@ -800,14 +792,14 @@ the project's CI" below.
   while the flow needs Bun anyway (the installer, the other skills' scripts).
 - The modules a project's tests and config import — `harness.ts`,
   `architecture.ts`, `eslint-config.ts` and `speclib.ts` behind them — load
-  under the project's own runner on Node (Vitest, Jest, Playwright, ESLint), not
-  under Bun: only `node:` APIs, erasable syntax (no `enum`, `namespace` or
+  under the project's own runner on Node (Playwright, ESLint, `node --test`),
+  not under Bun: only `node:` APIs, erasable syntax (no `enum`, `namespace` or
   parameter properties, imports with `.ts`), no `import.meta` and no top-level
-  `await` — Playwright and Jest in a project without `"type": "module"` load
-  them as CommonJS. The guard is `tests/standards/exports/harness-load`: a real
+  `await` — Playwright in a project without `"type": "module"` loads them as
+  CommonJS. The guard is `tests/standards/exports/harness-load`: a real
   Playwright in a temporary project, CommonJS and ESM.
-- The skill's tests — `bun test` (imports from `bun:test`): runner overhead of
-  0.01 s versus 0.3 s for Vitest per file. Scripts in the tests are run via
+- The skill's tests — `bun test` (imports from `bun:test`), as the project's
+  tests are. Scripts in the tests are run via
   `bun` — what the user runs. Node in the CI of Elves is set to 24
   (`actions/setup-node`): `harness-load` and the harness tests run a project's
   Node on it — Playwright, Node's own loader, `node:test`.
@@ -823,8 +815,8 @@ the project's CI" below.
   branch. The same package is the flow of the project — there is no separate
   path for CI.
 - Node doesn't strip types in `node_modules`
-  (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), and Playwright and Jest
-  don't transpile it: the package carries a build for Node — `elves pack`
+  (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), and Playwright doesn't
+  transpile it: the package carries a build for Node — `elves pack`
   builds the modules of `exports` into `dist/` on publishing (#556); the
   `default` condition leads a runner on Node there, `types` and `bun` — to
   the TypeScript source (tests/standards/exports/harness-load). TypeScript checks a
@@ -838,22 +830,22 @@ the project's CI" below.
     its own, plus exceptions in `.gitignore`, linters and formatters (#552);
   - an Elves submodule: an extra step in every clone and worktree
     (`git submodule update --init`), and its tests and code arrive in the
-    project, where the project's Vitest and ESLint pick them up;
+    project, where the project's bun test and ESLint pick them up;
   - an Elves checkout in the workflow (`repository` + `ref: <SHA>`) pins only
     CI: the agent locally calls the skill of another version.
 - The skill's own directory (the machine, a clone) has
   `scripts/package.json` with `"type": "module"`: in a project with
   `"type": "commonjs"` Node's own loader (the project's `eslint.config.*`,
   `node --test`) would take its ESM `.ts` files for CommonJS.
-- **The runner merges shards.** `spec-doc` merges several reports but takes
-  the order of tests in a file by first appearance. Playwright with
+- **Playwright merges its shards.** `spec-doc` merges several reports but
+  takes the order of tests in a file by first appearance. Playwright with
   `fullyParallel` splits a file between shards, and the line order would
   depend on the order of reports on the command line (`shard-10` before
   `shard-2` in a glob) — the published `docs/spec` would change without a test
-  edit. Blob reports → `merge-reports` → one JSON in declaration order; Vitest
-  shards by file, but the recipe is the same — one for both runners. The result
-  is verified: 3 Vitest shards and 3 Playwright shards with two projects give
-  `docs/spec` byte for byte the same as a run without shards.
+  edit. Blob reports → `merge-reports` → one JSON in declaration order.
+  bun test writes no blob report, and it needs none: `spec-shard` gives a file
+  to one shard, the shards' JUnit reports go to `spec-doc` as they are, a
+  file's tests — in its report's order.
 - **`spec` after the tests, `spec-diff` separately.** Building and publishing
   `docs/spec` from a red run is pointless (❌ in the documentation), hence
   `needs`. `spec-diff` reads only git — a separate job without installing
@@ -928,8 +920,8 @@ the project's CI" below.
 
 - No timestamps, durations or absolute paths in the output; order — folders
   by name, files by path, tests in declaration order (the report gives them in
-  that order within a file; Vitest in concurrent mode doesn't — then the order
-  is taken from the report as is).
+  that order within a file; a runner in concurrent mode may not — then the
+  order is taken from the report as is).
 - Identical tests from several reports (two Playwright projects, two runs) are
   merged; the status is the worst (`failed` > `passed` > `todo` > `skipped`,
   "all skipped" — skipped).

@@ -109,20 +109,26 @@ describe("Проверки перед коммитом — одним вызов
 });
 
 describe("Сводка раннера — по его строкам итога", () => {
-  it("сводка — по строкам итога bun test, Vitest, Jest и Playwright, ошибки вне тестов и неначатые — в упавших", () => {
+  it("сводка — по строкам итога bun test и Playwright, ошибки вне тестов и неначатые — в упавших", () => {
     const cases: [string, string, { passed: number; bad: number }][] = [
       ["bun test", " 12 pass\n 1 fail\n 30 expect() calls\nRan 13 tests across 2 files. [1.2s]\n", { passed: 12, bad: 1 }],
       ["bun test без затронутых", "--changed: no changed files, nothing to run\n\n 0 pass\n 0 fail\nRan 0 tests across 0 files.\n", { passed: 0, bad: 0 }],
       ["bun test, ошибка вне тестов", " 3 pass\n 0 fail\n 1 error\nRan 3 tests across 1 file.\n", { passed: 3, bad: 1 }],
       ["bun test двумя прогонами одного скрипта", " 2 pass\n 0 fail\n 1 pass\n 1 fail\n", { passed: 3, bad: 1 }],
-      ["Vitest", " Test Files  1 failed | 2 passed (3)\n      Tests  1 failed | 9 passed (10)\n   Duration  1.2s\n", { passed: 9, bad: 1 }],
-      ["Vitest с ошибкой вне тестов", "      Tests  4 passed (4)\n     Errors  1 error\n", { passed: 4, bad: 1 }],
-      ["Vitest --passWithNoTests без затронутых", "No test files found, exiting with code 0\n", { passed: 0, bad: 0 }],
-      ["Jest", "Test Suites: 1 failed, 1 passed, 2 total\nTests:       2 failed, 5 passed, 7 total\n", { passed: 5, bad: 2 }],
       ["Playwright", "  1 failed\n  1 flaky\n  2 did not run\n  6 passed (12.3s)\n", { passed: 6, bad: 4 }],
       ["Playwright, прерван", "  1 interrupted\n  3 passed (2s)\n", { passed: 3, bad: 1 }],
     ];
     for (const [runner, output, summary] of cases) expect({ runner, summary: summaryOf(output) }).toEqual({ runner, summary });
+  });
+
+  // тесты проекта — bun test и Playwright (эпик #906): строки итога Vitest и Jest сводкой не считаются
+  it("итог Vitest или Jest — не сводка раннера проекта: проверка не зелёная, прогон не дошёл до конца", () => {
+    for (const output of [
+      " Test Files  2 passed (2)\n      Tests  9 passed (9)\n   Duration  1.2s\n",
+      "No test files found, exiting with code 0\n",
+      "Test Suites: 2 passed, 2 total\nTests:       7 passed, 7 total\n",
+    ])
+      expect({ output, summary: summaryOf(output), verdict: verdict(true, 0, output).ok }).toEqual({ output, summary: null, verdict: false });
   });
 
   it("цвета ANSI в выводе не мешают найти сводку", () => {

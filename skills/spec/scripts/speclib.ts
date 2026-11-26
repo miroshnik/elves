@@ -1,7 +1,7 @@
 /**
  * speclib — shared by spec-doc, spec-diff, spec-publish, spec-shard and the harness: the tests/ tree,
- * the test model, the publication's `Source:`, parsing of runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML
- * from `bun test`) and test files' durations from them, parsing of test sources with a parser (describe/it/test for
+ * the test model, the publication's `Source:`, parsing of runner reports (JUnit XML from `bun test`, Playwright JSON)
+ * and test files' durations from them, parsing of test sources with a parser (describe/it/test for
  * TS/JS: names and prose from JSDoc), the rule for a decision folder's exception files (`exceptionFile`) and the "a
  * name is a statement" rule (`isStatement`).
  *
@@ -271,9 +271,12 @@ export function toRepoPath(p: string, root: string): string {
 
 // ---------- reports ----------
 
-type Report = { kind: "junit"; text: string } | { kind: "vitest" | "playwright"; data: Json };
+type Report = { kind: "junit"; text: string } | { kind: "playwright"; data: Json };
 
-/** A report's format — by the content, not the extension: XML — JUnit, JSON — Vitest/Jest or Playwright. */
+/**
+ * A report's format — by the content, not the extension: XML — JUnit of `bun test`, JSON — Playwright. The project's
+ * tests are bun test and Playwright (epic #906): Vitest and Jest JSON (`testResults`) is an unknown format.
+ */
 function readReport(file: string): Report {
   const text = readFileSync(file, "utf8");
   if (text.trimStart().startsWith("<")) return { kind: "junit", text };
@@ -283,26 +286,21 @@ function readReport(file: string): Report {
   } catch (e) {
     throw new Error(`${file}: neither JSON nor XML (${(e as Error).message})`);
   }
-  if (data && typeof data === "object") {
-    const d = data as Json;
-    if ("testResults" in d) return { kind: "vitest", data: d };
-    if ("suites" in d && "config" in d) return { kind: "playwright", data: d };
-  }
-  throw new Error(`${file}: unknown report format (expected Vitest/Jest JSON, Playwright JSON or JUnit XML from bun test)`);
+  if (data && typeof data === "object" && "suites" in data && "config" in data) return { kind: "playwright", data: data as Json };
+  throw new Error(`${file}: unknown report format (expected JUnit XML from bun test or Playwright JSON)`);
 }
 
 export function loadReport(file: string, root: string): Test[] {
   const r = readReport(file);
   if (r.kind === "junit") return parseJunit(r.text, root);
-  return r.kind === "vitest" ? parseVitest(r.data, root) : parsePlaywright(r.data, root);
+  return parsePlaywright(r.data, root);
 }
 
 /**
  * Test files' durations in a report, ms, by the file path as the report gives it (an absolute path from another
- * machine included): spec-shard lays out CI shards by them. Vitest/Jest — from the first test's start to the last one's
- * end (`endTime - startTime`), without them — the sum of the tests; Playwright — the sum of all results of the file's
- * tests: each project and retry takes a worker's time; JUnit from `bun test` — the `time` of the file's suite. A file
- * met twice in one report (two runner projects) — the sum.
+ * machine included): spec-shard lays out CI shards by them. JUnit from `bun test` — the `time` of the file's suite;
+ * Playwright — the sum of all results of the file's tests: each project and retry takes a worker's time. A file met
+ * twice in one report (two runner projects) — the sum.
  */
 export function loadDurations(file: string): Map<string, number> {
   const r = readReport(file);
@@ -327,12 +325,6 @@ export function loadDurations(file: string): Map<string, number> {
       }
       if (m[3] !== "/") depth++;
     }
-  } else if (r.kind === "vitest") {
-    for (const tr of arr(r.data["testResults"])) {
-      const [start, end] = [tr["startTime"], tr["endTime"]];
-      const ms = typeof start === "number" && typeof end === "number" && end >= start ? end - start : arr(tr["assertionResults"]).reduce((s, a) => s + num(a["duration"]), 0);
-      add(str(tr["name"]), ms);
-    }
   } else {
     const rootDir = str(((r.data["config"] ?? {}) as Json)["rootDir"]).replace(/\\/g, "/");
     const total = (suite: Json): number =>
@@ -346,32 +338,9 @@ export function loadDurations(file: string): Map<string, number> {
   return out;
 }
 
-const VITEST_STATUS: Record<string, Status> = {
-  passed: "passed",
-  failed: "failed",
-  skipped: "skipped",
-  pending: "skipped",
-  disabled: "skipped",
-  todo: "todo",
-};
-
 type Json = Record<string, unknown>;
 const arr = (v: unknown): Json[] => (Array.isArray(v) ? (v as Json[]) : []);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
-
-/** Vitest JSON (`--reporter=json`) — also the Jest format: testResults[].assertionResults[]. */
-export function parseVitest(data: Json, root: string): Test[] {
-  const tests: Test[] = [];
-  for (const tr of arr(data["testResults"])) {
-    const file = toRepoPath(str(tr["name"]), root);
-    for (const a of arr(tr["assertionResults"])) {
-      const status = VITEST_STATUS[str(a["status"])] ?? "failed";
-      const describes = arr(a["ancestorTitles"]).map((x) => String(x));
-      tests.push(makeTest(file, describes, str(a["title"]) || str(a["fullName"]), status));
-    }
-  }
-  return tests;
-}
 
 const PW_STATUS: Record<string, Status> = { expected: "passed", flaky: "passed", unexpected: "failed", skipped: "skipped" };
 
@@ -540,14 +509,14 @@ interface Parsed {
 /*
  * The parser is `@babel/parser` 7.29.9 as a file in the skill: `vendor/babel-parser.cjs` is the package's
  * `lib/index.js` (a single file without `require`) without the last line `//# sourceMappingURL` — there's no map next
- * to it, Vitest looks for it and prints an error; types — `vendor/babel-parser.d.cts`, the license next to it. The
+ * to it; types — `vendor/babel-parser.d.cts`, the license next to it. The
  * skill's scripts have no dependencies, the `spec-diff` job in the project's CI installs no packages. To update —
  * `npm pack @babel/parser`: its `lib/index.js` and `LICENSE` go here, the version — into this comment. Our own lexer
  * guessed where a regex, a template, a comment and a type argument were, and silently lost tests (#267, #269, #271,
  * #275); TypeScript syntax is wider than any guess (#277).
  *
- * The import is static, at the top of the file: `createRequire(import.meta.url)` broke Playwright and Jest in a project
- * without `"type": "module"` — they load TS as CommonJS, where `import.meta` is a syntax error (#303,
+ * The import is static, at the top of the file: `createRequire(import.meta.url)` broke Playwright in a project without
+ * `"type": "module"` — it loads TS as CommonJS, where `import.meta` is a syntax error (#303,
  * tests/standards/exports/harness-load).
  */
 
@@ -714,9 +683,9 @@ function staticString(n: AstNode | undefined): string | null {
   return null;
 }
 
-// describe / it / test / suite / context (+ Jest's x/f variants, Playwright's test.describe), modifiers only from the
-// list: test.step, test.use, test.beforeEach etc. aren't tests
-const KIND = /^[xf]?(describe|it|test|suite|context)$/;
+// describe / it / test / suite / context (+ the x variants of bun:test, Playwright's test.describe), modifiers only from
+// the list: test.step, test.use, test.beforeEach etc. aren't tests
+const KIND = /^x?(describe|it|test|suite|context)$/;
 const DESCRIBE_KINDS = new Set(["describe", "suite", "context"]);
 const MODS_OK = new Set([
   "skip", "only", "todo", "each", "for", "concurrent", "sequential", "fails",

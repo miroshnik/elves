@@ -9,7 +9,7 @@
  * a project that changed its language and tasks of other repositories are read without knowing their language.
  *
  * The dictionaries are static JSON imports, not a read of the `locales/` directory: the module is imported by the `spec`
- * harness, which a project's test loads under the project's runner — Playwright and Jest load it as CommonJS, where
+ * harness, which a project's test loads under the project's runner — Playwright loads it as CommonJS, where
  * `import.meta` and top-level `await` are syntax errors, and ESM under Node has no `__dirname`
  * (tests/standards/exports/harness-load); a static import is resolved from the module itself by any loader. For the same
  * runners — only erasable TypeScript and `node:` APIs, and `scripts/package.json` with `"type": "module"`: under Node a
