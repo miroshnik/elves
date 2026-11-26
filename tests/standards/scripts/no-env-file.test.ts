@@ -94,7 +94,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
     check: (f) => noUnflagged(f, unflagged(f.text, DOC_CALL), "вызов скрипта скилла"),
     violator: [
       { name: "команда скилла без флага", item: { file: "skills/x/SKILL.md", text: "```bash\nbun <skill dir>/scripts/x.ts run\n```\n" } },
-      { name: "скрипт package.json без флага", item: { file: "package.json", text: `{"scripts":{"test":"bun .agents/skills/slot/scripts/slot.ts 'vitest run'"}}` } },
+      { name: "скрипт package.json без флага", item: { file: "package.json", text: `{"scripts":{"test":"bun .agents/skills/slot/scripts/slot.ts 'bun test'"}}` } },
     ],
     includes: ["skills/slot/SKILL.md", "skills/github/SKILL.md", "skills/task-env/SKILL.md", "skills/spec/SKILL.md", "docs/parallel-checkouts.md", "package.json"],
   });
@@ -105,13 +105,13 @@ describe("Скрипты флоу под bun не подгружают env-фа�
    */
   it("вызов скрипта пакета в документах флоу и package.json, который подгрузит env-файлы проекта, — нарушение no-env-file", () => {
     const calls = (text: string) => unflagged(text, PACKAGE_CALL).length;
-    const loads = ["bun ./node_modules/.bin/elves spec-run --artifact spec-reports", "bun node_modules/.bin/elves slot 'vitest run'", "bun --smol node_modules/.bin/elves spec-doc"];
+    const loads = ["bun ./node_modules/.bin/elves spec-run --artifact spec-reports", "bun node_modules/.bin/elves slot 'bun test'", "bun --smol node_modules/.bin/elves spec-doc"];
     const clean = [
       `"spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.xml --strict"`,
       "bun --no-env-file ./node_modules/.bin/elves <script>",
       `"spec:doc": "elves spec-doc .spec-report.xml --strict"`,
       "run: node_modules/.bin/elves spec-diff",
-      `"test": "elves slot 'vitest run'"`,
+      `"test": "elves slot 'bun test'"`,
       "ELVES_SLOT_EXPORT=$(elves slot --for $$)",
       "bunx elves spec-publish",
       `elves="bunx @miroshnik/elves@1.2.3"; $elves spec-diff`,

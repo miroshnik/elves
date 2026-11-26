@@ -1436,7 +1436,7 @@ the batch moves the head: the same PR, the full run again. Its `Next:` —
 `batch release` again; red — «pr premerge» among the release's red checks.
 The guilty task: the release's only task;
 otherwise the files the failed GitHub Actions jobs' logs name (a failure line
-of Bun, Vitest, Jest, Playwright or its file header above it, a compiler error)
+of Playwright or its file header above it — bun test, a compiler error)
 and those of `pr premerge`'s ❌ lines (spec-red's test file, a compiler error
 on the merge)
 — their decisions by the rule of `pr labels` against the decision labels of the
