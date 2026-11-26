@@ -1043,6 +1043,133 @@ describe("check проекта держит встроенные инструм�
   });
 });
 
+// строки раннера Playwright (#917): правило — раздел справки docs/bun.md о Playwright
+const PLAYWRIGHT_RULE = "Playwright's runner runs under Bun, its specs as ES modules (~/.agents/elves/docs/bun.md)";
+const NOT_MODULE = (file: string, section: string) =>
+  `  ❌ ${file}: @playwright/test in ${section} without "type": "module" — Playwright under Bun loads the package's .ts specs as JavaScript, and type syntax fails ("errors building"); ${PLAYWRIGHT_RULE}; "type": "module" in ${file}, its CommonJS files — .cjs\n`;
+const UNDER_NODE = (file: string, script: string) =>
+  `  ❌ ${file}: the script ${script} runs playwright test under Node, by its bin's shebang — the config, fixtures and factories don't get Bun's built-ins; ${PLAYWRIGHT_RULE}; bun --bun playwright test\n`;
+// строки вывода check с правилом раннера Playwright
+const playwrightLines = (stdout: string) => stdout.split("\n").filter((l) => l.includes(PLAYWRIGHT_RULE)).map((l) => l + "\n");
+const PLAYWRIGHT_DEP = { "@playwright/test": "^1.63.0" };
+
+/**
+ * Спек Playwright с синтаксисом типов, которому нужны встроенные инструменты Bun: `Bun.sql` вместо `pg` и `.env`,
+ * прочитанный самим Bun, вместо `dotenv` (эпик #906, п. 2 дизайна).
+ */
+const TYPED_SPEC = [
+  'import { expect, test } from "@playwright/test";',
+  "",
+  'test("спек с синтаксисом типов видит встроенные инструменты Bun", () => {',
+  '  const runtime: string = (globalThis as { Bun?: unknown }).Bun ? "bun" : "node";',
+  '  expect(runtime).toBe("bun");',
+  '  expect(typeof Bun.sql).toBe("function");',
+  '  expect(process.env.E2E_FROM_DOTENV).toBe("from .env");',
+  "});",
+  "",
+].join("\n");
+
+/**
+ * `bun --bun playwright test` — команда правила — во временном проекте с этим спеком: Playwright — из devDependencies
+ * Elves (`node_modules` проекта — ссылка на них), кэш трансформаций — свой, без браузера.
+ */
+function playwrightUnderBun(pkg: Record<string, unknown>): { code: number | null; output: string } {
+  const { dir, cleanup } = tmpDir();
+  try {
+    writeTree(dir, { "package.json": JSON.stringify({ name: "e2e", private: true, ...pkg }), "playwright.config.ts": 'export default { testDir: "e2e" };\n', ".env": "E2E_FROM_DOTENV=from .env\n", "e2e/typed.spec.ts": TYPED_SPEC });
+    symlinkSync(path.join(REPO, "node_modules"), path.join(dir, "node_modules"));
+    const env = { ...process.env, PWTEST_CACHE_DIR: path.join(dir, ".playwright-cache"), CI: "1" };
+    const r = spawnSync(process.execPath, ["--bun", "playwright", "test", "--reporter=line"], { cwd: dir, encoding: "utf8", env });
+    return { code: r.status, output: (r.stdout ?? "") + (r.stderr ?? "") };
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * Браузерного раннера у Bun нет — e2e идут на Playwright, но его раннер идёт под Bun (`bun --bun`; эпик #906, п. 2
+ * дизайна, #917): под Node по шебангу его bin конфиг, фикстуры и фабрики данных не видят встроенных инструментов Bun, и
+ * пакет с `@playwright/test` держал бы `pg` и `dotenv` без возможной замены. Исключения для него нет — исключение стека
+ * только Next.js. Держит это `check`: пакет с `@playwright/test` — `"type": "module"` (спеки CommonJS Playwright под Bun
+ * грузит без снятия типов), а его скрипты запускают `playwright test` под `bun --bun`.
+ */
+describe("check проекта держит раннер Playwright под Bun: пакет его спеков — ES-модули, скрипты — bun --bun", () => {
+  it('`elves check` пакета с `@playwright/test` без `"type": "module"` — строка ❌ с шагом: Playwright под Bun грузит его `.ts`-спеки как JavaScript, и синтаксис типов падает', () => {
+    writePkg({ workspaces: ["packages/*"], devDependencies: PLAYWRIGHT_DEP });
+    writeTree(sb.proj, {
+      "packages/e2e/package.json": JSON.stringify({ name: "@x/e2e", type: "commonjs", dependencies: PLAYWRIGHT_DEP }),
+      // пакет ES-модулей и пакет без Playwright — без строки
+      "packages/web/package.json": JSON.stringify({ name: "@x/web", type: "module", devDependencies: PLAYWRIGHT_DEP }),
+      "packages/api/package.json": JSON.stringify({ name: "@x/api" }),
+    });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    const before = snapshot(sb.proj);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(playwrightLines(r.stdout)).toEqual([NOT_MODULE("package.json", "devDependencies"), NOT_MODULE("packages/e2e/package.json", "dependencies")]);
+    expect(r.stdout).toEndWith(MODE_ASK);
+    expect(snapshot(sb.proj)).toEqual(before);
+    // пакеты — ES-модули: строк нет, check проходит
+    writePkg({ type: "module", workspaces: ["packages/*"], devDependencies: PLAYWRIGHT_DEP });
+    writeTree(sb.proj, { "packages/e2e/package.json": JSON.stringify({ name: "@x/e2e", type: "module", dependencies: PLAYWRIGHT_DEP }) });
+    expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
+  });
+
+  it("Скрипт пакета с `@playwright/test`, который запускает `playwright test` не под `bun --bun`, — строка ❌ с шагом; под `bun --bun` и `bunx --bun` — без строки, в обёртке slot тоже", () => {
+    writePkg({
+      type: "module",
+      scripts: {
+        "test:e2e": "playwright test",
+        e2e: "bunx playwright test --project=chromium",
+        "e2e:list": "PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-playwright.json node_modules/.bin/playwright test --list --reporter=json",
+        "test:browser": "bun --bun playwright test",
+        "e2e:ui": "bunx --bun playwright test --ui",
+        "e2e:ci": "bun run build && bun --bun x playwright test --reporter=dot",
+        // другие команды bin кода проекта не грузят
+        "e2e:trace": "bunx playwright show-trace trace.zip",
+        "e2e:browsers": "bunx playwright install --with-deps",
+      },
+      devDependencies: PLAYWRIGHT_DEP,
+    });
+    // install оборачивает test:* в шим slot — строка та же, команда под ним
+    expect(elves(sb, ["install"]).code).toBe(0);
+    expect(JSON.parse(read(path.join(sb.proj, "package.json"))).scripts).toMatchObject({ "test:e2e": ". .agents/slot.sh && playwright test", "test:browser": ". .agents/slot.sh && bun --bun playwright test" });
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(playwrightLines(r.stdout)).toEqual([UNDER_NODE("package.json", "test:e2e"), UNDER_NODE("package.json", "e2e"), UNDER_NODE("package.json", "e2e:list")]);
+    // строка slot прошлой установки — команда в кавычках: под bun --bun — без строки, без него — строка
+    writePkg({ type: "module", scripts: { "test:e2e": "elves slot 'bun --bun playwright test'", "test:smoke": "elves slot 'playwright test --grep @smoke'" }, devDependencies: PLAYWRIGHT_DEP });
+    expect(playwrightLines(elves(sb, ["check"]).stdout)).toEqual([UNDER_NODE("package.json", "test:smoke")]);
+  });
+
+  // spec-existing #917: исключения для пакета с @playwright/test у проверки #909 не было — тест держит, что его и нет
+  it("Пакет с `@playwright/test` — не исключение: его `pg` и `dotenv` — строки ❌, как в любом пакете; исключение стека — только пакет с `next`", () => {
+    writePkg({ type: "module", scripts: { "test:e2e": "bun --bun playwright test" }, devDependencies: { ...PLAYWRIGHT_DEP, pg: "^8.16.0", dotenv: "^17.2.0" } });
+    expect(elves(sb, ["install"]).code).toBe(0);
+    const r = elves(sb, ["check"]);
+    expect(r.code).toBe(1);
+    expect(builtinLines(r.stdout)).toEqual([BUILTIN("package.json", "pg", "devDependencies", ...SQL), BUILTIN("package.json", "dotenv", "devDependencies", ...ENV)]);
+    expect(playwrightLines(r.stdout)).toEqual([]);
+  });
+
+  /**
+   * Почему пакет спеков — ES-модули: Playwright под Bun своего загрузчика не ставит и `.ts` пакета CommonJS отдаёт
+   * загрузчику `.js` (замер — Playwright 1.63, Bun 1.4): Bun разбирает спек как JavaScript, «N errors building», ни одного
+   * теста. ES-модуль Bun грузит сам и типы снимает. Playwright, починивший загрузку CommonJS под Bun, сделал бы тест
+   * красным — тогда строка `"type": "module"` больше не нужна.
+   */
+  // spec-existing #917: поведение Playwright под Bun, а не кода Elves — тест держит причину строки ❌
+  it('Раннер Playwright под Bun (`bun --bun playwright test`) в пакете `"type": "module"` грузит спек с синтаксисом типов, и тот видит `Bun.sql` и `.env`; в пакете CommonJS тот же спек не грузится — «errors building»', () => {
+    const esm = playwrightUnderBun({ type: "module" });
+    expect(esm.output).toContain("1 passed");
+    expect(esm.code).toBe(0);
+    const cjs = playwrightUnderBun({});
+    expect(cjs.output).toContain("errors building");
+    expect(cjs.output).not.toContain("passed");
+    expect(cjs.code).not.toBe(0);
+  });
+});
+
 describe("Копия на машине (-g) сверяется и обновляется так же — вместе с хуком SessionStart", () => {
   beforeEach(() => mkdirSync(path.join(sb.home, ".claude")));
 

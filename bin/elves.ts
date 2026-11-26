@@ -63,8 +63,9 @@
  * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`); a project not on Bun — the
  * `packageManager` field or a lockfile of another manager — or with Vitest or Jest in its dependencies — `❌` lines too,
  * and `install` refuses a project not on Bun before any change (`bunStack`, epic #906); so is a dependency a Bun
- * built-in replaces, by the table of the reference docs/bun.md (`bunBuiltins`), a Next.js package's — `○`. The
- * project's checks — the `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the
+ * built-in replaces, by the table of the reference docs/bun.md (`bunBuiltins`), a Next.js package's — `○`; and a package
+ * with `@playwright/test` not `"type": "module"` or with a script that runs `playwright test` not under `bun --bun`
+ * (`playwrightUnderNode`, #917). The project's checks — the `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the
  * machine queue, the slot skill (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue
  * variables to tasks, it warns with a ready-made line (`turboEnv`).
  *
@@ -1886,8 +1887,8 @@ interface Result {
   behind?: boolean;
   ignored?: boolean;
   /**
-   * The project isn't on Bun, depends on another test runner or a package a Bun built-in replaces (`bunStack`): update
-   * won't fix it.
+   * The project isn't on Bun, depends on another test runner or a package a Bun built-in replaces, or runs Playwright
+   * under Node (`bunStack`): update won't fix it.
    */
   stack?: boolean;
   compose?: boolean;
@@ -1932,6 +1933,22 @@ const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies", "optionalDepende
 const BUILTINS_DOC = "docs/bun.md";
 /** The rule the built-in lines name (epic #906, design 1): the reference on the machine, where the canon is. */
 const BUILTIN_RULE = `Elves projects use Bun's built-in tools, not the packages they replace (~/${CANON}/${BUILTINS_DOC})`;
+/** The rule the Playwright lines name (epic #906, design 2; #917): the same reference, its section on Playwright. */
+const PLAYWRIGHT_RULE = `Playwright's runner runs under Bun, its specs as ES modules (~/${CANON}/${BUILTINS_DOC})`;
+
+/**
+ * Whether a package.json command runs `playwright test` under Node: its bin goes by the shebang, and only `bun --bun`
+ * (`bunx --bun`, `bun --bun x`) puts the runner, its config and fixtures under Bun. The command is cut at the shell's
+ * separators and quotes — a slot shim's `. .agents/slot.sh && <command>` and a `slot '<command>'` string alike — and a
+ * piece with `playwright test` (the bin, by name or path) must have `--bun` before it; another subcommand of the bin
+ * (`install`, `show-trace`, `merge-reports`) doesn't load the project's code and isn't held.
+ */
+function playwrightUnderNode(command: string): boolean {
+  return command.split(/&&|\|\||[;|&'"`()\n]/).some((piece) => {
+    const at = /(?:^|[\s/])playwright\s+test(?=\s|$)/.exec(piece)?.index;
+    return at !== undefined && !/(?:^|\s)--bun(?=\s|$)/.test(piece.slice(0, at));
+  });
+}
 
 /**
  * The table of Bun's built-in tools in the reference `docs/bun.md` of this Elves (`SRC`): a row
@@ -1980,7 +1997,10 @@ function packageFiles(root: string): string[] {
  * A package of the table of Bun's built-in tools (`bunBuiltins`) in the dependencies of any package.json — a `❌` line
  * with the package, its replacement and Bun's page (design 1), `install` goes on as with a runner; a package.json with
  * `next` in its dependencies keeps them — `notes`, `○` lines with the reason, not a mismatch: Next.js's server runs under
- * Node, where the built-ins don't exist (design 2).
+ * Node, where the built-ins don't exist (design 2). Playwright is no such exception (#917): its runner goes under Bun, so
+ * a package.json with `@playwright/test` in its dependencies is `"type": "module"` — Playwright under Bun loads a
+ * CommonJS package's `.ts` specs as JavaScript, and type syntax fails — and its scripts run `playwright test` under
+ * `bun --bun` (`playwrightUnderNode`): otherwise `❌` lines, `install` goes on.
  */
 function bunStack(root: string): { lines: string[]; notBun: string[]; notes: string[] } {
   const pm = packageManager(root);
@@ -1990,6 +2010,7 @@ function bunStack(root: string): { lines: string[]; notBun: string[]; notes: str
   const builtins = bunBuiltins(SRC);
   const runners: string[] = [];
   const replaced: string[] = [];
+  const e2e: string[] = [];
   const notes: string[] = [];
   for (const file of packageFiles(root)) {
     let pkg: Record<string, unknown>;
@@ -2013,9 +2034,15 @@ function bunStack(root: string): { lines: string[]; notBun: string[]; notes: str
         else replaced.push(`  ❌ ${what}; ${BUILTIN_RULE}; moving to it is a task of its own in the project, not an edit in this session, then remove ${name}`);
       }
     }
+    const playwright = sectionOf("@playwright/test");
+    if (!playwright) continue;
+    if (pkg.type !== "module") e2e.push(`  ❌ ${file}: @playwright/test in ${playwright} without "type": "module" — Playwright under Bun loads the package's .ts specs as JavaScript, and type syntax fails ("errors building"); ${PLAYWRIGHT_RULE}; "type": "module" in ${file}, its CommonJS files — .cjs`);
+    for (const [name, command] of Object.entries(asObject(pkg.scripts) ?? {})) {
+      if (typeof command === "string" && playwrightUnderNode(command)) e2e.push(`  ❌ ${file}: the script ${name} runs playwright test under Node, by its bin's shebang — the config, fixtures and factories don't get Bun's built-ins; ${PLAYWRIGHT_RULE}; bun --bun playwright test`);
+    }
   }
   const notBun = [...manager, ...lockfiles];
-  return { lines: [...notBun, ...runners, ...replaced], notBun, notes };
+  return { lines: [...notBun, ...runners, ...replaced, ...e2e], notBun, notes };
 }
 
 /**
@@ -2233,8 +2260,8 @@ function check(global: boolean): Result {
   const batch = global ? { lines: [], missing: false } : batchCi(root);
   // the manifest outside git — a mismatch update's commit line fixes
   const untracked = global ? { lines: [], missing: false } : manifestGit(root);
-  // a project not on Bun, with another test runner or a package Bun's built-in replaces — a mismatch update doesn't fix
-  // either; a Next.js package's replacements — ○ lines
+  // a project not on Bun, with another test runner, a package Bun's built-in replaces or Playwright under Node — a
+  // mismatch update doesn't fix either; a Next.js package's replacements — ○ lines
   const stack = global ? { lines: [], notBun: [], notes: [] } : bunStack(root);
   const project = [...stack.lines, ...stack.notes, ...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
@@ -2891,9 +2918,9 @@ function builtExports(pkg: { exports?: unknown }): { src: string; out: string }[
  * commit into its `gitHead` (the package knows its SHA without the network: the manifest of an install from it and
  * what `update` lists — `sourceSha`) and the modules a project imports (`builtExports`) built into dist/. Node doesn't
  * strip types in node_modules
- * (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING): a project's `eslint.config.js`, `node --test` and Playwright load
- * the JS (`default`), Bun and the type checker — the TypeScript source (`bun`, `types`). One build with shared chunks:
- * the modules share the language module and the TypeScript parser. A built module is a project's import, never the entry
+ * (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING): a project's `eslint.config.js`, `node --test` and Playwright under Node
+ * load the JS (`default`), Bun — Playwright under it too (#917) — and the type checker — the TypeScript source (`bun`,
+ * `types`). One build with shared chunks: the modules share the language module and the TypeScript parser. A built module is a project's import, never the entry
  * point: `import.meta.main` is false — Bun's build for Node turns it into `require.main == require.module`, true under
  * Node's ESM, and `github` would run its command line on import. The build runs on CI and works at a project: a path of
  * the build machine in it (OWN_FILE) is a refusal. `npm publish` is the workflow's next step. The build fails —

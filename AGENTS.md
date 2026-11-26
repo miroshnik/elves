@@ -6,9 +6,9 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 ## This file and skills
 
 - **Elves is for Claude Code, Bun and GitHub.** Bun's tools replace
-  packages, except Playwright for e2e and Next.js while its server runs
-  under Node: `elves check` gives ❌ to a project not on Bun and to a
-  replaced package.
+  packages, except Next.js while its server runs under Node; Playwright,
+  the e2e tool, runs under Bun: `elves check` gives ❌ to a project not on
+  Bun, to a replaced package and to Playwright under Node.
 - **The canon lives in Elves.** The rules, skills and references come from
   miroshnik/elves by `elves install -g`; a change to them from another
   project's session is a task in Elves without that project's names, not an
