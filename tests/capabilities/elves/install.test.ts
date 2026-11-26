@@ -108,12 +108,12 @@ describe("В проект — тонкий флоу: версия пакета, 
     expect(existsSync(path.join(clone, ".claude"))).toBe(false);
   });
 
-  /** Lockfile проекта установка не заводит: без него менеджер пакетов не запускается, команда — строкой. */
+  /** Lockfile проекта установка не заводит: без него `bun install` не запускается, команда — строкой. */
   it("без lockfile — только версия в package.json и команда установки зависимостей; lockfile не появляется", () => {
     writeTree(proj, { "package.json": JSON.stringify({ name: "app", private: true }, null, 2) + "\n" });
     const r = elves(sb, ["install"], { bin: release.bin, env: registry.env });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain(`package.json — @miroshnik/elves ${VERSION}; no lockfile — install the dependencies: npm install`);
+    expect(r.stdout).toContain(`package.json — @miroshnik/elves ${VERSION}; no lockfile — install the dependencies: bun install`);
     expect(JSON.parse(read(path.join(proj, "package.json"))).devDependencies).toEqual({ "@miroshnik/elves": VERSION });
     expect(readdirSync(proj).sort()).toEqual([".agents", ".claude", ".git", ".worktreeinclude", "AGENTS.md", "package.json"]);
   });
@@ -400,7 +400,7 @@ describe("Проверки проекта идут очередью машины
     expect(run()).toMatchObject({ status: 3, stdout: "" });
   });
 
-  /** npm и bun дописывают аргументы к скрипту в конец его строки: `npm test -- <файл>` — так же и с обёрткой. */
+  /** bun run дописывает аргументы к скрипту в конец его строки: `bun run test <файл>` — так же и с обёрткой. */
   it("обёрнутый скрипт идёт как прежде: кавычки команды на месте, аргументы — в её конце", () => {
     writeTree(proj, { "package.json": JSON.stringify({ scripts: { test: `printf '%s|' "it's"` } }) });
     install();
@@ -462,23 +462,19 @@ describe("Проверки проекта идут очередью машины
   });
 
   /**
-   * Yarn 2+ выполняет скрипты своим shell (`@yarnpkg/shell`): в нём нет `.`, `eval` и `export`, и подключить шим нечем.
-   * Там команда остаётся строкой у slot пакета — knip её не видит, но проверки идут очередью. Пакет — через bunx
-   * (`PACKAGE_BUNX`): bin `.ts` Yarn 2+ запускает Node-ом, мимо шебанга, а с PnP `node_modules` нет (#608); обёртка
-   * до #608 — `elves slot` — переписывается. Вживую, настоящим Yarn, — install.slow.test.ts. Yarn 2+ здесь — по
-   * `.yarnrc.yml`: проект, который объявляет Yarn в `packageManager`, — не на Bun, и `install` в него отказывает (#907).
+   * Веток Yarn 2+, npm и pnpm у установщика нет (эпик #906, #910): тесты установки в такой проект — обёртка Yarn 2+
+   * строкой у slot пакета через bunx (#608), её проверка настоящим Yarn, команды установки других менеджеров — ушли вместе
+   * с кодом. Проект с наследством Yarn 2+ — забытый `.yarnrc.yml` и обёртки прошлой установки (`PACKAGE_BUNX slot`, до
+   * #608 — `elves slot`) — получает шим slot.sh, как любой проект на Bun; свой скрипт пакета через bunx (`spec:doc`) —
+   * проекта, его установка не трогает. Проект, который объявляет Yarn в `packageManager`, — не на Bun: `install` в него
+   * отказывает (#907).
    */
-  it("в проекте на Yarn 2+ скрипты пакета — через bunx, команда проверки — строкой у его slot: bin .ts Yarn запускает Node-ом, шим его shell не подключает", () => {
-    const yarnSlot = (cmd: string) => `${PACKAGE_BUNX} slot '${cmd}'`;
+  it("Тесты установки в проект на Yarn 2+ и под npm или pnpm удалены вместе с кодом, который они держали", () => {
     const specDoc = `${PACKAGE_BUNX} spec-doc .spec-report.xml`;
-    writeTree(proj, { ".yarnrc.yml": "nodeLinker: node-modules\n", "package.json": JSON.stringify({ scripts: { test: "bun test", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
+    const yarnSlot = `${PACKAGE_BUNX} slot 'eslint .'`;
+    writeTree(proj, { ".yarnrc.yml": "nodeLinker: node-modules\n", "package.json": JSON.stringify({ scripts: { test: "bun test", lint: yarnSlot, "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
     install();
-    expect(scripts()).toEqual({
-      test: yarnSlot("bun test"),
-      lint: yarnSlot("eslint ."),
-      "test:e2e": yarnSlot("playwright test"),
-      "spec:doc": `${PACKAGE_BUNX} spec-doc .spec-report.xml`,
-    });
+    expect(scripts()).toEqual({ test: slot("bun test"), lint: slot("eslint ."), "test:e2e": slot("playwright test"), "spec:doc": specDoc });
     expect(elves(sb, ["check"]).code).toBe(0);
   });
 
@@ -567,7 +563,7 @@ describe("Проверки проекта идут очередью машины
       writeTree(proj, { "package.json": JSON.stringify({ scripts }), [file]: turbo });
       return /^!! turbo\.jsonc? — .*$/m.exec(install().stderr)?.[0] ?? null;
     };
-    const test = { test: "npx turbo test" };
+    const test = { test: "bunx turbo test" };
     expect(warning(test, `{ "tasks": {} }`)).toContain(`"globalPassThroughEnv": ["ELVES_SLOT", "ELVES_SLOT_CPUS"]`);
     expect(warning(test, `{ "globalPassThroughEnv": ["ELVES_SLOT", "ELVES_SLOT_CPUS"] }`)).toBeNull();
     expect(warning(test, `{ "globalEnv": ["ELVES_*"] }`)).toBeNull();

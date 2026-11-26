@@ -19,7 +19,7 @@ bun --no-env-file <skill dir>/scripts/slot.ts '<command>' [arguments…]
 ```
 
 The command runs through `sh`, the arguments are appended to its end, as with
-`npm run`; the exit code is the command's. No queue in CI (`CI`) and inside a
+`bun run`; the exit code is the command's. No queue in CI (`CI`) and inside a
 slot (`ELVES_SLOT`): a script that calls another queued script would
 otherwise wait for itself. A `package.json` script doesn't pass its command to
 `slot.ts` — it sources the project's shim `.agents/slot.sh` (below).
@@ -31,7 +31,7 @@ the project and wraps its `package.json` scripts `lint`, `typecheck`, `test`
 and `test:*` in it: `"test": ". .agents/slot.sh && bun test"`. The script's
 shell sources the shim: `elves slot --for $$` — the package
 `@miroshnik/elves` of the project's `devDependencies`, from `node_modules/.bin`
-that `npm run` and `bun run` put on the script's `PATH` — takes a slot for that
+that `bun run` puts on the script's `PATH` — takes a slot for that
 shell, held until it exits, and the shell exports `ELVES_SLOT` and
 `ELVES_SLOT_CPUS` to the command. Without `elves` on `PATH` (CI before the
 dependencies are installed, a checkout without the package) the command runs
@@ -39,19 +39,13 @@ as is; `elves` failed — the script fails with its code. The command stays a
 plain command of the script: knip sees its binary as a used dependency, and
 `bun test` gives knip the test files and the `preload` of `bunfig.toml` as
 entries; passed to `slot` as a string, it was hidden, and the project's dead
-code went red from the flow install. Yarn 2+ runs scripts in its own shell,
-without `.`: there the command stays a string of the package's `slot`, hidden
-from knip, and the package goes through bunx at the project's version —
-Yarn 2+ runs a `.ts` bin by Node with any `nodeLinker`, and PnP has no
-`node_modules`:
-`"test": "bunx @miroshnik/elves@\"$(jq -r '.devDependencies[\"@miroshnik/elves\"]' package.json)\" slot 'bun test'"`
-(`jq` on the machine). Everyone calls the
+code went red from the flow install. Everyone calls the
 scripts — the agent, a human in a terminal, `github pr premerge` — and
 everyone joins one queue. `build` isn't wrapped — the host and Docker run it,
 where the shim or the package may be missing; watch isn't either: it's long and
 would hold a slot for a long time. Removed the wrapper by hand, or it's a
 previous install's (a copy's `.agents/skills/slot/scripts/slot.sh`, the command
-a string of `slot.ts`) — `check` names the script, `update` puts the wrapper
+a string of `slot`) — `check` names the script, `update` puts the wrapper
 back.
 
 ## The project's env files are off
@@ -63,13 +57,12 @@ keys (`vercel env pull`): without `--no-env-file` they reach a runner that
 never saw them before the wrapper — tests of "the key isn't set" go red
 locally and green in CI, a test calling an external service goes there with a
 production key. With the flag the command gets exactly the environment it
-would get without the wrapper: `npm run` and `bun run` don't load env files
+would get without the wrapper: `bun run` doesn't load env files
 for a `package.json` script, and a runner that loads them itself (`bun test`
 — `.env.test`) still does. A script's command doesn't go through `slot.ts`
 at all — it gets the script's environment and the two queue variables:
 `elves slot --for` only prints them. The package's `elves slot '<command>'`
-— a direct call from `node_modules/.bin`, the Yarn 2+ wrapper through bunx —
-goes through the bin's shebang: `sh` starts Bun with `--no-env-file`. Not `env = false` in the
+— a direct call from `node_modules/.bin` — goes through the bin's shebang: `sh` starts Bun with `--no-env-file`. Not `env = false` in the
 project's `bunfig.toml`:
 it would turn env files off for every `bun` of a Bun project, its own
 `bun test` and `bun run dev` included. The same flag is on every call of a
@@ -80,7 +73,7 @@ what its parent loaded.
 
 | Moment | Action |
 |---|---|
-| Check before a commit, a full run, e2e | via the project's scripts (`npm run test -- --changed=origin/main`, `bun run typecheck`): they are already queued; which tests before a commit — `docs/testing.md`. As a background command with a generous timeout (Claude Code — `run_in_background`, up to 2 h): waiting in the queue doesn't eat the tool timeout, completion wakes the session |
+| Check before a commit, a full run, e2e | via the project's scripts (`bun run test --changed=origin/main`, `bun run typecheck`): they are already queued; which tests before a commit — `docs/testing.md`. As a background command with a generous timeout (Claude Code — `run_in_background`, up to 2 h): waiting in the queue doesn't eat the tool timeout, completion wakes the session |
 | `slot: waiting for the machine queue — running …` | not a hang: who holds the slots (directory, command) and how long they have been running. Don't kill someone else's run or delete its ticket |
 | `slot: waited …` | the time in the queue; compare run speed without it — by CI or by `user` from `time` |
 | `slot: waiting for the machine load — …` | the slot is free, but the machine is loaded from outside the queue (dev servers, builds, Docker, e2e browsers); the run goes when the load drops or past the wait limit — below |

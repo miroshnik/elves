@@ -473,14 +473,14 @@ describe("pr premerge: main ушёл — быстрые проверки на с
     expect(checked.out).not.toContain("aren't checked");
   });
 
-  it("менеджер пакетов — по packageManager, иначе по lockfile; lockfile нет — без установки", () => {
+  it("команды слияния — Bun: зависимости — bun install --frozen-lockfile по lockfile Bun, скрипты — bun run; lockfile Bun нет — без установки", () => {
     const cases: [Record<string, string>, string | null, string][] = [
-      [{ "pnpm-lock.yaml": "" }, "pnpm install --frozen-lockfile", "pnpm run test:spec"],
-      [{ "package-lock.json": "{}" }, "npm ci", "npm run test:spec"],
-      [{ "yarn.lock": "" }, "yarn install --frozen-lockfile", "yarn run test:spec"],
+      [{ "bun.lock": "{}" }, "bun install --frozen-lockfile", "bun run test:spec"],
       [{ "bun.lockb": "" }, "bun install --frozen-lockfile", "bun run test:spec"],
-      [{ "package.json": JSON.stringify({ packageManager: "pnpm@10.1.0" }), "package-lock.json": "{}" }, "pnpm install --frozen-lockfile", "pnpm run test:spec"],
-      [{}, null, "npm run test:spec"],
+      // проект не на Bun — строки check; веток npm, pnpm и Yarn у premerge нет (#910)
+      [{ "package.json": JSON.stringify({ packageManager: "pnpm@10.1.0" }), "bun.lock": "{}", "pnpm-lock.yaml": "" }, "bun install --frozen-lockfile", "bun run test:spec"],
+      [{ "package-lock.json": "{}" }, null, "bun run test:spec"],
+      [{}, null, "bun run test:spec"],
     ];
     for (const [files, install, run] of cases) {
       const dir = scratch();

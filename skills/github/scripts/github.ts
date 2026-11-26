@@ -6401,7 +6401,8 @@ export const specRoots = (dir: string) => SPEC_ROOTS.filter((d) => statSync(path
  * having moved.
  */
 const MERGE_REF_SLACK_MS = 60_000;
-const INSTALL: Record<PackageManager["name"], string[]> = { bun: ["bun", "install", "--frozen-lockfile"], pnpm: ["pnpm", "install", "--frozen-lockfile"], yarn: ["yarn", "install", "--frozen-lockfile"], npm: ["npm", "ci"] };
+/** The merge's dependencies — from Bun's lockfile, without changing it. */
+const BUN_INSTALL = ["bun", "install", "--frozen-lockfile"];
 /**
  * Failure lines: a test — bun `(fail)`, Playwright `✘`; a compiler error — `error TS2304:`. The project's runners are
  * these two (epic #906): Vitest's `FAIL` and `×`, Jest's `●` aren't failure lines.
@@ -6414,31 +6415,29 @@ const FAILED_LINE = /^\s*(\(fail\)|✗|✘)|\berror TS\d+:/;
 const BUN_CHECK_ERROR = /<error file="([^"]+)" line="(\d+)" column="(\d+)" code="(TS\d+)">\n([^\n]*)/g;
 const asTsc = (out: string) => out.replace(BUN_CHECK_ERROR, "$1($2,$3): error $4: $5");
 
-/** The project's package manager: its command, Yarn 2+ and the lockfile dependencies are installed from. */
+/**
+ * The project's package manager — Bun or not Bun (epic #906): Bun's lockfile the dependencies are installed from, and
+ * what says the project isn't on Bun — the project's `check` names each with `❌`, `install` refuses.
+ */
 export interface PackageManager {
-  name: "bun" | "pnpm" | "yarn" | "npm";
-  /** Yarn 2+: package.json scripts run in its own shell (`@yarnpkg/shell`) — without `.`, `eval` and `export`. */
-  berry: boolean;
-  /** The manager's own lockfile, otherwise the first one in order; none — null. */
+  /** On Bun — neither `field` nor `foreign`: `spec-red` runs a test file without an import by `bun test`. */
+  bun: boolean;
+  /** Bun's lockfile — `bun.lock`, otherwise `bun.lockb`; none — null: nothing to install from. */
   lockfile: string | null;
-  /** The version `packageManager` declares (`bun@1.4.3` — `1.4.3`); no field or no version — null. */
-  version: string | null;
-  /** The `packageManager` field as written (`pnpm@10.1.0`); no field — null: the project's `check` names one not of Bun. */
+  /** `packageManager` of another manager as written (`pnpm@10.1.0`); Bun's or no field — null. */
   field: string | null;
-  /** Lockfiles of the other managers in dir, in the order below: the project's `check` names each, `install` refuses. */
+  /** Lockfiles of other managers in dir, in the order below. */
   foreign: string[];
 }
 
 /**
- * The project's package manager in dir — the one answer of the flow: `pr premerge` (`projectCommands`) and the slot
- * wrapper (bin/elves.ts, the install and the project's `check` lines) take it here,
- * `tests/standards/scripts/package-manager`. The manager — `packageManager` in package.json, otherwise the lockfile in the
- * order below, otherwise `.yarnrc.yml` — Yarn, otherwise npm. Yarn 2+ — `yarn@2+` in `packageManager`, Yarn by the
- * files — with `.yarnrc.yml`: `packageManager` decides the version too. The stack of an Elves project is Bun (epic
- * #906): the field as written and the other managers' lockfiles are the answer too — the project's `check` names them.
+ * The project's package manager in dir — the one answer of the flow: `pr premerge` (`projectCommands`), `spec-red` and
+ * the project's `check` (bin/elves.ts, the stack lines and `install`'s refusal) take it here,
+ * `tests/standards/scripts/package-manager`. The manager of an Elves project is Bun (epic #906): no branches for
+ * others — their field and lockfiles only say the project isn't on Bun. No field isn't a mismatch: `bun init` doesn't
+ * write it.
  */
 export function packageManager(dir: string): PackageManager {
-  const lockfiles = [["bun.lock", "bun"], ["bun.lockb", "bun"], ["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["npm-shrinkwrap.json", "npm"], ["package-lock.json", "npm"]] as const;
   const has = (file: string) => existsSync(path.join(dir, file));
   let field = "";
   try {
@@ -6446,22 +6445,17 @@ export function packageManager(dir: string): PackageManager {
   } catch {
     // no package.json or not JSON — no field
   }
-  const declared = /^(bun|pnpm|yarn|npm)@((\d*)(?:\.\d+)*)/.exec(field);
-  const found = lockfiles.filter(([file]) => has(file));
-  const yarnrc = has(".yarnrc.yml");
-  const name = (declared?.[1] as PackageManager["name"] | undefined) ?? found[0]?.[1] ?? (yarnrc ? "yarn" : "npm");
-  const berry = name === "yarn" && (declared ? Number(declared[3]) >= 2 : yarnrc);
-  const foreign = found.filter(([, pm]) => pm !== "bun").map(([file]) => file);
-  return { name, berry, lockfile: (found.find(([, pm]) => pm === name) ?? found[0])?.[0] ?? null, version: declared?.[2] || null, field: field || null, foreign };
+  const other = field && !/^bun(?:@|$)/.test(field) ? field : null;
+  const foreign = ["pnpm-lock.yaml", "yarn.lock", "npm-shrinkwrap.json", "package-lock.json"].filter(has);
+  return { bun: !other && !foreign.length, lockfile: ["bun.lock", "bun.lockb"].find(has) ?? null, field: other, foreign };
 }
 
 /**
- * The project's commands in a directory: the package manager — `packageManager`; dependencies are installed from the
- * lockfile without changing it, no lockfile — no install.
+ * The project's commands in a directory — Bun's: dependencies are installed from Bun's lockfile without changing it,
+ * no lockfile — no install; a script — `bun run`, its arguments after the name.
  */
 export function projectCommands(dir: string): { install: string[] | null; run: (script: string) => string[] } {
-  const pm = packageManager(dir);
-  return { install: pm.lockfile ? INSTALL[pm.name] : null, run: (script) => [pm.name, "run", script] };
+  return { install: packageManager(dir).lockfile ? BUN_INSTALL : null, run: (script) => ["bun", "run", script] };
 }
 
 /**
@@ -6499,7 +6493,7 @@ interface TreeRed {
 /**
  * A tree's check — `pr premerge` on the merge and on bare origin/<base>, the bisect of a red release at a boundary:
  * dependencies by its lockfile (`projectCommands`), then the steps — a project script with its arguments (the test
- * files; npm — after `--`) — in order, up to the first red one, `env` — on top of the process's. `install` — its command
+ * files) — in order, up to the first red one, `env` — on top of the process's. `install` — its command
  * and result, no lockfile — null; failed — no step ran.
  */
 function checkTree(io: Io, dir: string, steps: { script: string; args?: string[] }[], env?: Record<string, string>): { install: { cmd: string; result: RunResult } | null; ran: string[]; red: TreeRed | null } {
@@ -6510,7 +6504,7 @@ function checkTree(io: Io, dir: string, steps: { script: string; args?: string[]
   if (install && install.result.status !== 0) return { install, ran, red: null };
   for (const s of steps) {
     const args = s.args ?? [];
-    const argv = [...cmds.run(s.script), ...(args.length && packageManager(dir).name === "npm" ? ["--"] : []), ...args];
+    const argv = [...cmds.run(s.script), ...args];
     const result = env ? run(argv[0]!, argv.slice(1), dir, env) : run(argv[0]!, argv.slice(1), dir);
     ran.push(s.script);
     if (result.status !== 0) return { install, ran, red: { script: s.script, cmd: argv.join(" "), result } };
