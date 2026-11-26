@@ -23,6 +23,11 @@ const claims = (...args: string[]) => runScript("spec-claims", ["--entries", "en
 const report = () => readFileSync(path.join(dir, ".spec-claims.xml"), "utf8");
 const passed = (xml: string, name: string) => new RegExp(`name="${name}"[^>]*/>`).test(xml);
 const failed = (xml: string, name: string) => new RegExp(`name="${name}"[^>]*>\\s*<failure`).test(xml);
+/** Записи журналов `.spec-journal/*.jsonl` проекта теста. */
+const journalRecords = () =>
+  readdirSync(path.join(dir, ".spec-journal"))
+    .filter((f) => f.endsWith(".jsonl"))
+    .flatMap((f) => readFileSync(path.join(dir, ".spec-journal", f), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { id: string; test: string }));
 
 describe("Каждая точка входа вызывается хотя бы одним тестом capability — по журналу, а не по покрытию", () => {
   it("вызов из теста записывается в журнал вместе с файлом теста, из которого он пришёл", () => {
@@ -35,9 +40,7 @@ it("счёт создаётся", () => { createInvoice(); });
     });
     const r = spawnSync("bun", ["test"], { cwd: dir, encoding: "utf8" });
     expect(r.status).toBe(0);
-    const files = readdirSync(path.join(dir, ".spec-journal"));
-    const records = files.flatMap((f) => readFileSync(path.join(dir, ".spec-journal", f), "utf8").trim().split("\n").map((l) => JSON.parse(l)));
-    expect(records).toEqual([{ id: "POST /invoices", test: "tests/capabilities/billing/billing.test.ts" }]);
+    expect(journalRecords()).toEqual([{ id: "POST /invoices", test: "tests/capabilities/billing/billing.test.ts" }]);
   });
 
   // Покрытие говорит «строка выполнилась», а не «её вызвал тест capability»: вызов из теста стандарта или из
@@ -161,8 +164,7 @@ it("точка вызвана", () => { journal("GET /f${i}"); });
     const run = () => {
       const r = spawnSync("bun", ["test", "--parallel=2"], { cwd: dir, encoding: "utf8" });
       expect(r.status).toBe(0);
-      const logs = readdirSync(path.join(dir, ".spec-journal")).filter((f) => f.endsWith(".jsonl"));
-      return logs.flatMap((f) => readFileSync(path.join(dir, ".spec-journal", f), "utf8").trim().split("\n").map((l) => (JSON.parse(l) as { id: string }).id)).sort();
+      return journalRecords().map((rec) => rec.id).sort();
     };
     expect(run()).toEqual(["GET /f1", "GET /f2", "GET /f3", "GET /f4", "GET /f5", "GET /f6"]);
     rmSync(path.join(dir, "tests/capabilities/f6"), { recursive: true });
