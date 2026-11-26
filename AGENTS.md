@@ -5,13 +5,17 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 
 ## This file and skills
 
+- **Elves is for Claude Code, Bun and GitHub.** Bun's tools replace
+  packages, except Playwright for e2e and Next.js while its server runs
+  under Node: `elves check` gives ❌ to a project not on Bun and to a
+  replaced package.
 - **The canon lives in Elves.** The rules, skills and references come from
   miroshnik/elves by `elves install -g`; a change to them from another
   project's session is a task in Elves without that project's names, not an
   edit of an Elves clone.
 - **References load by themselves.** `elves install -g` links every
-  reference with `paths:` into `~/.claude/rules`, and Claude Code loads it
-  when I work with matching files: tests, workflows, compose files.
+  reference with `paths:` into `~/.claude/rules`: Claude Code loads it with
+  matching files.
 
 ## First step of a session
 
@@ -43,7 +47,7 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 - **Tasks live in GitHub Issues.** Not in local lists, TODO files or the
   agent's task list: the `elves:github` skill creates and edits them, and the
   PreToolUse hook denies `gh issue view` and `gh issue edit --body` with the
-  command to run instead. Without a repository I ask where tasks go.
+  command to run instead.
 - **`github task next` is the entry.** It prints the task's state and the
   one next step as a ready command, and every task command ends with the
   same `Next:` line; I run what it prints.
@@ -79,11 +83,10 @@ The Elves canon: each rule names the mechanism that holds it or stands in
 - **Before a commit — `elves precommit`.** One call runs `lint`,
   `typecheck`, `test:spec` and the affected tests through the machine queue;
   the full run is CI's.
-- **The tail — `github task finish <N>`.** It pushes, opens the PR with
-  `Closes #N` and the body from `spec-diff`, waits for CI, runs `github pr
-  premerge` and prints the merge command; after the merge it waits for the
-  deploy, prints the epic refresh prompt, closes the task and names the
-  session's last line. I call it again while its `Next:` says so.
+- **The tail — `github task finish <N>`.** From the push to the close: the
+  PR, CI, `github pr premerge`, the merge command, the deploy, the epic
+  refresh, the session's last line; I call it again while its `Next:` says
+  so.
 
 ## Specification — decisions
 

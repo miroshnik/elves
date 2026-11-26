@@ -6,7 +6,7 @@
 
 **A development flow for AI agents: deterministic checks instead of prose specs.**
 
-For Claude Code · another agent — [a short guide](docs/other-agents.md)
+For Claude Code, Bun and GitHub · another agent — [a short guide](docs/other-agents.md)
 
 [![CI](https://github.com/miroshnik/elves/actions/workflows/ci.yml/badge.svg)](https://github.com/miroshnik/elves/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/miroshnik/elves?sort=date&label=release)](https://github.com/miroshnik/elves/releases)
@@ -20,7 +20,15 @@ For Claude Code · another agent — [a short guide](docs/other-agents.md)
 
 ## What it is
 
-Elves is how Claude Code carries a task from issue to production, written down once for all projects:
+Elves is how Claude Code carries a task from issue to production, written down once for all projects on one stack — **Claude Code, Bun and GitHub**. It isn't universal: the flow is written, tested and run on this stack only.
+
+- **Claude Code** — the agent: the plugin's hooks, the session pinned to its task, the dispatcher's executors and the actuals from transcripts are its.
+- **Bun** — the flow's runtime and the project's: the package manager, `bun test` and Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest ([`docs/bun.md`](docs/bun.md)). The exceptions: Playwright for e2e in a browser — Bun has no browser runner — and Next.js while its server runs under Node.
+- **GitHub** — Issues and Actions; the Projects board is up to the project.
+
+`elves check` holds the stack: a project not on Bun or with a package a Bun built-in replaces gets a `❌` line with the step, and `install` refuses a project not on Bun. Elves is where the knowledge and approaches of how to build projects with AI on this stack accumulate — rules, skills, references and checks: a lesson shared by projects comes here as a task instead of staying in an agent's memory.
+
+What Elves is made of:
 
 - **The canon** [`AGENTS.md`](AGENTS.md) — the rules: tasks and actuals, branches and PRs, merging and CI, the specification, production; each held by a hook, a script or a setting, or in a short list of judgment.
 - **Skills** following the open [Agent Skills](https://agentskills.io) standard — a prompt plus a script for everything deterministic: the GitHub project, actuals from transcripts, the spec from tests, waiting for CI.
