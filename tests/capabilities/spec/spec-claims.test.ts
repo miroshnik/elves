@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
@@ -141,6 +141,32 @@ it("счёт создаётся", () => { journal("POST /invoices"); });
     const c = claims();
     expect(c.stderr).not.toContain("GET /removed");
     expect(c.code).toBe(0);
+  });
+
+  // под --parallel preload идёт перед каждым файлом в каждом воркере: сброс на каждом стёр бы журналы файлов до него
+  it("`resetJournal()` в preload под `bun test --parallel` стирает журнал один раз за прогон: записи всех файлов прогона — в `.spec-journal/`, записи прошлого прогона — нет", () => {
+    const harness = JSON.stringify(path.join(SCRIPTS, "harness.ts"));
+    const files: Record<string, string> = {
+      "bunfig.toml": '[test]\npreload = ["./tests/setup.ts"]\n',
+      "tests/setup.ts": `import { resetJournal } from ${harness};\nresetJournal();\n`,
+      ".spec-journal/old.jsonl": line("GET /removed", "tests/capabilities/old/old.test.ts"),
+    };
+    for (let i = 1; i <= 6; i++) {
+      files[`tests/capabilities/f${i}/f${i}.test.ts`] = `import { it } from "bun:test";
+import { journal } from ${harness};
+it("точка вызвана", () => { journal("GET /f${i}"); });
+`;
+    }
+    writeTree(dir, files);
+    const run = () => {
+      const r = spawnSync("bun", ["test", "--parallel=2"], { cwd: dir, encoding: "utf8" });
+      expect(r.status).toBe(0);
+      const logs = readdirSync(path.join(dir, ".spec-journal")).filter((f) => f.endsWith(".jsonl"));
+      return logs.flatMap((f) => readFileSync(path.join(dir, ".spec-journal", f), "utf8").trim().split("\n").map((l) => (JSON.parse(l) as { id: string }).id)).sort();
+    };
+    expect(run()).toEqual(["GET /f1", "GET /f2", "GET /f3", "GET /f4", "GET /f5", "GET /f6"]);
+    rmSync(path.join(dir, "tests/capabilities/f6"), { recursive: true });
+    expect(run()).toEqual(["GET /f1", "GET /f2", "GET /f3", "GET /f4", "GET /f5"]);
   });
 });
 
