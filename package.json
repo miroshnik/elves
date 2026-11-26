@@ -58,11 +58,11 @@
   },
   "scripts": {
     "precommit": "bun --no-env-file bin/elves.ts precommit",
-    "test": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test --path-ignore-patterns=\"**/*.slow.test.ts\" --path-ignore-patterns=\"tests/standards/**\"'",
-    "test:slow": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test .slow.test.ts'",
-    "test:spec": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test tests/standards'",
+    "test": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS} --path-ignore-patterns=\"**/*.slow.test.ts\" --path-ignore-patterns=\"tests/standards/**\"'",
+    "test:slow": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS} .slow.test.ts'",
+    "test:spec": "bun --no-env-file skills/slot/scripts/slot.ts 'bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS} tests/standards'",
     "typecheck": "bun --no-env-file skills/slot/scripts/slot.ts 'bun check'",
-    "spec:doc": "bun test --reporter=junit --reporter-outfile=.spec-report.xml && bun --no-env-file skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
+    "spec:doc": "bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS} --timings=.test-timings.json --update-timings --reporter=junit --reporter-outfile=.spec-report.xml && bun --no-env-file skills/spec/scripts/spec-doc.ts .spec-report.xml --strict",
     "spec:diff": "bun --no-env-file skills/spec/scripts/spec-diff.ts"
   },
   "devDependencies": {

@@ -52,6 +52,12 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   workers: Number(process.env.ELVES_SLOT_CPUS) || (process.env.CI ? 2 : undefined), // playwright.config.ts
   ```
 
+  `bun test` (1.4+) — `--parallel=$ELVES_SLOT_CPUS` in the script:
+  `bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS}`, without the
+  variable — by the cores. Its worker sets `JEST_WORKER_ID`, and a child
+  `playwright test` refuses to run under it: a `preload` in `bunfig.toml`
+  deletes it (`delete process.env.JEST_WORKER_ID`).
+
   A monorepo on turbo 2 — `"globalPassThroughEnv": ["ELVES_SLOT",
   "ELVES_SLOT_CPUS"]` in `turbo.json`: otherwise strict env mode won't pass
   them to tasks, and `env`/`globalEnv` would add them to the cache hash.

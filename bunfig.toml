@@ -1,3 +1,4 @@
 [test]
-# дочерние процессы bun на macOS — без JIT: tests/standards/tests/spawn-no-jit; повторы gh — без пауз: tests/standards/tests/fast-tests
-preload = ["./tests/standards/tests/spawn-no-jit.preload.ts", "./tests/standards/tests/fast-tests.preload.ts"]
+# дочерние процессы bun на macOS — без JIT: tests/standards/tests/spawn-no-jit; повторы gh — без пауз: tests/standards/tests/fast-tests;
+# без JEST_WORKER_ID воркера --parallel: tests/standards/tests/parallel-workers
+preload = ["./tests/standards/tests/spawn-no-jit.preload.ts", "./tests/standards/tests/fast-tests.preload.ts", "./tests/standards/tests/parallel-workers.preload.ts"]
