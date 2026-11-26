@@ -45,9 +45,11 @@ function project(type?: "module" | "commonjs"): void {
 }
 
 /** `playwright test` в проекте; кэш трансформаций — свой, чтобы прогон не взял модуль, разобранный прошлым запуском. */
-function playwright(cwd = dir): { code: number | string; output: string } {
+function playwright(cwd = dir, runtime: "node" | "bun" = "node"): { code: number | string; output: string } {
   const env = { ...process.env, PWTEST_CACHE_DIR: path.join(cwd, ".playwright-cache"), CI: "1" };
-  const r = spawnSync("node", [PLAYWRIGHT, "test", "--reporter=line"], { cwd, encoding: "utf8", env });
+  // под Bun — как по правилу стека, `bun --bun playwright test` (docs/bun.md, #917): раннер и воркеры — Bun
+  const argv = runtime === "bun" ? [process.execPath, "--bun", PLAYWRIGHT] : ["node", PLAYWRIGHT];
+  const r = spawnSync(argv[0]!, [...argv.slice(1), "test", "--reporter=line"], { cwd, encoding: "utf8", env });
   return { code: exitOf(r), output: (r.stdout ?? "") + (r.stderr ?? "") };
 }
 
@@ -104,6 +106,14 @@ describe("Тест проекта импортирует харнесс и мо�
     expect(r.output).toContain("1 passed");
     expect(r.code).toBe(0);
   });
+
+  // spec-existing #917: харнесс грузился и под Bun — тест держит раннер e2e стека, Playwright под Bun
+  it("Playwright под Bun (`bun --bun`) в проекте с \"type\": \"module\" импортирует харнесс и модель и проходит тест", () => {
+    project("module");
+    const r = playwright(dir, "bun");
+    expect(r.output).toContain("1 passed");
+    expect(r.code).toBe(0);
+  });
 });
 
 describe("Тест проекта импортирует харнесс и модель из пакета @miroshnik/elves любым раннером", () => {
@@ -115,6 +125,13 @@ describe("Тест проекта импортирует харнесс и мо�
 
   it("Playwright в проекте с \"type\": \"module\" (загрузка ESM) импортирует из пакета харнесс и модель и проходит тест", () => {
     const r = playwright(fromPackage("module"));
+    expect(r.output).toContain("1 passed");
+    expect(r.code).toBe(0);
+  });
+
+  // spec-existing #917: пакет грузился и под Bun — тест держит раннер e2e стека, Playwright под Bun
+  it("Playwright под Bun (`bun --bun`) в проекте с \"type\": \"module\" импортирует из пакета харнесс и модель — исходник по условию `bun` — и проходит тест", () => {
+    const r = playwright(fromPackage("module"), "bun");
     expect(r.output).toContain("1 passed");
     expect(r.code).toBe(0);
   });
