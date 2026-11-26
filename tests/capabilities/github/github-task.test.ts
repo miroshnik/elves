@@ -948,6 +948,40 @@ describe("task status --branch переименовывает ветку worktre
     );
   });
 
+  /**
+   * git 2.56 на занятом `.git/config` сам повторяет захват `core.configLockTimeout` — по умолчанию 1 с — и лишь затем
+   * отвечает «could not lock config file» (#905: в CI, git 2.56.1 раннера, — 1,1 с на попытку и 22 с на тест выше; git
+   * 2.52 и Apple Git 2.54 отвечают сразу). git здесь настоящий, его ожидание — модель поверх него на любой версии: вызов,
+   * упавший на блокировке, ждал столько, сколько велит настройка, которую читает сам git с `-c` этого вызова.
+   */
+  function gitWaitingOnLock() {
+    let locked = 0;
+    let waitedMs = 0;
+    const run = (cmd: string, args: string[], cwd?: string) => {
+      const r = noEst(cmd, args, cwd);
+      if (cmd !== "git" || !/could not lock config file/.test(r.stderr)) return r;
+      const opts: string[] = [];
+      for (let i = 0; args[i] === "-c"; i += 2) opts.push("-c", args[i + 1]!);
+      const timeout = realRun("git", [...opts, "config", "--get", "core.configLockTimeout"], cwd);
+      locked++;
+      waitedMs += timeout.status === 0 ? Number(timeout.stdout.trim()) : 1000;
+      return r;
+    };
+    return { run, locked: () => locked, waitedMs: () => waitedMs };
+  }
+
+  it("повторы на заблокированном `.git/config` ждут только свои паузы — N попыток идут за время N вызовов git без ожидания внутри git", () => {
+    const { work, lock } = worktree();
+    writeFileSync(lock, "");
+    let waits = 0;
+    const waiting = gitWaitingOnLock();
+    const r = task(new FakeGitHub(REC), ["status", "49", "В работе", "--branch", "fix/49-config-lock"], REPO, { run: waiting.run, cwd: work, sleep: () => void waits++ });
+    expect(r.code).toBe(1);
+    expect(waiting.locked()).toBe(20);
+    expect(waits).toBe(19);
+    expect(waiting.waitedMs()).toBe(0);
+  });
+
   it("ошибка git не из-за блокировки — без повторов: строка !, код 1", () => {
     const { work } = worktree();
     git(work, "branch", "fix/49-config-lock", "origin/main");
