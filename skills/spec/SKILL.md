@@ -1,7 +1,7 @@
 ---
 name: spec
 description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (bun test JUnit, Playwright) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge if the project wants it, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — deterministic checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
-allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(pnpm spec:*) Bash(git status *) Bash(git diff *)
+allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(git status *) Bash(git diff *)
 ---
 
 # spec — documentation from test names, spec diff in the PR
@@ -191,11 +191,8 @@ each one — `checks.md` next to this file:
 
 The scripts and modules come from the project's package — `@miroshnik/elves`
 in `devDependencies`, committed with its version: the scripts run as
-`bun --no-env-file node_modules/.bin/elves spec-…`, a Node project included
-(in CI — `oven-sh/setup-bun@v2`); on Yarn 2+, which runs the `.ts` bin by
-Node and has no `node_modules` with PnP, —
-`bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)" spec-…`
-(`install` writes this form there); the modules the project's tests and config import
+`bun --no-env-file node_modules/.bin/elves spec-…` (in CI —
+`oven-sh/setup-bun@v2`); the modules the project's tests and config import
 (`@miroshnik/elves/spec/harness`, `…/spec/architecture`,
 `…/spec/eslint-config`) load under the project's own runner on Node — from
 the package's build. Each step with its details — `reference.md`,

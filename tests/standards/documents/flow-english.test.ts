@@ -24,7 +24,7 @@ interface Doc {
   text: string;
 }
 
-/** Документы флоу — то, что ставит install (AGENTS.md, claude/, docs/*.md, *.md скиллов), README и package.json: его описание показывают npm и npx. */
+/** Документы флоу — то, что ставит install (AGENTS.md, claude/, docs/*.md, *.md скиллов), README и package.json: его описание показывает реестр npm. */
 function flowDocs(): Doc[] {
   const docs = readdirSync(path.join(ROOT, "docs")).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`);
   const skills = readdirSync(path.join(ROOT, "skills")).flatMap((s) => {

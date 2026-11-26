@@ -53,35 +53,27 @@ interface Row {
   why: string;
 }
 
-/** Таблица правила: что лежит в проекте и какой у него менеджер пакетов, Yarn 2+ и lockfile для установки. */
+/** Таблица правила: что лежит в проекте, на Bun ли он (а если нет — что это говорит) и lockfile Bun для установки. */
 const TABLE: Row[] = [
-  { field: "", files: ["bun.lock"], want: "bun · bun.lock", why: "lockfile Bun" },
-  { field: "", files: ["bun.lockb"], want: "bun · bun.lockb", why: "бинарный lockfile Bun" },
-  { field: "", files: ["pnpm-lock.yaml"], want: "pnpm · pnpm-lock.yaml", why: "lockfile pnpm" },
-  { field: "", files: ["yarn.lock"], want: "Yarn 1 · yarn.lock", why: "lockfile Yarn без .yarnrc.yml" },
-  { field: "", files: ["yarn.lock", ".yarnrc.yml"], want: "Yarn 2+ · yarn.lock", why: "lockfile Yarn с .yarnrc.yml" },
-  { field: "", files: ["package-lock.json"], want: "npm · package-lock.json", why: "lockfile npm" },
-  { field: "", files: ["npm-shrinkwrap.json"], want: "npm · npm-shrinkwrap.json", why: "shrinkwrap npm" },
-  { field: "", files: ["npm-shrinkwrap.json", "package-lock.json"], want: "npm · npm-shrinkwrap.json", why: "shrinkwrap сильнее package-lock.json, как у npm" },
-  { field: "", files: ["bun.lock", "package-lock.json"], want: "bun · bun.lock", why: "два lockfile — по порядку" },
-  { field: "", files: [], want: "npm · без lockfile", why: "ни packageManager, ни lockfile" },
-  { field: null, files: [], want: "npm · без lockfile", why: "нет package.json" },
-  { field: "bun@1.4.3", files: [], want: "bun · без lockfile", why: "packageManager без lockfile" },
-  { field: "pnpm@10.1.0", files: ["bun.lock"], want: "pnpm · bun.lock", why: "packageManager сильнее забытого lockfile" },
-  { field: "pnpm@10.1.0", files: ["bun.lock", "pnpm-lock.yaml"], want: "pnpm · pnpm-lock.yaml", why: "lockfile — свой у менеджера" },
-  { field: "yarn@4.9.1", files: [], want: "Yarn 2+ · без lockfile", why: "yarn@2+ в packageManager" },
-  { field: "yarn@1.22.22", files: [".yarnrc.yml"], want: "Yarn 1 · без lockfile", why: "версию Yarn решает packageManager" },
-  { field: "pnpm@10.1.0", files: [".yarnrc.yml"], want: "pnpm · без lockfile", why: "packageManager сильнее забытого .yarnrc.yml" },
-  { field: "", files: [".yarnrc.yml"], want: "Yarn 2+ · без lockfile", why: ".yarnrc.yml без lockfile" },
-  { field: "", files: ["package-lock.json", ".yarnrc.yml"], want: "npm · package-lock.json", why: "lockfile сильнее .yarnrc.yml" },
+  { field: "", files: ["bun.lock"], want: "Bun · bun.lock", why: "lockfile Bun" },
+  { field: "", files: ["bun.lockb"], want: "Bun · bun.lockb", why: "бинарный lockfile Bun" },
+  { field: "", files: ["bun.lock", "bun.lockb"], want: "Bun · bun.lock", why: "текстовый lockfile Bun сильнее бинарного" },
+  { field: "", files: [], want: "Bun · без lockfile", why: "ни поля, ни lockfile: bun init поле не пишет" },
+  { field: null, files: [], want: "Bun · без lockfile", why: "нет package.json" },
+  { field: "bun@1.4.3", files: [], want: "Bun · без lockfile", why: "packageManager Bun без lockfile" },
+  { field: "", files: ["pnpm-lock.yaml"], want: "не Bun: pnpm-lock.yaml · без lockfile", why: "lockfile pnpm" },
+  { field: "", files: ["yarn.lock"], want: "не Bun: yarn.lock · без lockfile", why: "lockfile Yarn" },
+  { field: "", files: ["npm-shrinkwrap.json", "package-lock.json"], want: "не Bun: npm-shrinkwrap.json, package-lock.json · без lockfile", why: "каждый lockfile другого менеджера — по порядку" },
+  { field: "", files: ["bun.lock", "package-lock.json"], want: "не Bun: package-lock.json · bun.lock", why: "забытый lockfile npm рядом с lockfile Bun" },
+  { field: "pnpm@10.1.0", files: ["bun.lock"], want: "не Bun: pnpm@10.1.0 · bun.lock", why: "packageManager другого менеджера при lockfile Bun" },
+  { field: "yarn@4.9.1", files: [], want: "не Bun: yarn@4.9.1 · без lockfile", why: "Yarn 2+ в packageManager — тоже не Bun, без своей ветки" },
+  { field: "npm@11.6.2", files: ["package-lock.json"], want: "не Bun: npm@11.6.2, package-lock.json · без lockfile", why: "поле и lockfile npm" },
+  { field: "", files: [".yarnrc.yml"], want: "Bun · без lockfile", why: ".yarnrc.yml ничего не решает: веток Yarn 2+ нет" },
 ];
 
 const label = (row: Row) => [row.field === null ? "без package.json" : row.field ? `packageManager ${row.field}` : "package.json", ...row.files].join(" + ");
 
-const show = (pm: PackageManager) => {
-  const name = pm.name === "yarn" ? (pm.berry ? "Yarn 2+" : "Yarn 1") : pm.berry ? `${pm.name} в shell Yarn 2+` : pm.name;
-  return `${name} · ${pm.lockfile ?? "без lockfile"}`;
-};
+const show = (pm: PackageManager) => `${pm.bun ? "Bun" : `не Bun: ${[pm.field, ...pm.foreign].filter(Boolean).join(", ")}`} · ${pm.lockfile ?? "без lockfile"}`;
 
 const fixtures = tmpDir();
 afterAll(() => fixtures.cleanup());
@@ -104,48 +96,73 @@ function mismatches(answer: Answer): string[] {
 }
 
 const has = (dir: string, ...files: string[]) => files.some((f) => existsSync(path.join(dir, f)));
-// копии до стандарта поверх правила: каждая со своим расхождением
+// копии поверх правила, каждая со своим расхождением: lockfile Bun сильнее всего прочего — как раннер test:spec до
+// #485; .yarnrc.yml — Yarn 2+ по файлам, как обёртка slot до #910
 const bunByLockfile: Answer = (dir) => {
   const pm = packageManager(dir);
-  return has(dir, "bun.lock", "bun.lockb") ? { ...pm, name: "bun" } : pm;
+  return pm.lockfile ? { ...pm, bun: true, field: null, foreign: [] } : pm;
 };
-const yarnrcAnyManager: Answer = (dir) => {
+const yarnrcIsYarn: Answer = (dir) => {
   const pm = packageManager(dir);
-  return { ...pm, berry: pm.berry || has(dir, ".yarnrc.yml") };
+  return has(dir, ".yarnrc.yml") ? { ...pm, bun: false, foreign: [...pm.foreign, ".yarnrc.yml"] } : pm;
 };
+
+/**
+ * Команда npm, pnpm, Yarn или npx в коде скрипта флоу: строка, которая с неё начинается, — имя для spawn, элемент argv,
+ * начало команды (`"npm"`, `["pnpm", "install"]`, `` `npx playwright` ``). «пакет из npm» в тексте справки и
+ * `npm_lifecycle_script` (переменная окружения, её ставит и bun run) — не команда.
+ */
+const FOREIGN_COMMAND = /["'`](?:npm|pnpm|yarn|npx)(?=["'`\s])/;
+const foreignCommands = (f: SourceFile) => codeOnly(f.text, f.file).split("\n").flatMap((l, i) => (FOREIGN_COMMAND.test(l) ? [`${f.file}:${i + 1}: ${l.trim()}`] : []));
 
 const registry = await copies();
 
-describe("Менеджер пакетов проекта отвечает одна функция: packageManager в package.json сильнее lockfile, без обоих — npm, .yarnrc.yml — Yarn 2+", () => {
+describe("Скрипты флоу запускают команды проекта через `bun` и `bunx`: веток npm, pnpm и Yarn нет, `packageManager` скилла `github` различает только «Bun» и «не Bun» (для строки ❌ проверки).", () => {
   invariant(it, {
     registry: "скрипты скиллов с ответом на «какой менеджер пакетов у проекта»",
+    rule: "packageManager",
     items: registry,
     key: (c) => c.file,
     includes: [OWNER],
-    name: (c) => `${c.file}: менеджер пакетов проекта — по таблице правила`,
+    name: (c) => `${c.file}: менеджер пакетов проекта — Bun или не Bun, по таблице правила`,
     check: (c) => {
       const wrong = mismatches(c.answer);
       if (wrong.length) throw new Error(`${c.file}: packageManager расходится с правилом:\n${wrong.join("\n")}`);
     },
     violator: [
-      { name: "раннер test:spec до стандарта: bun.lock сильнее packageManager", item: { file: "bin/elves.ts specScript", answer: bunByLockfile } },
-      { name: "обёртка slot до стандарта: .yarnrc.yml — shell Yarn 2+ при любом менеджере", item: { file: "bin/elves.ts yarnShell", answer: yarnrcAnyManager } },
+      { name: "lockfile Bun сильнее packageManager и lockfile другого менеджера", item: { file: "bin/elves.ts specScript", answer: bunByLockfile } },
+      { name: ".yarnrc.yml — Yarn 2+ по файлам, как до #910", item: { file: "bin/elves.ts yarnShell", answer: yarnrcIsYarn } },
     ],
   });
 
-  it("таблица ловит расхождения копий до стандарта: забытый bun.lock у раннера test:spec, забытый .yarnrc.yml у обёртки slot", () => {
-    expect([...mismatches(bunByLockfile), ...mismatches(yarnrcAnyManager)].map((m) => m.split(":")[0])).toEqual([
+  invariant(it, {
+    registry: "скрипты флоу, где есть слова npm, pnpm, Yarn или npx",
+    rule: "commands",
+    items: sources(ROOT, ["bin", "skills"]).filter((f) => /\b(?:npm|pnpm|yarn|npx)\b/i.test(f.text)),
+    key: (f) => f.file,
+    includes: [OWNER, "bin/elves.ts", "skills/est/scripts/est.ts"],
+    name: (f) => `${f.file}: команды проекта — bun и bunx, без npm, pnpm, Yarn и npx`,
+    check: (f) => {
+      const lines = foreignCommands(f);
+      if (lines.length) throw new Error(`команда npm, pnpm, Yarn или npx — менеджер пакетов проекта Bun (эпик #906), команда — bun run, bunx, bun install:\n${lines.join("\n")}`);
+    },
+    violator: [
+      { name: "установка зависимостей командой менеджера по lockfile", item: source("skills/github/scripts/github.ts", 'const INSTALL = { bun: ["bun", "install", "--frozen-lockfile"], npm: ["npm", "ci"] };\n') },
+      { name: "обёртка Yarn 2+ и пример npx в справке", item: source("bin/elves.ts", 'const run = yarn ? "yarn dlx @miroshnik/elves" : `npx playwright test`;\n') },
+    ],
+  });
+
+  it("таблица ловит расхождения копий поверх правила: забытые packageManager и lockfile другого менеджера при lockfile Bun, забытый .yarnrc.yml", () => {
+    expect([...mismatches(bunByLockfile), ...mismatches(yarnrcIsYarn)].map((m) => m.split(":")[0])).toEqual([
+      "package.json + bun.lock + package-lock.json",
       "packageManager pnpm@10.1.0 + bun.lock",
-      "packageManager pnpm@10.1.0 + bun.lock + pnpm-lock.yaml",
-      "packageManager yarn@1.22.22 + .yarnrc.yml",
-      "packageManager pnpm@10.1.0 + .yarnrc.yml",
-      "package.json + package-lock.json + .yarnrc.yml",
+      "package.json + .yarnrc.yml",
     ]);
   });
 });
 
 describe("Менеджер пакетов у premerge и обёртки slot у check — ответ packageManager", () => {
-  it("premerge и обёртка slot у check берут менеджер пакетов у неё: packageManager pnpm и забытые bun.lock и .yarnrc.yml — premerge зовёт pnpm, обёртка slot — через шим slot.sh", () => {
+  it("premerge и обёртка slot у check берут менеджер пакетов у неё: packageManager pnpm и забытые bun.lock и .yarnrc.yml — premerge зовёт bun, обёртка slot — через шим slot.sh, check — ❌ не на Bun", () => {
     const sb = sandbox();
     try {
       const pkg = (fields: Record<string, unknown>) => JSON.stringify({ name: "x", private: true, ...fields, scripts: { lint: "eslint ." } }, null, 2) + "\n";
@@ -160,9 +177,10 @@ describe("Менеджер пакетов у premerge и обёртки slot у 
       const scripts = JSON.parse(readFileSync(path.join(sb.proj, "package.json"), "utf8")).scripts;
       expect(scripts.lint).toBe(". .agents/slot.sh && eslint .");
       const check = elves(sb, ["check"]);
-      // раннер test:spec — bun test у любого менеджера (эпик #906); обёртка — шим slot.sh, а не shell Yarn 2+
       expect(check.stdout).toContain(`"test:spec": ${JSON.stringify(". .agents/slot.sh && bun test tests/standards")}`);
-      expect(projectCommands(sb.proj).run("test:spec").join(" ")).toBe("pnpm run test:spec");
+      expect(check.stdout).toContain(`❌ package.json: the project isn't on Bun — "packageManager": "pnpm@10.1.0"`);
+      const cmds = projectCommands(sb.proj);
+      expect([cmds.install?.join(" "), cmds.run("test:spec").join(" ")]).toEqual(["bun install --frozen-lockfile", "bun run test:spec"]);
     } finally {
       sb.cleanup();
     }

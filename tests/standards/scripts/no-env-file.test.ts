@@ -5,11 +5,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { codeOnly, exceptionsIn, invariant, sources } from "../../../skills/spec/scripts/harness.ts";
-import { PACKAGE_BUNX, PACKAGE_RUN } from "../../../skills/spec/scripts/package-run.ts";
+import { PACKAGE_RUN } from "../../../skills/spec/scripts/package-run.ts";
 import { stringSpans } from "../../../skills/spec/scripts/speclib.ts";
 import { flowDocs } from "../../lib/documents.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { tmpDir, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -49,7 +48,7 @@ const DOC_CALL = new RegExp(String.raw`\bbun${FLAGS}\s+(?:<[^>\n]+>|[^\s\`'"*()<
 const PRINTED = new RegExp(String.raw`\bbun${FLAGS}\s+(?:\$\{|~?/?\.agents/skills/|skills/)`, "g");
 /**
  * Вызов скрипта пакета, который подгрузит env-файлы проекта: `bun node_modules/.bin/elves …` без флага — Bun читает bin
- * сам, мимо его шебанга. Голый `elves <скрипт>`, `node_modules/.bin/elves …`, `bunx elves …` и обёртка Yarn 2+
+ * сам, мимо его шебанга. Голый `elves <скрипт>`, `node_modules/.bin/elves …`, `bunx elves …` и
  * `elves slot '<команда>'` идут через шебанг bin — `sh` запускает Bun с `--no-env-file` (BIN_SHEBANG, #592).
  */
 const PACKAGE_CALL = new RegExp(String.raw`\bbun${FLAGS}\s+(?:\.\/)?node_modules\/\.bin\/elves\b`, "g");
@@ -59,8 +58,11 @@ const PACKAGE_CALL = new RegExp(String.raw`\bbun${FLAGS}\s+(?:\.\/)?node_modules
  * `#!/usr/bin/env -S bun --no-env-file` — `env -S` есть не везде (busybox).
  */
 const BIN_SHEBANG = `#!/bin/sh\n':' //; exec bun --no-env-file "$0" "$@"\n`;
-/** Дочерний процесс bun: `spawn("bun", [скрипт…])`, `spawnSync(process.execPath, […])` — первым аргументом флаг. */
-const SPAWN = /(?:"bun"|process\.execPath)\s*,\s*\[(?!\s*"--no-env-file")/g;
+/**
+ * Дочерний процесс bun: `spawn("bun", [скрипт…])`, `spawnSync(process.execPath, […])` — первым аргументом флаг.
+ * `bun install` проекта — вне охвата: он идёт, как у человека, с env-файлами — токенам реестра в `bunfig.toml`.
+ */
+const SPAWN = /(?:"bun"|process\.execPath)\s*,\s*\[(?!\s*"--no-env-file"|\s*"install")/g;
 
 /** Строки нарушений: «номер: строка». */
 function lines(text: string, at: number[]): string[] {
@@ -167,22 +169,6 @@ describe("Скрипты флоу под bun не подгружают env-фа�
       return [...synopsis, ...lines(f.text, bare)].map((l) => `${f.file}: ${l}`);
     });
     expect(wrong).toEqual([]);
-  });
-
-  /**
-   * На Yarn 2+ с PnP `node_modules/.bin/elves` нет, а bin `.ts` Yarn 2+ запускает Node-ом при любом `nodeLinker` (#608):
-   * справка в проекте на Yarn 2+ называет форму его package.json — пакет через bunx, по `packageManager` скилла
-   * github.
-   */
-  it("справка скрипта пакета elves <скрипт> --help называет форму запуска, которая на Yarn 2+ с PnP находит bin пакета", () => {
-    const { dir, cleanup } = tmpDir();
-    try {
-      writeTree(dir, { "package.json": JSON.stringify({ private: true, packageManager: "yarn@4.9.1" }) });
-      const help = spawnSync(process.execPath, ["--no-env-file", path.join(ROOT, "bin/elves.ts"), "spec-break", "--help"], { cwd: dir, encoding: "utf8" });
-      expect(help.stdout.split("\n")[0]).toStartWith(`${PACKAGE_BUNX} spec-break --file`);
-    } finally {
-      cleanup();
-    }
   });
 
   invariant(it, {

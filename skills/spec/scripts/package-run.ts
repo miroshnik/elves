@@ -10,11 +10,10 @@
 export const PACKAGE_RUN = "bun --no-env-file node_modules/.bin/elves";
 
 /**
- * The package of the project's version through bunx — where `node_modules/.bin/elves` isn't there or doesn't run: a CI
- * job without the project's dependencies (#597) and a project on Yarn 2+ (#608). Yarn 2+ has no `node_modules` with
- * PnP, and with any `nodeLinker` it runs a `.ts` bin by Node, past its shebang — Node doesn't strip types under
- * `node_modules`; bunx runs the bin by its shebang, under Bun without env files (#592). Needs `jq` (`PACKAGE_TOOLS`);
- * `$(…)` works in Yarn's shell too. The first run fetches the package of that version into Bun's cache.
+ * The package of the project's version through bunx — where `node_modules/.bin/elves` isn't there: a CI job without
+ * the project's dependencies (#597); bunx runs the bin by its shebang, under Bun without env files (#592). Needs `jq`
+ * (`PACKAGE_TOOLS`). The first run fetches the package of that version into Bun's cache. The installer knows it in a
+ * wrapper of a previous install too — the slot of a project on Yarn 2+ (#608, until #910).
  */
 export const PACKAGE_BUNX = `bunx @miroshnik/elves@"$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)"`;
 
@@ -25,6 +24,3 @@ export const PACKAGE_BUNX = `bunx @miroshnik/elves@"$(jq -r '.devDependencies["@
  * and `gh`, but not `jq` (#903).
  */
 export const PACKAGE_TOOLS: readonly string[] = ["jq"];
-
-/** The package's script in a project: on Yarn 2+ (`berry` of the github skill's `packageManager`) — `PACKAGE_BUNX`. */
-export const packageRun = (berry: boolean) => (berry ? PACKAGE_BUNX : PACKAGE_RUN);
