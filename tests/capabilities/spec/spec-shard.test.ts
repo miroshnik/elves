@@ -169,8 +169,8 @@ describe("Шард CI получает файлы по длительностя�
     }
   });
 
-  // эпик #906: тесты проекта — bun test, e2e — Playwright; ветки раннеров Vitest и Jest нет
-  it("`--runner vitest` или `jest` — код 2 и строка: раннер тестов проекта — bun test, раннеры — bun и playwright", () => {
+  // эпик #906: тесты проекта — bun test, e2e — Playwright; ветки раннеров Vitest и Jest нет, --runner jest — так же
+  it("`spec-shard --runner vitest` — код 2 и строка: раннер проекта — `bun test`; раннеры — `bun` и `playwright` (ветку `bun` убирает #832)", () => {
     const files = list([`${LIGHT}/a.test.ts`]);
     for (const runner of ["vitest", "jest"]) {
       const r = runScript("spec-shard", ["--shard", "1/1", "--runner", runner, "--list", files], dir);

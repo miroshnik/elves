@@ -93,6 +93,17 @@ describe("Тест проекта импортирует харнесс и мо�
     expect(r.output).toContain("1 passed");
     expect(r.code).toBe(0);
   });
+
+  // spec-existing #908: bun test и Playwright грузили харнесс и до задачи — тест называет раннеры проекта (эпик #906)
+  it("Харнесс грузится в `bun test` и Playwright; загрузка под Vitest и Jest из теста `tests/standards/exports/harness-load` удалена", () => {
+    project();
+    writeTree(dir, { "tests/harness.test.ts": PROJECT_SPEC.replace('from "@playwright/test"', 'from "bun:test"') });
+    const bun = spawnSync(process.execPath, ["test", "./tests/harness.test.ts"], { cwd: dir, encoding: "utf8" });
+    expect({ code: exitOf(bun), pass: / 1 pass\n/.test(bun.stderr) }).toEqual({ code: 0, pass: true });
+    const r = playwright();
+    expect(r.output).toContain("1 passed");
+    expect(r.code).toBe(0);
+  });
 });
 
 describe("Тест проекта импортирует харнесс и модель из пакета @miroshnik/elves любым раннером", () => {

@@ -121,14 +121,20 @@ describe("Сводка раннера — по его строкам итога"
     for (const [runner, output, summary] of cases) expect({ runner, summary: summaryOf(output) }).toEqual({ runner, summary });
   });
 
-  // тесты проекта — bun test и Playwright (эпик #906): строки итога Vitest и Jest сводкой не считаются
-  it("итог Vitest или Jest — не сводка раннера проекта: проверка не зелёная, прогон не дошёл до конца", () => {
+  // тесты проекта — bun test и Playwright (эпик #906): итог Vitest и Jest — не сводка, проверка с ним не зелёная
+  it("`spec-red` и `precommit` запускают тесты проекта без веток Vitest и Jest (`--changed` у `bun test`; e2e Playwright они не гоняют)", () => {
     for (const output of [
       " Test Files  2 passed (2)\n      Tests  9 passed (9)\n   Duration  1.2s\n",
       "No test files found, exiting with code 0\n",
       "Test Suites: 2 passed, 2 total\nTests:       7 passed, 7 total\n",
     ])
       expect({ output, summary: summaryOf(output), verdict: verdict(true, 0, output).ok }).toEqual({ output, summary: null, verdict: false });
+    // test проекта на Vitest: precommit зовёт его с --changed, а итог Vitest — не сводка: проверка красная
+    project({ test: "printf '      Tests  9 passed (9)\\n'; echo >args.txt" });
+    const r = runScript("precommit", [], dir);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("❌ test --changed=origin/main — no runner summary — the run didn't finish (code 0)");
+    expect(readFileSync(`${dir}/args.txt`, "utf8").trim()).toBe("--changed=origin/main");
   });
 
   it("цвета ANSI в выводе не мешают найти сводку", () => {
