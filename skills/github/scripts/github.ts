@@ -51,7 +51,7 @@ import type { Bypass } from "./bypasses.ts";
 import { readyCommand, SandboxRefusal, sandboxLine, sandboxRefusal, shellArg } from "./command.ts";
 import locale from "./locale.ts";
 import type { Names } from "./locale.ts";
-import { entryOf, executorAlive, executorOf, holdingBlockers, queueStep, redFix, releaseIsRed, releaseRun, worktreeRemovable } from "./queue.ts";
+import { entryOf, executorAlive, executorOf, fixGoesIn, holdingBlockers, queueStep, redFix, releaseIsRed, releaseRun, worktreeRemovable } from "./queue.ts";
 import type { BatchFacts, BlockerFacts, Entry, Fix, Step as QueueNext, ReleaseState, ReleaseStep, TaskFacts } from "./queue.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -6787,19 +6787,42 @@ function bugNames(base: string, title: string, check: string): boolean {
 }
 
 /**
+ * The fix merged into the batch after its release opened (#902) — the PR of a release task merged later than the
+ * release PR was created (`rows` — REST's release PRs, `created_at`): the release's head moved, its full run goes again
+ * — the model's `fixMerged`. REST (the GraphQL quota is shared by all the sessions), the latest updated first; none,
+ * the PRs not read or the release's creation unknown — null: the PR is held, as in the release's first run.
+ */
+function fixMergedSince(io: Io, slug: string, batch: string, release: PrRef, rows: Any[]): number | null {
+  const opened = Date.parse(rows.find((r) => r.number === release.number)?.created_at ?? "");
+  if (Number.isNaN(opened)) return null;
+  const tasks = prTasks(release);
+  let merged: Any[];
+  try {
+    merged = restCall(io, ["api", `repos/${slug}/pulls?state=closed&base=${encodeURIComponent(batch)}&sort=updated&direction=desc&per_page=100`]) ?? [];
+  } catch (e) {
+    if (!(e instanceof GhError)) throw e;
+    io.out(`○ the PRs merged into ${batch} not read: ${e.message} — no fix merged since the release PR #${release.number} opened is seen`);
+    return null;
+  }
+  const fix = merged.find((p) => p.merged_at && Date.parse(p.merged_at) > opened && prTasks(p).some((n) => tasks.includes(n)));
+  return fix?.number ?? null;
+}
+
+/**
  * A PR into a batch branch before its merge (#649; question 2 of epic #645 — the live executors aren't stopped by a
  * release). The batch's release PR is open — code 1 and the wait for its close: a merge into the batch now would change
  * the release its CI checked. Merged — code 1, the PR moves: into the dispatcher's next batch (the marker's, another
  * one than the base: the dispatcher went on — its queue started it), without one — into the default branch with the
  * full CI, the task leaving the batch; then a rebase onto it — the batch's commits are there already, rebased, with
  * other SHAs, and GitHub's rebase merge would replay them. No release (none, or closed without a merge) — null. The
- * open release red — by its checks or by `pr premerge` on its head (#884) — and the PR one of its task's (#650: the task
- * branch or «Closes #N» — `prTasks`, the release's «Closes #N») — the guilty task's fix: null, the PR is checked as
- * usual; a live executor's PR (its task isn't in the release) and any PR while the release is green or running — held.
- * Held but the fix of red main (#889: it closes an open «<base> is red…» bug — handed out into the batch before the
- * release opened) — code 1, the PR moves into the default branch: held, it would wait for the release, and the release
- * for the bug's close; its hand-out is marked past the batch (`markPastBatch`), the rebase takes only the task's
- * commits — the batch isn't released.
+ * PR one of the open release's task's (#650: the task branch or «Closes #N» — `prTasks`, the release's «Closes #N») is
+ * its fix by the model (`fixGoesIn`): the release red — by its checks or by `pr premerge` on its head (#884) — or its
+ * run going again after a fix merged (#902, `fixMergedSince`: the red release's fixes go in parallel) — null, the PR is
+ * checked as usual; a live executor's PR (its task isn't in the release) and any PR while the release is green or its
+ * first run goes — held. Held but the fix of red main (#889: it closes an open «<base> is red…» bug — handed out into
+ * the batch before the release opened) — code 1, the PR moves into the default branch: held, it would wait for the
+ * release, and the release for the bug's close; its hand-out is marked past the batch (`markPastBatch`), the rebase
+ * takes only the task's commits — the batch isn't released.
  */
 function batchBase(io: Io, slug: string, number: number, pr: Any): number | null {
   const base: string = pr.base.ref;
@@ -6818,11 +6841,17 @@ function batchBase(io: Io, slug: string, number: number, pr: Any): number | null
   if (release.state === "OPEN") {
     const ofRelease = tasks.filter((n) => prOfTask(release, n));
     const checks = ofRelease.length ? releaseChecks(io, slug, release) : null;
-    // red by its checks or by pr premerge on its head (#884): the release waits for this fix, not the fix for the release
-    if (checks && isRed(checks)) {
+    // its run going again after a fix of its task merged (#902) — read only when it decides: running, not red
+    const fixed = checks && checks.state === "pending" && !isRed(checks) ? fixMergedSince(io, slug, base, release, rows) : null;
+    const into = { ofRelease: ofRelease.length > 0, red: checks?.state === "red", premerge: Boolean(checks?.premerge), running: checks?.state === "pending", fixMerged: fixed !== null };
+    // red by its checks or by pr premerge on its head (#884), or its run going again after a fix: the release waits for
+    // this fix, not the fix for the release
+    if (checks && fixGoesIn(into)) {
+      const why = isRed(checks) ? `is red (${redNames(checks).join(", ")})` : `runs again after its fix PR #${fixed} merged into the batch`;
+      const what = isRed(checks) ? "the guilty task's fix goes into the batch" : "the red release's fixes go into the batch in parallel";
       io.out(
-        `○ ${base} is being released — PR #${release.number} into ${main} is red (${redNames(checks).join(", ")}), and PR #${number} is of its task ${ofRelease.map((n) => `#${n}`).join(", ")}: ` +
-          `the guilty task's fix goes into the batch — checking the PR as usual; after its merge the release's full run goes again on PR #${release.number}`,
+        `○ ${base} is being released — PR #${release.number} into ${main} ${why}, and PR #${number} is of its task ${ofRelease.map((n) => `#${n}`).join(", ")}: ` +
+          `${what} — checking the PR as usual; after its merge the release's full run goes again on PR #${release.number}`,
       );
       return null;
     }
