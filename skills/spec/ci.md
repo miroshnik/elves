@@ -2,7 +2,7 @@
 
 The "Wiring into a repository" section of `SKILL.md`, item 4: pnpm
 (`packageManager` in `package.json`), standards and architecture in one
-`test-spec` job, the rest of Vitest in 3 shards, Playwright in 2 — the
+`test-spec` job, the rest of `bun test` in 3 shards, Playwright in 2 — the
 shard's files by the last green run's durations (`spec-shard`, section
 "Shards by durations");
 concurrency — per `docs/ci-concurrency.md`. `test-spec` runs the `test:spec`
@@ -10,11 +10,12 @@ script once per run, without shards and browsers: standards and architecture
 are static checks over the code (`checks.md`); `unit` runs `test`, which
 excludes them, `e2e` — only the browser tests. The jobs call the project's
 scripts, not the runner directly: the split between `test` and `test:spec` is
-in one place (only the shard listing repeats `test`'s `--exclude`), and
+in one place (only the shard listing repeats `test`'s exclusions), and
 locally the same scripts run what CI runs. The scripts are
 wrapped in `slot` under Bun (the `slot` skill; no queue in CI) — hence
-`oven-sh/setup-bun@v2` in those jobs. The jobs write blob reports, the
-`spec` job merges them with the runners' own tools and builds `docs/spec` with
+`oven-sh/setup-bun@v2` in those jobs. `bun test` writes a JUnit report per
+job, Playwright — blob reports; the `spec` job merges Playwright's with its
+own tool, takes the JUnit reports as they are and builds `docs/spec` with
 `--strict` — the check of the tree and the names; publishing `docs/spec` to the
 `spec` branch is the project's choice, not part of this fragment (section
 "Publishing the documentation — optional"). The skill's scripts are the project's package
@@ -55,9 +56,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2 # package.json checks go through slot under Bun
       - run: pnpm install --frozen-lockfile
         timeout-minutes: 10
-      - run: pnpm test:spec --reporter=default --reporter=blob --outputFile.blob=vitest-blob/spec.json
+      - run: pnpm test:spec --reporter=junit --reporter-outfile=.spec-report-spec.xml
       - uses: actions/upload-artifact@v7
-        with: { name: vitest-blob-spec, path: vitest-blob/, retention-days: 1 }
+        with: { name: spec-junit-spec, path: .spec-report-spec.xml, retention-days: 1, include-hidden-files: true }
       - uses: actions/upload-artifact@v7 # example code and exception reasons — for spec-doc
         with: { name: spec-meta-spec, path: .spec-meta/, retention-days: 1, include-hidden-files: true }
 
@@ -83,15 +84,16 @@ jobs:
         run: |
           run=$(bun --no-env-file node_modules/.bin/elves spec-run --artifact spec-reports)
           [ -z "$run" ] || gh run download "$run" --name spec-reports --dir .spec-last
-      # the files of test (the same --exclude: standards and architecture — test-spec) by the durations, not --shard
+      # the test script's files from git (the same exclusions: standards and architecture — test-spec) by the durations, not --shard
       - run: |
-          pnpm exec vitest list --filesOnly --json=.spec-files.json --exclude 'tests/standards/**' --exclude 'tests/architecture/**'
-          files=$(bun --no-env-file node_modules/.bin/elves spec-shard --shard ${{ matrix.shard }}/${{ strategy.job-total }} --runner vitest --list .spec-files.json --report .spec-last/.spec-report.json)
+          git ls-files -- '*.test.ts' ':!:tests/standards/**' ':!:tests/architecture/**' > .spec-files.txt
+          reports=(); for r in .spec-last/.spec-report-*.xml; do reports+=(--report "$r"); done
+          files=$(bun --no-env-file node_modules/.bin/elves spec-shard --shard ${{ matrix.shard }}/${{ strategy.job-total }} --runner bun --list .spec-files.txt "${reports[@]}")
           [ -n "$files" ] || { echo "shard ${{ matrix.shard }}: no files"; exit 0; } # without filters the runner would run everything
           list=(); while IFS= read -r f; do list+=("$f"); done <<< "$files"
-          pnpm test "${list[@]}" --reporter=default --reporter=blob --outputFile.blob=vitest-blob/${{ matrix.shard }}.json
+          pnpm test "${list[@]}" --reporter=junit --reporter-outfile=.spec-report-${{ matrix.shard }}.xml
       - uses: actions/upload-artifact@v7
-        with: { name: 'vitest-blob-${{ matrix.shard }}', path: vitest-blob/, retention-days: 1 }
+        with: { name: 'spec-junit-${{ matrix.shard }}', path: '.spec-report-*.xml', retention-days: 1, include-hidden-files: true }
       - uses: actions/upload-artifact@v7 # entry-point log — for spec-claims
         with: { name: 'spec-journal-unit-${{ matrix.shard }}', path: .spec-journal/, retention-days: 1, include-hidden-files: true }
       - uses: actions/upload-artifact@v7 # example code and exception reasons — for spec-doc
@@ -143,8 +145,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2 # the spec scripts: spec:claims, spec:doc
       - run: pnpm install --frozen-lockfile
         timeout-minutes: 10
-      - uses: actions/download-artifact@v8
-        with: { pattern: vitest-blob-*, path: vitest-blob, merge-multiple: true }
+      - uses: actions/download-artifact@v8 # the bun test reports .spec-report-*.xml — into the root, as they are
+        with: { pattern: spec-junit-*, merge-multiple: true }
       - uses: actions/download-artifact@v8
         with: { pattern: playwright-blob-*, path: playwright-blob, merge-multiple: true }
       - uses: actions/download-artifact@v8
@@ -152,7 +154,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with: { pattern: spec-meta-*, path: .spec-meta, merge-multiple: true }
       - run: pnpm spec:claims # every entry point is called by a capability test; the report goes to spec:doc
-      - run: pnpm exec vitest --merge-reports=vitest-blob --reporter=json --outputFile.json=.spec-report.json
       - run: pnpm exec playwright merge-reports --reporter=json playwright-blob
         env: { PLAYWRIGHT_JSON_OUTPUT_NAME: .spec-playwright.json }
       - run: pnpm spec:doc
@@ -162,7 +163,7 @@ jobs:
           name: spec-reports
           path: |
             .spec-*.json
-            .spec-claims.xml
+            .spec-*.xml
           retention-days: 1
           include-hidden-files: true
 
@@ -179,7 +180,8 @@ jobs:
         with: { name: spec-reports }
       - run: | # the project's version of the package, without its dependencies
           elves="bunx @miroshnik/elves@$(jq -r '.devDependencies["@miroshnik/elves"]' package.json)"
-          $elves spec-diff --base "origin/${{ github.base_ref }}" --report .spec-report.json --report .spec-playwright.json --report .spec-claims.xml --full >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob; reports=(); for r in .spec-*.json .spec-*.xml; do reports+=(--report "$r"); done
+          $elves spec-diff --base "origin/${{ github.base_ref }}" "${reports[@]}" --full >> "$GITHUB_STEP_SUMMARY"
 ```
 
 Every job has `timeout-minutes`, and a step that installs packages from the
@@ -192,8 +194,8 @@ The `.spec-*` reports and logs are hidden files: `upload-artifact` skips them
 without `include-hidden-files: true`, and the artifact comes out empty.
 
 No Playwright — no `e2e` job, no steps for it in `spec` and no second report
-in `spec:doc`. No shards — `unit` without the matrix and the shard steps, `pnpm test`
-as is; `test-spec` stays a job
+in `spec:doc`. No shards — `unit` without the matrix and the shard steps,
+`pnpm test --reporter=junit --reporter-outfile=.spec-report-1.xml`; `test-spec` stays a job
 of its own: it doesn't wait for the long branch, and a broken standard is
 visible in a minute.
 Elves itself runs on Bun — its `.github/workflows/ci.yml` is no model for a
@@ -207,16 +209,15 @@ workflow. A deploy needs merge order — a separate workflow
 ## Shards by durations
 
 A runner's `--shard` doesn't look at time: Playwright cuts the suite in a row
-by the count of tests, Vitest — files by the hash of the path; the heavy tests
-of one folder land in one shard, the PR waits for it. The shard step lists the
-run's files with the runner (`vitest list --filesOnly`, `playwright test
---list`), `spec-shard` lays them out greedily — the longest into the lightest
-shard — by the durations of the last green run and prints the shard's filters,
-the runner gets them as positional arguments. Merging the blob reports and the
-`spec` job don't change.
+by the count of tests; the heavy tests of one folder land in one shard, the PR
+waits for it. The shard step lists the run's files (`git ls-files` for bun
+test, which lists nothing without a run; `playwright test --list`),
+`spec-shard` lays them out greedily — the longest into the lightest shard — by
+the durations of the last green run and prints the shard's filters, the
+runner gets them as positional arguments. The `spec` job doesn't change.
 
-- Durations — the `spec-reports` artifact of the `spec` job (the merged
-  `.spec-report.json` and `.spec-playwright.json`): `spec-run --artifact`
+- Durations — the `spec-reports` artifact of the `spec` job (the shards'
+  `.spec-report-<k>.xml` and the merged `.spec-playwright.json`): `spec-run --artifact`
   finds the newest green run with it, `gh run download` fetches it — hence
   `actions: read`. It is uploaded on PRs and lives a day: no artifact (the
   first run, a day without PRs) — the files split equally by count, a new
@@ -233,52 +234,29 @@ the runner gets them as positional arguments. Merging the blob reports and the
   split by durations loses files the same way — a `gh` failure is a red
   shard, re-run it. Re-running failed jobs a day later, when the reports
   have expired, — re-run all jobs.
-- `vitest list` doesn't run the `test` script: its `--exclude` is repeated in
-  the listing — keep them equal, otherwise standards land in the unit shards'
-  layout and `test` drops them.
+- The bun test list is git's: keep its patterns and exclusions equal to the
+  `test` script's (bun test's name patterns, its `--path-ignore-patterns`) —
+  `--path-ignore-patterns` drops an excluded file even by its exact path, and
+  the shard's share of time goes with it; standards in the list would land
+  in the unit shards' layout and `test` would drop them.
 - An empty shard (more shards than files) doesn't start the runner: without
   filters it would run everything.
-- A filter is what the runner understands: Vitest — the path (a substring),
-  Playwright — an escaped regular expression anchored at the end of the path,
-  bun test — `./<path>` (below).
-  A filter that also takes another file (`tests/a.test.ts` in
-  `packages/web/tests/a.test.ts`) — both go into one shard, a stderr line
-  says so.
+- A filter is what the runner understands: bun test — `./<path>`, it takes a
+  filter with `./` as the file's path — only that file (without `./` it is a
+  substring of the path: `tests/a.test.ts` takes
+  `packages/web/tests/a.test.ts`); Playwright — an escaped regular expression
+  anchored at the end of the path. A Playwright filter that also takes
+  another file (`e2e/a.spec.ts` ends `e2e/sub/e2e/a.spec.ts`) — both go into
+  one shard, a stderr line says so.
 - A Playwright dependency project (login before the tests) runs in every
   shard: the runner adds dependencies without the filters.
-- The unit is a file: a file longer than a shard's share stays the bound —
-  split the file.
-
-### A project on bun test
-
-bun test lists nothing without a run and writes no blob report — the
-`unit` job's shard step differs (the job is otherwise the same, without pnpm
-and Node; `test` — the project's script over `bun test`):
-
-```yaml
-      # the test script's files from git: bun test's name patterns and the script's --path-ignore-patterns
-      - run: |
-          git ls-files -- '*.test.ts' ':!:tests/standards/**' ':!:tests/architecture/**' > .spec-files.txt
-          reports=(); for r in .spec-last/.spec-report-*.xml; do reports+=(--report "$r"); done
-          files=$(bun --no-env-file node_modules/.bin/elves spec-shard --shard ${{ matrix.shard }}/${{ strategy.job-total }} --runner bun --list .spec-files.txt "${reports[@]}")
-          [ -n "$files" ] || { echo "shard ${{ matrix.shard }}: no files"; exit 0; } # without filters the runner would run everything
-          list=(); while IFS= read -r f; do list+=("$f"); done <<< "$files"
-          bun run test "${list[@]}" --reporter=junit --reporter-outfile=.spec-report-${{ matrix.shard }}.xml
-      - uses: actions/upload-artifact@v7
-        with: { name: 'spec-junit-${{ matrix.shard }}', path: '.spec-report-*.xml', retention-days: 1, include-hidden-files: true }
-```
-
-- The list is git's: keep its patterns and exclusions equal to the `test`
-  script's — `--path-ignore-patterns` drops an excluded file even by its
-  exact path, and the shard's share of time goes with it.
-- A filter is `./<path>`: bun test takes a filter with `./` as the file's
-  path — only that file; without `./` it is a substring of the path
-  (`tests/a.test.ts` takes `packages/web/tests/a.test.ts`), case-sensitive.
 - A JUnit report per shard: `spec-shard` doesn't split a file, so the `spec`
   job passes the shards' reports to `spec-doc` as they are (`spec-doc` puts
   files by path, a file's tests — in the report's order), and `spec-reports`
-  takes them (`.spec-report-*.xml` in its `path`): the next run's durations
-  are every shard's report.
+  takes them (`.spec-*.xml` in its `path`): the next run's durations are
+  every shard's report.
+- The unit is a file: a file longer than a shard's share stays the bound —
+  split the file.
 
 ## Batches — no CI on a PR into a batch branch
 

@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { runScript, SCRIPTS, setLanguage, tmpDir, vitestReport, writeTree } from "../../lib/spec.ts";
+import { runScript, SCRIPTS, setLanguage, tmpDir, junitReport, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -67,11 +67,11 @@ const MODULES_ONLY = `{
 
 // правило архитектуры проекта — сверка модели с кодом; её страница — в списке правил
 const RULE = "tests/architecture/modules/modules.test.ts";
-const rules = () => vitestReport(dir, { [RULE]: [[[], "каталог src/web — модуль web"]] });
+const rules = () => junitReport(dir, { [RULE]: [[[], "каталог src/web — модуль web"]] });
 
 function doc(content: string, ...args: string[]) {
-  writeFileSync(path.join(dir, "r.json"), content);
-  return runScript("spec-doc", ["r.json", "--root", dir, ...args], dir);
+  writeFileSync(path.join(dir, "r.xml"), content);
+  return runScript("spec-doc", ["r.xml", "--root", dir, ...args], dir);
 }
 
 const block = (...lines: string[]) => lines.join("\n");
@@ -329,7 +329,7 @@ describe("Архитектура — страница из модели `tests/a
 
 // главный файл capability billing и его описание — место для метки
 const BILLING = "tests/capabilities/billing/billing.test.ts";
-const billing = () => vitestReport(dir, { [BILLING]: [[["Счета"], "выставляется за месяц"]] });
+const billing = () => junitReport(dir, { [BILLING]: [[["Счета"], "выставляется за месяц"]] });
 const DESCRIBED = "tests/capabilities/billing/billing.md";
 
 /** Схема нужна и в рассказе capability или правила: метка в описании берёт её из той же модели, копии нет. */

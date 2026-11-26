@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { commandOf, namePattern, outcomesOf, runnerOf } from "../../../skills/spec/scripts/spec-red.ts";
-import { makeTest, parseVitest } from "../../../skills/spec/scripts/speclib.ts";
+import { makeTest, parseJunit } from "../../../skills/spec/scripts/speclib.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { gitRepo, runScript, SCRIPTS, tmpDir, vitestReport } from "../../lib/spec.ts";
+import { gitRepo, junitReport, runScript, SCRIPTS, tmpDir } from "../../lib/spec.ts";
 
 // git и bun test — настоящие процессы во временном репозитории
 setDefaultTimeout(SPAWN_TIMEOUT);
@@ -195,31 +195,26 @@ describe("Прогон на базе идёт во временном worktree �
 });
 
 /**
- * Раннер файла — по его импорту, иначе по зависимостям проекта; Vitest и Jest — их бинарник из `node_modules` проекта
- * с тем же фильтром по полным именам и отчётом JSON, e2e на базе не гоняется: приложение идёт из стека задачи.
+ * Раннер файла — bun test: импорт `bun:test` или тест проекта на Bun; e2e на базе не гоняется: приложение идёт из стека
+ * задачи. Тесты проекта — bun test и Playwright (эпик #906): файл другого раннера не проверяется — строка ○.
  */
 describe("Раннер добавленных тестов — тот, что у проекта", () => {
-  it("bun test, Vitest и Jest гоняют только файлы добавленных тестов по их полным именам; e2e не проверяется", () => {
-    const vitest = new Set(["vitest"]);
-    expect(runnerOf("tests/a.test.ts", 'import { it } from "bun:test";', vitest, "npm")).toBe("bun");
-    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", vitest, "pnpm")).toBe("vitest");
-    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", new Set(["jest"]), "npm")).toBe("jest");
-    expect(runnerOf("tests/a.e2e.ts", 'import { test } from "../lib/fixtures";', vitest, "pnpm")).toBe("playwright");
-    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", new Set(), "npm")).toBeNull();
+  it("bun test гоняет только файлы добавленных тестов по их полным именам; e2e и файл другого раннера не проверяются", () => {
+    expect(runnerOf("tests/a.test.ts", 'import { it } from "bun:test";', "npm")).toBe("bun");
+    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", "bun")).toBe("bun");
+    expect(runnerOf("tests/a.e2e.ts", 'import { test } from "../lib/fixtures";', "bun")).toBe("playwright");
+    expect(runnerOf("tests/a.test.ts", 'import { it } from "vitest";', "pnpm")).toBeNull();
+    expect(runnerOf("tests/a.test.ts", "it('x', () => {});", "npm")).toBeNull();
 
     const tests = [makeTest("tests/a.test.ts", ["сумма (целых)"], "1 + 2 = 3"), makeTest("tests/a.test.ts", [], "верхний")];
     const pattern = namePattern(tests);
     expect(pattern).toBe("^(?:сумма \\(целых\\) 1 \\+ 2 = 3|верхний)$");
     expect(new RegExp(pattern).test("сумма (целых) 1 + 2 = 3")).toBe(true);
-    const bin = (name: string) => `/p/node_modules/.bin/${name}`;
-    expect(commandOf("bun", ["tests/a.test.ts"], pattern, "/r/bun.xml", bin)).toEqual(["bun", "test", "./tests/a.test.ts", "--test-name-pattern", pattern, "--reporter=junit", "--reporter-outfile=/r/bun.xml"]);
-    expect(commandOf("vitest", ["tests/a.test.ts"], pattern, "/r/v.json", bin)).toEqual([bin("vitest"), "run", "tests/a.test.ts", "--testNamePattern", pattern, "--reporter=json", "--outputFile=/r/v.json"]);
-    expect(commandOf("jest", ["tests/a.test.ts"], pattern, "/r/j.json", bin)).toEqual([bin("jest"), "--runTestsByPath", "tests/a.test.ts", "--testNamePattern", pattern, "--json", "--outputFile=/r/j.json"]);
-    expect(commandOf("vitest", ["tests/a.test.ts"], pattern, "/r/v.json", () => null)).toBeNull();
+    expect(commandOf(["tests/a.test.ts"], pattern, "/r/bun.xml")).toEqual(["bun", "test", "./tests/a.test.ts", "--test-name-pattern", pattern, "--reporter=junit", "--reporter-outfile=/r/bun.xml"]);
 
-    // отчёт Vitest: упавший — красный, прошедший — зелёный, файл без тестов в отчёте при красном прогоне — не загрузился
+    // JUnit bun test: упавший — красный, прошедший — зелёный, файл без тестов в отчёте при красном прогоне — не загрузился
     const added = [makeTest("tests/a.test.ts", [], "падает"), makeTest("tests/a.test.ts", [], "проходит"), makeTest("tests/b.test.ts", [], "импортирует новое")];
-    const report = parseVitest(JSON.parse(vitestReport("/w", { "tests/a.test.ts": [[[], "падает", "failed"], [[], "проходит"]], "tests/b.test.ts": [] })), "/w");
+    const report = parseJunit(junitReport("/w", { "tests/a.test.ts": [[[], "падает", "failed"], [[], "проходит"]], "tests/b.test.ts": [] }), "/w");
     expect(outcomesOf(added, report, 1)).toEqual([{ kind: "red", loaded: true }, { kind: "green" }, { kind: "red", loaded: false }]);
     // прогон зелёный, а теста нет под его именем — не проверен, а не красный
     expect(outcomesOf([added[2]!], [], 0)).toEqual([{ kind: "unchecked", why: "not in the run under this name (computed at run time?)" }]);

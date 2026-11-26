@@ -6,10 +6,11 @@
  * of a registry taken from the code, not on one example. "Examples" — a lint rule is checked on code where it must
  * fire, stay silent and not apply; the linter goes through an adapter (ESLint — `eslintLinter`).
  *
- * The runner doesn't matter: `it` passes the test (Vitest, Jest, bun test, node:test — all have `it(name, fn)`).
+ * The runner doesn't matter: `it` passes the test (bun test, Playwright's `test`, node:test — all have `it(name, fn)`).
  * Import from the project's package (`@miroshnik/elves/spec/harness`); the project's test loads it
- * under the project's runner — Bun, Node, Vitest, Playwright or Jest, as ESM or as CommonJS — so only erasable
- * TypeScript syntax and `node:` APIs, with no dependencies (tests/standards/exports/harness-load).
+ * under the project's runner — bun test or Playwright, the project's ESLint config and `node --test` under Node, as ESM
+ * or as CommonJS — so only erasable TypeScript syntax and `node:` APIs, with no dependencies
+ * (tests/standards/exports/harness-load).
  */
 
 import { spawnSync } from "node:child_process";
@@ -936,7 +937,7 @@ const journalDir = (root: string): string => path.resolve(root, process.env["SPE
 
 /**
  * Run start — logs of previous runs go away: otherwise a deleted test keeps "calling" an entry point. Called once per
- * runner run, before the tests (Vitest and Playwright globalSetup, bun test preload); erases `*.jsonl` in its own
+ * runner run, before the tests (bun test preload, Playwright globalSetup); erases `*.jsonl` in its own
  * directory (`SPEC_JOURNAL`), leaves subdirectories — other runners' logs — alone.
  */
 export function resetJournal(opts: { root?: string } = {}): void {
@@ -1137,7 +1138,7 @@ export function deadCode(it: It, opts: DeadCode): void {
   const rule = opts.rule ?? (opts.production ? "production" : undefined);
   const tag = rule ? ` (${rule})` : "";
   const hints = opts.hints ?? true;
-  // knip at registration: on a monorepo it takes longer than the test timeout (5 s in Vitest); a failure goes into
+  // knip at registration: on a monorepo it takes longer than the test timeout (5 s in bun test); a failure goes into
   // the tests, not into collecting the file
   let findings: KnipFindings | Error;
   try {

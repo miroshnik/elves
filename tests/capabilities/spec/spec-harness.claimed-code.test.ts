@@ -195,7 +195,7 @@ describe("Код, до которого не доходит ни одна точ
     expect(readFileSync(path.join(dir, "args.txt"), "utf8").trim()).toBe("--reporter json");
   });
 
-  // Vitest даёт тесту 5 с, а knip монорепо идёт дольше: запуск под таймаутом первого теста обрывался
+  // bun test даёт тесту 5 с, а knip монорепо идёт дольше: запуск под таймаутом первого теста обрывался
   it("knip запускается при регистрации тестов, а не под таймаутом первого теста", () => {
     writeTree(dir, { "node_modules/.bin/knip": `#!/bin/sh\ntouch ran\necho '${knip([])}'\necho '${hints([])}'\n` });
     chmodSync(path.join(dir, "node_modules/.bin/knip"), 0o755);
@@ -324,13 +324,13 @@ describe("Код, до которого доходят только тесты, 
     writeTree(dir, {
       ".knip.json": knip([
         { file: "src/a.ts", exports: [{ name: "legacy" }] },
-        { file: "package.json", devDependencies: [{ name: "vitest" }] },
+        { file: "package.json", devDependencies: [{ name: "left-pad" }] },
       ]),
       ".knip-production.json": knip([{ file: "src/a.ts", exports: [{ name: "legacy" }, { name: "testOnly" }] }]),
     });
     const exceptions = [
       { item: "export:src/a.ts#legacy", issue: 1, reason: "общий долг" },
-      { item: "dependency:package.json#vitest", issue: 2, reason: "тесты переезжают в #2" },
+      { item: "dependency:package.json#left-pad", issue: 2, reason: "уходит в #2" },
       { item: "export:src/a.ts#testOnly", issue: 3, reason: "нужен только тестам — в #3", rule: "production" },
     ];
     const r = await outcomes((it) => {
@@ -341,7 +341,7 @@ describe("Код, до которого доходят только тесты, 
     expect(r["нет зависимостей без импорта"]).toBe("✓");
     expect(r["нет экспортов без потребителя (production)"]).toBe("✓");
     expect(r["исключение: export:src/a.ts#legacy (#1)"]).toBe("✓");
-    expect(r["исключение: dependency:package.json#vitest (#2)"]).toBe("✓");
+    expect(r["исключение: dependency:package.json#left-pad (#2)"]).toBe("✓");
     expect(r["исключение (production): export:src/a.ts#testOnly (#3)"]).toBe("✓");
     expect(Object.keys(r).filter((n) => n.startsWith("исключение (production)"))).toEqual(["исключение (production): export:src/a.ts#testOnly (#3)"]);
     expect(r["исключение: export:src/a.ts#testOnly (#3)"]).toBeUndefined();

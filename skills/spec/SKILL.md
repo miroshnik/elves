@@ -1,7 +1,7 @@
 ---
 name: spec
-description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (Vitest/Jest, Playwright, bun JUnit) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge if the project wants it, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — deterministic checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
-allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(pnpm spec:*) Bash(bunx vitest run *) Bash(git status *) Bash(git diff *)
+description: Specification from tests — the spec canon (canon.md), deterministic scripts and a checks harness. spec-doc builds docs/spec from runner reports (bun test JUnit, Playwright) along tests/capabilities, tests/architecture and tests/standards, with prose from JSDoc; spec-diff prints removed, changed and added test names for the PR body; spec-publish publishes docs/spec to the spec branch after a merge if the project wants it, spec-run finds the green run for it; spec-shard splits CI shards by the last green run's durations; spec-claims checks entry points against the call log; spec-break proves a check can fail; harness.ts — deterministic checks (registry + invariant). When — before creating a PR; in CI on a PR and after a merge; reading a project's spec; wiring spec into a project's CI; a convention must hold for every item, not an example; proving a test catches a breakage; asked what the system does or which requirements a PR removes — even if "specification" wasn't said.
+allowed-tools: Bash(bun *skills/spec/scripts/spec-doc.ts *) Bash(bun *skills/spec/scripts/spec-diff.ts *) Bash(bun run spec:*) Bash(bun *skills/spec/scripts/spec-claims.ts *) Bash(bun *skills/spec/scripts/spec-break.ts *) Bash(pnpm spec:*) Bash(git status *) Bash(git diff *)
 ---
 
 # spec — documentation from test names, spec diff in the PR
@@ -57,7 +57,7 @@ skill directory: the project's package version is pinned for CI.
 
 | Moment | Action |
 |---|---|
-| Before a PR | 1. a test run with a JSON report (don't run e2e: for the names `playwright test --list --reporter=json > .spec-playwright.json` is enough); 2. `spec-doc --strict` with both reports — the tree and the main files are in order (`docs/spec` is in `.gitignore`, not committed); 3. `spec-diff --scenarios <task body>` → the `## Spec (tests)` section (in the project language) with the scenario check, into the PR body |
+| Before a PR | 1. a test run with a report (`bun test` — JUnit; don't run e2e: for the names `playwright test --list --reporter=json > .spec-playwright.json` is enough); 2. `spec-doc --strict` with both reports — the tree and the main files are in order (`docs/spec` is in `.gitignore`, not committed); 3. `spec-diff --scenarios <task body>` → the `## Spec (tests)` section (in the project language) with the scenario check, into the PR body |
 | In CI on a PR | shards — `spec-shard` (`ci.md`); run → `spec-doc --strict` (section "spec-doc"); `spec-diff` into the summary |
 | In CI after a merge, if the project publishes | a run on `main` → `spec-doc` → `spec-publish`; without CI on `main` — `docs/spec` from the PR run's artifact and `spec-publish --source <merge SHA>` (`ci.md`). The `spec` branch = the built `docs/spec`, the script verifies it after the push |
 | Read a project's spec | the `tests/` tree: `<topic>.md`, `<section>.md` and the test names; the `spec` branch, if the project publishes it — `git fetch origin spec && git show origin/spec:README.md` |
@@ -72,19 +72,19 @@ skill directory: the project's package version is pinned for CI.
 ## Reports for spec-doc
 
 The format is detected from the content; several reports can be passed at
-once (Vitest + Playwright + bun test), identical tests are merged.
+once (bun test + Playwright), identical tests are merged. The project's
+runners are these two: a Vitest or Jest JSON report is an unknown format.
 
 | Runner | Command |
 |---|---|
-| Vitest (and Jest — same format) | `vitest run --reporter=default --reporter=json --outputFile.json=.spec-report.json` |
 | `bun test` | `bun test --reporter=junit --reporter-outfile=.spec-report.xml` — JUnit with nested `testsuite` per describe |
 | Playwright | `PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-playwright.json playwright test --reporter=json` |
 | Playwright without a run (before a PR) | `playwright test --list --reporter=json > .spec-playwright.json` — the tree and names without browsers, tests show as skipped: for `spec-doc --strict` and `spec-diff`, not for publishing |
 
 Reports are temporary files, in `.gitignore`; a report from CI with someone
-else's absolute paths works. The runner itself merges shards (blob reports →
-one JSON, section "Wiring into a repository"); don't pass shard reports
-separately (`reference.md`, "Report formats").
+else's absolute paths works. Shards: bun test's JUnit reports go to
+`spec-doc` as they are, one per shard; Playwright merges its blob reports
+into one JSON itself (`ci.md`; `reference.md`, "Report formats").
 
 ## spec-doc
 
@@ -209,25 +209,25 @@ the package's build. Each step with its details — `reference.md`,
    `bun --no-env-file`: the bare bin would load the project's env files;
    reports — those the project has:
    ```json
-   "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.json .spec-playwright.json .spec-claims.xml --strict",
+   "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report*.xml .spec-playwright.json .spec-claims.xml --strict",
    "spec:diff": "bun --no-env-file node_modules/.bin/elves spec-diff",
    "spec:claims": "bun --no-env-file node_modules/.bin/elves spec-claims --entries tests/standards/entry-points/entries.ts"
    ```
    Standards and architecture run once — the `test:spec` script, a fast CI job
    of its own; `test` excludes them, e2e doesn't run them (`checks.md`):
    ```json
-   "test": "vitest run --exclude 'tests/standards/**' --exclude 'tests/architecture/**'",
-   "test:spec": "vitest run tests/standards tests/architecture"
+   "test": "bun test --path-ignore-patterns='tests/standards/**' --path-ignore-patterns='tests/architecture/**'",
+   "test:spec": "bun test tests/standards tests/architecture"
    ```
    In `.gitignore`: `docs/spec/`, `.spec-*.json`, `.spec-*.xml`,
-   `.spec-meta/`, `.spec-journal/`, `vitest-blob/`, `blob-report/`,
-   `playwright-blob/`.
+   `.spec-meta/`, `.spec-journal/`, `blob-report/`, `playwright-blob/`.
 3. **`docs/spec/` isn't committed to `main`**; publishing it to the `spec`
    branch is the project's choice (`ci.md`, "Publishing the documentation —
    optional").
 4. **CI** — a shard's files from `spec-shard` by the last green run's
-   durations, shards write blob reports, a `spec` job merges them and builds
-   `docs/spec` with `--strict`, `spec-diff` is a light job of its own: the workflow fragment — `ci.md`;
+   durations, bun test shards write JUnit reports and Playwright's — blob
+   reports, a `spec` job merges Playwright's and builds `docs/spec` with
+   `--strict`, `spec-diff` is a light job of its own: the workflow fragment — `ci.md`;
    with batches — no run on a PR into a batch branch (`ci.md`,
    "Batches").
 5. **Monorepo** — a decision's tests in package subfolders
@@ -238,6 +238,6 @@ the package's build. Each step with its details — `reference.md`,
 
 A test's name is a string known without a run (a literal, a template without
 substitutions): otherwise it isn't in the `spec-diff` lists — a line in
-stderr. Vitest and `bun test` reports don't contain the skip reason — keep it
+stderr. `bun test` reports don't contain the skip reason — keep it
 in the test name or in a comment next to it. On `main` everything must be ✅
 or ⏭️ with a reason. The rest — `reference.md`, "Limitations to know about".

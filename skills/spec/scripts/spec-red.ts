@@ -24,9 +24,9 @@
  * the mark — ✅, the test checks what the base adds to it; with the mark — ❌ «the mark isn't needed» against it, the
  * release would be red by it; green there too — the verdict as without the second base.
  *
- * The runner — by the file's import (`bun:test`, `vitest`, `@jest/globals`), otherwise by the project's dependencies
- * (Vitest, Jest), otherwise bun test in a Bun project. e2e (Playwright — the app runs from the task's stack, not from
- * the base code) and a runner not recognized — ○ lines, not checked.
+ * The runner — the project's: bun test (the `bun:test` import, otherwise a test of a Bun project), e2e — Playwright (its
+ * import or the `.e2e.` name; the app runs from the task's stack, not from the base code — not checked). No Vitest or
+ * Jest (epic #906): a file of another runner, a project not on Bun — ○ lines, not checked.
  *
  * Interruption: a signal to the run's process group (Ctrl-C, a closed session) stops the runner, the worktree is
  * removed; a run killed without that chance (kill -9) left its worktree — the next run removes it (its pid is in the
@@ -55,8 +55,8 @@ Red on base: the tests the head adds (spec-diff, statically) run on the base cod
 merge-base with the head's tests/ — and must fail there; green — ❌ with the test's name. A test of existing behavior
 carries a mark before its it or describe, // spec-existing #N: reason, and must be green there; red — ❌, the mark isn't
 needed. --also REF — a second base, a batch's release base: an added test green on the base runs on its code too; red
-there — it checks what the base adds to REF: passes without the mark, with the mark — ❌. Runners: bun test, Vitest, Jest;
-e2e — not checked. Code 0 — every checked test passes, 1 — there is a ❌, 2 — a call error or the run didn't finish.
+there — it checks what the base adds to REF: passes without the mark, with the mark — ❌. The runner — bun test; e2e
+(Playwright) — not checked. Code 0 — every checked test passes, 1 — there is a ❌, 2 — a call error or the run didn't finish.
 
 Examples:
   spec-red
@@ -71,13 +71,11 @@ const INTERRUPTS = new Set(["SIGINT", "SIGTERM", "SIGHUP"]);
 /** A runner that catches the group's signal exits with 128 + its number: SIGHUP, SIGINT, SIGTERM. */
 const INTERRUPTED_CODES = new Set([129, 130, 143]);
 
-type Runner = "bun" | "vitest" | "jest" | "playwright";
+type Runner = "bun" | "playwright";
 
-/** A runner by the test file's import; the order — the more specific first. */
+/** A runner by the test file's import. */
 const IMPORTS: [RegExp, Runner][] = [
   [/\bfrom\s+["']bun:test["']/, "bun"],
-  [/\bfrom\s+["']vitest["']/, "vitest"],
-  [/\bfrom\s+["']@jest\/globals["']/, "jest"],
   [/\bfrom\s+["']@playwright\/test["']/, "playwright"],
 ];
 
@@ -122,29 +120,17 @@ function removeStale(top: string): void {
   if (removed) spawnSync("git", ["worktree", "prune"], { cwd: top });
 }
 
-/** The project's dependencies — `dependencies` and `devDependencies` of its package.json. */
-function depsOf(root: string): Set<string> {
-  try {
-    const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
-    return new Set([...Object.keys(pkg["dependencies"] ?? {}), ...Object.keys(pkg["devDependencies"] ?? {})]);
-  } catch {
-    return new Set();
-  }
-}
-
-/** The file's runner: its import, otherwise e2e by the name, the project's Vitest or Jest, bun test in a Bun project. */
-export function runnerOf(file: string, source: string, deps: Set<string>, manager: string): Runner | null {
+/** The file's runner: its import, otherwise e2e by the name, bun test in a Bun project; none — null. */
+export function runnerOf(file: string, source: string, manager: string): Runner | null {
   for (const [re, runner] of IMPORTS) if (re.test(source)) return runner;
   if (/\.e2e\.[cm]?[jt]sx?$/.test(file)) return "playwright";
-  if (deps.has("vitest")) return "vitest";
-  if (deps.has("jest")) return "jest";
   return manager === "bun" ? "bun" : null;
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 /**
- * The name filter: the full names — describes and the name joined by a space, as bun test, Vitest and Jest match
+ * The name filter: the full names — describes and the name joined by a space, as bun test matches
  * `--test-name-pattern` — whole, any of them.
  */
 export function namePattern(tests: Test[]): string {
@@ -152,18 +138,9 @@ export function namePattern(tests: Test[]): string {
   return `^(?:${names.map(escapeRe).join("|")})$`;
 }
 
-/** A runner's binary in the project: `node_modules/.bin` of the root, then of the git top (a hoisted workspace). */
-function binOf(name: string, root: string, top: string): string | null {
-  return [root, top].map((d) => path.join(d, "node_modules", ".bin", name)).find((p) => existsSync(p)) ?? null;
-}
-
-/** The run's command: only the files, filtered by the names, the report — into `report`; the runner isn't installed — null. */
-export function commandOf(runner: Exclude<Runner, "playwright">, files: string[], pattern: string, report: string, bin: (name: string) => string | null): string[] | null {
-  if (runner === "bun") return ["bun", "test", ...files.map((f) => `./${f}`), "--test-name-pattern", pattern, "--reporter=junit", `--reporter-outfile=${report}`];
-  const exe = bin(runner);
-  if (!exe) return null;
-  if (runner === "vitest") return [exe, "run", ...files, "--testNamePattern", pattern, "--reporter=json", `--outputFile=${report}`];
-  return [exe, "--runTestsByPath", ...files, "--testNamePattern", pattern, "--json", `--outputFile=${report}`];
+/** The run's command: bun test of only the files (`./` — the file's path, not a substring), filtered by the names, JUnit — into `report`. */
+export function commandOf(files: string[], pattern: string, report: string): string[] {
+  return ["bun", "test", ...files.map((f) => `./${f}`), "--test-name-pattern", pattern, "--reporter=junit", `--reporter-outfile=${report}`];
 }
 
 /** A process in the base's worktree; a signal of the group (the runner killed by it) — interrupted, a timeout — not finished. */
@@ -236,38 +213,30 @@ function runOn(c: Checkout, base: string, tests: Test[], where: string): { resul
     // dependencies by the lockfile of the root, in a workspace — of the git top
     const installIn = projectCommands(root).install ? root : dir;
     const install = projectCommands(installIn).install;
-    const deps = depsOf(root);
     const manager = packageManager(root).name;
     const byRunner = new Map<Runner | null, string[]>();
     for (const f of files) {
-      const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), deps, manager);
+      const r = runnerOf(f, readFileSync(path.join(root, f), "utf8"), manager);
       byRunner.set(r, [...(byRunner.get(r) ?? []), f]);
     }
     for (const f of byRunner.get("playwright") ?? []) unchecked.push(`○ ${f}: e2e — not checked on ${where} (the app runs from the task's stack, not from the base code)`);
-    for (const f of byRunner.get(null) ?? []) unchecked.push(`○ ${f}: the runner isn't recognized (no bun:test, vitest or @jest/globals import, no Vitest or Jest in package.json) — not checked`);
-    const runnable = ([...byRunner] as [Runner | null, string[]][]).filter((e): e is [Exclude<Runner, "playwright">, string[]] => e[0] !== null && e[0] !== "playwright");
-    if (!runnable.length) return;
+    for (const f of byRunner.get(null) ?? []) unchecked.push(`○ ${f}: not a bun test file (no bun:test import, the project isn't on Bun) — not checked`);
+    const group = byRunner.get("bun") ?? [];
+    if (!group.length) return;
     if (install) {
       const r = run(install, installIn);
       if (r.status !== 0) throw new Failure(`installing dependencies on ${the} failed (${install.join(" ")}):\n${tail(r.out)}`);
     }
     const reports = mkdtempSync(path.join(os.tmpdir(), "elves-red-report-"));
     try {
-      for (const [runner, group] of runnable) {
-        const ofGroup = tests.filter((t) => group.includes(t.path));
-        const report = path.join(reports, `${runner}.${runner === "bun" ? "xml" : "json"}`);
-        const cmd = commandOf(runner, group, namePattern(ofGroup), report, (name) => binOf(name, root, dir));
-        if (!cmd) {
-          for (const f of group) unchecked.push(`○ ${f}: ${runner} isn't installed on ${the} (node_modules/.bin/${runner}) — not checked`);
-          continue;
-        }
-        const r = run(cmd, root);
-        let reported: Test[] = [];
-        if (existsSync(report)) reported = L.loadReport(report, root);
-        // no test ran — no file loaded: bun test writes no report then, and its summary is there, red
-        else if (r.status === 0 || summaryOf(r.out)?.passed !== 0) throw new Failure(`${runner} wrote no report — the run on ${the} didn't finish (code ${r.status}):\n${tail(r.out)}`);
-        outcomesOf(ofGroup, reported, r.status, where).forEach((o, i) => results.set(ofGroup[i]!, o));
-      }
+      const ofGroup = tests.filter((t) => group.includes(t.path));
+      const report = path.join(reports, "bun.xml");
+      const r = run(commandOf(group, namePattern(ofGroup), report), root);
+      let reported: Test[] = [];
+      if (existsSync(report)) reported = L.loadReport(report, root);
+      // no test ran — no file loaded: bun test writes no report then, and its summary is there, red
+      else if (r.status === 0 || summaryOf(r.out)?.passed !== 0) throw new Failure(`bun test wrote no report — the run on ${the} didn't finish (code ${r.status}):\n${tail(r.out)}`);
+      outcomesOf(ofGroup, reported, r.status, where).forEach((o, i) => results.set(ofGroup[i]!, o));
     } finally {
       rmSync(reports, { recursive: true, force: true });
     }
