@@ -915,10 +915,11 @@ describe("check проекта держит стек Bun: менеджер па�
 
   // spec-existing #907: проект на Bun и до проверки стека проходил check без строк — тест держит, что она его не задевает
   it("Проект на Bun без чужих лок-файлов и раннеров — ни одной такой строки", () => {
-    // поле packageManager Bun и проект `bun init`, у которого поля нет, — по lockfile Bun
+    // поле packageManager Bun и проект `bun init`, у которого поля нет, — по lockfile Bun; пакет с Playwright — ES-модули
+    // (#917), как у `bun init`
     for (const fields of [{ packageManager: "bun@1.4.3" }, {}]) {
       fresh();
-      writePkg({ ...fields, workspaces: ["packages/*"], devDependencies: { "@types/bun": "^1.4.2", "@playwright/test": "^1.63.0" } });
+      writePkg({ ...fields, type: "module", workspaces: ["packages/*"], devDependencies: { "@types/bun": "^1.4.2", "@playwright/test": "^1.63.0" } });
       writeTree(sb.proj, { "bun.lock": "{}\n", "packages/web/package.json": JSON.stringify({ name: "@x/web", devDependencies: { "@types/bun": "^1.4.2" } }) });
       expect(elves(sb, ["install"]).code).toBe(0);
       expect(elves(sb, ["check"])).toMatchObject({ code: 0, stdout: expect.stringMatching(UP_TO_DATE) });
