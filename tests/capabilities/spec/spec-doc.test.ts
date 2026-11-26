@@ -407,6 +407,7 @@ describe("Отчёты bun test и Playwright — в любом сочетани
     expect(ci.stderr).toContain("no report .spec-claims.xml");
   });
 
+  // spec-existing #908: тот же разбор пути, что был у отчёта Vitest, — теперь на JUnit bun test
   it("bun test: абсолютный путь с другой машины приводится по сегменту /tests/", () => {
     const r = doc("r.xml", junitReport("/home/runner/work/repo/repo", { "tests/standards/audit/audit.test.ts": [[["Аудит"], "каждая мутация пишет запись"]] }), "--stdout");
     expect(r.stdout).toContain("## Каким правилам подчиняется код\n\n### audit\n\n#### Аудит\n\n");
