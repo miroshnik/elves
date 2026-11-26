@@ -14,7 +14,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -936,14 +936,33 @@ export function journal(id: string, opts: { test?: string; root?: string } = {})
 const journalDir = (root: string): string => path.resolve(root, process.env["SPEC_JOURNAL"] ?? ".spec-journal");
 
 /**
- * Run start — logs of previous runs go away: otherwise a deleted test keeps "calling" an entry point. Called once per
- * runner run, before the tests (bun test preload, Playwright globalSetup); erases `*.jsonl` in its own
- * directory (`SPEC_JOURNAL`), leaves subdirectories — other runners' logs — alone.
+ * The test run a process is in: a worker of `bun test --parallel` (`BUN_TEST_WORKER_ID` under Bun) — its coordinator's,
+ * the parent's; any other process is a run of its own. A `bun test` without `--parallel` that a worker's test started
+ * inherits the variable and is in that worker's run; Playwright under Node with an inherited variable — in its own.
+ */
+const runOf = (): number => (process.versions["bun"] && process.env["BUN_TEST_WORKER_ID"] ? process.ppid : process.pid);
+
+/**
+ * Run start — logs of previous runs go away: otherwise a deleted test keeps "calling" an entry point. Called before
+ * the tests (bun test preload, Playwright globalSetup); erases `*.jsonl` in its own directory (`SPEC_JOURNAL`), leaves
+ * subdirectories — other runners' logs — alone. Once per run: under `bun test --parallel` a preload runs before every
+ * file in every worker, and only the call that creates the run's mark `.run-<id>` erases — the logs it listed before
+ * the mark: a worker that found the mark writes its log after it, and that log stays.
  */
 export function resetJournal(opts: { root?: string } = {}): void {
   const dir = journalDir(opts.root ?? process.cwd());
-  if (existsSync(dir)) {
-    for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) rmSync(path.join(dir, f), { force: true });
+  mkdirSync(dir, { recursive: true });
+  const before = readdirSync(dir);
+  const mark = `.run-${runOf()}`;
+  let first = true;
+  try {
+    writeFileSync(path.join(dir, mark), "", { flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    first = false;
+  }
+  if (first) {
+    for (const f of before.filter((f) => f.endsWith(".jsonl") || f.startsWith(".run-"))) rmSync(path.join(dir, f), { force: true });
   }
   journalFile = null;
   journaled.clear();
