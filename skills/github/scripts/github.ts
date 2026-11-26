@@ -5843,6 +5843,12 @@ const TASK_SLUG_RE = /\/\d{1,6}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CONFIG_LOCK_TRIES = 20;
 const CONFIG_LOCK_PAUSE_MS = 500;
 const CONFIG_LOCKED = /could not lock config file (.+)$/m;
+/**
+ * An attempt doesn't wait inside git (#905): git 2.56 itself retries a locked config for `core.configLockTimeout`,
+ * 1 s by default, before "could not lock config file" — 20 attempts would take ~30 s instead of ~10 (git 2.52 and Apple
+ * Git 2.54 answer at once, an older git ignores the unknown key); the pauses between attempts are the only wait.
+ */
+const NO_CONFIG_LOCK_WAIT = ["-c", "core.configLockTimeout=0"];
 
 /**
  * The worktree tool's branch (`claude/<slug>-<hash>`) becomes the task branch — `task status N "In progress" --branch`.
@@ -5868,7 +5874,7 @@ function renameBranch(io: Io, slug: string, target: string): boolean {
   for (let k = 0; k < CONFIG_LOCK_TRIES; k++) {
     if (k) (io.sleep ?? pause)(CONFIG_LOCK_PAUSE_MS);
     const args = renamed ? ["config", "--rename-section", `branch.${current}`, `branch.${target}`] : ["branch", "-m", current, target];
-    const r = git(io, io.cwd, ...args);
+    const r = git(io, io.cwd, ...NO_CONFIG_LOCK_WAIT, ...args);
     // a branch without a section (no upstream) — nothing to rename in the config; est reads the `+ branch` line as a
     // switch of the checkout's branch (gitBranchesIn in skills/est/scripts/est.ts) — the format is shared
     if (r.status === 0 || (renamed && /no such section/.test(r.stderr))) {
