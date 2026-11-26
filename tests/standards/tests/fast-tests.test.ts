@@ -141,11 +141,13 @@ describe("Локальный test — быстрый уровень: тесты 
   });
 
   describe("примеры", () => {
+    // spec-existing #910: причины Docker и живой сервер — прежние, из имени ушла только причина corepack вместе с тестом Yarn 2+
     it("проба docker info — Docker; spawn скрипта и fetch к нему — живой сервер", () => {
       expect(reason(`const up = spawnSync("${"docker"}", ["info", "--format", "{{.ServerVersion}}"]).status === 0;\n`)).toBe("Docker");
       expect(reason('import { spawn, spawnSync } from "node:child_process";\nawait fetch(url);\n')).toBe("живой сервер");
     });
 
+    // spec-existing #910: эти примеры без причины и до PR были без причины, из имени ушёл только пример слова corepack
     it("spawnSync с fetch, spawn без fetch, docker compose config без демона — причины нет", () => {
       expect(reason('import { spawnSync } from "node:child_process";\nawait fetch(url);\n')).toBeNull();
       expect(reason('import { spawn } from "node:child_process";\nspawn("bun", [script]);\n')).toBeNull();
