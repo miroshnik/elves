@@ -6,8 +6,7 @@ paths:
   - "**/tests/**"
   - "**/e2e/**"
   - "**/playwright.config.*"
-  - "**/vitest.config.*"
-  - "**/jest.config.*"
+  - "**/bunfig.toml"
 ---
 
 # How to test: runs, environment, e2e, UI in a browser
@@ -48,7 +47,6 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   `ELVES_SLOT_CPUS` (its slot's share of half of the cores); CI has its own:
 
   ```ts
-  maxWorkers: Number(process.env.ELVES_SLOT_CPUS) || undefined,                      // vitest.config.ts
   workers: Number(process.env.ELVES_SLOT_CPUS) || (process.env.CI ? 2 : undefined), // playwright.config.ts
   ```
 
@@ -83,12 +81,10 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   - `test:spec` — in full: standards read the code from disk and the
     architecture model takes the whole tree, the import graph never selects
     them;
-  - `test` — the affected: the runner's `--changed=origin/main` (Vitest,
-    `bun test`; Jest — `--changedSince=origin/main`) through the project's
-    script (`npm run test -- --changed=origin/main`) runs the test files that
-    import a file changed against `origin/main`, committed or not. Nothing
-    affected isn't an error: Vitest needs `--passWithNoTests` for it
-    (otherwise exit code 1), `bun test` passes by itself;
+  - `test` — the affected: `bun test --changed=origin/main` through the
+    project's script (`bun run test --changed=origin/main`) runs the test
+    files that import a file changed against `origin/main`, committed or not.
+    Nothing affected isn't an error: `bun test` passes by itself;
   - tests that reach the code not by an import — a script started as a
     process, a file read from disk, an app behind its server, a dynamic
     `import()` — the graph doesn't see: a separate run by path — the tests
@@ -96,8 +92,8 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
     folder; a path together with `--changed` is their intersection, not a
     union;
   - `test` in full — when the change touches what every test depends on and
-    no import shows: the runner config, its global setup (`setupFiles`,
-    `globalSetup`, `preload` in `bunfig.toml`), the lock file;
+    no import shows: the runner config, its global setup (`preload` in
+    `bunfig.toml`, Playwright `globalSetup`), the lock file;
   - e2e — the changed specs (Playwright `--only-changed=origin/main
     --pass-with-no-tests`): it follows the specs' own imports (fixtures, page
     objects), not the app code the browser opens; the rest — CI;
@@ -126,8 +122,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
   it checks.
 - **The result — by the runner's summary, not the exit code.** Playwright's
   summary: `passed`, `failed`, `flaky`, `skipped`, `did not run`,
-  `interrupted`; Vitest — the `Test Files` and `Tests` lines; `bun test` —
-  `pass` and `fail`. A run is good when the summary is there, there are no
+  `interrupted`; `bun test` — `pass` and `fail`. A run is good when the summary is there, there are no
   failed, not-run or interrupted tests, and flakes are investigated
   (`AGENTS.md`, "Judgment": a flake is a defect). No summary — the run didn't finish,
   whatever the exit code. Filtering the output by `Error:` lies: the app

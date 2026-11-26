@@ -1,6 +1,6 @@
 ---
 name: slot
-description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) and bringing a task stack up (`task-env`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; as many runs at a time as the machine has slots (`machine.json`, otherwise by the cores), together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (its slot's share) for the runner's workers; the machine's capacity also sets the dispatcher's executors. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (Vitest, Playwright, Jest) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
+description: "A queue for heavy runs on the machine — project checks (`lint`, `typecheck`, `test`, `test:*`) and bringing a task stack up (`task-env`) go through `slot`, and installing the flow wraps the `package.json` scripts in it; as many runs at a time as the machine has slots (`machine.json`, otherwise by the cores), together half of the cores, the rest wait in arrival order and print whom they wait for; the command gets `ELVES_SLOT_CPUS` (its slot's share) for the runner's workers; the machine's capacity also sets the dispatcher's executors. When — you run a full project check, tests, typecheck, lint, e2e; a run is silent with the line 'slot: waiting for the machine queue'; parallel sessions choke the machine and runs hit timeouts; you set up runner workers (bun test, Playwright) locally; a heavy command bypasses the project's scripts — even if the word 'queue' was never said."
 allowed-tools: Bash(bun *skills/slot/scripts/slot.ts *)
 ---
 
@@ -28,7 +28,7 @@ otherwise wait for itself. A `package.json` script doesn't pass its command to
 
 Installing the flow (`install`, `update`) puts the shim `.agents/slot.sh` into
 the project and wraps its `package.json` scripts `lint`, `typecheck`, `test`
-and `test:*` in it: `"test": ". .agents/slot.sh && vitest run"`. The script's
+and `test:*` in it: `"test": ". .agents/slot.sh && bun test"`. The script's
 shell sources the shim: `elves slot --for $$` — the package
 `@miroshnik/elves` of the project's `devDependencies`, from `node_modules/.bin`
 that `npm run` and `bun run` put on the script's `PATH` — takes a slot for that
@@ -44,7 +44,7 @@ without `.`: there the command stays a string of the package's `slot`, hidden
 from knip, and the package goes through bunx at the project's version —
 Yarn 2+ runs a `.ts` bin by Node with any `nodeLinker`, and PnP has no
 `node_modules`:
-`"test": "bunx @miroshnik/elves@\"$(jq -r '.devDependencies[\"@miroshnik/elves\"]' package.json)\" slot 'vitest run'"`
+`"test": "bunx @miroshnik/elves@\"$(jq -r '.devDependencies[\"@miroshnik/elves\"]' package.json)\" slot 'bun test'"`
 (`jq` on the machine). Everyone calls the
 scripts — the agent, a human in a terminal, `github pr premerge` — and
 everyone joins one queue. `build` isn't wrapped — the host and Docker run it,
@@ -85,7 +85,7 @@ what its parent loaded.
 | `slot: waited …` | the time in the queue; compare run speed without it — by CI or by `user` from `time` |
 | `slot: waiting for the machine load — …` | the slot is free, but the machine is loaded from outside the queue (dev servers, builds, Docker, e2e browsers); the run goes when the load drops or past the wait limit — below |
 | `slot: the machine is overloaded — …` at the start, `the machine's load at the end of the run` at the end | the run went past the load wait limit: its timeouts are the machine's load, not a defect — don't fix tests or code for them; rerun when the load is down |
-| A targeted run (`vitest run <file>`) | bypasses the queue — it's cheap |
+| A targeted run (`bun test <file>`) | bypasses the queue — it's cheap |
 | A heavy command bypassing the project's scripts | `bun --no-env-file <skill dir>/scripts/slot.ts '<command>'` |
 | Bringing a task's stack up | heavy work too — containers with databases and a broker start at once: `task-env up` and `e2e` hold a slot until the containers are healthy, not for the stack's life; not `docker compose up` by hand — `check` names a package.json script that does it |
 | Runner workers locally | from `ELVES_SLOT_CPUS` — below |
@@ -99,11 +99,9 @@ slot; its config reads the variable, and in CI and outside the queue it keeps
 its own default:
 
 ```ts
-// vitest.config.ts
-maxWorkers: Number(process.env.ELVES_SLOT_CPUS) || undefined,
 // playwright.config.ts
 workers: Number(process.env.ELVES_SLOT_CPUS) || (process.env.CI ? 2 : undefined),
-// jest — via a script flag: jest --maxWorkers=${ELVES_SLOT_CPUS:-50%}
+// bun test — via a script flag, without the variable — a worker per core: bun test --parallel${ELVES_SLOT_CPUS:+=$ELVES_SLOT_CPUS}
 ```
 
 **A monorepo on turbo.** turbo 2 in strict env mode (the default) passes to
