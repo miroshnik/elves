@@ -62,6 +62,7 @@ describe("Справочники и `SKILL.md`: команды проекта �
     includes: ["docs/installation.md", "docs/testing.md", "skills/spec/ci.md", "skills/spec/SKILL.md", "skills/slot/SKILL.md", "skills/github/reference.md"],
   });
 
+  // spec-existing #910: граница правила — реестр npm и проза документов были такими и до PR, тест держит, что правило их не задевает
   it("npm как реестр и менеджер в прозе — не команда проекта: npm publish, «из npm», «проект на npm, pnpm или Yarn»", () => {
     const prose = ["CI publishes to npm with `elves pack <tag>`, then `npm publish`.", "A project on npm, pnpm or Yarn isn't on Bun.", "`bun install` moves pnpm and Yarn lockfiles into Bun's."];
     expect(prose.flatMap((t) => linesOf(t, FOREIGN_PM))).toEqual([]);
