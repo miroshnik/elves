@@ -236,7 +236,7 @@ describe("job публикации во фрагментах CI скилла spe
 
   describe("примеры", () => {
     it("переименованный job — ошибка с файлом, строкой и копиями, которые его не узнают", () => {
-      const md = "# CI\n\n```yaml\njobs:\n  publish-spec:\n    steps:\n      - run: pnpm spec:publish\n```\n";
+      const md = "# CI\n\n```yaml\njobs:\n  publish-spec:\n    steps:\n      - run: bun run spec:publish\n```\n";
       expect(violation(one("docs/x.md", md))).toBe(
         "docs/x.md:5 — job publish-spec: check-run «publish-spec» не узнают публикацией спеки ci-wait и github — " +
           "её красный станет красным main, а ожидание после мержа — FAIL; назови job spec-publish",
@@ -260,7 +260,7 @@ describe("job публикации во фрагментах CI скилла spe
     });
 
     it("публикация в тексте и job без шага публикации — не элементы; неразборный фрагмент с публикацией — ошибка", () => {
-      expect(jobsOf("docs/x.md", "Job `spec-publish` запускает `spec-publish.ts`.\n\n```yaml\njobs:\n  spec:\n    steps:\n      - run: pnpm spec:doc\n```\n")).toEqual([]);
+      expect(jobsOf("docs/x.md", "Job `spec-publish` запускает `spec-publish.ts`.\n\n```yaml\njobs:\n  spec:\n    steps:\n      - run: bun run spec:doc\n```\n")).toEqual([]);
       const broken = "```yaml\njobs:\n  spec-publish: { steps: [ { run: bun spec-publish.ts }\n```\n";
       expect(violation(one("docs/y.md", broken))).toStartWith("docs/y.md:3 — фрагмент YAML с публикацией спеки не разбирается: ");
     });

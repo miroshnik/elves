@@ -15,15 +15,18 @@ apt раннера, а не код (#674). Предела не было ни у 
 - Job — с `timeout-minutes`: минут больше нуля или выражение `${{ … }}`. Запас — к обычному прогону: `tests` — 20
   минут при 5–6.
 - Шаг, чей `run` ставит пакеты, — со своим `timeout-minutes`: системный менеджер (`apt-get`, `apt`, `dnf`, `yum`,
-  `apk`, `zypper`, `brew`, `choco`, `snap` — `install`, `update`, `upgrade`, `add`), менеджер проекта (`bun`, `npm`,
-  `pnpm`, `yarn` — `install`, `i`, `ci`, `add`), `pip install`, `playwright install`. Предела job мало: зависшее
-  зеркало держало бы шаг до него, а свой предел валит шаг за минуты и называет его.
+  `apk`, `zypper`, `brew`, `choco`, `snap` — `install`, `update`, `upgrade`, `add`), менеджер проекта — `bun`
+  (`install`, `i`, `ci`, `add`), `pip install`, `playwright install`. Предела job мало: зависшее зеркало держало бы
+  шаг до него, а свой предел валит шаг за минуты и называет его.
+
+Менеджер проекта — только Bun: npm, pnpm и Yarn флоу не ставит, и в шагах Elves и фрагментов их нет (эпик #906);
+`npm publish` и другие команды не установки правило не трогает.
 
 Шаги `uses:` (checkout, setup-bun, setup-node) своего предела не требуют — их держит предел job.
 
 Фрагменты — в реестре (#684): проект, скопировавший фрагмент `skills/spec/ci.md` как есть, получал job без предела, а
-`pnpm install` и `playwright install --with-deps` (браузеры и пакеты apt) — без своего; на зависшем зеркале — та же
-6-часовая job, что у Elves до #674.
+установку зависимостей и `playwright install --with-deps` (браузеры и пакеты apt) — без своего; на зависшем зеркале —
+та же 6-часовая job, что у Elves до #674.
 
 ## Шаг zsh
 
