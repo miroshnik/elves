@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { gitRepo, runScript, setLanguage, tmpDir, vitestReport, writeTree } from "../../lib/spec.ts";
+import { gitRepo, runScript, setLanguage, tmpDir, junitReport, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -676,8 +676,8 @@ describe("Сценарий стандарта «реестр + инвариан�
   it("сценарий стандарта сверяется без отчёта раннера", () => {
     const base = repo.commit({ [BILLING]: ts(`it("x", () => {});`) });
     repo.commit({ [STD]: audit("мутации"), "issue.md": ISSUE });
-    writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [STD]: [[["каждая мутация пишет аудит"], "a пишет аудит"]] }));
-    for (const args of [[], ["--report", "r.json", "--spec-branch", "spec"]]) {
+    writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [STD]: [[["каждая мутация пишет аудит"], "a пишет аудит"]] }));
+    for (const args of [[], ["--report", "r.xml", "--spec-branch", "spec"]]) {
       const out = diffFrom(base, ...args, "--scenarios", "issue.md").stdout;
       expect(out).toContain(AUDIT_LINE);
       expect(out).not.toContain("❌");
@@ -694,8 +694,8 @@ describe("Сценарий стандарта «реестр + инвариан�
       [["каждая мутация пишет аудит"], "журнал хранится год"],
       [["Логи", "console запрещён"], "нельзя: console.log"],
     ];
-    writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [STD]: names }));
-    const out = diffFrom(base, "--report", "r.json", "--spec-branch", "spec", "--scenarios", "issue.md").stdout;
+    writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [STD]: names }));
+    const out = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec", "--scenarios", "issue.md").stdout;
     expect(out).toContain("**Добавлены (4):**");
     expect(out).toContain(AUDIT_LINE);
     // тест, написанный руками, — своё требование, даже внутри describe проверки
@@ -932,14 +932,14 @@ describe("Тесты харнесса — в диффе спеки: назван
   const STD = "tests/standards/audit/audit.test.ts";
   const registry = ts(`import { invariant } from "../../../harness.ts";\ninvariant(it, { registry: "мутации", items, name: (m) => m + " пишет аудит" });`);
   const t = (name: string) => ({ path: STD, describes: [] as string[], name });
-  const report = (names: string[]) => writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [STD]: names.map((n) => [[], n] as [string[], string]) }));
+  const report = (names: string[]) => writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [STD]: names.map((n) => [[], n] as [string[], string]) }));
 
   it("тесты, которые порождает харнесс, видны в диффе спеки — новый элемент реестра добавлен, снятый удалён", () => {
     const base = repo.commit({ [STD]: registry });
     publishSpec(base, [t("a пишет аудит"), t("b пишет аудит")]);
     repo.commit({ [STD]: registry + "// реестр сменился\n" });
     report(["a пишет аудит", "импорт платежей из банка"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("**Удалены (1):**\n\n- `tests/standards/audit` · b пишет аудит");
     expect(r.stdout).toContain("**Добавлены (1):**\n\n- `tests/standards/audit` · импорт платежей из банка");
@@ -961,7 +961,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     ]);
     repo.commit({ [STD]: registry + "// реестр сменился\n", [LEGACY]: null });
     report(["a пишет аудит"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(
       [
@@ -973,7 +973,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     // файл папки audit в отчёте есть — снятый элемент реестра удалён; вызова в legacy больше нет — её тесты удалены
     expect(r.stdout).toContain("**Удалены (2):**\n\n- `tests/standards/audit` · b пишет аудит\n- `tests/standards/legacy` · старое пишет аудит\n");
     expect(r.stdout).not.toContain("нельзя: x");
-    const j = JSON.parse(diffFrom(base, "--report", "r.json", "--spec-branch", "spec", "--json").stdout);
+    const j = JSON.parse(diffFrom(base, "--report", "r.xml", "--spec-branch", "spec", "--json").stdout);
     expect(j.unreported).toEqual([{ file: NAMING, folder: "tests/standards/naming", describes: [], name: "нельзя: x" }]);
     expect(j.removed.map((x: { name: string }) => x.name)).toEqual(["b пишет аудит", "старое пишет аудит"]);
   });
@@ -989,13 +989,13 @@ describe("Тесты харнесса — в диффе спеки: назван
     publishSpec(base, [t("a пишет аудит"), named(WAIT, "ждёт (a)"), named(WAIT, "ждёт (b)"), named(OLD, "ждёт (a)")]);
     repo.commit({ [STD]: registry + "// реестр сменился\n", [OLD]: null });
     report(["a пишет аудит"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(
       "⚠️ **Отчёт неполный:** в нём нет тестов из `tests/capabilities/ci-wait`, чьи названия знает только прогон, — их тесты не сравнивались (2 в ветке spec) и в «Удалены» не попали; полный дифф — с отчётом прогона всех тестов.",
     );
     expect(r.stdout).toContain("**Удалены (1):**\n\n- `tests/capabilities/legacy` · ждёт (a)\n");
-    const j = JSON.parse(diffFrom(base, "--report", "r.json", "--spec-branch", "spec", "--json").stdout);
+    const j = JSON.parse(diffFrom(base, "--report", "r.xml", "--spec-branch", "spec", "--json").stdout);
     expect(j.unreported.map((x: { name: string }) => x.name)).toEqual(["ждёт (a)", "ждёт (b)"]);
   });
 
@@ -1007,12 +1007,12 @@ describe("Тесты харнесса — в диффе спеки: назван
     repo.commit({ [STD]: registry + "// реестр сменился\n" });
     report(["a пишет аудит", "b пишет аудит", "c пишет аудит"]);
     const note = `_Тесты харнесса — по отчёту; база — ветка spec (исходник ${published.slice(0, 12)} старше базы диффа ${base.slice(0, 12)}: в списках возможны тесты PR, влитых между ними)._`;
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(`_База: \`${base} (merge-base)\`._\n\n${note}\n`);
     // база — имя ветки, а не SHA: сравнивается коммит, а не написание
     repo.git("branch", "base", base);
-    expect(diffFrom("base", "--no-merge-base", "--report", "r.json", "--spec-branch", "spec").stdout).toContain(note);
+    expect(diffFrom("base", "--no-merge-base", "--report", "r.xml", "--spec-branch", "spec").stdout).toContain(note);
   });
 
   // ветку spec пишет сам spec-publish: мерж без изменений спеки он подтверждает новым `Source:` — иначе строка о
@@ -1029,7 +1029,7 @@ describe("Тесты харнесса — в диффе спеки: назван
       expect(runScript("spec-publish", [], dir).code).toBe(0);
       repo.commit({ [STD]: registry + "// реестр сменился\n" });
       report(["a пишет аудит", "c пишет аудит"]);
-      const r = diffFrom(base, "--report", "r.json", "--spec-branch", "origin/spec");
+      const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "origin/spec");
       expect(r.code).toBe(0);
       expect(r.stdout).toContain(`_База: \`${base} (merge-base)\`._\n\n_Тесты харнесса — по отчёту; база — ветка origin/spec (исходник ${base.slice(0, 12)})._\n`);
       expect(r.stdout).toContain("**Добавлены (1):**\n\n- `tests/standards/audit` · c пишет аудит");
@@ -1047,7 +1047,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     publishSpec(base, [t("a пишет аудит")]);
     repo.commit({ [STD]: registry + "// реестр сменился\n" });
     report(["a пишет аудит", "c пишет аудит"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain(`\n\n_Тесты харнесса — по отчёту; база — ветка spec (исходник ${base.slice(0, 12)})._\n`);
     expect(r.stdout).toContain("**Добавлены (1):**\n\n- `tests/standards/audit` · c пишет аудит");
@@ -1058,7 +1058,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     publishSpec(base, [t("a пишет аудит"), t("b пишет аудит")]);
     repo.commit({ [STD]: registry });
     report(["a пишет аудит", "b пишет аудит", "реестр «мутации» не пуст", "нарушитель не проходит: без аудита"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.stdout).toContain("**Удалены:** нет.");
     expect(r.stdout).toContain("**Добавлены (2):**");
     expect(r.stdout).toContain("нарушитель не проходит: без аудита");
@@ -1071,10 +1071,10 @@ describe("Тесты харнесса — в диффе спеки: назван
     publishSpec(base, [t("a пишет аудит")]);
     repo.commit({ [STD]: registry + "// реестр сменился\n" });
     writeFileSync(
-      path.join(dir, "r.json"),
-      vitestReport(dir, { [STD]: [[[], "a пишет аудит"]], "tests/lib/e2e/auth.setup.ts": [[[], "authenticate"]] }),
+      path.join(dir, "r.xml"),
+      junitReport(dir, { [STD]: [[[], "a пишет аудит"]], "tests/lib/e2e/auth.setup.ts": [[[], "authenticate"]] }),
     );
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec");
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Тесты не менялись.");
   });
@@ -1086,7 +1086,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     repo.commit({ [STD]: registry, [BILLING]: ts(`it("x", () => {}); it("y", () => {});`) });
     report(["a пишет аудит", "c пишет аудит"]);
     for (const [branch, ...args] of [["origin/spec"], ["spec", "--spec-branch", "spec"]]) {
-      const r = diffFrom(base, "--report", "r.json", ...args);
+      const r = diffFrom(base, "--report", "r.xml", ...args);
       expect(r.code).toBe(0);
       // по исходникам: тест, который теперь порождает реестр, — удалён, тестов из отчёта в списках нет
       expect(r.stdout).toContain("**Удалены (1):**\n\n- `tests/standards/audit` · a пишет аудит\n");
@@ -1102,7 +1102,7 @@ describe("Тесты харнесса — в диффе спеки: назван
     publishSpec(base, [t("a пишет аудит")]);
     repo.commit({ [STD]: registry + 'it("журнал хранится год", () => { expect(1).toBe(1); });\n' });
     report(["a пишет аудит", "b пишет аудит", "журнал хранится год"]);
-    const r = diffFrom(base, "--report", "r.json", "--spec-branch", "spec", "--limit", "1");
+    const r = diffFrom(base, "--report", "r.xml", "--spec-branch", "spec", "--limit", "1");
     expect(r.stdout).toContain("| Папка | Удалены | Изменены | Добавлены | Из них харнесса |");
     expect(r.stdout).toContain("| `tests/standards/audit` | 0 | 0 | 2 | 1 |");
   });

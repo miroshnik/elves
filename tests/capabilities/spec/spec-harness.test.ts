@@ -235,10 +235,10 @@ describe("каждый обработчик экспортирует default", (
 const handlers = { "handlers/a.ts": "export default () => 1;\n", "handlers/b.ts": "export const b = 2;\n" };
 
 /**
- * Харнесс не зависит от раннера: `it` передаёт тест. Проекты гоняют Vitest под Node, Elves — bun test; тесты
- * проверки видны в отчёте раннера, а значит и в спеке.
+ * Харнесс не зависит от раннера: `it` передаёт тест. Тесты проекта — bun test, а фрагмент ESLint и `node --test`
+ * грузят харнесс под Node; тесты проверки видны в отчёте раннера, а значит и в спеке.
  */
-describe("Тесты проверки — в отчёте любого раннера: bun test, Vitest, node:test", () => {
+describe("Тесты проверки — в отчёте любого раннера: bun test, node:test", () => {
   it("bun test: по тесту на обработчик, нарушитель и «не пуст» — в отчёте, нарушающий обработчик падает", () => {
     writeTree(dir, { ...handlers, "handlers.test.ts": fixture('import { describe, it } from "bun:test";') });
     const r = spawnSync("bun", ["test", "--reporter=junit", "--reporter-outfile=r.xml"], { cwd: dir, encoding: "utf8" });

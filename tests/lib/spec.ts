@@ -162,20 +162,35 @@ export function githubOrigin<R extends { status: number | null; stdout: string }
   };
 }
 
-/** Отчёт Vitest/Jest из краткого описания: файл → [describes…, имя, статус?]. */
-export function vitestReport(root: string, files: Record<string, [string[], string, string?][]>): string {
-  return JSON.stringify({
-    numTotalTests: 0,
-    testResults: Object.entries(files).map(([file, tests]) => ({
-      name: path.join(root, file),
-      status: "passed",
-      assertionResults: tests.map(([ancestorTitles, title, status]) => ({
-        ancestorTitles,
-        title,
-        fullName: [...ancestorTitles, title].join(" "),
-        status: status ?? "passed",
-        failureMessages: [],
-      })),
-    })),
-  });
+const xmlAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * JUnit `bun test --reporter=junit` из краткого описания: файл → [describes…, имя, статус?]. Как у bun: файл — testsuite
+ * верхнего уровня, describe — вложенный testsuite с атрибутом file, тест — testcase с file и line; упавший — `<failure>`,
+ * пропущенный — `<skipped/>`, todo — `<skipped message="TODO"/>`. Путь файла — от `root`: отчёт другой машины тоже.
+ */
+export function junitReport(root: string, files: Record<string, [string[], string, string?][]>): string {
+  const out = ['<?xml version="1.0" encoding="UTF-8"?>', '<testsuites name="bun test">'];
+  for (const [rel, tests] of Object.entries(files)) {
+    const file = xmlAttr(path.join(root, rel));
+    out.push(`  <testsuite name="${file}" file="${file}" tests="${tests.length}" time="0">`);
+    let open: string[] = [];
+    tests.forEach(([describes, name, status], i) => {
+      let same = 0;
+      while (same < open.length && same < describes.length && open[same] === describes[same]) same++;
+      for (; open.length > same; open.pop()) out.push(`${"  ".repeat(open.length + 1)}</testsuite>`);
+      for (const d of describes.slice(same)) {
+        open.push(d);
+        out.push(`${"  ".repeat(open.length + 1)}<testsuite name="${xmlAttr(d)}" file="${file}" line="1" time="0">`);
+      }
+      const pad = "  ".repeat(open.length + 2);
+      const attrs = `name="${xmlAttr(name)}" time="0" file="${file}" line="${i + 2}"`;
+      const body = status === "failed" ? '<failure type="AssertionError" />' : status === "skipped" ? "<skipped />" : status === "todo" ? '<skipped message="TODO" />' : "";
+      out.push(body ? `${pad}<testcase ${attrs}>${body}</testcase>` : `${pad}<testcase ${attrs} />`);
+    });
+    for (; open.length; open.pop()) out.push(`${"  ".repeat(open.length + 1)}</testsuite>`);
+    out.push("  </testsuite>");
+  }
+  out.push("</testsuites>", "");
+  return out.join("\n");
 }

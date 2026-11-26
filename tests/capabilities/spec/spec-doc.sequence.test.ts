@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
-import { runScript, setLanguage, tmpDir, vitestReport, writeTree } from "../../lib/spec.ts";
+import { runScript, setLanguage, tmpDir, junitReport, writeTree } from "../../lib/spec.ts";
 
 setDefaultTimeout(SPAWN_TIMEOUT);
 
@@ -32,9 +32,9 @@ function traced(files: Record<string, string> = {}) {
     [DESCRIBED]: "Счета.\n",
     ...files,
   });
-  writeFileSync(path.join(dir, "r.json"), vitestReport(dir, { [MAIN]: [[["Оплата"], "заказ оплачивается"]] }));
+  writeFileSync(path.join(dir, "r.xml"), junitReport(dir, { [MAIN]: [[["Оплата"], "заказ оплачивается"]] }));
 }
-const doc = (...args: string[]) => runScript("spec-doc", ["r.json", "--root", dir, ...args], dir);
+const doc = (...args: string[]) => runScript("spec-doc", ["r.xml", "--root", dir, ...args], dir);
 
 const DIAGRAM = [
   "sequenceDiagram",

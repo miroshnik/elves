@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * spec-doc — documentation from runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML from bun test): a section
+ * spec-doc — documentation from runner reports (JUnit XML from bun test, Playwright JSON): a section
  * per folder tests/capabilities/<name> ("What the system does"), tests/architecture/<name> ("What it's made of") and
  * tests/standards/<name> ("Which rules the code obeys"). A folder is a topic with sections (#685): the page starts with
  * the topic's description <topic>.md (the first paragraph goes to the index, the md headings — under the topic
@@ -15,7 +15,7 @@
  * tests/lib is skipped; tests outside the tree go to the "Outside the tree" section — that's a signal. A describe or it
  * name that isn't a statement in the project language — a warning line in stderr, without an exit code.
  *
- *   bun spec-doc.ts report.json [report2.xml …] [--root DIR] [--out docs/spec | --stdout] [--strict]
+ *   bun spec-doc.ts report.xml [report2.json …] [--root DIR] [--out docs/spec | --stdout] [--strict]
  *                   [--meta .spec-meta]
  *
  * Harness run metadata (`.spec-meta/` in the root or --meta) — the example code and exception reasons under the test
@@ -662,17 +662,17 @@ function leftoverNames(root: string, rel = L.TESTS): string[] {
 }
 
 const USAGE =
-  "spec-doc report.json [report2.xml …] [--root DIR] [--out docs/spec | --stdout] [--strict] [--meta .spec-meta]";
+  "spec-doc report.xml [report2.json …] [--root DIR] [--out docs/spec | --stdout] [--strict] [--meta .spec-meta]";
 /** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
-Documentation from runner reports (Vitest/Jest JSON, Playwright JSON, JUnit XML from bun test): a page per folder of
+Documentation from runner reports (JUnit XML from bun test, Playwright JSON): a page per folder of
 tests/capabilities, tests/architecture and tests/standards with prose from JSDoc and <folder>.md, by default into
 docs/spec; --strict — code 1 when a file's header doesn't go into the documentation.
 
 Examples:
-  spec-doc .spec-report.json --strict
-  spec-doc .spec-report.xml e2e-report.json --stdout`;
+  spec-doc .spec-report.xml --strict
+  spec-doc .spec-report.xml .spec-playwright.json --stdout`;
 
 export async function main(argv: string[]): Promise<number> {
   let opts;

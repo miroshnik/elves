@@ -1,24 +1,25 @@
 #!/usr/bin/env bun
 /**
- * spec-shard — a CI shard's test files by the durations of the last green run, not by the count of tests. A runner's
- * `--shard` doesn't look at time: Playwright cuts the suite in a row by the count of tests in path order, Vitest —
- * files by the hash of the path; the heavy tests of one folder go to one shard, the PR waits for it, the others stand
- * idle. The script lays out the files greedily — the longest into the lightest shard — and prints the shard's filters
- * for the runner, one per line; CI passes them to the runner instead of `--shard`.
+ * spec-shard — a CI shard's test files by the durations of the last green run, not by the count of tests. Playwright's
+ * `--shard` doesn't look at time: it cuts the suite in a row by the count of tests in path order; the heavy tests of one
+ * folder go to one shard, the PR waits for it, the others stand idle. The script lays out the files greedily — the
+ * longest into the lightest shard — and prints the shard's filters for the runner, one per line; CI passes them to the
+ * runner instead of `--shard`. The runners are the project's: `bun` — bun test, `playwright` — e2e (epic #906: no
+ * Vitest or Jest — another `--runner` is a call error that names bun test).
  *
- *   bun spec-shard.ts --shard <k>/<n> --runner vitest|playwright|bun --list <file|-> [--report <file>]… [--root DIR]
+ *   bun spec-shard.ts --shard <k>/<n> --runner bun|playwright --list <file|-> [--report <file>]… [--root DIR]
  *
- * - `--list` — the run's test files: `vitest list --filesOnly --json=<file>`, `playwright test --list --reporter=json`
- *   or one path per line (bun test lists nothing without a run — `git ls-files`); absolute paths — relative to the root
- *   (`--root`, default — the current directory: the runner reads the filters from it).
- * - `--report` — the last green run's reports, the same formats as for spec-doc (Vitest/Jest JSON, Playwright JSON,
- *   JUnit from `bun test`); a report's path is matched to the listed file it ends with — a report from another machine
- *   works. A missing report file isn't an error: the reports are an artifact of the previous run, and it may be gone.
- *   No durations — the files are split equally by count; a file without a measurement gets the mean.
- * - A filter is what the runner understands: Vitest — the path (it takes a file whose path contains the filter),
- *   Playwright — an escaped regular expression anchored at the end of the path, bun test — the path with `./` (such a
- *   filter is the file's path, not a substring). A filter that also takes another file (a path inside another path) —
- *   both go into one shard: the shard's filters take exactly its files.
+ * - `--list` — the run's test files: `playwright test --list --reporter=json` or one path per line (bun test lists
+ *   nothing without a run — `git ls-files`); absolute paths — relative to the root (`--root`, default — the current
+ *   directory: the runner reads the filters from it).
+ * - `--report` — the last green run's reports, the same formats as for spec-doc (JUnit from `bun test`, Playwright
+ *   JSON); a report's path is matched to the listed file it ends with — a report from another machine works. A missing
+ *   report file isn't an error: the reports are an artifact of the previous run, and it may be gone. No durations — the
+ *   files are split equally by count; a file without a measurement gets the mean.
+ * - A filter is what the runner understands: Playwright — an escaped regular expression anchored at the end of the
+ *   path, bun test — the path with `./` (such a filter is the file's path, not a substring). A Playwright filter that
+ *   also takes another file (a path that ends another path) — both go into one shard: the shard's filters take exactly
+ *   its files.
  * - The same inputs give the same shards: files and ties — by path, without time or randomness.
  *
  * Codes: 0 — the shard is printed (an empty one too: more shards than files — stdout is empty, CI doesn't start the
@@ -34,23 +35,22 @@ import { loadDurations } from "./speclib.ts";
 
 const posix = path.posix;
 
-const USAGE = "spec-shard --shard <k>/<n> --runner vitest|playwright|bun --list <file|-> [--report <file>]… [--root DIR]";
+const USAGE = "spec-shard --shard <k>/<n> --runner bun|playwright --list <file|-> [--report <file>]… [--root DIR]";
 /** `--help`, `-h` (tests/standards/scripts/cli-help): the synopsis, what it does and examples; `elves` prints it under its name. */
 export const HELP = `${USAGE}
 
 A CI shard's test files by the durations of the last green run, not by the count of tests: greedily — the longest file
 into the lightest shard; the shard's filters for the runner go to stdout, one per line (an empty shard — nothing).
---list — vitest list --filesOnly --json=<file>, playwright test --list --reporter=json or one path per line (bun test —
-git ls-files); --report — the last green run's reports (Vitest/Jest JSON, Playwright JSON, JUnit from bun test), a
-missing one is skipped; no durations — the files are split equally by count, a file without a measurement gets the
-mean. A filter: vitest — the path, playwright — a regular expression, bun — ./<path>. Code 2 — a call error.
+--runner — bun (the project's tests are bun test) or playwright (e2e); --list — playwright test --list --reporter=json
+or one path per line (bun test — git ls-files); --report — the last green run's reports (JUnit from bun test,
+Playwright JSON), a missing one is skipped; no durations — the files are split equally by count, a file without a
+measurement gets the mean. A filter: bun — ./<path>, playwright — a regular expression. Code 2 — a call error.
 
 Examples:
-  spec-shard --shard 2/3 --runner vitest --list .spec-files.json --report .spec-last/.spec-report.json
-  spec-shard --shard 1/2 --runner playwright --list .spec-files.json --report .spec-last/.spec-playwright.json
-  spec-shard --shard 1/3 --runner bun --list .spec-files.txt --report .spec-last/.spec-report-1.xml --report .spec-last/.spec-report-2.xml`;
+  spec-shard --shard 1/3 --runner bun --list .spec-files.txt --report .spec-last/.spec-report-1.xml --report .spec-last/.spec-report-2.xml
+  spec-shard --shard 1/2 --runner playwright --list .spec-files.json --report .spec-last/.spec-playwright.json`;
 
-const RUNNERS = ["vitest", "playwright", "bun"] as const;
+const RUNNERS = ["bun", "playwright"] as const;
 type Runner = (typeof RUNNERS)[number];
 
 class Fail extends Error {
@@ -79,10 +79,7 @@ function listed(file: string, roots: string[]): string[] {
     data = undefined; // not JSON — one path per line
   }
   let paths: string[];
-  if (Array.isArray(data)) {
-    // vitest list --json: [{ file }], with --filesOnly too
-    paths = data.map((x) => (typeof x === "string" ? x : str((x as Json | null)?.file)));
-  } else if (data && typeof data === "object" && "suites" in data && "config" in data) {
+  if (data && typeof data === "object" && "suites" in data && "config" in data) {
     // playwright test --list --reporter=json: a file's suite — the path relative to config.rootDir
     const d = data as Json;
     const rootDir = str((d.config as Json | null)?.rootDir).replace(/\\/g, "/");
@@ -91,7 +88,7 @@ function listed(file: string, roots: string[]): string[] {
       return rootDir ? posix.join(rootDir, f) : f;
     });
   } else if (data !== undefined) {
-    throw new Fail(`--list ${file}: unknown format (expected vitest list --json, playwright test --list --reporter=json or one path per line)`, 2);
+    throw new Fail(`--list ${file}: unknown format (expected playwright test --list --reporter=json or one path per line)`, 2);
   } else {
     paths = text.split("\n");
   }
@@ -148,33 +145,20 @@ function durations(files: string[], reports: string[]): Map<string, number> {
 /**
  * Does the filter of file `a` also take file `b` — by the runner's matching of a filter against a path.
  *
- * - Vitest (`filterFiles` in `vitest/node`) takes a file whose path relative to its project's root contains the filter
- *   or the filter's path relative to that root, case-insensitively; the project root isn't known here — any directory
- *   common to both paths is tried.
- * - Playwright tests the regular expression against the absolute path: `(^|/)<a>$` takes a file whose path ends with
- *   `/<a>`.
  * - bun test takes a filter starting with `./` as the file's path — only that file; without `./` it would take a file
  *   whose path from the current directory contains the filter, case-sensitively.
+ * - Playwright tests the regular expression against the absolute path: `(^|/)<a>$` takes a file whose path ends with
+ *   `/<a>`.
  */
 function takes(runner: Runner, a: string, b: string, root: string): boolean {
-  if (runner === "bun") return false;
-  if (runner === "playwright") return `${root}/${b}`.endsWith(`/${a}`);
-  const [la, lb] = [a.toLowerCase(), b.toLowerCase()];
-  if (!lb.includes(posix.basename(la))) return false;
-  for (let i = 0; ; ) {
-    if (lb.slice(i).includes(la.slice(i))) return true;
-    const j = la.indexOf("/", i);
-    if (j < 0 || lb.slice(0, j + 1) !== la.slice(0, j + 1)) return false;
-    i = j + 1;
-  }
+  return runner === "playwright" && `${root}/${b}`.endsWith(`/${a}`);
 }
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 /** The runner's filter of a file: it takes the file and at most files of its group (`groupsOf`). */
 function filterOf(runner: Runner, file: string): string {
-  if (runner === "bun") return `./${file}`;
-  return runner === "playwright" ? `/(^|\\/)${escapeRe(file)}$/` : file;
+  return runner === "bun" ? `./${file}` : `/(^|\\/)${escapeRe(file)}$/`;
 }
 
 /** Files whose filters take one another — groups (a union of the "takes" relation), each by path. */
@@ -228,7 +212,8 @@ export function main(argv: string[]): number {
     const m = /^(\d+)\/(\d+)$/.exec(v.shard ?? "");
     const [k, n] = m ? [Number(m[1]), Number(m[2])] : [0, 0];
     if (!m || k < 1 || k > n) throw new Fail(`--shard: <k>/<n> with 1 ≤ k ≤ n is needed, not «${v.shard ?? ""}»\n${USAGE}`, 2);
-    if (!RUNNERS.includes(v.runner as Runner)) throw new Fail(`--runner: ${RUNNERS.join(" or ")}, not «${v.runner ?? ""}»\n${USAGE}`, 2);
+    if (!RUNNERS.includes(v.runner as Runner))
+      throw new Fail(`--runner «${v.runner ?? ""}»: the project's test runner is bun test, e2e — Playwright: the runners are bun and playwright\n${USAGE}`, 2);
     const runner = v.runner as Runner;
     if (!v.list) throw new Fail(`--list <file|-> is required\n${USAGE}`, 2);
     const root = path.resolve(v.root ?? process.cwd()).replace(/\\/g, "/");

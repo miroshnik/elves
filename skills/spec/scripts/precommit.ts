@@ -7,8 +7,8 @@
  * ≈ 15 turns per task (#671). Here — one line per check as it finishes, then the details of the failed ones only.
  *
  * A test check's result is the runner's summary, not the exit code (docs/testing.md, "Run and result"): `bun test` —
- * the `pass`/`fail` lines, Vitest — `Tests`, Jest — `Tests:`, Playwright — `passed`/`failed`/`flaky`/`did not run`/
- * `interrupted`. No summary — the run didn't finish, whatever the code; failed tests with code 0 (a wrapper that lost
+ * the `pass`/`fail` lines, Playwright — `passed`/`failed`/`flaky`/`did not run`/`interrupted`; the project's runners
+ * are these two (epic #906), another runner's summary isn't one. No summary — the run didn't finish, whatever the code; failed tests with code 0 (a wrapper that lost
  * it) — failed; a green summary with a code other than 0 — failed too: something broke outside the tests. `lint` and
  * `typecheck` have no summary — their code is the result. A missing script — an `○` line, not a failure.
  *
@@ -36,7 +36,7 @@ The checks before a commit in one call: the project's package.json scripts lint,
 the change affects (test --changed=<base>, by default origin/main; in a batch — origin/<batch branch>) — all at once,
 each through the machine queue of its script. Prints a line per check as it finishes, then the details of the failed
 ones only: their output without the passed tests and the file with the whole output. A test check's result is the
-runner's summary (bun test, Vitest, Jest, Playwright), not the exit code: no summary — the run didn't finish. A script
+runner's summary (bun test, Playwright), not the exit code: no summary — the run didn't finish. A script
 the project doesn't have — an ○ line. Code 0 — all green, 1 — a check failed, 2 — a call error.
 
 Examples:
@@ -80,14 +80,6 @@ export function summaryOf(output: string): Summary | null {
   // bun test: « 12 pass», « 1 fail», « 1 error» — lines of their own at the end
   if (/^ *\d+ pass$/m.test(text) || /^Ran \d+ tests? across/m.test(text))
     return { passed: sum(text, /^ *(\d+) pass$/gm), bad: sum(text, /^ *(\d+) fail$/gm) + sum(text, /^ *(\d+) errors?$/gm) };
-  // Vitest: «      Tests  1 failed | 3 passed (4)», «     Errors  1 error»; Jest: «Tests:       1 failed, 3 passed, 4 total»
-  const lines = [...text.matchAll(/^ *Tests:? +(.*\b(?:passed|failed|skipped|todo)\b.*)$/gm)].map((m) => m[1]!);
-  if (lines.length) {
-    const all = lines.join("\n");
-    return { passed: sum(all, /(\d+) passed/g), bad: sum(all, /(\d+) failed/g) + sum(text, /^ *Errors +(\d+) errors?/gm) };
-  }
-  // Vitest with --passWithNoTests and nothing affected
-  if (/^No test files found, exiting with code 0/m.test(text)) return { passed: 0, bad: 0 };
   // Playwright: «  3 passed (5.1s)», «  1 failed», «  1 flaky», «  2 did not run», «  1 interrupted»
   if (/^ +\d+ (?:passed|failed|flaky|did not run|interrupted)\b/m.test(text))
     return {
