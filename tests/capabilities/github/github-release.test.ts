@@ -4,6 +4,7 @@ import { describe, expect, it } from "bun:test";
 import {
   executorOf,
   FIXES,
+  fixGoesIn,
   redFix,
   RELEASE_STATES,
   RELEASE_STEPS,
@@ -14,7 +15,7 @@ import {
   releaseTransition,
   worktreeRemovable,
 } from "../../../skills/github/scripts/queue.ts";
-import type { Fix, FixFacts, ReleaseFacts, ReleaseState, ReleaseTransition } from "../../../skills/github/scripts/queue.ts";
+import type { Fix, FixFacts, IntoReleaseFacts, ReleaseFacts, ReleaseState, ReleaseTransition } from "../../../skills/github/scripts/queue.ts";
 import { invariant } from "../../../skills/spec/scripts/harness.ts";
 
 /** Состояния выпуска по-русски — для названий тестов. */
@@ -136,6 +137,31 @@ describe("Починку красного выпуска выбирает мод
     expect(redFix({ fixing: false, guilty: false, bisects: false, bisectable: false })).toBe("owner");
     expect(redFix({ fixing: false, guilty: false, bisects: true, bisectable: false })).toBe("owner");
     expect(redFix({ fixing: false, guilty: true, bisects: false, bisectable: false })).toBe("guilty");
+  });
+});
+
+/**
+ * PR в пачку при открытом выпуске (#650, #902): починка красного выпуска проходит, остальное ждёт его закрытия. Виновных
+ * у красного выпуска бывает несколько, их починки идут параллельно: мерж первой сдвигает голову выпуска, полный прогон
+ * на ней идёт — выпуск не красный, — и вторую `pr premerge` держал до закрытия выпуска, который без неё не позеленеет.
+ * Как `pr premerge` читает эти факты — в github-premerge («Красный выпуск чинится в пачке»).
+ */
+describe("PR в пачку при открытом выпуске — починка или ждёт выпуска", () => {
+  /** PR задачи выпуска; выпуск зелёный, починок после открытия не влито. */
+  const PR: IntoReleaseFacts = { ofRelease: true, red: false, premerge: false, running: false, fixMerged: false };
+
+  it("PR в пачку при открытом выпуске проходит починкой, пока выпуск красный или его прогон идёт заново после влитой починки; остальное ждёт выпуска", () => {
+    // красный по чекам или по pr premerge на голове — починка его задачи проходит (#650, #884)
+    expect(fixGoesIn({ ...PR, red: true })).toBe(true);
+    expect(fixGoesIn({ ...PR, premerge: true })).toBe(true);
+    // первая починка влита — прогон заново на сдвинутой голове: вторая проходит, а не ждёт закрытия выпуска
+    expect(fixGoesIn({ ...PR, running: true, fixMerged: true })).toBe(true);
+    // первый прогон выпуска, выпуск зелёный — и после починки — ждёт: выпуск проверен без него
+    expect(fixGoesIn({ ...PR, running: true })).toBe(false);
+    expect(fixGoesIn(PR)).toBe(false);
+    expect(fixGoesIn({ ...PR, fixMerged: true })).toBe(false);
+    // задача не из выпуска ждёт при любом выпуске — её место в следующей пачке
+    for (const f of [{ red: true }, { premerge: true }, { running: true, fixMerged: true }]) expect(fixGoesIn({ ...PR, ...f, ofRelease: false })).toBe(false);
   });
 });
 

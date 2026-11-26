@@ -365,3 +365,27 @@ export function redFix(f: FixFacts): Fix {
   if (f.guilty) return "guilty";
   return f.bisects || !f.bisectable ? "owner" : "bisect";
 }
+
+/** What `pr premerge` knows of a PR into the batch while the batch's release is open. */
+export interface IntoReleaseFacts {
+  /** The PR is of a release task: its task branch or «Closes #N» — one of the release's «Closes #N». */
+  ofRelease: boolean;
+  /** A check of the release red (`fail`, `cancel`). */
+  red: boolean;
+  /** `pr premerge` red on the release's head (#884). */
+  premerge: boolean;
+  /** A check of the release still running, or none yet: the head moved. */
+  running: boolean;
+  /** A PR of a release task merged into the batch after the release opened — a fix merged, its head moved. */
+  fixMerged: boolean;
+}
+
+/**
+ * A PR into the batch while its release is open (#650, #902): it goes in as the red release's fix, otherwise it waits for
+ * the release's close. The fix — a release task's PR while the release is red (`releaseIsRed`) or its full run goes
+ * again after a fix merged: a red release's guilty tasks are fixed in parallel, the first one's merge moves the head, and
+ * the run on it is running, not red — the other fixes waited for a close the release never reaches without them. Held —
+ * a task not in the release (its place — the next batch) and any PR while the release is green or its first run goes:
+ * the release is checked without it.
+ */
+export const fixGoesIn = (f: IntoReleaseFacts) => f.ofRelease && (releaseIsRed(f) || (f.running && f.fixMerged));
