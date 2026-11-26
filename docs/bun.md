@@ -24,6 +24,20 @@ keep compatible; Bun's own tool comes with the runtime.
   dependencies keeps these packages, and `check` names them in `○` lines,
   without `❌`. Moving such an app to Bun's fullstack server is the next
   step, not yet the rule.
+- **Playwright — its runner under Bun.** Bun has no browser runner, so
+  e2e is Playwright, but `bun --bun playwright test` runs the runner, its
+  config, fixtures and factories (`tests/lib`) under Bun, with the
+  built-ins of the table: a package with `@playwright/test` is no
+  exception, Next.js is the only one. Without `--bun` the bin goes under
+  Node by its shebang. The package of the specs is `"type": "module"`:
+  Playwright under Bun registers no loader of its own and loads a
+  CommonJS package's `.ts` specs as JavaScript — type syntax fails with
+  «N errors building …»; an ES module Bun loads itself, stripping the
+  types. Under Bun `--only-changed` doesn't follow a spec's imports —
+  `docs/testing.md`, "Run and result". `elves check` holds both: a
+  package with `@playwright/test` without `"type": "module"` and its
+  script with `playwright test` not under `bun --bun` — `❌` lines with
+  the step.
 
 | Package | Bun's built-in | Bun docs |
 |---|---|---|

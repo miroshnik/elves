@@ -23,10 +23,10 @@ For Claude Code, Bun and GitHub · another agent — [a short guide](docs/other-
 Elves is how Claude Code carries a task from issue to production, written down once for all projects on one stack — **Claude Code, Bun and GitHub**. It isn't universal: the flow is written, tested and run on this stack only.
 
 - **Claude Code** — the agent: the plugin's hooks, the session pinned to its task, the dispatcher's executors and the actuals from transcripts are its.
-- **Bun** — the flow's runtime and the project's: the package manager, `bun test` and Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest ([`docs/bun.md`](docs/bun.md)). The exceptions: Playwright for e2e in a browser — Bun has no browser runner — and Next.js while its server runs under Node.
+- **Bun** — the flow's runtime and the project's: the package manager, `bun test` and Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest ([`docs/bun.md`](docs/bun.md)). Playwright is the tool for e2e in a browser — Bun has no browser runner — but its runner runs under Bun (`bun --bun`); the one exception is Next.js while its server runs under Node.
 - **GitHub** — Issues and Actions; the Projects board is up to the project.
 
-`elves check` holds the stack: a project not on Bun or with a package a Bun built-in replaces gets a `❌` line with the step, and `install` refuses a project not on Bun. Elves is where the knowledge and approaches of how to build projects with AI on this stack accumulate — rules, skills, references and checks: a lesson shared by projects comes here as a task instead of staying in an agent's memory.
+`elves check` holds the stack: a project not on Bun, with a package a Bun built-in replaces or with Playwright under Node gets a `❌` line with the step, and `install` refuses a project not on Bun. Elves is where the knowledge and approaches of how to build projects with AI on this stack accumulate — rules, skills, references and checks: a lesson shared by projects comes here as a task instead of staying in an agent's memory.
 
 What Elves is made of:
 
@@ -146,7 +146,7 @@ A reference for the agent is a Claude Code rule with `paths:`: `install -g` link
 - [`docs/testing.md`](docs/testing.md) — with tests and runner configs: what runs before a commit and what in CI, a run's result by the runner's summary, e2e without flakes, UI state by the DOM.
 - [`docs/ci-concurrency.md`](docs/ci-concurrency.md) — with workflows: CI for parallel tasks, parallel branches, a non-cancellable `main`, a deploy queue.
 - [`docs/parallel-checkouts.md`](docs/parallel-checkouts.md) — with compose and env files: parallel worktrees, shared ports, databases and `.git/config`.
-- [`docs/bun.md`](docs/bun.md) — with `package.json`: Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest; `elves check` reads its table, Next.js is the exception.
+- [`docs/bun.md`](docs/bun.md) — with `package.json`: Bun's built-in tools instead of the packages they replace — `Bun.sql`, `Bun.s3`, `Bun.redis` and the rest; `elves check` reads its table, Next.js is the only exception; Playwright's runner runs under Bun (`bun --bun`).
 
 For people:
 

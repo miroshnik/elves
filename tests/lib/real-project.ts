@@ -1,7 +1,8 @@
 /**
  * Фикстура «реальный проект» для e2e флоу: то, на чём флоу ломался в проектах, а не в тестах Elves, — `.gitignore`,
- * прячущий каталоги агентов (#299), ключи разработчика в `.env.local` (#424), `package.json` без `"type"` — Playwright
- * грузит тесты как CommonJS (#303), workspace-пакет, журнал spec-claims от двух раннеров и настоящий knip. Флоу в ней —
+ * прячущий каталоги агентов (#299), ключи разработчика в `.env.local` (#424), e2e под Bun — `bun --bun playwright test`
+ * в пакете `"type": "module"` (#917; CommonJS под Node — стандарт tests/standards/exports/harness-load, #303),
+ * workspace-пакет, журнал spec-claims от двух раннеров и настоящий knip. Флоу в ней —
  * тонкий (#552): пакет `@miroshnik/elves` в devDependencies, тесты импортируют его харнесс, скрипты зовут его `elves`.
  * Не спека.
  */
@@ -20,12 +21,13 @@ const FILES: Record<string, string> = {
   "package.json": json({
     name: "shop",
     private: true,
+    type: "module",
     workspaces: ["packages/*"],
     scripts: {
       // пара из готовой строки check (#442): стандарты — в test:spec, test их не повторяет
       test: "bun test --reporter=junit --reporter-outfile=.spec-report.xml --path-ignore-patterns='tests/standards/**'",
       "test:spec": "bun test tests/standards --reporter=junit --reporter-outfile=.spec-standards.xml",
-      "test:e2e": "playwright test",
+      "test:e2e": "bun --bun playwright test",
       "spec:claims": "bun --no-env-file node_modules/.bin/elves spec-claims --entries tests/standards/entry-points/entries.ts",
       "spec:doc": "bun --no-env-file node_modules/.bin/elves spec-doc .spec-report.xml .spec-standards.xml .spec-playwright.json .spec-claims.xml --strict",
       "spec:diff": "bun --no-env-file node_modules/.bin/elves spec-diff",
@@ -162,8 +164,8 @@ export interface RealProject {
  * Проект магазина в `sb.proj` — закоммичен, флоу ещё не стоит: workspace-пакет цен, маршруты, юниты под `bun test`,
  * стандарты своим `test:spec`, e2e под Playwright, реестр точек входа, deadCode. Зависимости — ссылки на `node_modules` Elves (knip и Playwright —
  * его devDependencies), пакет workspace — ссылкой, как его кладёт менеджер пакетов, пакет Elves — из tarball'а релиза,
- * как из npm (сборка для Node — Playwright грузит харнесс из неё); в PATH песочницы — node: на нём идут knip и
- * Playwright.
+ * как из npm (Playwright под Bun грузит харнесс из исходника — условие `bun` в `exports`); в PATH песочницы — node: на
+ * нём идёт knip.
  */
 export function realProject(sb: Sandbox): RealProject {
   const { proj } = sb;
