@@ -1,31 +1,30 @@
 # A project's CI with the spec skill — workflow fragment
 
-The "Wiring into a repository" section of `SKILL.md`, item 4: pnpm
-(`packageManager` in `package.json`), standards and architecture in one
-`test-spec` job, the rest of `bun test` in 3 shards, Playwright in 2 — the
-shard's files by the last green run's durations (`spec-shard`, section
-"Shards by durations");
-concurrency — per `docs/ci-concurrency.md`. `test-spec` runs the `test:spec`
-script once per run, without shards and browsers: standards and architecture
-are static checks over the code (`checks.md`); `unit` runs `test`, which
-excludes them, `e2e` — only the browser tests. The jobs call the project's
-scripts, not the runner directly: the split between `test` and `test:spec` is
-in one place (only the shard listing repeats `test`'s exclusions), and
-locally the same scripts run what CI runs. The scripts are
-wrapped in `slot` under Bun (the `slot` skill; no queue in CI) — hence
-`oven-sh/setup-bun@v2` in those jobs. `bun test` writes a JUnit report per
-job, Playwright — blob reports; the `spec` job merges Playwright's with its
-own tool, takes the JUnit reports as they are and builds `docs/spec` with
-`--strict` — the check of the tree and the names; publishing `docs/spec` to the
-`spec` branch is the project's choice, not part of this fragment (section
+The "Wiring into a repository" section of `SKILL.md`, item 4: a project on
+Bun, standards and architecture in one `test-spec` job, the rest of
+`bun test` in 3 shards, Playwright in 2 — the shard's files by the last green
+run's durations (`spec-shard`, section "Shards by durations");
+concurrency — per `docs/ci-concurrency.md`. Bun is every job's environment:
+`oven-sh/setup-bun@v2`, the install — `bun install --frozen-lockfile`, the
+project's scripts — `bun run <script>`, Playwright's runner — `bun --bun
+playwright test` (`docs/bun.md`), its other commands — `bunx playwright`.
+`test-spec` runs the `test:spec` script once per run, without shards and
+browsers: standards and architecture are static checks over the code
+(`checks.md`); `unit` runs `test`, which excludes them, `e2e` — only the
+browser tests. The jobs call the project's scripts, not the runner directly:
+the split between `test` and `test:spec` is in one place (only the shard
+listing repeats `test`'s exclusions), and locally the same scripts run what
+CI runs. The scripts are wrapped in `slot` (the `slot` skill; no queue in
+CI). `bun test` writes a JUnit report per job, Playwright — blob reports; the
+`spec` job merges Playwright's with its own tool, takes the JUnit reports as
+they are and builds `docs/spec` with `--strict` — the check of the tree and
+the names; publishing `docs/spec` to the `spec` branch is the project's
+choice, not part of this fragment (section
 "Publishing the documentation — optional"). The skill's scripts are the project's package
-(`@miroshnik/elves` in `devDependencies`) under Bun: `oven-sh/setup-bun@v2`
-next to the project's Node in `spec`, instead of it in `spec-diff`. A job
-with the project's dependencies calls them
-`bun --no-env-file node_modules/.bin/elves <script>` — a step doesn't see
-`node_modules/.bin` (on Yarn 2+ — the `bunx` form below in every job: PnP
-has no `node_modules`, and Yarn runs the `.ts` bin by Node); `spec-diff`
-doesn't install the project's dependencies — it takes the package alone at the project's version,
+(`@miroshnik/elves` in `devDependencies`). A job with the project's
+dependencies calls them `bun --no-env-file node_modules/.bin/elves <script>`
+— a step doesn't see `node_modules/.bin`; `spec-diff` doesn't install the
+project's dependencies — it takes the package alone at the project's version,
 `bunx @miroshnik/elves@<version>`. `spec-diff` is its own light job after
 `spec`: git history, Bun and the merged reports (harness tests are visible only in the
 report; their base is the `tests.json` of the `spec` branch, if the project
@@ -50,13 +49,10 @@ jobs:
     timeout-minutes: 15 # a hung step fails the run, not at GitHub's 6 hours
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
-      - uses: oven-sh/setup-bun@v2 # package.json checks go through slot under Bun
-      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
         timeout-minutes: 10
-      - run: pnpm test:spec --reporter=junit --reporter-outfile=.spec-report-spec.xml
+      - run: bun run test:spec --reporter=junit --reporter-outfile=.spec-report-spec.xml
       - uses: actions/upload-artifact@v7
         with: { name: spec-junit-spec, path: .spec-report-spec.xml, retention-days: 1, include-hidden-files: true }
       - uses: actions/upload-artifact@v7 # example code and exception reasons — for spec-doc
@@ -71,11 +67,8 @@ jobs:
       matrix: { shard: [1, 2, 3] }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
       - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
         timeout-minutes: 10
       # one source for all shards: the run green by this run's start; no continue-on-error — a shard split by count
       # next to shards split by durations would lose files, a failure is a red shard to re-run
@@ -91,7 +84,7 @@ jobs:
           files=$(bun --no-env-file node_modules/.bin/elves spec-shard --shard ${{ matrix.shard }}/${{ strategy.job-total }} --runner bun --list .spec-files.txt "${reports[@]}")
           [ -n "$files" ] || { echo "shard ${{ matrix.shard }}: no files"; exit 0; } # without filters the runner would run everything
           list=(); while IFS= read -r f; do list+=("$f"); done <<< "$files"
-          pnpm test "${list[@]}" --reporter=junit --reporter-outfile=.spec-report-${{ matrix.shard }}.xml
+          bun run test "${list[@]}" --reporter=junit --reporter-outfile=.spec-report-${{ matrix.shard }}.xml
       - uses: actions/upload-artifact@v7
         with: { name: 'spec-junit-${{ matrix.shard }}', path: '.spec-report-*.xml', retention-days: 1, include-hidden-files: true }
       - uses: actions/upload-artifact@v7 # entry-point log — for spec-claims
@@ -108,13 +101,10 @@ jobs:
       matrix: { shard: [1, 2] }
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
-      - uses: oven-sh/setup-bun@v2 # spec-run, spec-shard
-      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
         timeout-minutes: 10
-      - run: pnpm exec playwright install --with-deps # browsers and apt packages
+      - run: bunx playwright install --with-deps # browsers and apt packages
         timeout-minutes: 10
       - name: the last green run's reports — durations for the shard
         env: { GH_TOKEN: '${{ github.token }}' }
@@ -123,11 +113,11 @@ jobs:
           [ -z "$run" ] || gh run download "$run" --name spec-reports --dir .spec-last
       # only the browser tests: no test or test:spec step here; the login project (dependencies) runs in every shard by itself
       - run: |
-          PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-files.json pnpm exec playwright test --list --reporter=json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=.spec-files.json bun --bun playwright test --list --reporter=json
           files=$(bun --no-env-file node_modules/.bin/elves spec-shard --shard ${{ matrix.shard }}/${{ strategy.job-total }} --runner playwright --list .spec-files.json --report .spec-last/.spec-playwright.json)
           [ -n "$files" ] || { echo "shard ${{ matrix.shard }}: no files"; exit 0; }
           list=(); while IFS= read -r f; do list+=("$f"); done <<< "$files"
-          pnpm exec playwright test "${list[@]}" --reporter=dot,blob
+          bun --bun playwright test "${list[@]}" --reporter=dot,blob
       - uses: actions/upload-artifact@v7
         with: { name: 'playwright-blob-${{ matrix.shard }}', path: blob-report/, retention-days: 1 }
       - uses: actions/upload-artifact@v7
@@ -139,11 +129,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
-      - uses: oven-sh/setup-bun@v2 # the spec scripts: spec:claims, spec:doc
-      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
         timeout-minutes: 10
       - uses: actions/download-artifact@v8 # the bun test reports .spec-report-*.xml — into the root, as they are
         with: { pattern: spec-junit-*, merge-multiple: true }
@@ -153,10 +140,10 @@ jobs:
         with: { pattern: spec-journal-*, path: .spec-journal, merge-multiple: true }
       - uses: actions/download-artifact@v8
         with: { pattern: spec-meta-*, path: .spec-meta, merge-multiple: true }
-      - run: pnpm spec:claims # every entry point is called by a capability test; the report goes to spec:doc
-      - run: pnpm exec playwright merge-reports --reporter=json playwright-blob
+      - run: bun run spec:claims # every entry point is called by a capability test; the report goes to spec:doc
+      - run: bunx playwright merge-reports --reporter=json playwright-blob
         env: { PLAYWRIGHT_JSON_OUTPUT_NAME: .spec-playwright.json }
-      - run: pnpm spec:doc
+      - run: bun run spec:doc
       - if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
@@ -185,7 +172,7 @@ jobs:
 ```
 
 Every job has `timeout-minutes`, and a step that installs packages from the
-network (`pnpm install`, `playwright install --with-deps` — browsers and apt
+network (`bun install`, `playwright install --with-deps` — browsers and apt
 packages) has its own: without them GitHub holds a job on a hung mirror for 6
 hours, and the agent's `ci-wait` waits all that time. The limits leave room
 over a usual run — raise them to the project's durations, don't drop them.
@@ -195,11 +182,14 @@ without `include-hidden-files: true`, and the artifact comes out empty.
 
 No Playwright — no `e2e` job, no steps for it in `spec` and no second report
 in `spec:doc`. No shards — `unit` without the matrix and the shard steps,
-`pnpm test --reporter=junit --reporter-outfile=.spec-report-1.xml`; `test-spec` stays a job
+`bun run test --reporter=junit --reporter-outfile=.spec-report-1.xml`; `test-spec` stays a job
 of its own: it doesn't wait for the long branch, and a broken standard is
 visible in a minute.
-Elves itself runs on Bun — its `.github/workflows/ci.yml` is no model for a
-project on Node.
+Elves' own `.github/workflows/ci.yml` is on Bun too, but no model: Elves is
+the package itself — it runs the scripts from its tree, not
+`node_modules/.bin/elves` — and one job runs the whole suite in
+`bun test --parallel` workers ordered by `--timings`, without shards,
+`spec-shard` and an `e2e` job.
 
 The `main` run is in its own group (`github.run_id`): the tests need no shared
 resource, and `queue: max` doesn't combine with cancelling PR runs in one
