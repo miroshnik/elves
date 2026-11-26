@@ -139,7 +139,7 @@ function markOf(file: string, line: number, text: string): Mark | null {
 const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|[{}[\]:,]/g;
 
 /**
- * JSON comments — values of the top-level `"//"` key (an npm convention: `package.json` has no comments), a string or a
+ * JSON comments — values of the top-level `"//"` key (a `package.json` convention: it has no comments), a string or a
  * list of strings: the offset in the text and the string.
  */
 function jsonNotes(text: string): [number, string][] {
@@ -1042,7 +1042,7 @@ const KNIP: [(n: Names) => string, string, string[]][] = [
   [(n) => n.spec.harness.knip.dependencies, "dependency", ["dependencies", "devDependencies", "optionalPeerDependencies"]],
   [(n) => n.spec.harness.knip.unlisted, "unlisted", ["unlisted"]],
   [(n) => n.spec.harness.knip.unresolved, "unresolved", ["unresolved"]],
-  // knip 6 kinds (JSONReportEntry): enum and namespace members, duplicate exports, binaries, pnpm catalog
+  // knip 6 kinds (JSONReportEntry): enum and namespace members, duplicate exports, binaries, the catalog
   [(n) => n.spec.harness.knip.enumMembers, "enumMember", ["enumMembers"]],
   [(n) => n.spec.harness.knip.nsMembers, "nsMember", ["namespaceMembers"]],
   [(n) => n.spec.harness.knip.duplicates, "duplicate", ["duplicates"]],
@@ -1144,7 +1144,7 @@ export interface DeadCode {
 
 /**
  * Code without a consumer — from knip's report: a test per finding kind (files, exports, types, dependencies, unlisted
- * packages, unresolved imports, pnpm catalog…) — failing with the list of findings; "all knip findings are of known
+ * packages, unresolved imports, the catalog…) — failing with the list of findings; "all knip findings are of known
  * kinds" — a new knip kind doesn't pass silently; "no knip configuration hints" — a redundant ignore and an entry
  * without matches. The report — a file (`report`) or a run of the project's knip (`node_modules/.bin/knip`) — at test
  * registration, not under the first test's timeout. An exception is a finding key (`file:src/legacy.ts`,
@@ -1357,30 +1357,14 @@ function packageJson(root: string, dir: string): { name: string | undefined; dep
 }
 
 /**
- * Workspace patterns: `workspaces` of the root package.json (an array or `{ packages }`) and `packages` of
- * pnpm-workspace.yaml.
+ * Workspace patterns — `workspaces` of the root package.json, an array or `{ packages }` (Bun's workspaces, epic #906);
+ * `!pattern` excludes. The harness's env checks and the architecture model (`workspacePackages`) take them here.
  */
-function workspacePatterns(root: string): string[] {
-  const out: string[] = [];
+export function workspacePatterns(root: string): string[] {
   const ws = packageJson(root, ".")?.workspaces;
   const list: unknown = Array.isArray(ws) ? ws : (ws as { packages?: unknown } | undefined)?.packages;
-  if (Array.isArray(list)) out.push(...list.filter((x): x is string => typeof x === "string"));
-  let yaml = "";
-  try {
-    yaml = readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8");
-  } catch {
-    /* not pnpm */
-  }
-  // parsing without dependencies: `packages: [a, b]` on one line or a "- pattern" list under the key up to the next
-  // top-level key
-  const flow = /^packages:\s*\[([^\]]*)\]/m.exec(yaml);
-  if (flow) out.push(...flow[1]!.split(","));
-  const block = /^packages:[ \t]*(?:#.*)?\r?\n((?:[ \t]+.*(?:\r?\n|$)|[ \t]*\r?\n)*)/m.exec(yaml);
-  for (const l of block?.[1]!.split(/\r?\n/) ?? []) {
-    const m = /^\s+-\s*(.+?)\s*(?:#.*)?$/.exec(l);
-    if (m) out.push(m[1]!);
-  }
-  return out.map((p) => p.trim().replace(/^(["'])(.*)\1$/, "$2").replace(/^\.\//, "").replace(/\/+$/, "")).filter(Boolean);
+  if (!Array.isArray(list)) return [];
+  return list.filter((x): x is string => typeof x === "string").map((p) => p.trim().replace(/^\.\//, "").replace(/\/+$/, "")).filter(Boolean);
 }
 
 /** Workspace pattern → path regexp: `*` — one level, `**` — any depth. */

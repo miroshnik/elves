@@ -165,7 +165,7 @@ describe("Исключения папки решения — файл на эл�
     expect(r["исключение: createInvoice (#13)"]).toBe(`✗ createInvoice already complies with the convention — remove the exception: delete ${path.join(dir, AUDIT, "exceptions/createInvoice.json")} (#13)`);
   });
 
-  // раннер пакета монорепо идёт из каталога пакета (turbo, pnpm -r): cwd — не корень, а подсказку читают от корня
+  // раннер пакета монорепо идёт из каталога пакета (turbo, bun --filter): cwd — не корень, а подсказку читают от корня
   it("раннер в подпапке: исключения читаются из папки теста, путь в подсказке «удали» — от корня репозитория", () => {
     mkdirSync(path.join(dir, ".git"));
     const files = {
@@ -383,7 +383,7 @@ describe("Отметка в файле элемента — «вне охват�
     expect(metaOf("исключение: importLegacy (#12)")).toMatchObject({ issue: 12, reason: "импорт старых данных — аудит в #12" });
   });
 
-  // раннер пакета монорепо идёт из каталога пакета (turbo, pnpm -r): fileOf — путь от корня проекта, без поправки на cwd
+  // раннер пакета монорепо идёт из каталога пакета (turbo, bun --filter): fileOf — путь от корня проекта, без поправки на cwd
   it("раннер в каталоге пакета видит отметку в файле элемента по пути fileOf от корня проекта", () => {
     mkdirSync(path.join(dir, ".git"));
     writeTree(dir, {
@@ -477,7 +477,7 @@ describe("Отметка в файле элемента — «вне охват�
     expect(marksIn("src/y.ts", "// формат: `// spec-outside(audit): причина` — в начале комментария\n")).toEqual([]);
   });
 
-  // в JSON комментариев нет: соглашение npm — ключ "//"; формат в описании пакета — не отметка
+  // в JSON комментариев нет: соглашение package.json — ключ "//"; формат в описании пакета — не отметка
   it('в JSON отметка — значение ключа "//" верхнего уровня, строка или список, и комментарий JSONC; формат в другом ключе — не отметка', () => {
     const pkg = '{\n  "name": "@acme/eslint-config",\n  "//": "spec-outside(modules): общий конфиг ESLint — инструмент разработки",\n  "description": "see // spec-outside(modules): не отметка"\n}\n';
     expect(marksIn("packages/eslint-config/package.json", pkg)).toEqual([

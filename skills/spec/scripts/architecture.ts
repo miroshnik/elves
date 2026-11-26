@@ -19,7 +19,7 @@ import path from "node:path";
 
 import locale from "../../github/scripts/locale.ts";
 import type { Names } from "../../github/scripts/locale.ts";
-import { codeOnly, envNamesInCode, invariant } from "./harness.ts";
+import { codeOnly, envNamesInCode, invariant, workspacePatterns } from "./harness.ts";
 import type { EnvReader, Exception, Invariant, It } from "./harness.ts";
 
 export interface Module {
@@ -154,31 +154,11 @@ const TERRAFORM_UNITS = new Set([
 const TF_RESOURCE = /^[ \t]*resource\s+"([\w-]+)"\s+"([\w-]+)"/gm;
 
 /**
- * Monorepo workspace packages — directories with `package.json` by the `workspaces` patterns from `package.json` (a
- * list or `{ packages }`) and `packages:` from `pnpm-workspace.yaml`; `!pattern` excludes. `*` — one directory level,
- * `**` — any depth.
+ * Monorepo workspace packages — directories with `package.json` by the `workspaces` patterns of the root `package.json`
+ * (`workspacePatterns` of the harness); `!pattern` excludes. `*` — one directory level, `**` — any depth.
  */
 export function workspacePackages(root: string): string[] {
-  const patterns: string[] = [];
-  try {
-    const ws = (JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { workspaces?: string[] | { packages?: string[] } }).workspaces;
-    patterns.push(...(Array.isArray(ws) ? ws : (ws?.packages ?? [])));
-  } catch {
-    /* no package.json or workspaces */
-  }
-  try {
-    let inPackages = false;
-    for (const line of readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8").split(/\r?\n/)) {
-      if (/^packages:\s*$/.test(line)) inPackages = true;
-      else if (/^\S/.test(line)) inPackages = false;
-      else if (inPackages) {
-        const m = /^\s+-\s+(["']?)(.+?)\1\s*(?:#.*)?$/.exec(line);
-        if (m) patterns.push(m[2]!);
-      }
-    }
-  } catch {
-    /* no pnpm-workspace.yaml */
-  }
+  const patterns = workspacePatterns(root);
   if (!patterns.length) return [];
   const include = patterns.filter((p) => !p.startsWith("!")).map(glob);
   const exclude = patterns.filter((p) => p.startsWith("!")).map((p) => glob(p.slice(1)));

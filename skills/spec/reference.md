@@ -583,7 +583,7 @@ the project's CI" below.
    test failed — `spec` doesn't run: there is no point building documentation
    from a red run. `spec-diff` is its own light job: it needs git history and
    Bun, not tests, so the section is in the summary even with red tests. A
-   fragment for pnpm (in `package.json` — `packageManager`), bun test in 3
+   fragment for a project on Bun, bun test in 3
    shards, Playwright in 2; concurrency per `docs/ci-concurrency.md` — the
    workflow fragment is in `ci.md` next to this file.
    All CI on the PR, no tests on `main` — publishing on a PR merge from its
@@ -680,7 +680,8 @@ the project's CI" below.
   synchronous variant doesn't work under Bun; `oxc-parser` — a native platform
   binary; the parser as a project devDependency — the `spec-diff` job in the
   project's CI would install dependencies, and its whole point is being light.
-  To update — `npm pack @babel/parser`: `lib/index.js` without the last
+  To update — `bun add --no-save @babel/parser` in an empty directory:
+  `lib/index.js` without the last
   `//# sourceMappingURL` line (there is no map next to it) →
   `vendor/babel-parser.cjs`, `LICENSE` →
   `vendor/babel-parser.LICENSE`, the version — in a comment in `speclib.ts`.

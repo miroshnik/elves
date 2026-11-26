@@ -124,12 +124,12 @@ describe("Код, до которого не доходит ни одна точ
     writeTree(dir, {
       ".knip.json": knip([
         { file: "packages/a/package.json", catalogReferences: [{ name: "react", namespace: "react18" }] },
-        { file: "pnpm-workspace.yaml", catalog: [{ name: "vue", namespace: "default" }] },
+        { file: "package.json", catalog: [{ name: "vue", namespace: "default" }] },
       ]),
     });
     const r = await outcomes((it) => deadCode(it, { root: dir, report: ".knip.json" }));
     expect(r["нет ссылок на отсутствующие записи каталога пакетов"]).toBe("✗ packages/a/package.json#react18.react");
-    expect(r["нет лишних записей каталога пакетов"]).toBe("✗ pnpm-workspace.yaml#default.vue");
+    expect(r["нет лишних записей каталога пакетов"]).toBe("✗ package.json#default.vue");
   });
 
   // knip 6 добавил виды (catalogReferences, cycles), а харнесс их не знал: находка пропадала из отчёта без следа
@@ -221,8 +221,8 @@ describe("Код, до которого не доходит ни одна точ
   });
 
   /**
-   * Версию пакета шаг CI скилла и скрипт проекта на Yarn 2+ берут через `jq` (`PACKAGE_BUNX`) — утилиту машины и
-   * раннера GitHub, а не пакет проекта. knip 6.48 увидел команды и внутри `$(…)` шагов workflow, а `jq` в его списке
+   * Версию пакета шаг CI скилла и скрипт проекта с пакетом через bunx берут через `jq` (`PACKAGE_BUNX`) — утилиту
+   * машины и раннера GitHub, а не пакет проекта. knip 6.48 увидел команды и внутри `$(…)` шагов workflow, а `jq` в его списке
    * глобальных бинарников нет: тест краснел в каждом проекте с шаблонами workflow скилла, пока проект не гасил его своим
    * `ignoreBinaries` (#903).
    */
@@ -532,11 +532,11 @@ describe("Каждая переменная окружения объявлен�
     expect(r["api/VITE_API объявлена"]).toBeUndefined();
   });
 
-  it("монорепо: пакеты workspace — из workspaces package.json и pnpm-workspace.yaml", async () => {
+  it("монорепо: пакеты workspace — из workspaces package.json", async () => {
     const pkg = (name: string, deps: object = {}) => JSON.stringify({ name, dependencies: deps });
     writeTree(dir, {
-      "package.json": JSON.stringify({ private: true, workspaces: { packages: ["apps/*"] } }),
-      "pnpm-workspace.yaml": "packages:\n  - \"packages/**\"\n  # фикстуры — не пакеты сборки\n  - '!packages/fixtures/**'\ncatalog:\n  zod: ^4.0.0\n",
+      // фикстуры — не пакеты сборки; каталог Bun — рядом с packages
+      "package.json": JSON.stringify({ private: true, workspaces: { packages: ["apps/*", "packages/**", "!packages/fixtures/**"], catalog: { zod: "^4.0.0" } } }),
       "apps/api/package.json": pkg("api", { "@acme/config": "workspace:*", "@acme/fixture": "workspace:*" }),
       "apps/api/src/main.ts": "export {};\n",
       "packages/shared/config/package.json": pkg("@acme/config"),
