@@ -2019,35 +2019,29 @@ function bunStack(root: string): { lines: string[]; notBun: string[]; notes: str
 }
 
 /**
- * Test runners of a package.json command — called directly or by the package manager: the `test:spec` command over the
- * spec roots and the filter that excludes a root from `test` (Vitest `--exclude` adds to the config's; Jest's
- * `--testPathIgnorePatterns` replaces the config's list; `bun test --path-ignore-patterns` repeats).
+ * The project's test runner — `bun test` (epic #906: no Vitest or Jest): a package.json command that calls it, the
+ * `test:spec` command over the spec roots and the filter that excludes a root from `test` (`--path-ignore-patterns`
+ * repeats, it adds to the ones `test` already has).
  */
-const RUNNERS = {
-  vitest: { re: /^(?:(?:npx|bunx|yarn|pnpm(?: exec)?) )?vitest\b/, spec: "vitest run", exclude: (dir: string) => `--exclude '${dir}/**'` },
-  jest: { re: /^(?:(?:npx|bunx|yarn|pnpm(?: exec)?) )?jest\b/, spec: "jest", exclude: (dir: string) => `--testPathIgnorePatterns=${dir}/` },
-  bun: { re: /^bun test\b/, spec: "bun test", exclude: (dir: string) => `--path-ignore-patterns='${dir}/**'` },
-};
+const BUN_TEST = { re: /^bun test\b/, spec: "bun test", exclude: (dir: string) => `--path-ignore-patterns='${dir}/**'` };
 
 /**
  * The project's fast checks: with standards or architecture (`specRoots` of the github skill) the root package.json
  * needs a `test:spec` script — without it `github pr premerge` checks the merge with a moved main by typecheck alone
  * or by nothing, and a standard broken by two green PRs reaches main (#442). A mismatch that update doesn't fix — the
  * commands are the project's: a `❌` line with the ready scripts, in the slot wrapper `packageScripts` puts (its
- * `slotWrap`). `test:spec` — the runner of the `test` command, otherwise by the dependencies (Vitest, Jest, `bun test`
- * in a project on Bun — by `packageManager` of the github skill, otherwise Vitest — the spec skill's example), over the
- * roots the project has; next to it — `test` with the same roots excluded by the runner's filter, added to the command
- * under the wrapper (`unslot`): the roots run once, in `test:spec` (the spec skill, "Wiring into a repository").
- * `test` doesn't run them (names them already) or there is none — `test:spec` alone; `test` isn't a single runner call
- * — the exclusion in words.
- * With `test:spec` in place, a `test` that is a single runner call and doesn't name a root runs it a second time — an
+ * `slotWrap`). `test:spec` — `bun test` over the roots the project has, whatever runner its `test` calls; next to it —
+ * `test` with the same roots excluded by bun test's filter, added to the command under the wrapper (`unslot`): the roots
+ * run once, in `test:spec` (the spec skill, "Wiring into a repository"). `test` doesn't run them (names them already) or
+ * there is none — `test:spec` alone; `test` isn't a single `bun test` call — the exclusion in words.
+ * With `test:spec` in place, a `test` that is a single `bun test` call and doesn't name a root runs it a second time — an
  * `○` line with the same ready `test` (#487): extra time, not a hole in the check, so neither the exit code nor
  * `missing`. Any other `test` (turbo, a chain) — no line: its text doesn't tell what it runs. An exclusion in the
  * runner's config isn't seen in the text either — accepted noise: the ready line puts the exclusion in the script.
  */
 function specScript(root: string): { lines: string[]; missing: boolean } {
   const roots = specRoots(root);
-  let pkg: { scripts?: Record<string, unknown>; dependencies?: object; devDependencies?: object } = {};
+  let pkg: { scripts?: Record<string, unknown> } = {};
   try {
     pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) ?? {};
   } catch {
@@ -2056,17 +2050,15 @@ function specScript(root: string): { lines: string[]; missing: boolean } {
   if (!roots.length) return { lines: [], missing: false };
   const test = typeof pkg.scripts?.test === "string" ? unslot(pkg.scripts.test) : undefined;
   const pm = packageManager(root);
-  const byTest = Object.values(RUNNERS).find((r) => test !== undefined && r.re.test(test));
+  const byTest = test !== undefined && BUN_TEST.re.test(test);
   // the install wraps checks in the shim
   const wrap = slotWrap(pm.berry);
   // the roots test runs too — they would run twice, in test and in test:spec
   const twice = test === undefined ? [] : roots.filter((dir) => !test.includes(dir));
   // a filter goes to a single runner call only: after `&&` or a pipe it would reach another command
-  const filtered = test !== undefined && byTest && twice.length && !/[;&|<>`$()]/.test(test) ? `"test": ${JSON.stringify(wrap([test, ...twice.map(byTest.exclude)].join(" ")))}` : undefined;
+  const filtered = test !== undefined && byTest && twice.length && !/[;&|<>`$()]/.test(test) ? `"test": ${JSON.stringify(wrap([test, ...twice.map(BUN_TEST.exclude)].join(" ")))}` : undefined;
   if (pkg.scripts?.["test:spec"]) return { lines: filtered ? [`  ○ package.json: test repeats test:spec — runs ${twice.join(", ")} a second time; put in "scripts": ${filtered}`] : [], missing: false };
-  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-  const runner = byTest ?? ("vitest" in deps ? RUNNERS.vitest : "jest" in deps ? RUNNERS.jest : pm.name === "bun" ? RUNNERS.bun : RUNNERS.vitest);
-  const spec = `"test:spec": ${JSON.stringify(wrap([runner.spec, ...roots].join(" ")))}`;
+  const spec = `"test:spec": ${JSON.stringify(wrap([BUN_TEST.spec, ...roots].join(" ")))}`;
   const lead = `  ❌ package.json: no test:spec script — pr premerge doesn't run ${roots.join(", ")} on the merge with a moved main`;
   if (!twice.length) return { lines: [`${lead}; add to "scripts": ${spec}`], missing: true };
   if (!filtered) return { lines: [`${lead}; add to "scripts": ${spec}; exclude ${twice.join(", ")} from test with the runner's filter — they don't run twice`], missing: true };
@@ -2899,7 +2891,7 @@ function builtExports(pkg: { exports?: unknown }): { src: string; out: string }[
  * commit into its `gitHead` (the package knows its SHA without the network: the manifest of an install from it and
  * what `update` lists — `sourceSha`) and the modules a project imports (`builtExports`) built into dist/. Node doesn't
  * strip types in node_modules
- * (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING): a project's `eslint.config.js`, `node --test`, Playwright and Jest load
+ * (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING): a project's `eslint.config.js`, `node --test` and Playwright load
  * the JS (`default`), Bun and the type checker — the TypeScript source (`bun`, `types`). One build with shared chunks:
  * the modules share the language module and the TypeScript parser. A built module is a project's import, never the entry
  * point: `import.meta.main` is false — Bun's build for Node turns it into `require.main == require.module`, true under

@@ -360,9 +360,9 @@ describe("Проверки проекта идут очередью машины
     dev: "next dev",
     lint: "eslint .",
     typecheck: "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
-    test: "vitest run",
+    test: "bun test",
     "test:e2e": "playwright test",
-    "test:watch": "vitest",
+    "test:watch": "bun test --watch",
   };
   const pkgFile = () => path.join(proj, "package.json");
   const scripts = () => JSON.parse(read(pkgFile())).scripts;
@@ -379,7 +379,7 @@ describe("Проверки проекта идут очередью машины
       ...SCRIPTS,
       lint: slot("eslint ."),
       typecheck: slot(SCRIPTS.typecheck),
-      test: slot("vitest run"),
+      test: slot("bun test"),
       "test:e2e": slot("playwright test"),
     });
   });
@@ -429,10 +429,10 @@ describe("Проверки проекта идут очередью машины
   });
 
   it("повторная установка не оборачивает дважды, отступ и конец package.json — как были", () => {
-    writeTree(proj, { "package.json": `{\n\t"name": "app",\n\t"scripts": {\n\t\t"test": "vitest run"\n\t}\n}` });
+    writeTree(proj, { "package.json": `{\n\t"name": "app",\n\t"scripts": {\n\t\t"test": "bun test"\n\t}\n}` });
     install();
     const once = read(pkgFile());
-    expect(once).toBe(`{\n\t"name": "app",\n\t"scripts": {\n\t\t"test": "${slot("vitest run")}"\n\t}\n}`);
+    expect(once).toBe(`{\n\t"name": "app",\n\t"scripts": {\n\t\t"test": "${slot("bun test")}"\n\t}\n}`);
     install();
     expect(read(pkgFile())).toBe(once);
   });
@@ -471,10 +471,10 @@ describe("Проверки проекта идут очередью машины
   it("в проекте на Yarn 2+ скрипты пакета — через bunx, команда проверки — строкой у его slot: bin .ts Yarn запускает Node-ом, шим его shell не подключает", () => {
     const yarnSlot = (cmd: string) => `${PACKAGE_BUNX} slot '${cmd}'`;
     const specDoc = `${PACKAGE_BUNX} spec-doc .spec-report.xml`;
-    writeTree(proj, { ".yarnrc.yml": "nodeLinker: node-modules\n", "package.json": JSON.stringify({ scripts: { test: "vitest run", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
+    writeTree(proj, { ".yarnrc.yml": "nodeLinker: node-modules\n", "package.json": JSON.stringify({ scripts: { test: "bun test", lint: slot("eslint ."), "test:e2e": "elves slot 'playwright test'", "spec:doc": specDoc } }) });
     install();
     expect(scripts()).toEqual({
-      test: yarnSlot("vitest run"),
+      test: yarnSlot("bun test"),
       lint: yarnSlot("eslint ."),
       "test:e2e": yarnSlot("playwright test"),
       "spec:doc": `${PACKAGE_BUNX} spec-doc .spec-report.xml`,
@@ -483,16 +483,16 @@ describe("Проверки проекта идут очередью машины
   });
 
   it("check называет обёртку прошлой установки несоответствием, update переписывает её", () => {
-    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", test: "vitest run" } }) });
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }) });
     install();
-    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: "elves slot 'vitest run'" } }) });
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: "elves slot 'bun test'" } }) });
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
     expect(c.stdout).toMatch(/~ package\.json — [^\n]*previous install — knip doesn't see the command[^\n]*\btest\b/);
     expect(c.stdout).not.toMatch(/~ package\.json — [^\n]*\blint\b/);
     const u = elves(sb, ["update"]);
     expect(u.code).toBe(0);
-    expect(scripts()).toEqual({ lint: slot("eslint ."), test: slot("vitest run") });
+    expect(scripts()).toEqual({ lint: slot("eslint ."), test: slot("bun test") });
     expect(elves(sb, ["check"]).code).toBe(0);
   });
 
@@ -521,17 +521,17 @@ describe("Проверки проекта идут очередью машины
   });
 
   it("check называет скрипт без slot несоответствием, update оборачивает и зовёт закоммитить package.json", () => {
-    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", test: "vitest run" } }) });
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }) });
     install();
     expect(elves(sb, ["check"]).code).toBe(0);
-    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: "vitest run" } }) });
+    writeTree(proj, { "package.json": JSON.stringify({ scripts: { lint: scripts().lint, test: "bun test" } }) });
     const c = elves(sb, ["check"]);
     expect(c.code).toBe(1);
     expect(c.stdout).toMatch(/~ package\.json — [^\n]*\btest\b/);
     expect(c.stdout).not.toMatch(/~ package\.json — [^\n]*\blint\b/);
     const u = elves(sb, ["update"]);
     expect(u.code).toBe(0);
-    expect(scripts().test).toBe(slot("vitest run"));
+    expect(scripts().test).toBe(slot("bun test"));
     expect(u.stdout).toMatch(/\n {2}git add -A -- package\.json [^\n]*&& git commit/);
     expect(elves(sb, ["check"]).code).toBe(0);
   });
@@ -574,7 +574,7 @@ describe("Проверки проекта идут очередью машины
     expect(warning(test, `{ "globalPassThroughEnv": ["ELVES_*", "!ELVES_SLOT"] }`)).toContain(`"globalPassThroughEnv": ["ELVES_*", "ELVES_SLOT"]`);
     expect(warning(test, `{ "envMode": "loose" }`)).toBeNull();
     expect(warning({ test: "turbo run test --env-mode=loose" }, `{}`)).toBeNull();
-    expect(warning({ test: "vitest run --turbo" }, `{}`)).toBeNull();
+    expect(warning({ test: "bun test tests/turbo" }, `{}`)).toBeNull();
     expect(warning({ build: "turbo run build" }, `{}`)).toBeNull();
     expect(warning(test, `{ /* JSONC */ "tasks": {}, }`, "turbo.jsonc")).toMatch(/^!! turbo\.jsonc — /);
     expect(warning(test, `{ /* JSONC */ "globalPassThroughEnv": ["ELVES_SLOT", "ELVES_SLOT_CPUS"] }`, "turbo.jsonc")).toBeNull();
