@@ -74,6 +74,8 @@ const BYPASSES = "skills/github/scripts/bypasses.ts";
  * строка без правила и механизм, которого нет в коде, — красный тест.
  */
 export const HOLDERS: Record<string, Holder> = {
+  // стек флоу (эпик #906): проект не на Bun и пакет, который заменяет встроенный инструмент Bun, — ❌ у check
+  "Elves is for Claude Code, Bun and GitHub": installer("elves check", "function bunStack"),
   "The canon lives in Elves": installer("elves install -g", "function installRules"),
   "References load by themselves": installer("elves install -g", "function pathRules"),
   "The SessionStart hook checks the flow": hook("SessionStart", "hooks/hooks.json", "check --hook"),
@@ -157,7 +159,7 @@ describe("У каждого правила канона назван механ�
       { name: "суждение вне раздела Judgment", item: { file: "AGENTS.md", section: "Task tracking", name: "The stack stays", text: "- **The stack stays.** …" } },
       { name: "правило, чей текст не называет механизм", item: { file: "AGENTS.md", section: "Task tracking", name: "Tasks live in GitHub Issues", text: "- **Tasks live in GitHub Issues.** By hand." } },
     ],
-    includes: ["One session, one task", "The tail — `github task finish <N>`", "Others' work isn't mine", "CI waits are background commands"],
+    includes: ["Elves is for Claude Code, Bun and GitHub", "One session, one task", "The tail — `github task finish <N>`", "Others' work isn't mine", "CI waits are background commands"],
   });
 
   invariant(it, {

@@ -126,6 +126,15 @@ function repoFile(rel: string): string | null {
   }
 }
 
+/** Раздел `## <title>` вне блоков кода — его строки до следующего `## `; нет раздела — "". */
+function sectionOf(md: string, title: string): string {
+  const lines = prose(md);
+  const start = lines.findIndex((l) => l.trim() === `## ${title}`);
+  if (start < 0) return "";
+  const end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join("\n");
+}
+
 const README = read("README.md");
 
 describe("README представляет флоу по имени", () => {
@@ -133,6 +142,12 @@ describe("README представляет флоу по имени", () => {
     const lines = prose(README).map((l) => l.trim()).filter((l) => l && !/^<[^>]*>$/.test(l));
     expect(lines[0]).toBe("# Elves");
     expect(lines[1]?.replace(/^[*_]+|[*_]+$/g, "")).toBe("Elves at work");
+  });
+
+  it("README называет стек флоу — Claude Code, Bun и GitHub — в строке под слоганом и в «What it is», с исключениями Playwright и Next.js и проверкой elves check", () => {
+    expect(README).toMatch(/^For Claude Code, Bun and GitHub · another agent — \[[^\]]+\]\(docs\/other-agents\.md\)$/m);
+    const what = sectionOf(README, "What it is");
+    for (const part of ["**Claude Code, Bun and GitHub**", "**Claude Code**", "**Bun**", "**GitHub**", "Playwright", "Next.js", "`elves check`"]) expect(what).toContain(part);
   });
 });
 
