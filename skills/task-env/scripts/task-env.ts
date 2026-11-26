@@ -75,7 +75,7 @@ stack stays until the next run. The bring-up takes a place in the machine queue 
 the command runs outside it; the Docker VM's memory is checked as in up.
 
 Examples:
-  task-env e2e -- bun --bun playwright test
+  task-env e2e -- bun run test:e2e
   task-env e2e --profile worker -- bun test e2e`,
   down: `task-env down [<N>]
 
