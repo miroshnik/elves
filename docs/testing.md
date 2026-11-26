@@ -160,7 +160,7 @@ against the Playwright, Next.js, Vite, SvelteKit and Nuxt documentation.
 
   ```bash
   set -a; . ./.env.e2e; set +a        # own file, local addresses only
-  npm run build && npm run test:e2e
+  bun run build && bun run test:e2e
   ```
 - **What is baked into the build can't be changed by an export.** Public
   variables (and in some frameworks private ones — see the table) are

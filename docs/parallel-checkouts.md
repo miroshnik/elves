@@ -166,7 +166,7 @@ const baseURL = stack ?? 'http://localhost:3000';
 export default defineConfig({
   use: { baseURL },
   webServer: stack ? undefined : {              // the stack serves the app: the runner starts no server
-    command: 'npm run build && npm run start',
+    command: 'bun run build && bun run start',
     url: baseURL,
     reuseExistingServer: false,                 // a busy port is an error, not someone else's server
   },
