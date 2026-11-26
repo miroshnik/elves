@@ -344,10 +344,9 @@ claimed behavior").
   `resetJournal()` (bun test — in `preload`, Playwright — in `globalSetup`): it
   wipes the `*.jsonl` files of the `SPEC_JOURNAL` directory and leaves
   subdirectories — other runners' logs — alone; `spec-claims` reads the
-  directory with its subdirectories. Under `bun test --parallel` a preload runs
-  before every file in every worker and wipes the logs of the files before it
-  (measured on Bun 1.4.5: one log of six survived): there the `test` script
-  wipes the directory before the runner, the preload only sets `SPEC_JOURNAL`.
+  directory with its subdirectories. It wipes once per run: under `bun test
+  --parallel` a preload runs before every file in every worker, and only the
+  first call of the run wipes — the rest find its mark `.run-<id>`.
 
   ```toml
   # bunfig.toml
@@ -359,7 +358,7 @@ claimed behavior").
   // tests/setup/journal.ts — before the tests
   import { resetJournal } from "@miroshnik/elves/spec/harness";
   process.env.SPEC_JOURNAL ??= ".spec-journal/unit";
-  resetJournal(); // under --parallel — not here: the script runs rm -f .spec-journal/unit/*.jsonl before bun test
+  resetJournal(); // once per run, under --parallel too
 
   // playwright.config.ts — before the workers: they inherit the environment
   process.env.SPEC_JOURNAL ??= ".spec-journal/e2e";
