@@ -61,6 +61,8 @@ const TABLE: Row[] = [
   { field: "", files: ["yarn.lock"], want: "Yarn 1 · yarn.lock", why: "lockfile Yarn без .yarnrc.yml" },
   { field: "", files: ["yarn.lock", ".yarnrc.yml"], want: "Yarn 2+ · yarn.lock", why: "lockfile Yarn с .yarnrc.yml" },
   { field: "", files: ["package-lock.json"], want: "npm · package-lock.json", why: "lockfile npm" },
+  { field: "", files: ["npm-shrinkwrap.json"], want: "npm · npm-shrinkwrap.json", why: "shrinkwrap npm" },
+  { field: "", files: ["npm-shrinkwrap.json", "package-lock.json"], want: "npm · npm-shrinkwrap.json", why: "shrinkwrap сильнее package-lock.json, как у npm" },
   { field: "", files: ["bun.lock", "package-lock.json"], want: "bun · bun.lock", why: "два lockfile — по порядку" },
   { field: "", files: [], want: "npm · без lockfile", why: "ни packageManager, ни lockfile" },
   { field: null, files: [], want: "npm · без lockfile", why: "нет package.json" },
@@ -146,14 +148,15 @@ describe("Менеджер пакетов у premerge, обёртки slot и р
   it("premerge, обёртка slot и раннер test:spec у check берут менеджер пакетов у неё: packageManager pnpm и забытые bun.lock и .yarnrc.yml — premerge зовёт pnpm, обёртка slot — через шим slot.sh, check не предлагает bun test", () => {
     const sb = sandbox();
     try {
-      writeTree(sb.proj, {
-        "package.json": JSON.stringify({ name: "x", private: true, packageManager: "pnpm@10.1.0", scripts: { lint: "eslint ." } }, null, 2) + "\n",
-        "bun.lock": "{}\n",
-        ".yarnrc.yml": "nodeLinker: node-modules\n",
-        "tests/standards/naming/naming.test.ts": "",
-      });
+      const pkg = (fields: Record<string, unknown>) => JSON.stringify({ name: "x", private: true, ...fields, scripts: { lint: "eslint ." } }, null, 2) + "\n";
+      // в проект, который объявил pnpm, install отказывает — он не на Bun (#907): pnpm проект объявляет после установки,
+      // скрипт оборачивает update — той же функцией
+      writeTree(sb.proj, { "package.json": pkg({}), "tests/standards/naming/naming.test.ts": "" });
       const install = elves(sb, ["install"]);
       expect(install.code, install.stderr).toBe(0);
+      writeTree(sb.proj, { "package.json": pkg({ packageManager: "pnpm@10.1.0" }), "bun.lock": "{}\n", ".yarnrc.yml": "nodeLinker: node-modules\n" });
+      const update = elves(sb, ["update"]);
+      expect(update.code, update.stderr).toBe(0);
       const scripts = JSON.parse(readFileSync(path.join(sb.proj, "package.json"), "utf8")).scripts;
       expect(scripts.lint).toBe(". .agents/slot.sh && eslint .");
       const check = elves(sb, ["check"]);
@@ -169,7 +172,7 @@ describe("Менеджер пакетов у premerge, обёртки slot и р
 // поле packageManager из package.json — обращение к свойству, по ключу, деструктуризация; не вызов функции и не тип
 const FIELD = /\.packageManager\b(?!\s*\()|\[\s*["'`]packageManager["'`]\s*\]|\b(?:const|let|var)\s*\{[^{}]*\bpackageManager\b[^{}]*\}\s*=/;
 // lockfile или .yarnrc.yml строкой — целиком или концом пути
-const LOCKFILE = /["'`/](?:bun\.lockb?|pnpm-lock\.yaml|yarn\.lock|package-lock\.json|\.yarnrc\.yml)["'`]/;
+const LOCKFILE = /["'`/](?:bun\.lockb?|pnpm-lock\.yaml|yarn\.lock|npm-shrinkwrap\.json|package-lock\.json|\.yarnrc\.yml)["'`]/;
 const touches = (code: string) => FIELD.test(code) || LOCKFILE.test(code);
 
 /** Код файла без тела `packageManager` в github.ts — там поле и lockfile на своём месте; строки — на прежних номерах. */

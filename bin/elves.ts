@@ -60,7 +60,9 @@
  * task isolation rules with the task-env skill's command (`composeCheck`): a violation is a mismatch too, `update` doesn't fix it; so is a
  * project with standards or architecture without a `test:spec` script — `check` names the lines (`specScript`); a
  * `test` that runs them a second time next to `test:spec` — an `○` line with `test` without them; a project with
- * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`). The project's checks — the
+ * batches whose CI runs on a PR into a batch branch — a mismatch, `❌` lines (`batchCi`); a project not on Bun — the
+ * `packageManager` field or a lockfile of another manager — or with Vitest or Jest in its dependencies — `❌` lines too,
+ * and `install` refuses a project not on Bun before any change (`bunStack`, epic #906). The project's checks — the
  * `package.json` scripts `lint`, `typecheck`, `test`, `test:*` — the install wraps in the machine queue, the slot skill
  * (`packageScripts`); if such a script calls turbo and turbo.json doesn't pass the queue variables to tasks, it warns
  * with a ready-made line (`turboEnv`).
@@ -1882,6 +1884,8 @@ interface Result {
   absent?: boolean;
   behind?: boolean;
   ignored?: boolean;
+  /** The project isn't on Bun or depends on another test runner (`bunStack`): update won't fix it. */
+  stack?: boolean;
   compose?: boolean;
   spec?: boolean;
   /** The project manifest is missing in the checkout (#681). */
@@ -1909,6 +1913,61 @@ function composeCheck(root: string): { lines: string[]; violations: boolean } {
   if (r.status === 0) return { lines: lines.filter((l) => l.startsWith("  !")), violations: false };
   if (r.status === 1 || (r.status === 2 && lines.length)) return { lines, violations: r.status === 1 };
   return notChecked(`task-env: ${r.stderr.trim().split("\n")[0] || `exit code ${r.status ?? r.signal}`}`);
+}
+
+/**
+ * The rule the stack lines name (epic #906): Elves runs and is checked under one stack — the canon says it with this
+ * check as its mechanism.
+ */
+const BUN_RULE = "Elves is for projects on Bun (the canon's stack: Claude Code, Bun, GitHub)";
+/** Test runners the stack replaces with `bun test`: a package.json dependency of the project — a `❌` line. */
+const FOREIGN_RUNNERS = ["vitest", "jest"];
+/** The dependency sections of a package.json. */
+const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+
+/**
+ * The project's package.json files: tracked and the untracked git doesn't ignore, outside `node_modules` (a workspace
+ * without `.gitignore` would list every installed package); the root one first. Not git — the root one.
+ */
+function packageFiles(root: string): string[] {
+  try {
+    const out = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/package.json", ":(exclude,glob)**/node_modules/**");
+    return [...new Set(out.split("\0").filter(Boolean))].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+  } catch {
+    return existsSync(path.join(root, "package.json")) ? ["package.json"] : [];
+  }
+}
+
+/**
+ * The project's stack (epic #906, design 4): Elves is for projects on Bun, and this check holds it, not the text. A
+ * mismatch the project fixes in a task of its own, `update` doesn't: `❌` lines, as the compose file and `test:spec`.
+ * `packageManager` of another manager — the project isn't on Bun; a lockfile of another manager — each by its file;
+ * both — the answer of `packageManager` of the github skill (the field and the lockfiles are its,
+ * tests/standards/scripts/package-manager). `vitest` or `jest` in the dependencies of any package.json of the project
+ * (`packageFiles`) — the runner is `bun test`. No field isn't a mismatch: `bun init` doesn't write it, the lockfiles
+ * tell. No package.json — no JS stack to hold, no lines. `notBun` — the field and lockfile lines: `install` refuses
+ * with them before any change; a runner doesn't stop it — the project is on Bun, its tests move in a task.
+ */
+function bunStack(root: string): { lines: string[]; notBun: string[] } {
+  const pm = packageManager(root);
+  const step = `"packageManager": "bun@${Bun.version}", bun install`;
+  const manager = pm.field !== null && !/^bun(?:@|$)/.test(pm.field) ? [`  ❌ package.json: the project isn't on Bun — "packageManager": ${JSON.stringify(pm.field)}; ${BUN_RULE}; move it to Bun: ${step}`] : [];
+  const lockfiles = pm.foreign.map((f) => `  ❌ ${f}: another package manager's lockfile — ${BUN_RULE}; bun install moves its versions into Bun's lockfile, then remove ${f}`);
+  const runners: string[] = [];
+  for (const file of packageFiles(root)) {
+    let pkg: Record<string, unknown>;
+    try {
+      pkg = asObject(JSON.parse(readFileSync(path.join(root, file), "utf8"))) ?? {};
+    } catch {
+      continue; // gone from the checkout or not JSON — no dependencies to read
+    }
+    for (const name of FOREIGN_RUNNERS) {
+      const section = DEPENDENCY_SECTIONS.find((s) => asObject(pkg[s])?.[name] !== undefined);
+      if (section) runners.push(`  ❌ ${file}: ${name} in ${section} — ${BUN_RULE}; the tests run with bun test: move them to bun:test, remove ${name}`);
+    }
+  }
+  const notBun = [...manager, ...lockfiles];
+  return { lines: [...notBun, ...runners], notBun };
 }
 
 /**
@@ -2134,12 +2193,14 @@ function check(global: boolean): Result {
   const batch = global ? { lines: [], missing: false } : batchCi(root);
   // the manifest outside git — a mismatch update's commit line fixes
   const untracked = global ? { lines: [], missing: false } : manifestGit(root);
-  const project = [...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...mode];
+  // a project not on Bun or with another test runner — a mismatch update doesn't fix either
+  const stack = global ? { lines: [], notBun: [] } : bunStack(root);
+  const project = [...stack.lines, ...warnings, ...compose.lines, ...spec.lines, ...batch.lines, ...untracked.lines, ...mode];
   const stale = changes.filter((c) => c.op !== "❌" && c.op !== "!");
   const ignored = changes.filter((c) => c.op === "❌");
   if (!stale.length && !ignored.length) {
-    const code = compose.violations || spec.missing || batch.missing || untracked.missing ? 1 : 0;
-    return { code, compose: compose.violations, spec: spec.missing, untracked: untracked.missing, run: untracked.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
+    const code = stack.lines.length || compose.violations || spec.missing || batch.missing || untracked.missing ? 1 : 0;
+    return { code, stack: stack.lines.length > 0, compose: compose.violations, spec: spec.missing, untracked: untracked.missing, run: untracked.missing, text: [`Elves ${where}: up to date (${fresh})`, ...project].join("\n") };
   }
   const m = readManifest(root);
   const fixable = ignored.some((c) => !c.manual);
@@ -2155,6 +2216,7 @@ function check(global: boolean): Result {
     code: 1,
     behind: stale.length > 0,
     ignored: ignored.length > 0,
+    stack: stack.lines.length > 0,
     compose: compose.violations,
     spec: spec.missing,
     untracked: untracked.missing,
@@ -2524,6 +2586,7 @@ function hook(failed?: unknown) {
   if (shown.some((r) => r.manifest)) tail.push("No project manifest in this checkout — copy it from the main checkout before the task, as the ❌ line says: the github skill refuses to write names without it.");
   if (shown.some((r) => r.untracked)) tail.push("The project manifest isn't in git — update names it in its commit line, committed with the session's task.");
   // the session has no task yet at its start, and one session is one task: the fix goes into a task of its own
+  if (shown.some((r) => r.stack)) tail.push("The project's stack isn't Bun's — each ❌ line names the file and the step; moving it to Bun is a task of its own in the project.");
   if (shown.some((r) => r.compose)) tail.push("The compose file breaks task isolation — each ❌ line names the rule and the service (the task-env skill); fixing it is a task of its own in the project.");
   if (shown.some((r) => r.spec)) tail.push("No test:spec script — pr premerge doesn't run standards and architecture on the merge; the ❌ line names the package.json scripts; adding them is a task of its own in the project.");
   // the machine's settings are the owner's: the agent names the command, as with the merge rule (MERGE_HINT)
@@ -3011,6 +3074,9 @@ export async function main(argv: string[]): Promise<number> {
     // rule (MERGE_HINT)
     if (global) return installGlobal(SRC, linkMode), ownerNotes(), 0;
     const root = projectRoot();
+    // a project not on Bun — refused before the questions and any change (epic #906), with check's lines
+    const notBun = isElvesClone(root) ? [] : bunStack(root).notBun;
+    if (notBun.length) return warn(`install: the project isn't on Bun — nothing is installed; moving it to Bun is a task of its own in the project:\n${notBun.join("\n")}`), 2;
     // questions — only here and only in a terminal: `update` and `check` (the hook at session start) go through
     // installProject without them
     const tty = isatty(0) && isatty(1);
