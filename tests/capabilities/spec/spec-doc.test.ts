@@ -573,8 +573,14 @@ describe.skipIf(true)("Стек в Docker", () => {
     expect(r.stderr).toContain("unknown report format");
   });
 
-  // тесты проекта — bun test и Playwright (эпик #906): разбора отчётов Vitest и Jest нет
-  it("отчёт Vitest или Jest (testResults) — неизвестный формат, код 2: отчёты — JUnit bun test и JSON Playwright", () => {
+  // тесты проекта — bun test и Playwright (эпик #906): отчёт Vitest или Jest (testResults) — неизвестный формат
+  it("`spec-doc` читает отчёты `bun test` (JUnit) и Playwright; разбор отчётов Vitest и Jest удалён вместе с их тестами", () => {
+    const e2e = "tests/capabilities/billing/billing.e2e.ts";
+    const playwright = { config: { rootDir: dir }, suites: [{ title: e2e, file: e2e, specs: [{ title: "счёт открывается", tests: [{ status: "expected", annotations: [] }] }], suites: [] }] };
+    writeFileSync(path.join(dir, "r.xml"), billing());
+    const both = doc(".spec-playwright.json", JSON.stringify(playwright), "r.xml", "--stdout");
+    expect(both.code).toBe(0);
+    for (const name of ["выставляется за месяц", "счёт открывается"]) expect(both.stdout).toContain(`- ✅ ${name}`);
     const vitest = { testResults: [{ name: path.join(dir, MAIN), assertionResults: [{ ancestorTitles: ["Счета"], title: "выставляется за месяц", status: "passed" }] }] };
     const r = doc("r.json", JSON.stringify(vitest), "--stdout");
     expect([r.code, r.stdout]).toEqual([2, ""]);

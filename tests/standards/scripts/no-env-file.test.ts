@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, setDefaultTimeout } from "bun:test";
@@ -7,6 +7,7 @@ import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import { codeOnly, exceptionsIn, invariant, sources } from "../../../skills/spec/scripts/harness.ts";
 import { PACKAGE_BUNX, PACKAGE_RUN } from "../../../skills/spec/scripts/package-run.ts";
 import { stringSpans } from "../../../skills/spec/scripts/speclib.ts";
+import { flowDocs } from "../../lib/documents.ts";
 import { SPAWN_TIMEOUT } from "../../lib/spawn.ts";
 import { tmpDir, writeTree } from "../../lib/spec.ts";
 
@@ -22,14 +23,7 @@ interface Source {
 }
 
 /** Документы флоу — то, что ставит install (AGENTS.md, claude/, docs/*.md, *.md скиллов), README и package.json. */
-function flowDocs(): Source[] {
-  const docs = readdirSync(path.join(ROOT, "docs")).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`);
-  const skills = readdirSync(path.join(ROOT, "skills")).flatMap((s) => {
-    const dir = path.join(ROOT, "skills", s);
-    return existsSync(path.join(dir, "SKILL.md")) ? readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => `skills/${s}/${f}`) : [];
-  });
-  return ["AGENTS.md", "claude/CLAUDE.md", "README.md", "package.json", ...docs, ...skills].map((file) => ({ file, text: read(file) }));
-}
+const flowFiles = (): Source[] => [...flowDocs(ROOT), { file: "package.json", text: read("package.json") }];
 
 /** Код скриптов скиллов и установщика: файл и его текст. */
 const code = () => sources(ROOT, ["skills", "bin"]).filter((f) => !f.file.includes("/vendor/"));
@@ -88,7 +82,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
   invariant(it, {
     rule: "документы",
     registry: "документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов",
-    items: flowDocs(),
+    items: flowFiles(),
     key: (f) => f.file,
     name: (f) => `в ${f.file} скрипты скиллов вызываются с --no-env-file`,
     check: (f) => noUnflagged(f, unflagged(f.text, DOC_CALL), "вызов скрипта скилла"),
@@ -147,7 +141,7 @@ describe("Скрипты флоу под bun не подгружают env-фа�
   invariant(it, {
     rule: "скрипт пакета",
     registry: "документы флоу — AGENTS.md, claude/CLAUDE.md, README.md, package.json, docs/*.md, *.md скиллов — и строки кода скриптов скиллов и установщика",
-    items: [...flowDocs(), ...code().map((f) => ({ file: f.file, text: stringsOnly(f.text, f.file) }))],
+    items: [...flowFiles(), ...code().map((f) => ({ file: f.file, text: stringsOnly(f.text, f.file) }))],
     key: (f) => f.file,
     name: (f) => `в ${f.file} bin пакета под bun вызывается с --no-env-file`,
     check: (f) => noUnflagged(f, unflagged(f.text, PACKAGE_CALL), "вызов скрипта пакета"),
