@@ -1143,7 +1143,7 @@ describe("check проекта держит раннер Playwright под Bun: 
     expect(playwrightLines(elves(sb, ["check"]).stdout)).toEqual([UNDER_NODE("package.json", "test:smoke")]);
   });
 
-  // spec-existing #917: исключения для пакета с @playwright/test у проверки #909 не было — тест держит, что его и нет
+  // исключения для пакета с @playwright/test у проверки #909 нет — тест держит, что его и не будет
   it("Пакет с `@playwright/test` — не исключение: его `pg` и `dotenv` — строки ❌, как в любом пакете; исключение стека — только пакет с `next`", () => {
     writePkg({ type: "module", scripts: { "test:e2e": "bun --bun playwright test" }, devDependencies: { ...PLAYWRIGHT_DEP, pg: "^8.16.0", dotenv: "^17.2.0" } });
     expect(elves(sb, ["install"]).code).toBe(0);
